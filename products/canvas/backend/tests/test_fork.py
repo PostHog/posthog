@@ -12,9 +12,23 @@ from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend import build_service
+from products.canvas.backend.capabilities import capability_widening
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.tests.test_sharing import CanvasSharingTestBase
 from products.tasks.backend.models import Channel
+
+GRANTING_CAPABILITIES = {
+    "posthog": {
+        "insights": ["abc123"],
+        "inlineQueries": True,
+        "captureEvents": ["clicked"],
+        "state": ["user"],
+        "actions": ["annotations.create"],
+        "agentRequests": True,
+    },
+    "network": {"origins": ["https://collector.example.com"]},
+    "connectors": [],
+}
 
 
 class TestCanvasFork(CanvasSharingTestBase):
@@ -127,9 +141,11 @@ class TestCanvasFork(CanvasSharingTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def _shared_canvas(self, *, allow_forking: bool, password_required: bool = False) -> str:
+    def _shared_canvas(
+        self, *, allow_forking: bool, password_required: bool = False, capabilities: dict[str, Any] | None = None
+    ) -> str:
         canvas_id = self._create_canvas(name="Shared board")
-        self._publish_ready(canvas_id)
+        self._publish_ready(canvas_id, **({"capabilities": capabilities} if capabilities else {}))
         access_token = self._enable_sharing(canvas_id)
         with team_scope(self.team.id):
             config = SharingConfiguration.objects.get(access_token=access_token)
@@ -165,6 +181,37 @@ class TestCanvasFork(CanvasSharingTestBase):
             assert fork.team_id == team.id
             fork_version = cast(CanvasSourceVersion, fork.current_source_version)
             assert fork_version.source_object_key.startswith(f"canvas_source/team_{team.id}/")
+
+    def test_share_token_fork_drops_the_sources_capability_grants(self):
+        access_token = self._shared_canvas(allow_forking=True, capabilities=GRANTING_CAPABILITIES)
+        client, team = self._other_project_client()
+
+        response = client.post(f"/api/projects/{team.id}/canvases/fork/", {"share_token": access_token}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        with team_scope(team.id):
+            fork_version = cast(
+                CanvasSourceVersion, Canvas.objects.get(id=response.json()["id"]).current_source_version
+            )
+            assert capability_widening(None, fork_version.capabilities).widens is False
+            assert (
+                capability_widening(None, build_service.read_source_project(fork_version)["capabilities"]).widens
+                is False
+            )
+
+    def test_same_project_fork_keeps_the_capability_grants(self):
+        canvas_id = self._create_canvas(name="Revenue board")
+        self._publish_ready(canvas_id, capabilities=GRANTING_CAPABILITIES)
+
+        response = self._fork({"source_canvas_id": canvas_id})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        with team_scope(self.team.id):
+            fork_version = cast(
+                CanvasSourceVersion, Canvas.objects.get(id=response.json()["id"]).current_source_version
+            )
+            assert fork_version.capabilities == GRANTING_CAPABILITIES
+            assert build_service.read_source_project(fork_version)["capabilities"] == GRANTING_CAPABILITIES
 
     @parameterized.expand(
         [

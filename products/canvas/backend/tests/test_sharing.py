@@ -22,12 +22,12 @@ class CanvasSharingTestBase(CanvasAPIBaseTest):
     def _sharing_url(self, canvas_id: str) -> str:
         return f"/api/projects/{self.team.id}/canvases/{canvas_id}/sharing"
 
-    def _publish_ready(self, canvas_id: str, code: str | None = None) -> CanvasBuild:
+    def _publish_ready(self, canvas_id: str, code: str | None = None, **project_overrides: Any) -> CanvasBuild:
         with team_scope(self.team.id):
             head = Canvas.objects.get(id=canvas_id).current_source_version_id
         response = self._publish(
             canvas_id,
-            self._project(code) if code else None,
+            self._project(code, **project_overrides) if code else self._project(**project_overrides),
             expected_current_version_id=str(head) if head else None,
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
