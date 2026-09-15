@@ -13,6 +13,7 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { suggestionsOverrideLogic } from 'products/posthog_ai/frontend/logics/suggestionsOverrideLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
@@ -49,6 +50,7 @@ export function TaskComposer(): JSX.Element {
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
+    const { overrideSuggestions } = useValues(suggestionsOverrideLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -167,7 +169,7 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    <Suggestions.Buttons data={overrideSuggestions ?? DEFAULT_SUGGESTIONS_DATA} />
                 </Suggestions.Root>
             </div>
         </div>

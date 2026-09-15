@@ -1,7 +1,9 @@
 import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function-utils'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
+import type { SuggestionGroup } from 'products/posthog_ai/frontend/api/primitives'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -55,6 +57,43 @@ export const WORKFLOW_AGENT_HEADLINES: string[] = [
 ]
 
 export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email look?']
+
+export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = [
+    'What do we want to automate today?',
+    'Who do we want to message?',
+]
+
+export const NEW_WORKFLOW_AGENT_SUGGESTIONS: readonly SuggestionGroup[] = [
+    {
+        label: 'Workflows',
+        icon: iconForType('workflows'),
+        suggestions: [
+            { content: 'Look at my conversion funnel and draft a campaign to improve it' },
+            { content: 'Email users who signed up but never came back' },
+            { content: 'Send a Slack message when a customer hits a usage milestone' },
+            { content: 'Set up a weekly digest of new signups' },
+        ],
+        tooltip: 'Describe what should happen, and PostHog AI drafts the workflow for you to review.',
+    },
+]
+
+// Static text: the user lands here from "New workflow" with nothing built yet, so the fastest useful
+// outcome is a draft in the editor, which they then refine with the agent alongside.
+const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: SKILL_DISMISS_GROUP,
+    value:
+        'The user is starting a new workflow from a description. Make workflows-create your first tool call: draft ' +
+        'the workflow from the description with sensible defaults instead of asking clarifying questions first. ' +
+        'The editor opens the draft as soon as it exists, so refine it afterwards with workflows-patch-graph. ' +
+        'Never enable it.',
+}
+
+/** Agent context for the AI-first new-workflow composer: skill pointer plus the draft-first instruction, no editor state. */
+export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
+    return [PREAMBLE_CONTEXT_ITEM, SKILL_CHIP_CONTEXT_ITEM, DRAFT_FIRST_CONTEXT_ITEM]
+}
 
 const EMAIL_EDITING_DISMISS_GROUP = 'workflow-scene-email-editing'
 
