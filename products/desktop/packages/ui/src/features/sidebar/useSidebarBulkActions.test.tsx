@@ -9,7 +9,8 @@ const hoisted = vi.hoisted(() => ({
   archiveTasksImperative: vi.fn(),
   setPinnedMany: vi.fn(),
   placeTasksInCommandCenter: vi.fn(),
-  fileTask: vi.fn(),
+  fileTasks: vi.fn(),
+  track: vi.fn(),
   useChannels: vi.fn(),
   useFeatureFlag: vi.fn(),
   useTasks: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
-  useChannelTaskMutations: () => ({ fileTask: hoisted.fileTask }),
+  useChannelTaskMutations: () => ({ fileTasks: hoisted.fileTasks }),
 }));
 
 vi.mock("@posthog/ui/features/command-center/placeTaskInCommandCenter", () => ({
@@ -56,6 +57,8 @@ vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: hoisted.toast }));
+
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: hoisted.track }));
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }));
 
@@ -108,8 +111,8 @@ describe("useSidebarBulkActions", () => {
       overflow: 0,
       alreadyPresent: 0,
     });
-    hoisted.fileTask.mockReset();
-    hoisted.fileTask.mockResolvedValue(undefined);
+    hoisted.fileTasks.mockReset();
+    hoisted.fileTasks.mockResolvedValue({ failedIds: [] });
     useTaskSelectionStore.setState({
       selectedTaskIds: ["t1", "t2"],
       lastClickedId: null,
@@ -369,17 +372,12 @@ describe("useSidebarBulkActions", () => {
 
     await act(() => result.current.fileSelectedTo("c1"));
 
-    expect(hoisted.fileTask.mock.calls).toEqual([
-      ["c1", "t1"],
-      ["c1", "t2"],
-    ]);
+    expect(hoisted.fileTasks.mock.calls).toEqual([["c1", ["t1", "t2"]]]);
   });
 
   // Narrowing to the failures is what makes a retry one click.
   it("keeps only the sessions that failed to file selected", async () => {
-    hoisted.fileTask.mockImplementation((_channelId: string, taskId: string) =>
-      taskId === "t2" ? Promise.reject(new Error("nope")) : Promise.resolve(),
-    );
+    hoisted.fileTasks.mockResolvedValue({ failedIds: ["t2"] });
     const { result } = render();
 
     await act(() => result.current.fileSelectedTo("c1"));
@@ -388,6 +386,32 @@ describe("useSidebarBulkActions", () => {
       expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["t2"]),
     );
     expect(hoisted.toast.error).toHaveBeenCalledWith("1 filed, 1 failed");
+  });
+
+  it("reports each filing with the outcome that session got", async () => {
+    hoisted.fileTasks.mockResolvedValue({ failedIds: ["t2"] });
+    const { result } = render();
+
+    await act(() => result.current.fileSelectedTo("c1"));
+
+    expect(
+      hoisted.track.mock.calls.map(([, properties]) => properties),
+    ).toEqual([
+      {
+        action_type: "file_task",
+        surface: "sidebar_bulk",
+        channel_id: "c1",
+        task_id: "t1",
+        success: true,
+      },
+      {
+        action_type: "file_task",
+        surface: "sidebar_bulk",
+        channel_id: "c1",
+        task_id: "t2",
+        success: false,
+      },
+    ]);
   });
 
   // `enabled: false` stops the fetch but still hands back whatever an ungated

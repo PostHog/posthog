@@ -1132,7 +1132,9 @@ export type ChannelsSurface =
   | "thread_panel"
   | "activity_panel"
   | "activity"
-  | "canvases_pane";
+  | "canvases_pane"
+  | "task_context_menu"
+  | "sidebar_bulk";
 
 type ChannelActionType =
   | "enter_space"

@@ -8,6 +8,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
+import { trackFileTask } from "@posthog/ui/features/canvas/trackFileTask";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useRestoreTask } from "@posthog/ui/features/suspension/useRestoreTask";
@@ -157,7 +158,9 @@ export function useTaskContextMenu() {
               toast.success(
                 channelName ? `Filed to ${channelName}` : "Task filed",
               );
+              trackFileTask(intent.channelId, task.id, true);
             } catch (error) {
+              trackFileTask(intent.channelId, task.id, false);
               toast.error("Couldn't file task", {
                 description:
                   error instanceof Error ? error.message : String(error),
