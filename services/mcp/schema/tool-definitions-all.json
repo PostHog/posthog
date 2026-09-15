@@ -4513,20 +4513,6 @@
             "readOnlyHint": true
         }
     },
-    "experiment-get-all": {
-        "description": "DEPRECATED: renamed to experiment-list. This alias forwards to experiment-list and will be removed. Call experiment-list directly with the same arguments.",
-        "category": "Experiments",
-        "feature": "experiments",
-        "summary": "Deprecated alias for experiment-list.",
-        "title": "Get all experiments (deprecated)",
-        "required_scopes": ["experiment:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "experiment-holdouts-create": {
         "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
         "category": "Experiments",
