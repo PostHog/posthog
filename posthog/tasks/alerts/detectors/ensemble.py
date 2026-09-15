@@ -108,6 +108,7 @@ class EnsembleDetector(BaseDetector):
                     {
                         "type": cfg.get("type"),
                         "triggered_count": len(r.triggered_indices),
+                        "triggered_indices": r.triggered_indices,
                         "all_scores": r.all_scores,
                     }
                     for cfg, r in zip(self.config.get("detectors", []), results)
