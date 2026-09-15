@@ -65,6 +65,7 @@ export interface sharedMetricLogicValues {
         created_by?: UserBasicType | null | undefined
         description?: string | undefined
         id?: number | undefined
+        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
         metadata?: Record<string, any> | undefined
         name?: string | undefined
         query: ExperimentMetricUnion
