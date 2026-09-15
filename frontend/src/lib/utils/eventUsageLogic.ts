@@ -243,7 +243,7 @@ export interface ExperimentWatchShelfContext {
      * whole comparison inside one hour does not read the same as one that enrolled nobody. */
     compared_enrollment_hours: number
     /** More people were exposed than one comparison covers, so the oldest enrollees were left out.
-     * The precondition for 'one_sided_enrollment', and how often the cap binds at all. */
+     * How often a cap binds at all, and on a 'too_early' shelf, that more time alone will not fill it. */
     sessions_truncated: boolean
     /** The project has more event names than one comparison ranks, so some were never considered. */
     events_truncated: boolean

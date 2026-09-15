@@ -7528,10 +7528,6 @@ snapshots:
         hash: v1.k794b7964.af899a335617403da2f934a28a6d5e53108e5e9717a8af5729f577dd5055c602.9q3rh_PfHNXaLcnJWdgRl8cHQOZUucnqkhHT29Lj6pU
     scenes-app-experiments--experiment-watch-shelf-no-session-linked-exposures--light:
         hash: v1.k794b7964.49acb126a13ddd7282ead4a45d606c65b68ce36385a6e03c48e22dd7243dd3d5.HYWkaRZp6D-SMaGFNND0Eame9LTQB8-eH6QR9yoNuPw
-    scenes-app-experiments--experiment-watch-shelf-one-sided-enrollment--dark:
-        hash: v1.k794b7964.5234ec2407e1c1cb25d3e17ef81da34999e01936c96c41f722529e8e21dc1dd2.df0poWXkvQhdtj-L2MJcNjOv0irTbehxph7HBtaomB0
-    scenes-app-experiments--experiment-watch-shelf-one-sided-enrollment--light:
-        hash: v1.k794b7964.5a95bb265374e196dd07b67e8eb0f3d47c3188424dafa04c1023978f0596860f.rOxwaTdFgex76ww_VUth01kBhsLVDfZnkNXaZyUAr9A
     scenes-app-experiments--experiment-watch-shelf-too-early--dark:
         hash: v1.k794b7964.3e5f919fc0ee8641df2561640122f1e8579266b1b3c39a1b79702a79023a2cdb.0YEvFMCCv1VnUboUz8fkK1q5w7TDKFH4wzR_3aUo6EU
     scenes-app-experiments--experiment-watch-shelf-too-early--light:

@@ -16,14 +16,15 @@ import {
     ExperimentWatchMultipleVariantHandlingEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-// One story per empty reason: the copy is the feature, and a screenshot is the only way to check
-// that the five read as different answers.
+// One story per empty reason, plus the too-early shelf that a cap bound: the copy is the feature,
+// and a screenshot is the only way to check that they read as different answers.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
 // Typed as the generated response so a new required field on the serializer breaks the typecheck here.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
-    variantPersons: number[]
+    variantPersons: number[],
+    sessionsTruncated: boolean
 ): ExperimentSessionEventDeltaResponseApi => ({
     cards: [],
     variants: [
@@ -38,18 +39,15 @@ const emptyShelf = (
     date_to: '2025-06-01T09:00:00Z',
     filter_test_accounts: true,
     used_exposure_fallback: false,
-    // The one-sided reason is only reported when more people were exposed than one comparison covers.
-    sessions_truncated: emptyReason === ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
+    sessions_truncated: sessionsTruncated,
     events_truncated: false,
     min_variant_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
-    // True for the unsessioned and one-sided cases too: those variants are below the floor, only
-    // the reason differs.
+    // True for the unsessioned case too: those variants are below the floor, only the reason differs.
     too_early:
         emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
-        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures ||
-        emptyReason === ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
     empty_reason: emptyReason,
 })
 
@@ -96,16 +94,21 @@ const openTheShelf: Story['play'] = async ({ canvasElement }) => {
     await makeDelay(500)()
 }
 
-const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, variantPersons: number[]): Story => ({
-    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons) } })],
+const shelfStory = (
+    emptyReason: ExperimentWatchEmptyReasonEnumApi,
+    variantPersons: number[],
+    sessionsTruncated: boolean = false
+): Story => ({
+    decorators: [mswDecorator({ post: { [DELTAS_PATH]: emptyShelf(emptyReason, variantPersons, sessionsTruncated) } })],
     play: openTheShelf,
 })
 
 export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, [12, 12, 12])
-// The newest enrollees landed in one variant: the banner must read as a stop, not as a wait.
-export const ExperimentWatchShelfOneSidedEnrollment: Story = shelfStory(
-    ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment,
-    [1900, 3, 0]
+// A cap bound the comparison, so the banner must not promise that waiting alone fills it.
+export const ExperimentWatchShelfTooEarlyTruncated: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.TooEarly,
+    [1900, 3, 0],
+    true
 )
 export const ExperimentWatchShelfNoSeparation: Story = shelfStory(
     ExperimentWatchEmptyReasonEnumApi.NoSeparation,

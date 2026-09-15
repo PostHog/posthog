@@ -720,7 +720,6 @@ SPECTACULAR_SETTINGS = {
             "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
             "ExperimentWatchEmptyReasonEnum": [
                 "too_early",
-                "one_sided_enrollment",
                 "no_separation",
                 "no_recordings",
                 "no_session_linked_exposures",

@@ -494,8 +494,8 @@ function EmptyShelf({
                 }}
             >
                 Nothing to watch here. None of the people exposed between {covered.from} and {covered.to} had a session
-                we can see within a day of being exposed, so there was nothing to compare. Sessions only exist where a
-                browser or mobile SDK captured events.
+                we can see since being exposed, looking up to a day after each exposure, so there was nothing to
+                compare. Sessions only exist where a browser or mobile SDK captured events.
             </LemonBanner>
         )
     }
@@ -546,24 +546,10 @@ function WatchShelves({
     const variantCounts = deltas.variants
         .map((variant) => `${humanFriendlyNumber(variant.persons)} in ${variant.key}`)
         .join(', ')
-    if (emptyReason === ExperimentWatchEmptyReasonEnumApi.OneSidedEnrollment) {
-        // Before the too-early branch, because the backend reports too_early for this case as
-        // well and the "check back" it would print is the one thing that does not help here.
-        const covered = coveredWindow(deltas)
-        // The variant counts the other banners print are people who had a session, which is not
-        // what this sentence is about, so this one names the enrollment and leaves them out.
-        return (
-            <LemonBanner type="info">
-                Almost everyone exposed between {covered.from} and {covered.to} was in one variant, so there was nothing
-                to compare. Comparing behavior needs at least{' '}
-                {pluralize(deltas.min_variant_persons, 'exposed person', 'exposed people')} in two variants exposed
-                around the same time, and more time won't change this. A rollout split that changed during the run is
-                the usual cause.
-            </LemonBanner>
-        )
-    }
     if (emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly) {
-        // No caption: nothing was compared, so there is no covered window to name.
+        // No caption: nothing was compared, so there is no covered window to name. Once a cap bound
+        // the comparison, waiting adds nobody to it, so "check back" is the one promise to avoid.
+        const covered = coveredWindow(deltas)
         return (
             <LemonBanner type="info">
                 Too early to compare behavior: this needs at least{' '}
@@ -571,7 +557,9 @@ function WatchShelves({
                 {variantCounts}.{' '}
                 {ended
                     ? 'The experiment ended before enough people were exposed to compare them.'
-                    : 'Check back once more people are exposed.'}
+                    : deltas.sessions_truncated
+                      ? `Only people exposed between ${covered.from} and ${covered.to} were compared, so more time helps only if more people are exposed within a stretch that long.`
+                      : 'Check back once more people are exposed.'}
             </LemonBanner>
         )
     }

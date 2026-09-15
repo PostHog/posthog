@@ -96,7 +96,6 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         metrics: Optional[list[dict[str, Any]]] = None,
         key: str = "checkout-cta",
         variants: Optional[list[str]] = None,
-        variant_rollouts: Optional[list[int]] = None,
         exposure_criteria: Optional[dict[str, Any]] = None,
         team: Optional[Team] = None,
         created_by: Optional[User] = None,
@@ -104,7 +103,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     ) -> Experiment:
         team = team or self.team
         variant_keys = variants or ["control", "test"]
-        rollouts = variant_rollouts or [50] * len(variant_keys)
+        rollouts = [50] * len(variant_keys)
         flag = FeatureFlag.objects.create(
             team=team,
             key=key,
@@ -887,77 +886,26 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 0), ("test", 1)]
         assert datetime.fromisoformat(data["date_from"]) == EXPOSED_AT
 
-    @parameterized.expand(
-        [
-            # The cap lands inside the one-sided stretch: the run has plenty of people, but the
-            # newest enrollees are all in one variant, and waiting adds more of the same.
-            ("newest_enrollees_one_sided", 3, 0, "one_sided_enrollment", True, [("control", 0), ("test", 3)]),
-            # The whole run fits: the thin variant is small because the experiment is, and "check
-            # back" is the right answer.
-            ("whole_run_compared", 100, 0, "too_early", False, [("control", 2), ("test", 5)]),
-            # Control kept enrolling into the newest stretch, and its people were exposed without
-            # a browser session. Nothing could be compared, but the rollout never changed, so
-            # naming a changed split would name a cause that did not happen.
-            ("thin_variant_enrolled_without_sessions", 3, 3, "too_early", True, [("control", 0), ("test", 3)]),
-        ]
-    )
     @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 3)
-    def test_one_sided_newest_enrollees_are_reported_rather_than_compared_with_older_ones(
-        self,
-        _name: str,
-        person_cap: int,
-        unsessioned_control_people: int,
-        expected_reason: str,
-        truncated: bool,
-        expected_variants: list[tuple[str, int]],
-    ) -> None:
+    @patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", 3)
+    def test_a_thin_variant_is_not_filled_from_older_enrollees(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # Both variants enrolled early; then the split changed and only test kept enrolling.
         for variant in ("control", "test"):
             self._variant(variant, [["pricing_faq"]] * 2)
         for _ in range(3):
             self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT + timedelta(hours=1))
-        for _ in range(unsessioned_control_people):
-            self._unsessioned_exposure("control", at=EXPOSED_AT + timedelta(hours=1))
-        flush_persons_and_events()
-
-        with patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", person_cap):
-            data = self._post_deltas(experiment).json()
-
-        assert data["cards"] == []
-        assert data["empty_reason"] == expected_reason
-        # A special case of too early, so a reader of the boolean alone still sees "not compared".
-        assert data["too_early"] is True
-        assert data["sessions_truncated"] is truncated
-        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == expected_variants
-
-    @parameterized.expand(
-        [
-            # The small variant never reaches the floor anywhere in the run, so it is thin because
-            # of the split it was given. Telling this reader their split changed, and that waiting
-            # cannot help, would be wrong twice.
-            ("small_variant_is_thin_over_the_whole_run", 2, "too_early"),
-            # The same configured split, but control did reach the floor earlier in the run, so it
-            # stopped enrolling part way through and waiting will not bring it back.
-            ("small_variant_stopped_enrolling", 3, "one_sided_enrollment"),
-        ]
-    )
-    @patch.object(session_event_deltas, "MIN_VARIANT_PERSONS", 3)
-    @patch.object(session_event_deltas, "MAX_DELTA_SCAN_PERSONS", 3)
-    def test_an_intentionally_small_variant_is_not_reported_as_a_split_that_changed(
-        self, _name: str, control_people: int, expected_reason: str
-    ) -> None:
-        experiment = self._create_experiment(metrics=[PURCHASE_METRIC], variant_rollouts=[10, 90])
-        self._variant("control", [["pricing_faq"]] * control_people)
-        for _ in range(3):
-            self._session(variants=["test"], events=["pricing_faq"], at=EXPOSED_AT + timedelta(hours=1))
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
+        # Control's older people would fill its side, but they were exposed hours before the
+        # newest stretch, and comparing across that gap is the confound the selection removes.
         assert data["cards"] == []
+        assert data["empty_reason"] == "too_early"
+        assert data["too_early"] is True
         assert data["sessions_truncated"] is True
-        assert data["empty_reason"] == expected_reason
+        assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 0), ("test", 3)]
 
     @parameterized.expand(
         [
@@ -1473,7 +1421,6 @@ class TestComparedEnrollmentWalk(SimpleTestCase):
                 _EnrollmentMinute(minute=self._at(offset), people_by_variant={"test": people})
                 for offset, people in buckets
             ],
-            run_persons_by_variant={},
             window_end=self.WINDOW_END,
             horizon=self.HORIZON,
             day_budget=day_budget,
