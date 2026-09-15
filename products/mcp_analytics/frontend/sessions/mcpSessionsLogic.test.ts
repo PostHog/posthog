@@ -104,7 +104,7 @@ describe('mcpSessionsLogic', () => {
         // Without this the list narrows but the open session's detail panel keeps showing calls
         // the list no longer counts. The panel must not show the old calls in the meantime either,
         // which is what tagging the loaded calls with their filters buys.
-        it("reloads the selected session's calls with the same filters", async () => {
+        it.each([false, true])("reloads the selected session's calls with failure=%s", async (fails) => {
             listMock.mockResolvedValue({
                 results: [{ session_id: 'A', session_start: '2026-01-01T00:05:00Z' }],
                 has_next: true,
@@ -117,7 +117,14 @@ describe('mcpSessionsLogic', () => {
             toolCallsMock.mockClear()
 
             let resolveFiltered: (value: any) => void = () => {}
-            toolCallsMock.mockImplementationOnce(() => new Promise((resolve) => (resolveFiltered = resolve)))
+            let rejectFiltered: (error: Error) => void = () => {}
+            toolCallsMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        resolveFiltered = resolve
+                        rejectFiltered = reject
+                    })
+            )
             await expectLogic(logic, () => {
                 mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
             }).toDispatchActions(['loadToolCalls'])
@@ -129,15 +136,23 @@ describe('mcpSessionsLogic', () => {
             expect(logic.values.selectedSessionToolCalls.hasNext).toBe(false)
 
             await expectLogic(logic, () => {
-                resolveFiltered({ results: [toolCall('filtered')], has_next: false })
-            }).toDispatchActions(['loadToolCallsSuccess'])
+                if (fails) {
+                    rejectFiltered(new Error('Unavailable'))
+                } else {
+                    resolveFiltered({ results: [toolCall('filtered')], has_next: false })
+                }
+            }).toDispatchActions([fails ? 'loadToolCallsFailure' : 'loadToolCallsSuccess'])
 
             expect(toolCallsMock.mock.calls[0][2]).toMatchObject({
                 properties: JSON.stringify([TOOL_FILTER]),
                 // session_start is filter-independent, so the detail scan still covers the session.
                 date_from: '2026-01-01T00:05:00Z',
             })
-            expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(['filtered'])
+            expect(logic.values.selectedSessionToolCalls.loading).toBe(false)
+            expect(logic.values.selectedSessionToolCalls.error).toBe(fails)
+            expect(logic.values.selectedSessionToolCalls.calls.map((c) => c.event_id)).toEqual(
+                fails ? [] : ['filtered']
+            )
         })
 
         // The session stays selected across a filter change, so the session-id guard alone lets an

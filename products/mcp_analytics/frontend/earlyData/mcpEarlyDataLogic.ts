@@ -96,6 +96,7 @@ export interface mcpEarlyDataLogicValues {
     intentDigestLoading: boolean
     intentFrequencies: IntentFrequency[]
     overview: MCPActivityOverviewApi | null
+    overviewError: boolean
     overviewLoading: boolean
     recentCalls: EarlyRecentCall[]
     stats: EarlyStats
@@ -212,6 +213,8 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         setActivityQuery: (query: DataTableNode) => ({ query }),
     }),
     reducers({
+        overview: [null as MCPActivityOverviewApi | null, { reloadForSharedFilters: () => null }],
+        overviewError: [false, { loadOverview: () => false, loadOverviewFailure: () => true }],
         activityQueryOverride: [
             null as DataTableNode | null,
             { setActivityQuery: (_, { query }): DataTableNode | null => query },

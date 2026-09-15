@@ -65,6 +65,37 @@ describe('mcpEarlyDataLogic', () => {
         expect(overviewMock.mock.calls[0][1]).toMatchObject(expectedParams)
     })
 
+    it('clears the old overview during a filtered request and keeps it cleared on failure', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadOverviewSuccess({
+            stats: {
+                total_calls: 10,
+                distinct_tools: 1,
+                distinct_sessions: 1,
+                distinct_clients: 1,
+                calls_with_intent: 0,
+                error_calls: 0,
+                missing_capability_reports: 0,
+            },
+            top_tools: [{ tool: 'previous_tool', calls: 10, errors: 0 }],
+            clients: [{ client: 'previous_client', calls: 10 }],
+            recent_calls: [],
+        })
+        let rejectOverview: (error: Error) => void = () => {}
+        overviewMock.mockImplementationOnce(() => new Promise((_, reject) => (rejectOverview = reject)))
+
+        await expectLogic(logic, () => {
+            mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER])
+        }).toMatchValues({ overview: null, overviewLoading: true, topTools: [], clients: [] })
+
+        await expectLogic(logic, () => {
+            rejectOverview(new Error('Unavailable'))
+        }).toDispatchActions(['loadOverviewFailure'])
+        expect(logic.values.overview).toBeNull()
+        expect(logic.values.overviewError).toBe(true)
+        expect(logic.values.overviewLoading).toBe(false)
+    })
+
     // The digest is a project-level LLM summary with no filtered variant, and the card prefers it
     // over the verbatim intents. Left in place it would describe traffic the rest of the tab
     // excludes; dropped, the card falls back to the intents from the filtered overview.

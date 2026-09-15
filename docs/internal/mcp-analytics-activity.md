@@ -13,6 +13,8 @@ The switch follows the project's default until the user sets an explicit value.
 Date ranges remain specific to each tab.
 The live activity table defaults to 30 days, and changing its date range does not change the banner's window.
 Shared property and internal/test-user filters apply to both the table and the banner.
+Changing a shared filter clears the previous overview while its replacement loads.
+If loading fails, the summary shows a retry action instead of old counts.
 Event count queries preserve the selected event names and date range. The total
 removes property and `where` filters; the matched count retains them. Both retain
 fixed properties that scope the table.
@@ -24,5 +26,7 @@ Other DataTable consumers opt into this behavior through
 nouns through `QueryContext.dataTableNouns`.
 
 Session filters select matching tool calls while preserving the full session's start and end times.
+The date range selects session IDs with matching calls, then the query aggregates their retained events without a fixed duration cutoff.
+If session details fail to load, a retry action replaces the loading indicator and calls from previous filters stay hidden.
 Tool-neighbor reports keep the full sequence of calls when finding the calls before and after a match.
 The Activity AI digest is hidden while shared filters are active because the digest summarizes unfiltered sessions.
