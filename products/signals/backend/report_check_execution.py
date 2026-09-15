@@ -30,8 +30,12 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.facade.evaluation import (
+    ComparableSeries,
+    ExtractionResult,
+    SeriesPoint,
+    evaluate_threshold,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
