@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/lipgloss v1.0.0
-	github.com/posthog/posthog-go v1.25.1
+	github.com/posthog/posthog-go/v2 v2.0.0
 )
 
 require (
