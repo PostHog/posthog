@@ -301,24 +301,32 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     }
                     const limited =
                         skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
-                    const extras = [
-                        limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skipCounts)]})` : null,
+                    // Every outcome the run produced, so no branch below has to drop one silently.
+                    const rest = [
                         alreadyScanned ? `${alreadyScanned} already scanned` : null,
                         alreadyRunning ? `${alreadyRunning} already scanning` : null,
                         failed ? `${failed} failed to start` : null,
                     ]
                         .filter(Boolean)
                         .join(', ')
+                    const skipped = limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skipCounts)]})` : ''
                     if (started > 0) {
+                        const extras = [skipped, rest].filter(Boolean).join(', ')
                         lemonToast.success(
                             `Started ${started} scan${started === 1 ? '' : 's'}${extras ? ` — ${extras}` : ''}`
                         )
                     } else if (limited > 0) {
-                        lemonToast.warning(BULK_SKIP_MESSAGES[dominantSkip(skipCounts)])
-                    } else if (alreadyScanned + alreadyRunning > 0 && failed === 0) {
+                        lemonToast.warning(
+                            `${BULK_SKIP_MESSAGES[dominantSkip(skipCounts)]}${rest ? ` Also ${rest}.` : ''}`
+                        )
+                    } else if (alreadyScanned + alreadyRunning > 0) {
                         // Every session already has an answer or one on the way, so retrying is the one
-                        // thing that would not help.
-                        lemonToast.info('Nothing new to scan. These recordings are already scanned or in progress.')
+                        // thing that would not help. Failures go with it rather than replacing it.
+                        if (failed > 0) {
+                            lemonToast.warning(`No scans started. ${rest}.`)
+                        } else {
+                            lemonToast.info('Nothing new to scan. These recordings are already scanned or in progress.')
+                        }
                     } else {
                         lemonToast.error('No scans started. Please try again.')
                     }

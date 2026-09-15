@@ -172,33 +172,50 @@ describe('scannerRunTabLogic', () => {
         expect(postedBatches).toHaveLength(1)
     })
 
-    it('does not ask the user to retry a selection that is already scanned', async () => {
+    // A zero-start run has to name every outcome it produced. Dropping one tells the user to retry
+    // a selection that is already answered, or hides the failures behind a skip message.
+    test.each([
+        ['every session resolved', ['already_scanned', 'already_running'], 'info', ['Nothing new to scan']],
+        [
+            'resolved alongside a failure',
+            ['already_scanned', 'failed'],
+            'warning',
+            ['1 already scanned', '1 failed to start'],
+        ],
+        [
+            'resolved alongside a skip',
+            ['already_scanned', 'skipped_quota'],
+            'warning',
+            ['credit limit', '1 already scanned'],
+        ],
+    ])('names every outcome when nothing started: %s', async (_name, outcomes, level, fragments) => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
-        const infoToast = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+        const toast = jest.spyOn(lemonToast, level as 'info' | 'warning').mockImplementation(() => 'toast-id')
         useMocks({
             post: {
                 '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
                     202,
                     {
                         started: 0,
-                        results: [
-                            { session_id: 'a', scan_outcome: 'already_scanned' },
-                            { session_id: 'b', scan_outcome: 'already_running' },
-                        ],
+                        results: outcomes.map((scan_outcome, i) => ({ session_id: `s${i}`, scan_outcome })),
                     },
                 ],
             },
         })
 
-        await expectLogic(logic, () => logic.actions.startBulkScan(['a', 'b'])).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.startBulkScan(outcomes.map((_, i) => `s${i}`))
+        ).toFinishAllListeners()
 
-        // Nothing started because every answer already exists or is on the way, so "try again" is
-        // the one instruction that cannot help. The scanner load in the mounted logic toasts its own
-        // error here, so match the message rather than the call count.
+        // The scanner load in the mounted logic toasts its own error here, so match the message
+        // rather than the call count.
         expect(errorToast).not.toHaveBeenCalledWith(expect.stringContaining('Please try again'))
-        expect(infoToast).toHaveBeenCalledTimes(1)
+        const message = toast.mock.calls[0][0]
+        for (const fragment of fragments) {
+            expect(message).toContain(fragment)
+        }
         errorToast.mockRestore()
-        infoToast.mockRestore()
+        toast.mockRestore()
     })
 
     it('keeps polling after a bulk scan whose refetch beats the new observation rows', async () => {
