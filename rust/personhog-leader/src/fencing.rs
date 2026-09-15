@@ -403,11 +403,11 @@ fn pick_lane(states: &[LaneState]) -> usize {
 
 /// One seat in the open window, released on drop.
 ///
-/// A request can vanish at any await — tonic drops the handler future
-/// when the client's deadline expires or its stream resets — and the
-/// seat has to come back even then, or the committer waits on an
-/// in-flight count that never reaches zero and every later write on the
-/// partition parks forever behind it.
+/// A produce future can be dropped at any await — a task unwinding, the
+/// runtime shutting down, a caller giving up — and the seat has to come
+/// back even then, or the committer waits on an in-flight count that
+/// never reaches zero and every later write on the partition parks
+/// forever behind it.
 struct WindowSlot {
     fence: Arc<PartitionFence>,
     released: bool,
@@ -467,7 +467,7 @@ impl WindowSlot {
 impl Drop for WindowSlot {
     fn drop(&mut self) {
         if !self.released {
-            // A cancelled request: release the seat but do not poison.
+            // A dropped produce: release the seat but do not poison.
             // Its record may already be enqueued and will ride the
             // commit; nobody is waiting for the ack, and failing the
             // window would punish the writes that are still waiting.
@@ -1196,6 +1196,16 @@ impl FencedChangelogProducers {
             fence.gate.lock().unwrap().committing = false;
             fence.stamp_commit_end();
             fence.window_closed.notify_waiters();
+        }
+    }
+
+    /// Close the lane's open window now, as its fill threshold would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn close_window_for_test(&self, partition: u32, lane: usize) {
+        if let Some(fence) = self.lane(partition, lane) {
+            if let Some(fill) = fence.gate.lock().unwrap().fill_tx.take() {
+                let _ = fill.send(());
+            }
         }
     }
 
