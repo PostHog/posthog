@@ -1,9 +1,9 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models import Max, OuterRef, QuerySet, Subquery
 from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
@@ -60,6 +60,18 @@ def with_last_viewed_at(insights: QuerySet) -> QuerySet:
         InsightViewed.objects.filter(insight=OuterRef("pk")).order_by("-last_viewed_at").values("last_viewed_at")[:1]
     )
     return insights.annotate(last_viewed_at=Subquery(last_viewed_at))
+
+
+def attach_last_viewed_at(insights: Sequence[Insight]) -> None:
+    if not insights:
+        return
+    latest_by_insight_id: dict[int, datetime] = dict(
+        InsightViewed.objects.filter(insight_id__in=[insight.pk for insight in insights])
+        .values_list("insight_id")
+        .annotate(latest=Max("last_viewed_at"))
+    )
+    for insight in insights:
+        insight.last_viewed_at = latest_by_insight_id.get(insight.pk)  # type: ignore[attr-defined]
 
 
 def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[Insight]:

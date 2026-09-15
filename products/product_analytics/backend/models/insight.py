@@ -150,6 +150,13 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 name="dashboarditem_team_lmod_idx",
                 condition=Q(deleted=False),
             ),
+            # Serves the insight list's default sort. The condition mirrors the list queryset's
+            # `exclude(deleted=True)`, so the planner can prove the partial index applies.
+            models.Index(
+                fields=["team_id", "order"],
+                name="dashboarditem_team_order_idx",
+                condition=~Q(deleted=True),
+            ),
         ]
 
     def __str__(self):

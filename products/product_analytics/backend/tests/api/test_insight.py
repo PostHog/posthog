@@ -1094,7 +1094,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [12, 12, 12, 12, 12],
+            [14, 14, 14, 14, 14],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -2849,6 +2849,41 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
+
+    @parameterized.expand([("default_order", None), ("ordered_by_last_viewed_at", "-last_viewed_at")])
+    def test_insight_list_reports_the_team_wide_last_viewed_at(self, _name: str, order: str | None) -> None:
+        recent_id, _ = self.dashboard_api.create_insight({"short_id": "lastview1"})
+        older_id, _ = self.dashboard_api.create_insight({"short_id": "lastview2"})
+
+        older_at = timezone.now() - timedelta(days=3)
+        for insight_id in (recent_id, older_id):
+            InsightViewed.objects.update_or_create(
+                team=self.team, user=self.user, insight_id=insight_id, defaults={"last_viewed_at": older_at}
+            )
+        recent_at = timezone.now()
+        other_user = User.objects.create_and_join(self.organization, "other-viewer@posthog.com", None)
+        InsightViewed.objects.update_or_create(
+            team=self.team, user=other_user, insight_id=recent_id, defaults={"last_viewed_at": recent_at}
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/", data={"order": order} if order else {}
+        ).json()
+
+        last_viewed_at_by_id = {
+            result["id"]: datetime.fromisoformat(result["last_viewed_at"]) for result in response["results"]
+        }
+        assert last_viewed_at_by_id == {recent_id: recent_at, older_id: older_at}
+        if order:
+            assert [result["id"] for result in response["results"]] == [recent_id, older_id]
+
+    @parameterized.expand([("date_from", "last_viewed_date_from"), ("date_to", "last_viewed_date_to")])
+    def test_insight_list_accepts_an_empty_last_viewed_date_filter(self, _name: str, param: str) -> None:
+        self.dashboard_api.create_insight({"short_id": "emptydate"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={param: ""})
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_trending_insights_orders_by_view_count_then_recency(self) -> None:
         # Bypass the API for the unviewed insight — `dashboard_api.create_insight` auto-creates
