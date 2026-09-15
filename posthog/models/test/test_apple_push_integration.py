@@ -1,5 +1,6 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import ApplePushIntegration, Integration
@@ -12,6 +13,7 @@ class TestApplePushIntegration(BaseTest):
         key_id: str = "ABC123KEY",
         team_id_apple: str = "TEAM123",
         bundle_id: str = "com.example.app",
+        environment: str = "production",
         push_identity_verification: str | None = None,
     ) -> Integration:
         return ApplePushIntegration.integration_from_key(
@@ -20,6 +22,7 @@ class TestApplePushIntegration(BaseTest):
             team_id_apple=team_id_apple,
             bundle_id=bundle_id,
             team_id=self.team.id,
+            environment=environment,
             push_identity_verification=push_identity_verification,
         )
 
@@ -59,18 +62,39 @@ class TestApplePushIntegration(BaseTest):
 
         assert first.id != second.id
 
-    def test_validates_required_fields(self):
+    @parameterized.expand(
+        [
+            (f"{field}_{'blank' if not value else 'whitespace'}", field, value)
+            for field in ("signing_key", "key_id", "team_id_apple", "bundle_id")
+            for value in ("", "   ")
+        ]
+    )
+    def test_validates_required_fields(self, _name, field, value):
         with self.assertRaises(ValidationError):
-            self._create_apple_push_integration(signing_key="")
+            self._create_apple_push_integration(**{field: value})
 
-        with self.assertRaises(ValidationError):
-            self._create_apple_push_integration(key_id="")
+    def test_strips_whitespace_around_the_identifiers(self):
+        integration = self._create_apple_push_integration()
+        spaced = self._create_apple_push_integration(
+            team_id_apple=" TEAM123", bundle_id="com.example.app\n", key_id="ABC123KEY "
+        )
 
-        with self.assertRaises(ValidationError):
-            self._create_apple_push_integration(team_id_apple="")
+        assert spaced.id == integration.id
+        assert spaced.integration_id == "TEAM123.com.example.app"
+        assert spaced.config["team_id"] == "TEAM123"
+        assert spaced.config["bundle_id"] == "com.example.app"
+        assert spaced.config["key_id"] == "ABC123KEY"
 
-        with self.assertRaises(ValidationError):
-            self._create_apple_push_integration(bundle_id="")
+    def test_sandbox_and_production_credentials_coexist(self):
+        production = self._create_apple_push_integration()
+        sandbox = self._create_apple_push_integration(environment="sandbox")
+
+        assert production.id != sandbox.id
+        assert production.integration_id == "TEAM123.com.example.app"
+        assert sandbox.integration_id == "TEAM123.com.example.app.sandbox"
+        production.refresh_from_db()
+        assert production.config["environment"] == "production"
+        assert sandbox.config["environment"] == "sandbox"
 
     def test_wrapper_properties(self):
         integration = self._create_apple_push_integration()
@@ -92,9 +116,15 @@ class TestApplePushIntegration(BaseTest):
         with self.assertRaisesMessage(Exception, "ApplePushIntegration init called with Integration with wrong 'kind'"):
             ApplePushIntegration(integration)
 
-    def test_display_name(self):
-        integration = self._create_apple_push_integration()
-        assert integration.display_name == "com.example.app"
+    @parameterized.expand(
+        [
+            ("production", "com.example.app"),
+            ("sandbox", "com.example.app (sandbox)"),
+        ]
+    )
+    def test_display_name(self, environment, expected):
+        integration = self._create_apple_push_integration(environment=environment)
+        assert integration.display_name == expected
 
     def test_clears_errors_on_upsert(self):
         integration = self._create_apple_push_integration()

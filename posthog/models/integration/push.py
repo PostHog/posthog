@@ -215,6 +215,20 @@ class FirebaseIntegration:
         return self.integration.sensitive_config.get("access_token", "")
 
 
+APNS_ENVIRONMENTS = ("production", "sandbox")
+
+
+def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
+    """The row identity of an APNs credential, which the environment is part of.
+
+    A sandbox credential and a production one are separate credentials for the same app, and both
+    have to be connectable at once. Only the sandbox id carries the suffix, so credentials connected
+    before the environment was part of the identity keep the id they already have.
+    """
+    base = f"{team_id_apple}.{bundle_id}"
+    return f"{base}.sandbox" if environment == "sandbox" else base
+
+
 class ApplePushIntegration:
     """
     Integration for Apple Push Notification Service (APNS).
@@ -249,13 +263,19 @@ class ApplePushIntegration:
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
     ) -> "model.Integration":
+        # A space copied out of the developer portal corrupts the signed JWT and the apns-topic.
+        signing_key = (signing_key or "").strip()
+        key_id = (key_id or "").strip()
+        team_id_apple = (team_id_apple or "").strip()
+        bundle_id = (bundle_id or "").strip()
+
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
 
-        if environment not in ("production", "sandbox"):
+        if environment not in APNS_ENVIRONMENTS:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration_id = f"{team_id_apple}.{bundle_id}"
+        integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
             integration, created = model.Integration.objects.update_or_create(
