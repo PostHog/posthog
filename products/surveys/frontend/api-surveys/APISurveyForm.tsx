@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ApiSurveyProps, apiSurveyLogic } from './apiSurveyLogic'
 import { APISurveyQuestion } from './APISurveyQuestion'
+import { advanceSurveyFocus } from './surveyKeyboardNavigation'
 
 export function APISurveyForm(props: ApiSurveyProps): JSX.Element {
     const logic = apiSurveyLogic(props)
@@ -24,7 +25,7 @@ export function APISurveyForm(props: ApiSurveyProps): JSX.Element {
         return <div role="status">Thanks for your feedback.</div>
     }
     return (
-        <div className="space-y-4" data-attr="api-survey-form">
+        <div className="space-y-4" data-attr="api-survey-form" onKeyDown={advanceSurveyFocus}>
             {survey.questions.map((question) => (
                 <APISurveyQuestion
                     key={question.id}
@@ -35,6 +36,7 @@ export function APISurveyForm(props: ApiSurveyProps): JSX.Element {
                     disabled={submitting}
                 />
             ))}
+            <div className="text-xs text-secondary">Enter to move forward. In text answers, use Ctrl/Cmd + Enter.</div>
             {error && <LemonBanner type="error">{error}</LemonBanner>}
             <LemonButton
                 type="primary"

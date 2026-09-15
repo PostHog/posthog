@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { exampleApiSurvey, exampleSurveyClient } from './apiSurvey.fixtures'
 import { APISurveyForm } from './APISurveyForm'
 
@@ -45,3 +47,13 @@ export const LoadError: Story = {
     },
 }
 export const SubmissionError: Story = { args: { client: { ...exampleSurveyClient(), capture: () => undefined } } }
+
+export const KeyboardNavigation: Story = {
+    render: (args) => (
+        <div className="space-y-4">
+            <LemonButton>Before the survey</LemonButton>
+            <APISurveyForm {...args} />
+            <LemonButton>After the survey</LemonButton>
+        </div>
+    ),
+}
