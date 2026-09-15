@@ -38,10 +38,11 @@ const ProviderMappings: Record<
         accessSecretLabel: 'Access secret',
     },
     azure: {
-        // The host names the storage account and the first path segment names the container — two
-        // different values, so the example has to keep them visibly distinct.
+        // The host names the storage account and the first path segment names the container. They
+        // are two different values, so the example has to keep them visibly distinct. Account names
+        // allow no hyphens, container names do.
         fileUrlPatternPlaceholder:
-            'eg: https://your-storage-account.blob.core.windows.net/your-container/stripe/invoices/*.parquet',
+            'eg: https://yourstorageaccount.blob.core.windows.net/your-container/stripe/invoices/*.parquet',
         accessKeyPlaceholder: 'eg: yourstorageaccount',
         accessKeyLabel: 'Storage account name',
         accessSecretLabel: 'Account key',
