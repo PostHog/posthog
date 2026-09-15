@@ -85,6 +85,7 @@ def _capture_report_event(
     result: str | None = None,
     failure_reason: str | None = None,
     pending_reason: str | None = None,
+    chart_count: int | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -94,6 +95,11 @@ def _capture_report_event(
     }
     if result is not None:
         properties["result"] = result
+    # Only the two outcomes that write prose carry a chart set, so the property is absent rather
+    # than zero on the others — a `failed` run charting nothing is not the same observation as a
+    # report that landed without a chart.
+    if chart_count is not None:
+        properties["chart_count"] = chart_count
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
     if pending_reason is not None:
@@ -791,13 +797,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[bool, int, bool]:
+        def do_update() -> tuple[bool, int, bool, int]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.READY:
-                return False, report.run_count, True
+                return False, report.run_count, True, 0
             if report.status == SignalReport.Status.CANDIDATE:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
-                return True, report.run_count, True
+                return True, report.run_count, True, 0
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
@@ -826,9 +832,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
-            return has_new_signals, report.run_count, False
+            return has_new_signals, report.run_count, False, len(report.charts or [])
 
-        has_new_signals, run_count, was_already_done = await database_sync_to_async(do_update, thread_sensitive=False)()
+        has_new_signals, run_count, was_already_done, chart_count = await database_sync_to_async(
+            do_update, thread_sensitive=False
+        )()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as ready: {e}",
@@ -854,6 +862,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         run_count=run_count,
         source_products=input.source_products,
         result="ready",
+        chart_count=chart_count,
     )
     logger.debug(
         f"Marked report {input.report_id} as ready",
@@ -1021,10 +1030,10 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, bool, int]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
-                return report.run_count, True
+                return report.run_count, True, 0
             updated_fields = report.transition_to(
                 SignalReport.Status.PENDING_INPUT, title=input.title, summary=input.summary, error=input.reason
             )
@@ -1041,9 +1050,11 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
-            return report.run_count, False
+            return report.run_count, False, len(report.charts or [])
 
-        run_count, was_already_pending_input = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_pending_input, chart_count = await database_sync_to_async(
+            do_update, thread_sensitive=False
+        )()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as pending_input: {e}",
@@ -1069,6 +1080,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         source_products=input.source_products,
         result="pending_input",
         pending_reason=input.pending_reason,
+        chart_count=chart_count,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",

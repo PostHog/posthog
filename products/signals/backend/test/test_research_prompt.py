@@ -4,6 +4,7 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    ReportPresentationOutput,
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
@@ -243,3 +244,38 @@ class TestBuildReportPresentationPrompt:
 
         assert '"comparison"' not in prompt
         assert "Previous period" not in prompt
+
+
+class TestReportPresentationOutputCharts:
+    # Title, summary, and charts arrive as one response, so a chart that fails validation used to
+    # take the whole presentation step down and end the research run with no report.
+    def test_a_malformed_chart_is_dropped_and_the_rest_of_the_response_survives(self):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(signups): Handle the drop",
+                "summary": "Signups fell 60% over the week.",
+                "charts": [
+                    {
+                        "chart_id": "signups-drop",
+                        "title": "Daily signups",
+                        "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                    },
+                    {"chart_id": "bare-trends", "title": "Wrong node", "query": {"kind": "TrendsQuery"}},
+                ],
+            }
+        )
+
+        assert parsed.title == "fix(signups): Handle the drop"
+        assert [chart.chart_id for chart in parsed.charts] == ["signups-drop"]
+
+    def test_a_response_whose_every_chart_is_malformed_still_yields_the_prose(self):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(signups): Handle the drop",
+                "summary": "Signups fell 60% over the week.",
+                "charts": [{"chart_id": "NOT A SLUG", "title": "Bad id", "query": {"kind": "InsightVizNode"}}],
+            }
+        )
+
+        assert parsed.charts == []
+        assert parsed.summary == "Signups fell 60% over the week."
