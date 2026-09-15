@@ -55,6 +55,7 @@ from .process_task.activities import (
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
+from .process_task.activities.mark_pr_ready import mark_pr_ready
 from .process_task.activities.slack_agent_design import (
     append_slack_agent_design_steps,
     start_slack_agent_design_stream,
@@ -116,6 +117,7 @@ ACTIVITIES = [
     update_task_run_status,
     get_pr_context,
     get_pr_babysit_snapshot,
+    mark_pr_ready,
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,

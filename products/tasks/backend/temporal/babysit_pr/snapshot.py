@@ -49,6 +49,25 @@ class PRSnapshot:
     failing_checks: list[FailingCheck] = field(default_factory=list)
     unresolved_threads: list[ReviewThreadItem] = field(default_factory=list)
     comments: list[CommentItem] = field(default_factory=list)
+    ci_status: str = "none"
+    mergeable: bool = False
+    review_decision: str | None = None
+    feedback_complete: bool = False
+    head_ref: str = ""
+
+    @property
+    def can_mark_ready(self) -> bool:
+        return (
+            self.pr_state == "draft"
+            and bool(self.head_sha)
+            and self.ci_status == "passing"
+            and self.mergeable
+            and self.feedback_complete
+            and not self.has_conflict
+            and not self.failing_checks
+            and not self.unresolved_threads
+            and self.review_decision != "CHANGES_REQUESTED"
+        )
 
     @property
     def is_terminal(self) -> bool:
@@ -62,6 +81,11 @@ class PRSnapshot:
             head_sha=raw.get("head_sha") or "",
             has_conflict=bool(raw.get("has_conflict")),
             author_login=raw.get("author_login"),
+            ci_status=raw.get("ci_status") or "none",
+            mergeable=raw.get("mergeable") is True,
+            review_decision=raw.get("review_decision"),
+            feedback_complete=raw.get("feedback_complete") is True,
+            head_ref=raw.get("head_ref") or "",
             failing_checks=[
                 FailingCheck(key=check["key"], details_url=check.get("details_url"))
                 for check in raw.get("failing_checks") or []

@@ -1737,6 +1737,7 @@ class GitHubIntegrationBase:
           id
           isDraft
           state
+          headRefOid
           labels(first: 100) { nodes { name } }
           timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CONVERT_TO_DRAFT_EVENT], first: 1) {
             nodes { __typename }
@@ -1755,7 +1756,12 @@ class GitHubIntegrationBase:
     """
 
     def mark_pull_request_ready_for_review(
-        self, repository: str, pr_number: int, *, skip_labels: Collection[str] = ()
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        skip_labels: Collection[str] = (),
+        expected_head_sha: str | None = None,
     ) -> dict[str, Any]:
         """Take a draft pull request out of draft. ``repository`` is ``owner/repo`` or a bare repo.
 
@@ -1790,6 +1796,8 @@ class GitHubIntegrationBase:
             return {"success": True, "changed": False, "reason": "closed"}
         if not pr.get("isDraft"):
             return {"success": True, "changed": False, "reason": "not_draft"}
+        if expected_head_sha is not None and pr.get("headRefOid") != expected_head_sha:
+            return {"success": True, "changed": False, "reason": "head_changed"}
         # Somebody already moved this pull request between draft and ready, so its current draft
         # state is a decision rather than the state it opened in. Reading the timeline is what makes
         # that durable: a caller that queues this work cannot otherwise tell a pull request that was
@@ -1884,9 +1892,10 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          url state isDraft mergeable headRefOid
+          url state isDraft mergeable headRefOid headRefName reviewDecision
           author { login }
           reviewThreads(first: 100) {
+            pageInfo { hasNextPage }
             nodes {
               id isResolved path
               comments(last: 1) {
@@ -2027,6 +2036,11 @@ class GitHubIntegrationBase:
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "head_sha": pr.get("headRefOid") or "",
             "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "mergeable": self._map_mergeable(pr.get("mergeable")) is True,
+            "ci_status": self._map_ci_status((rollup or {}).get("state")),
+            "review_decision": pr.get("reviewDecision"),
+            "feedback_complete": ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage") is False,
+            "head_ref": pr.get("headRefName"),
             "author_login": author_login,
             "failing_checks": failing_checks,
             "unresolved_threads": unresolved_threads,

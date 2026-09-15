@@ -15,8 +15,10 @@ from products.tasks.backend.temporal.process_task import workflow as process_tas
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import mark_pr_ready
 from products.tasks.backend.temporal.process_task.workflow import (
     CIFollowUpDecision,
+    PendingFollowup,
     ProcessTaskInput,
     ProcessTaskWorkflow,
     ResumedSandboxState,
@@ -213,6 +215,48 @@ def _capture_dispatched_messages(monkeypatch) -> list[str]:
 
 class TestBabysitFollowUpDecision:
     @pytest.mark.parametrize(
+        "succeeded,active,queued,overrides,expected",
+        [
+            (True, False, False, {}, True),
+            (False, False, False, {}, False),
+            (True, True, False, {}, False),
+            (True, False, True, {}, False),
+            (True, False, False, {"ci_status": "pending"}, False),
+            (True, False, False, {"ci_status": "none"}, False),
+            (True, False, False, {"failing_checks": [BABYSIT_CHECK]}, False),
+            (True, False, False, {"unresolved_threads": [BABYSIT_THREAD]}, False),
+            (True, False, False, {"feedback_complete": False}, False),
+            (True, False, False, {"review_decision": "CHANGES_REQUESTED"}, False),
+            (True, False, False, {"mergeable": False}, False),
+        ],
+    )
+    async def test_ready_handover_requires_a_successful_idle_turn_and_safe_snapshot(
+        self, monkeypatch, succeeded, active, queued, overrides, expected
+    ):
+        wf = _babysit_workflow()
+        wf._last_turn_succeeded = succeeded
+        wf._agent_active = active
+        wf._end_of_turn_received = not active
+        if queued:
+            wf._pending_followups.append(PendingFollowup(message="More work", artifact_ids=[]))
+        snapshot = _babysit_snapshot(
+            **{"pr_state": "draft", "ci_status": "passing", "mergeable": True, "feedback_complete": True, **overrides}
+        )
+        executed = []
+
+        async def execute(activity_fn, *args, **kwargs):
+            executed.append(activity_fn)
+            return snapshot if activity_fn is get_pr_babysit_snapshot else False
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await wf._should_run_ci_follow_up()
+
+        assert (mark_pr_ready in executed) is expected
+
+    @pytest.mark.parametrize(
         "pr_babysit_enabled,expected_activity",
         [
             (False, get_pr_context),
@@ -297,11 +341,13 @@ class TestBabysitFollowUpDecision:
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.FIRE
         await wf._dispatch_ci_follow_up()
         wf._chain_started_at = datetime(2026, 8, 18, tzinfo=UTC)
+        wf._last_turn_succeeded = True
 
         resumed = wf._build_resumed_input(ProcessTaskInput(run_id="run-1"), "sandbox-1").resumed_sandbox
         assert resumed is not None
         continuation = _babysit_workflow()
         continuation._restore_resumed_state(resumed)
+        assert continuation._last_turn_succeeded is True
 
         assert await continuation._should_run_ci_follow_up() is CIFollowUpDecision.SKIP
         assert len(sent) == 1
