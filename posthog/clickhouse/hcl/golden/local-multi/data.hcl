@@ -8055,6 +8055,49 @@ database "posthog" {
     }
   }
 
+  table "web_bots_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "bot_name" {
+      type = "String"
+    }
+    column "category" {
+      type = "String"
+    }
+    column "host" {
+      type = "Nullable(String)"
+    }
+    column "pathname" {
+      type = "Nullable(String)"
+    }
+    column "requests" {
+      type = "UInt64"
+    }
+    column "last_seen" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_bots_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "web_bounces_dimensional_preaggregated" {
     column "team_id" {
       type = "Int64"
