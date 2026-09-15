@@ -1107,6 +1107,7 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert operational.auto_pause_exempt is True
         specialist = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
         assert specialist.auto_pause_exempt is False
+
     def test_real_fleet_scout_write_scopes_land_on_the_seeded_config(self) -> None:
         # The workflows scout is the one scout that files suggestions, and it can only do so if the
         # grant it declares is on its config: every other scout seeds with none.
