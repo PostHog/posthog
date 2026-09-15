@@ -20,6 +20,7 @@ import type { KnowledgeSourceApi } from '../generated/api.schemas'
 
 export type KnowledgeSource = KnowledgeSourceApi
 export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
+export type SourceTypeFilter = 'all' | 'text' | 'url' | 'file'
 
 export interface TextSourceFormValues {
     name: string
@@ -156,6 +157,8 @@ export interface businessKnowledgeLogicValues {
     isUrlSourceValid: boolean
     readyCount: number
     refreshingIds: string[]
+    searchTerm: string
+    sourceTypeFilter: SourceTypeFilter
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     showFileSourceErrors: boolean
@@ -329,6 +332,12 @@ export interface businessKnowledgeLogicActions {
     }
     setCreateTab: (tab: CreateTab) => {
         tab: CreateTab
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
+        sourceTypeFilter: SourceTypeFilter
     }
     setEditSourceManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -514,6 +523,8 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         openCreateModal: true,
         closeCreateModal: true,
         setCreateTab: (tab: CreateTab) => ({ tab }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => ({ sourceTypeFilter }),
         openEditModal: (source: KnowledgeSource) => ({ source }),
         closeEditModal: true,
         deleteSource: (id: string) => ({ id }),
@@ -549,13 +560,32 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 refreshSourceDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        sourceTypeFilter: [
+            'all' as SourceTypeFilter,
+            {
+                setSourceTypeFilter: (_, { sourceTypeFilter }) => sourceTypeFilter,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         sources: [
             [] as KnowledgeSource[],
             {
-                loadSources: async () => {
-                    return await listSources()
+                loadSources: async (_, breakpoint) => {
+                    const sources = await listSources({
+                        search: values.searchTerm,
+                        sourceType: values.sourceTypeFilter,
+                    })
+                    // Drop a response a newer request has already superseded, so a
+                    // slow-then-fast search/filter can't land out of order.
+                    breakpoint()
+                    return sources
                 },
                 removeSourceFromList: ({ id }: { id: string }) => values.sources.filter((s) => s.id !== id),
                 replaceSourceInList: ({ source }: { source: KnowledgeSource }) =>
@@ -772,6 +802,13 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSources()
+        },
+        setSourceTypeFilter: () => {
+            actions.loadSources()
+        },
         loadSourcesSuccess: ({ sources }) => {
             // URL ingestion runs in the background — poll while anything is still
             // processing so the row flips to ready (or error) without a manual reload.
