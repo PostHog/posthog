@@ -83,7 +83,8 @@ export const PartialLastPage: Story = {
             return { table, height: table.offsetHeight, top: table.getBoundingClientRect().top + window.scrollY }
         })
         for (const { table } of tables) {
-            const next = table.querySelector<HTMLButtonElement>('.PaginationControl button:last-child')!
+            within(table).getByRole('button', { name: 'Previous page' })
+            const next = within(table).getByRole('button', { name: 'Next page' })
             fireEvent.click(next)
             await within(table).findByText('11-12 of 12 entries')
             for (const initial of tables) {

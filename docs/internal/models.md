@@ -2,6 +2,7 @@
 
 The Models overview shows ten rows per page in each section: models needing attention, models behind schedule, and failing data quality checks.
 Each section has independent previous and next controls when it has more than ten rows.
+Screen readers identify these controls as Previous page and Next page.
 Paginated tables keep a fixed height, including on a partial last page, so other sections stay in place.
 Skipped runs describe upstream models stopped after repeated failures as suspended.
 
