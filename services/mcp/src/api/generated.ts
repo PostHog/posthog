@@ -19977,8 +19977,8 @@ export namespace Schemas {
     export interface ContextLayerOnboardingStatus {
       /** Commit sha of the wiki's current head. */
       head_sha: string;
-      /** Whether the organization overview has content beyond the initial scaffold. */
-      has_company_context: boolean;
+      /** Whether the organization has established context for onboarding. */
+      org_has_context: boolean;
     }
 
     /**

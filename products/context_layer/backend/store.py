@@ -33,12 +33,7 @@ from posthog.storage import object_storage
 from products.context_layer.backend import repo_lint
 from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
 from products.context_layer.backend.repo_lint import lint_repo
-from products.context_layer.backend.scaffold import (
-    ORG_OVERVIEW_MD,
-    generate_index,
-    generate_project_indexes,
-    write_default_structure,
-)
+from products.context_layer.backend.scaffold import generate_index, generate_project_indexes, write_default_structure
 
 logger = structlog.get_logger(__name__)
 
@@ -337,50 +332,6 @@ def get_config(organization_id: uuid.UUID | str) -> ContextLayerConfig:
         raise RepoNotFoundError(f"organization {organization_id} has no context layer") from None
 
 
-def resolve_company_context(organization_id: uuid.UUID | str) -> ContextLayerConfig:
-    for attempt in (1, 2):
-        with repo_writer_lock(organization_id):
-            config = get_config(organization_id)
-            if config.has_company_context is not None and config.company_context_head_sha == config.head_sha:
-                return config
-            with tempfile.TemporaryDirectory(prefix="context-layer-", ignore_cleanup_errors=True) as tmp:
-                tmpdir = Path(tmp)
-                bundle_path = _download_bundle(organization_id, config.head_sha, tmpdir)
-                workdir = tmpdir / "repo"
-                _clone_from_bundle(bundle_path, workdir)
-                has_company_context = _has_company_context(workdir)
-            updated = ContextLayerConfig.objects.filter(
-                organization_id=organization_id,
-                head_sha=config.head_sha,
-            ).update(
-                has_company_context=has_company_context,
-                company_context_head_sha=config.head_sha,
-            )
-            if updated:
-                config.has_company_context = has_company_context
-                config.company_context_head_sha = config.head_sha
-                return config
-        logger.warning(
-            "context_layer.company_context.head_moved",
-            organization_id=str(organization_id),
-            expected_head=config.head_sha,
-            attempt=attempt,
-        )
-    raise HeadMovedError(f"head moved twice while resolving company context for organization {organization_id}")
-
-
-def _has_company_context(root: Path) -> bool:
-    overview = root / "org" / "overview.md"
-    if not overview.is_file():
-        return False
-    content = overview.read_text(encoding="utf-8", errors="replace")
-    return _normalize_overview(content) != _normalize_overview(ORG_OVERVIEW_MD)
-
-
-def _normalize_overview(content: str) -> str:
-    return " ".join(content.split())
-
-
 @contextmanager
 def checkout_repo(organization_id: uuid.UUID | str) -> Iterator[RepoCheckout]:
     """Read-side checkout of the current head into a temporary working tree."""
@@ -423,8 +374,7 @@ def initialize_repo(
             organization_id=organization_id,
             defaults={
                 "head_sha": head_sha,
-                "has_company_context": False,
-                "company_context_head_sha": head_sha,
+                "org_has_context": False,
                 "created_by_id": created_by_id,
             },
         )
@@ -487,16 +437,15 @@ def _run_landing(
                     new_head = _commit_all(workdir, "Refresh generated project indexes", SYSTEM_AUTHOR)
                 _lint_or_raise(workdir)
                 stats = _landing_stats(workdir, expected_head, new_head)
-                has_company_context = _has_company_context(workdir)
+                overview_changed = _overview_changed(workdir, expected_head, new_head)
                 _upload_bundle(organization_id, new_head, workdir)
 
+                updates: dict[str, str | bool] = {"head_sha": new_head}
+                if overview_changed:
+                    updates["org_has_context"] = True
                 updated = ContextLayerConfig.objects.filter(
                     organization_id=organization_id, head_sha=expected_head
-                ).update(
-                    head_sha=new_head,
-                    has_company_context=has_company_context,
-                    company_context_head_sha=new_head,
-                )
+                ).update(**updates)
                 if updated:
                     _prune_bundles_best_effort(organization_id, {new_head, expected_head})
                     with ph_scoped_capture() as capture:
@@ -521,6 +470,17 @@ def _run_landing(
             attempt=attempt,
         )
     raise HeadMovedError(f"head moved twice while landing changes for organization {organization_id}")
+
+
+def _overview_changed(workdir: Path, old_head: str, new_head: str) -> bool:
+    try:
+        changed_paths = _run_git(
+            ["diff", "--name-only", old_head, new_head, "--", "org/overview.md"],
+            cwd=workdir,
+        )
+    except ContextLayerStoreError:
+        return False
+    return bool(changed_paths.strip())
 
 
 EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"

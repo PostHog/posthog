@@ -22,7 +22,7 @@ from posthog.models.team.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig
-from products.context_layer.backend.scaffold import AGENTS_MD
+from products.context_layer.backend.scaffold import AGENTS_MD, ORG_OVERVIEW_MD
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -35,15 +35,47 @@ def enable_context_layer(
 ) -> ContextLayerConfig:
     """Idempotent: re-enabling scaffolds nothing and re-imports only missing pages."""
     _record_restricted_projects(organization_id)
+    was_enabled = ContextLayerConfig.objects.filter(organization_id=organization_id).exists()
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
     # The import lands its own commit, so the row read before it is already a
     # head behind. Callers use this sha as `base_head`, and a stale one costs
     # them a spurious conflict on their first write.
     config.refresh_from_db()
-    config = store.resolve_company_context(organization_id)
+    if not was_enabled and tasks_facade.organization_has_context(organization_id):
+        ContextLayerConfig.objects.filter(id=config.id, org_has_context=False).update(org_has_context=True)
+    config = resolve_org_context(organization_id)
     transaction.on_commit(lambda: _trigger_bootstrap_dream(str(organization_id)), robust=True)
     return config
+
+
+def resolve_org_context(organization_id: uuid.UUID | str) -> ContextLayerConfig:
+    config = store.get_config(organization_id)
+    if config.org_has_context is not None:
+        return config
+    with store.repo_writer_lock(organization_id):
+        config = store.get_config(organization_id)
+        if config.org_has_context is not None:
+            return config
+        with store.checkout_repo(organization_id) as checkout:
+            overview_has_context = _overview_has_context(checkout.path)
+        org_has_context = overview_has_context or tasks_facade.organization_has_context(organization_id)
+        updated = ContextLayerConfig.objects.filter(id=config.id, org_has_context__isnull=True).update(
+            org_has_context=org_has_context
+        )
+        if updated:
+            config.org_has_context = org_has_context
+            return config
+    return store.get_config(organization_id)
+
+
+def _overview_has_context(root: Path) -> bool:
+    overview_path = root / "org" / "overview.md"
+    if not overview_path.is_file():
+        return False
+    return " ".join(overview_path.read_text(encoding="utf-8", errors="replace").split()) != " ".join(
+        ORG_OVERVIEW_MD.split()
+    )
 
 
 def _record_restricted_projects(organization_id: uuid.UUID | str) -> None:

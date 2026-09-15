@@ -13,8 +13,8 @@ class ContextLayerStatusSerializer(serializers.Serializer):
 
 
 class ContextLayerOnboardingStatusSerializer(ContextLayerStatusSerializer):
-    has_company_context = serializers.BooleanField(
-        help_text="Whether the organization overview has content beyond the initial scaffold."
+    org_has_context = serializers.BooleanField(
+        help_text="Whether the organization has established context for onboarding."
     )
 
 

@@ -28,7 +28,10 @@ from products.context_layer.backend.dreams import (
     get_dream_run,
     list_dream_runs,
 )
-from products.context_layer.backend.enablement import enable_context_layer as _enable_context_layer
+from products.context_layer.backend.enablement import (
+    enable_context_layer as _enable_context_layer,
+    resolve_org_context,
+)
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
@@ -68,7 +71,6 @@ from products.context_layer.backend.store import (
     get_config,
     land_commit_bundle,
     land_dream_branch,
-    resolve_company_context,
 )
 
 logger = structlog.get_logger(__name__)
@@ -140,7 +142,7 @@ __all__ = [
 
 class ContextLayerStatus(TypedDict):
     head_sha: str
-    has_company_context: bool
+    org_has_context: bool
 
 
 @frozen
@@ -165,17 +167,15 @@ def enable_context_layer(
     *,
     created_by_id: int | None = None,
 ) -> ContextLayerStatus:
-    return _to_context_layer_status(_enable_context_layer(organization_id, created_by_id=created_by_id))
+    config = _enable_context_layer(organization_id, created_by_id=created_by_id)
+    assert config.org_has_context is not None
+    return {"head_sha": config.head_sha, "org_has_context": config.org_has_context}
 
 
 def get_context_layer_status(organization_id: uuid.UUID | str) -> ContextLayerStatus:
-    return _to_context_layer_status(resolve_company_context(organization_id))
-
-
-def _to_context_layer_status(config: ContextLayerConfig) -> ContextLayerStatus:
-    assert config.has_company_context is not None
-    assert config.company_context_head_sha == config.head_sha
-    return {"head_sha": config.head_sha, "has_company_context": config.has_company_context}
+    config = resolve_org_context(organization_id)
+    assert config.org_has_context is not None
+    return {"head_sha": config.head_sha, "org_has_context": config.org_has_context}
 
 
 def sandbox_environment_variables(organization_id: uuid.UUID | str, team_id: int) -> dict[str, str]:

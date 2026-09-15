@@ -25,7 +25,9 @@ from posthog.utils import safe_cache_set
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import dreams, enablement, store
+from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.presentation import views
+from products.context_layer.backend.scaffold import ORG_OVERVIEW_MD
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -106,20 +108,59 @@ class TestContextLayerAPI(APIBaseTest):
 
         status_response = self.client.get(f"{self.base_url}/status/")
         assert status_response.json()["head_sha"] == head
-        assert status_response.json()["has_company_context"] is False
+        assert status_response.json()["org_has_context"] is False
 
-    def test_enable_and_status_return_company_context_state(self, _flag) -> None:
+    def test_enable_and_status_return_org_context_state(self, _flag) -> None:
         enable_response = self.client.post(f"{self.base_url}/enable/")
         assert enable_response.status_code == 201, enable_response.content
-        assert enable_response.json()["has_company_context"] is False
+        assert enable_response.json()["org_has_context"] is False
 
         status_response = self.client.get(f"{self.base_url}/status/")
         assert status_response.status_code == 200, status_response.content
-        assert status_response.json()["has_company_context"] is False
+        assert status_response.json()["org_has_context"] is False
 
-    def test_status_reports_populated_organization_overview(self, _flag) -> None:
+    def test_enable_with_legacy_general_context_returns_true(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="general", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
+            )
+
+        response = self.client.post(f"{self.base_url}/enable/")
+
+        assert response.status_code == 201, response.content
+        assert response.json()["org_has_context"] is True
+
+    def test_existing_null_row_resolves_legacy_general_context_once(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="general", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
+            )
+        ContextLayerConfig.objects.filter(organization_id=self.organization.id).update(org_has_context=None)
+
+        response = self.client.get(f"{self.base_url}/status/")
+
+        assert response.status_code == 200, response.content
+        assert response.json()["org_has_context"] is True
+
+    def test_persisted_false_does_not_recheck_legacy_general_context(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="general", star=False)
+            assert channel is not None
+            tasks_facade.publish_channel_instructions(
+                channel.id, self.team.id, self.user.id, content="Focus on activation.", base_version=0
+            )
+
+        assert self.client.get(f"{self.base_url}/status/").json()["org_has_context"] is False
+
+    def test_status_reports_overview_landing_as_org_context(self, _flag) -> None:
         head = self._enable()
-        overview = store.ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+        overview = ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
         response = self.client.put(
             f"{self.base_url}/pages/",
             {"path": "org/overview.md", "content": overview, "base_head": head},
@@ -127,7 +168,7 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.content
 
-        assert self.client.get(f"{self.base_url}/status/").json()["has_company_context"] is True
+        assert self.client.get(f"{self.base_url}/status/").json()["org_has_context"] is True
 
     def test_enable_scaffolds_wiki_and_imports_channel_context(self, _flag) -> None:
         with team_scope(self.team.id):
