@@ -93,6 +93,20 @@ class TestPinnedIPAdapter:
                 adapter.send(request)
         inner_send.assert_not_called()
 
+    def test_plain_http_connection_keeps_its_own_hostname_settings(self):
+        # requests calls cert_verify for every scheme, but an HTTPConnection takes no
+        # `server_hostname`, so injecting one raises TypeError before the request is sent.
+        adapter = pr.PinnedIPAdapter()
+        adapter.pin("example.com", ipaddress.ip_address("93.184.216.34"))
+        conn = MagicMock()
+        conn.conn_kw = {}
+        adapter._current_original_host = "example.com"
+
+        with patch.object(HTTPAdapter, "cert_verify"):
+            adapter.cert_verify(conn, "http://example.com/path", True, None)
+
+        assert conn.conn_kw == {}
+
     def test_no_pins_passes_through(self):
         # Empty map means pinning was intentionally skipped (dev SSRF bypass);
         # fail-closed must not fire there or local requests break.

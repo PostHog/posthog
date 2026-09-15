@@ -74,17 +74,18 @@ class TestProbeMCPServer(SimpleTestCase):
         post_router = _url_router(post_routes)
         get_router = _url_router(get_routes or {})
 
-        # The probe's own requests go through pinned_request; oauth.py's discovery
-        # and DCR requests still use the plain requests module. Both sides share
-        # the same route tables so a URL behaves identically on either path.
+        # The probe and oauth.py discovery both fetch through pinned_request;
+        # oauth.py's DCR and token requests still use the plain requests module.
+        # Both sides share the same route tables so a URL behaves identically
+        # on either path.
         def pinned_router(method, url, **kwargs):
             return post_router(url) if method == "POST" else get_router(url)
 
         with (
             patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None)),
             patch("products.mcp_store.backend.probe.pinned_request", side_effect=pinned_router) as pinned,
+            patch("products.mcp_store.backend.oauth.pinned_request", side_effect=pinned_router) as get,
             patch("products.mcp_store.backend.oauth.requests.post", side_effect=post_router) as post,
-            patch("products.mcp_store.backend.oauth.requests.get", side_effect=get_router) as get,
         ):
             result = probe_mcp_server(SERVER_URL, scope_allowlist, shared_client_id)
         return result, post, get, pinned
