@@ -22,7 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.resolver import resolve_types_from_table
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
@@ -165,6 +169,27 @@ def _strip_person_and_event_and_cohort_properties(
     ]
 
     return properties_to_keep
+
+
+def validate_replay_scope_expr(expr: ast.Expr, team: Team) -> None:
+    """Reject a filter whose fields do not exist on the recordings table.
+
+    Compiling it instead makes the resolver fail much later, which returns a 500 and does not say
+    which filter to rewrite.
+    """
+    context = HogQLContext(team_id=team.pk, team=team, database=Database.create_for(team=team))
+
+    try:
+        resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse")
+    except QueryError as e:
+        raise ValidationError(
+            {
+                "properties": [
+                    "Filters here run on the recording, not on events. "
+                    f"To filter on an event property, write it as properties.<name>. ({e})"
+                ]
+            }
+        )
 
 
 def poe_is_active(team: Team) -> bool:

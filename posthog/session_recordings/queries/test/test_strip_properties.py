@@ -1,4 +1,8 @@
+import pytest
+from posthog.test.base import BaseTest
+
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -8,9 +12,11 @@ from posthog.schema import (
     PersonPropertyFilter,
     PropertyOperator,
     RecordingPropertyFilter,
+    RecordingsQuery,
     SessionPropertyFilter,
 )
 
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
@@ -99,3 +105,26 @@ class TestStripProperties:
         assert offending_value not in str(exc)
         assert "event" in str(exc)
         assert "$entry_referring_domain" in str(exc)
+
+
+class TestUnexpectedPropertyValidation(BaseTest):
+    @parameterized.expand(
+        [
+            ("event id field", "$session_id = 'abc'", "session_id"),
+            ("events table field", "event = '$pageview'", "event"),
+        ]
+    )
+    def test_filter_that_cannot_resolve_on_replay_is_rejected(
+        self, _name: str, expression: str, unknown_field: str
+    ) -> None:
+        query = RecordingsQuery(properties=[HogQLPropertyFilter(key=expression)])
+
+        with pytest.raises(ValidationError) as e:
+            SessionRecordingListFromQuery(team=self.team, query=query).get_query()
+
+        assert unknown_field in str(e.value.detail["properties"][0])
+
+    def test_filter_that_resolves_on_replay_still_builds(self) -> None:
+        query = RecordingsQuery(properties=[HogQLPropertyFilter(key="console_error_count > 0")])
+
+        assert SessionRecordingListFromQuery(team=self.team, query=query).get_query() is not None
