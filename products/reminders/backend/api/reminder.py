@@ -29,7 +29,6 @@ from posthog.permissions import (
     VerifiedDomainEnforcementPermission,
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
     get_authenticator_user_credential,
 )
 from posthog.user_permissions import UserPermissions
@@ -53,11 +52,14 @@ def token_scope_restrictions(request: Request) -> tuple[list[str] | None, list[i
 
 
 # Tenant boundaries TeamAndOrgViewSetMixin appends in get_permissions, which a view may not remove.
-ORGANIZATION_BOUNDARY_PERMISSIONS = (
+# MCPAccessPermission is write-only: it reads the action to decide, so including it in the read
+# filter would drop a row out of the queryset before the write path could refuse it, turning a
+# refusal into a 404.
+READ_BOUNDARY_PERMISSIONS = (
     VerifiedDomainEnforcementPermission,
     ActiveOrganizationPermission,
-    MCPAccessPermission,
 )
+ORGANIZATION_BOUNDARY_PERMISSIONS = (*READ_BOUNDARY_PERMISSIONS, MCPAccessPermission)
 
 
 def personal_api_key_denial(request: Request, organization: Organization) -> str | None:
@@ -88,27 +90,44 @@ def deny_restricted_personal_api_key(request: Request, organization: Organizatio
         raise PermissionDenied(denial)
 
 
-def readable_organization_ids(request: Request) -> list[Any]:
+def readable_organization_ids(view: viewsets.ModelViewSet) -> list[Any]:
     """Organizations this request may read reminders from.
 
     A reminder row outlives the access that created it: the writer can lose membership, and the
-    organization can be deactivated or stop allowing personal API keys. The write path checks all
-    three, so the read path has to as well, or a row stays readable after its access is gone.
+    organization can be deactivated, start enforcing verified domains, or stop allowing personal
+    API keys. Reads run the same boundaries as writes, or a row stays readable once its access is
+    gone. A refused organization drops out of the list rather than failing the whole request,
+    because the caller may hold reminders in several.
     """
-    user = cast(User, request.user)
+    user = cast(User, view.request.user)
     memberships = UserPermissions(user).organization_memberships
     organizations = Organization.objects.filter(id__in=list(memberships.keys()))
-    uses_token = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
-    readable = []
-    for organization in organizations:
-        # A null is_active counts as deactivated, which is how ActiveOrganizationPermission reads
-        # it. Session callers keep reading, because they still have to reach the app to fix it.
-        if uses_token and (organization.is_pending_deletion or not organization.is_active):
-            continue
-        if personal_api_key_denial(request, organization) is not None:
-            continue
-        readable.append(organization.id)
-    return readable
+    return [
+        organization.id
+        for organization in organizations
+        if organization_boundary_denial(view, organization, READ_BOUNDARY_PERMISSIONS) is None
+    ]
+
+
+def organization_boundary_denial(
+    view: viewsets.ModelViewSet,
+    organization: Organization,
+    permission_classes: tuple[type, ...] = ORGANIZATION_BOUNDARY_PERMISSIONS,
+) -> str | None:
+    """The first boundary that refuses this organization, or None when all of them admit it.
+
+    Each class either returns False or raises, depending on the class, so both are collected here.
+    Which ones apply is left to the classes: ActiveOrganizationPermission exempts session callers,
+    and MCPAccessPermission admits every read.
+    """
+    for permission_class in permission_classes:
+        permission = permission_class()
+        try:
+            if not permission.has_object_permission(view.request, view, organization):
+                return str(getattr(permission, "message", "You cannot reach this organization."))
+        except PermissionDenied as denial:
+            return str(denial.detail)
+    return personal_api_key_denial(view.request, organization)
 
 
 def enforce_organization_boundaries(view: viewsets.ModelViewSet, organization: Organization) -> None:
@@ -116,11 +135,9 @@ def enforce_organization_boundaries(view: viewsets.ModelViewSet, organization: O
     the mixin's chain would fall back to the user's current organization, which is a UI preference.
     Hand each one the organization the request actually acts on instead.
     """
-    for permission_class in ORGANIZATION_BOUNDARY_PERMISSIONS:
-        permission = permission_class()
-        if not permission.has_object_permission(view.request, view, organization):
-            raise PermissionDenied(getattr(permission, "message", "You cannot write to this organization."))
-    deny_restricted_personal_api_key(view.request, organization)
+    denial = organization_boundary_denial(view, organization)
+    if denial is not None:
+        raise PermissionDenied(denial)
 
 
 class ReminderSerializer(serializers.ModelSerializer):
@@ -397,7 +414,7 @@ class ReminderViewSet(viewsets.ModelViewSet):
             .select_related("created_by", "team", "organization")
             .order_by("-created_at")
         )
-        queryset = queryset.filter(organization_id__in=readable_organization_ids(self.request))
+        queryset = queryset.filter(organization_id__in=readable_organization_ids(self))
         scoped_organizations, scoped_teams = token_scope_restrictions(self.request)
         if scoped_organizations is not None:
             queryset = queryset.filter(organization_id__in=scoped_organizations)

@@ -10,6 +10,7 @@ from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
@@ -400,3 +401,17 @@ class TestReminderAPI(APIBaseTest):
         # Same message an absent dashboard gets, so the refusal does not confirm it exists.
         self.assertIn("No dashboard with id", response.content.decode())
         self.assertEqual(Reminder.objects.count(), 0)
+
+    def test_list_hides_reminders_from_an_organization_enforcing_a_domain_the_user_is_outside(self) -> None:
+        self._make_reminder()
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="verified-example.com", verified_at=timezone.now()
+        )
+        self.organization.enforce_verified_domains = True
+        self.organization.save(update_fields=["enforce_verified_domains"])
+        self._authenticate_with_oauth("user:read")
+
+        response = self.client.get("/api/reminders/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["results"], [])
