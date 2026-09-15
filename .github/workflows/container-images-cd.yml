@@ -103,7 +103,6 @@ jobs:
         # the run still stops the build, which `always()` would not.
         if: |
             !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (
-                github.event_name != 'push' ||
                 needs.changes.outputs.image != 'false' ||
                 needs.changes.outputs.agent_shadow == 'true'
             )
