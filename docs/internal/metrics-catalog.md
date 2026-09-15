@@ -83,12 +83,10 @@ The migration does not copy historical rows.
 Backfill the new destination tables directly after all four materialized views exist on each logs replica.
 Do not replay a backfill through `metrics2_input`, because its existing views would also write the raw samples and old metadata again.
 
-Use the [online backfill queries](./metrics3-backfill.md) when approximate attribute counts are acceptable.
-They copy retained samples before a fixed timestamp cutoff while ingestion and the live views continue to run.
-Select a cutoff near the start of the new views to limit overlap.
+Use a source boundary that excludes rows already written by the new views.
 Attribute counts use addition, so overlapping writes or repeated backfill batches can count rows twice.
-A timestamp boundary alone does not exclude late samples. The backfill accepts this overlap.
-The queries preserve original expiry timestamps and exclude data whose destination retention has expired.
+A timestamp boundary alone does not exclude late samples.
+Preserve the original expiry timestamps in the backfill.
 
 `metric_series2` retains only the latest row for each series after merges.
 Copying it cannot restore rows for earlier expiry partitions.
