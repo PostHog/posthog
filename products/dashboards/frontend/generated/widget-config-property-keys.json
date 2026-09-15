@@ -28,9 +28,21 @@
             "savedFilterId",
             "widgetFilters"
         ],
-        "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
-        "experiment_results": ["experimentId"],
-        "survey_results": ["dateRange", "limit", "surveyId"],
+        "experiments_list": [
+            "createdBy",
+            "limit",
+            "orderBy",
+            "orderDirection",
+            "status"
+        ],
+        "experiment_results": [
+            "experimentId"
+        ],
+        "survey_results": [
+            "dateRange",
+            "limit",
+            "surveyId"
+        ],
         "logs_list": [
             "dateRange",
             "limit",
@@ -55,7 +67,17 @@
         "activity_events_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": [
+                        "-14d",
+                        "-1M",
+                        "-1h",
+                        "-24h",
+                        "-30M",
+                        "-30d",
+                        "-3h",
+                        "-7d",
+                        "-90d"
+                    ]
                 }
             },
             "filterTestAccounts": {
@@ -115,7 +137,9 @@
                         ]
                     },
                     "value": {
-                        "$types": ["string"]
+                        "$types": [
+                            "string"
+                        ]
                     }
                 }
             },
@@ -176,10 +200,15 @@
                         ]
                     },
                     "type": {
-                        "$enum": ["event", "person"]
+                        "$enum": [
+                            "event",
+                            "person"
+                        ]
                     },
                     "value": {
-                        "$types": ["string"]
+                        "$types": [
+                            "string"
+                        ]
                     }
                 }
             }
@@ -187,7 +216,17 @@
         "error_tracking_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": [
+                        "-14d",
+                        "-1M",
+                        "-1h",
+                        "-24h",
+                        "-30M",
+                        "-30d",
+                        "-3h",
+                        "-7d",
+                        "-90d"
+                    ]
                 }
             },
             "filterTestAccounts": {
@@ -247,7 +286,9 @@
                         ]
                     },
                     "value": {
-                        "$types": ["string"]
+                        "$types": [
+                            "string"
+                        ]
                     }
                 }
             },
@@ -255,27 +296,59 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["first_seen", "last_seen", "occurrences", "sessions", "users"]
+                "$enum": [
+                    "first_seen",
+                    "last_seen",
+                    "occurrences",
+                    "sessions",
+                    "users"
+                ]
             },
             "orderDirection": {
-                "$enum": ["ASC", "DESC"]
+                "$enum": [
+                    "ASC",
+                    "DESC"
+                ]
             },
             "status": {
-                "$enum": ["active", "all", "archived", "pending_release", "resolved", "suppressed"]
+                "$enum": [
+                    "active",
+                    "all",
+                    "archived",
+                    "pending_release",
+                    "resolved",
+                    "suppressed"
+                ]
             },
             "assignee": {
                 "id": {
-                    "$types": ["integer", "string"]
+                    "$types": [
+                        "integer",
+                        "string"
+                    ]
                 },
                 "type": {
-                    "$enum": ["role", "user"]
+                    "$enum": [
+                        "role",
+                        "user"
+                    ]
                 }
             }
         },
         "session_replay_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": [
+                        "-14d",
+                        "-1M",
+                        "-1h",
+                        "-24h",
+                        "-30M",
+                        "-30d",
+                        "-3h",
+                        "-7d",
+                        "-90d"
+                    ]
                 }
             },
             "filterTestAccounts": {
@@ -335,7 +408,9 @@
                         ]
                     },
                     "value": {
-                        "$types": ["string"]
+                        "$types": [
+                            "string"
+                        ]
                     }
                 }
             },
@@ -353,7 +428,10 @@
                 ]
             },
             "orderDirection": {
-                "$enum": ["ASC", "DESC"]
+                "$enum": [
+                    "ASC",
+                    "DESC"
+                ]
             },
             "savedFilterId": {
                 "$type": "string"
@@ -367,13 +445,27 @@
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["created_at", "name", "start_date"]
+                "$enum": [
+                    "created_at",
+                    "name",
+                    "start_date"
+                ]
             },
             "orderDirection": {
-                "$enum": ["ASC", "DESC"]
+                "$enum": [
+                    "ASC",
+                    "DESC"
+                ]
             },
             "status": {
-                "$enum": ["all", "draft", "exposure_frozen", "paused", "running", "stopped"]
+                "$enum": [
+                    "all",
+                    "draft",
+                    "exposure_frozen",
+                    "paused",
+                    "running",
+                    "stopped"
+                ]
             },
             "createdBy": {
                 "$type": "integer"
@@ -387,7 +479,17 @@
         "survey_results": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": [
+                        "-14d",
+                        "-1M",
+                        "-1h",
+                        "-24h",
+                        "-30M",
+                        "-30d",
+                        "-3h",
+                        "-7d",
+                        "-90d"
+                    ]
                 }
             },
             "surveyId": {
@@ -400,18 +502,38 @@
         "logs_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": [
+                        "-14d",
+                        "-1M",
+                        "-1h",
+                        "-24h",
+                        "-30M",
+                        "-30d",
+                        "-3h",
+                        "-7d",
+                        "-90d"
+                    ]
                 }
             },
             "limit": {
                 "$type": "integer"
             },
             "orderBy": {
-                "$enum": ["earliest", "latest"]
+                "$enum": [
+                    "earliest",
+                    "latest"
+                ]
             },
             "severityLevels": {
                 "$array": {
-                    "$enum": ["debug", "error", "fatal", "info", "trace", "warn"]
+                    "$enum": [
+                        "debug",
+                        "error",
+                        "fatal",
+                        "info",
+                        "trace",
+                        "warn"
+                    ]
                 }
             },
             "serviceNames": {
@@ -423,7 +545,10 @@
                 "$type": "boolean"
             },
             "timezone": {
-                "$enum": ["UTC", "local"]
+                "$enum": [
+                    "UTC",
+                    "local"
+                ]
             },
             "savedViewId": {
                 "$type": "string"
@@ -434,23 +559,48 @@
                 "$type": "integer"
             },
             "status": {
-                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+                "$enum": [
+                    "all",
+                    "new",
+                    "on_hold",
+                    "open",
+                    "pending",
+                    "resolved"
+                ]
             },
             "priorities": {
                 "$array": {
-                    "$enum": ["critical", "high", "low", "medium"]
+                    "$enum": [
+                        "critical",
+                        "high",
+                        "low",
+                        "medium"
+                    ]
                 }
             },
             "channel": {
-                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+                "$enum": [
+                    "all",
+                    "email",
+                    "github",
+                    "slack",
+                    "teams",
+                    "widget"
+                ]
             },
             "assignees": {
                 "$array": {
                     "id": {
-                        "$types": ["integer", "string"]
+                        "$types": [
+                            "integer",
+                            "string"
+                        ]
                     },
                     "type": {
-                        "$enum": ["role", "user"]
+                        "$enum": [
+                            "role",
+                            "user"
+                        ]
                     }
                 }
             },
