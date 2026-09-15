@@ -247,7 +247,7 @@ def _build_plan(request: NodeRunRequest, refs: dict[str, SQLV2Ref]) -> SQLV2RunP
         raise NodeRunInvalid(str(e)) from e
 
 
-def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
+def resolve_team_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     """The team's notebook, or `NodeRunInvalid` when it has none by that id.
 
     Resolving here rather than taking the object is what keeps the team and the notebook from
@@ -263,7 +263,7 @@ def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     return notebook
 
 
-def _resolve_user(user_id: int | None) -> User | None:
+def resolve_user(user_id: int | None) -> User | None:
     return User.objects.filter(id=user_id).first() if user_id is not None else None
 
 
@@ -275,8 +275,8 @@ def dispatch_cell_run(
     The entry point for callers outside this module: it takes ids and a contract, so nobody
     holds a Django object across the boundary, and resolves the models here instead.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
-    return dispatch_node_run(notebook, _resolve_user(user_id), notebook.team, request)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    return dispatch_node_run(notebook, resolve_user(user_id), notebook.team, request)
 
 
 def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int | None, runtime_id: UUID) -> bool:
@@ -285,11 +285,11 @@ def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int
     A RUNNING row can outlive its sandbox, so a caller deciding whether to restart needs this
     rather than the row's own status.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
     runtime = KernelRuntime.objects.filter(id=runtime_id, team_id=team_id).first()
     if runtime is None:
         return False
-    return sandbox_is_running(notebook, _resolve_user(user_id), runtime)
+    return sandbox_is_running(notebook, resolve_user(user_id), runtime)
 
 
 def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request: NodeRunRequest) -> NodeRunDispatch:
@@ -409,6 +409,8 @@ __all__ = [
     "dispatch_cell_run",
     "dispatch_node_run",
     "kernel_sandbox_is_live",
+    "resolve_team_notebook",
+    "resolve_user",
     "live_kernel_runtime",
     "sandbox_disclosure",
     "sandbox_is_running",

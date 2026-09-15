@@ -32,7 +32,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 
 import structlog
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team
@@ -51,6 +51,7 @@ from products.notebooks.backend.sql_v2 import (
 logger = structlog.get_logger(__name__)
 
 NODE_RUN_COMPLETED_EVENT = "notebook node run completed"
+NOTEBOOK_RUN_COMPLETED_EVENT = "notebook run completed"
 
 # The terminal statuses, plus `timed_out` — a FAILED written by the direct lane's
 # grace-expiry watchdog. Kept distinct so an expired query is a visible bucket rather
@@ -114,8 +115,56 @@ NODE_RUN_PHASE_SECONDS = Histogram(
 )
 
 
+NOTEBOOK_RUN_TERMINAL = Counter(
+    "posthog_notebooks_notebook_run_terminal_total",
+    "Whole-notebook runs that reached a terminal state, by outcome and by the surface that started them.",
+    labelnames=["outcome", "trigger"],
+)
+NOTEBOOK_RUN_SECONDS = Histogram(
+    "posthog_notebooks_notebook_run_seconds",
+    "End-to-end whole-notebook run duration: run-row creation to its terminal transition.",
+    labelnames=["outcome", "trigger"],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
+)
+
+
 def outcome_for_status(status: str) -> str:
     return _OUTCOME_BY_STATUS.get(NotebookNodeRun.Status(status), OUTCOME_FAILED)
+
+
+def record_notebook_run_terminal(notebook_run: Any, outcome: str) -> None:
+    """Report one terminal transition of a whole-notebook run. Call only when this caller
+    won the transition, so a retried activity never double-counts.
+
+    Never raises — telemetry must not fail the run.
+    """
+    try:
+        duration = max((timezone.now() - notebook_run.created_at).total_seconds(), 0.0)
+        labels = {"outcome": outcome, "trigger": notebook_run.trigger}
+        NOTEBOOK_RUN_TERMINAL.labels(**labels).inc()
+        NOTEBOOK_RUN_SECONDS.labels(**labels).observe(duration)
+        _otel.record_histogram_twin(NOTEBOOK_RUN_SECONDS, duration, labels)
+
+        cell_plan = notebook_run.cell_plan if isinstance(notebook_run.cell_plan, list) else []
+        properties: dict[str, Any] = {
+            "notebook_short_id": notebook_run.notebook.short_id,
+            "trigger": notebook_run.trigger,
+            "outcome": outcome,
+            "cell_count": len(cell_plan),
+            "python_cell_count": sum(1 for cell in cell_plan if cell.get("cell_type") == "python"),
+            "completed_count": notebook_run.current_index,
+            "duration_ms": round(duration * 1000),
+            "has_error": bool(notebook_run.error),
+        }
+        try:
+            user = notebook_run.user
+        except ObjectDoesNotExist:
+            # The FK is db_constraint=False/DO_NOTHING, the same as NotebookNodeRun.user.
+            user = None
+        team = Team.objects.filter(pk=notebook_run.team_id).first()
+        report_user_or_team_action(NOTEBOOK_RUN_COMPLETED_EVENT, properties, user=user, team=team)
+    except Exception:
+        logger.exception("notebook_run_metrics_failed", notebook_run_id=str(notebook_run.id), outcome=outcome)
 
 
 def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
