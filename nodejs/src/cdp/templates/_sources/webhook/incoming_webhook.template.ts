@@ -12,11 +12,8 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 if(inputs.debug) {
-  let headers := {}
-  for (let key, value in request.headers) {
-    headers[key] := if(key == 'authorization', '<redacted>', value)
-  }
-  print('Incoming request:', request.method, 'query:', request.query, 'headers:', headers, 'body:', request.body)
+  // Header names only: a header value can carry a credential, and nothing masks it on the way to the logs.
+  print('Incoming request:', request.method, 'query:', request.query, 'header names:', keys(request.headers), 'body:', request.body)
 }
 
 if(request.method != inputs.method) {

@@ -175,7 +175,7 @@ describe('incoming webhook template', () => {
         `)
     })
 
-    it('should print the method, query, headers and body if debug is true', async () => {
+    it('should print the method, query, header names and body if debug is true', async () => {
         const response = await tester.invoke(
             {
                 event: '{request.body.eventName}',
@@ -191,6 +191,7 @@ describe('incoming webhook template', () => {
                     stringBody: '',
                     headers: {
                         authorization: 'Bearer my-secret-token',
+                        'x-api-key': 'my-secret-key',
                     },
                     query: {
                         utm_source: 'newsletter',
@@ -200,7 +201,7 @@ describe('incoming webhook template', () => {
         )
 
         expect(response.logs.map((x) => x.message)).toEqual([
-            `Incoming request:, POST, query:, {"utm_source":"newsletter"}, headers:, {"authorization":"<redacted>"}, body:, {"eventName":"the event"}`,
+            `Incoming request:, POST, query:, {"utm_source":"newsletter"}, header names:, ["authorization","x-api-key"], body:, {"eventName":"the event"}`,
             expect.stringContaining('Function completed'),
         ])
     })
