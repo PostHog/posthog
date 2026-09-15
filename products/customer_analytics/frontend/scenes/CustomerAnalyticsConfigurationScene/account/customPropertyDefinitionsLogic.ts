@@ -817,7 +817,11 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     const selected = decodeWarehouseSource(values.customPropertyForm.warehouseSource)
                     const selectedId = selected?.kind === 'table' ? selected.id : null
                     if (selectedId && !synced.some((table) => table.id === selectedId)) {
-                        const known = values.warehouseTables.find((table) => table.id === selectedId)
+                        // Same invariant as the filter above, so the two cannot drift: a restored table
+                        // is only offered when it still carries a schema id to bind by.
+                        const known = values.warehouseTables.find(
+                            (table) => table.id === selectedId && !!table.external_schema?.id
+                        )
                         if (known) {
                             return [known, ...synced]
                         }
