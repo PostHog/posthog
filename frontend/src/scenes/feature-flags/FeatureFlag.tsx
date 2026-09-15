@@ -129,6 +129,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         props,
         featureFlag,
         featureFlagLoading,
+        isSavingFeatureFlag,
         featureFlagMissing,
         isEditingFlag,
         activeTab,
@@ -228,7 +229,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         return <NotFound object="feature flag" />
     }
 
-    if (featureFlagLoading) {
+    // A save keeps the form mounted so the Save button can show its own in-flight state. Only a
+    // load has nothing to render yet.
+    if (featureFlagLoading && !isSavingFeatureFlag) {
         return <FeatureFlagFormSkeleton />
     }
 

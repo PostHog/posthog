@@ -1001,6 +1001,7 @@ export interface featureFlagLogicValues {
     isFeatureFlagValid: boolean
     isFormDirty: boolean
     isRecurring: boolean
+    isSavingFeatureFlag: boolean
     multivariateEnabled: boolean
     newCohort: CohortType | null
     newCohortLoading: boolean
@@ -2287,6 +2288,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: async () => {
+                // The Save button is disabled while the request is in flight, but pressing Enter in
+                // a field submits the form again and would send a second write.
+                if (values.isSavingFeatureFlag) {
+                    return
+                }
                 // Validation/save uses reducer state in submitFeatureFlagWithValidation; kea-forms can omit nested updates from setFeatureFlagFilters.
                 await actions.submitFeatureFlagWithValidation({} as Partial<FeatureFlagType>)
             },
@@ -2529,6 +2535,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
+        // `featureFlagLoading` cannot tell a load apart from a save, and the two need opposite
+        // treatment: a load has nothing to show yet, a save must keep the form on screen.
+        isSavingFeatureFlag: [
+            false,
+            {
+                saveFeatureFlag: () => true,
+                saveFeatureFlagSuccess: () => false,
+                saveFeatureFlagFailure: () => false,
+            },
+        ],
         propertySelectErrors: [
             null as any,
             {
@@ -5027,6 +5043,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
             if (!logic.values.isFormDirty) {
+                return false
+            }
+
+            // The save is already persisting these changes, so warning about losing them is wrong.
+            if (logic.values.isSavingFeatureFlag) {
                 return false
             }
 

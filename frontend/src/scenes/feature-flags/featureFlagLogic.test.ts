@@ -463,6 +463,49 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('while a save is in flight', () => {
+        it('stops the unsaved-changes prompt and a second submit', async () => {
+            // The save is already persisting the edit, so a navigation started during it used to
+            // prompt the user about losing changes that were on their way to the server.
+            let releaseSave: (() => void) | undefined
+            const updateSpy = jest.spyOn(api, 'update').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        releaseSave = () => resolve(MOCK_FEATURE_FLAG)
+                    })
+            )
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            try {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+                expect(logic.values.isFormDirty).toBe(true)
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).toHaveBeenCalledTimes(1)
+
+                confirmSpy.mockClear()
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                expect(logic.values.isSavingFeatureFlag).toBe(true)
+
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).not.toHaveBeenCalled()
+
+                // Pressing Enter in a field still submits the form, so the in-flight guard has to
+                // sit on the submit handler too, not only on the disabled button.
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                releaseSave?.()
+                await expectLogic(logic).toDispatchActions(['saveFeatureFlagSuccess'])
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+            } finally {
+                confirmSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
+        })
+    })
+
     describe('setMultivariateEnabled functionality', () => {
         it('adds default variants when enabling multivariate', async () => {
             await expectLogic(logic).toMatchValues({
