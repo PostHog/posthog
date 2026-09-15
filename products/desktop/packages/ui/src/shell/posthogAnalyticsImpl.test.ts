@@ -14,7 +14,6 @@ const mockPosthog = {
   reset: vi.fn(),
   captureException: vi.fn(),
   reloadFeatureFlags: vi.fn(),
-  metrics: { histogram: vi.fn() },
 };
 
 vi.mock("posthog-js/dist/module.full.no-external", () => ({
@@ -222,33 +221,78 @@ describe("track", () => {
   });
 });
 
-describe("recordNavigationSettled", () => {
-  it("records duration by route after init", async () => {
-    const { initializePostHog, recordNavigationSettled } =
-      await loadAnalytics();
-    initializePostHog();
+describe("networkMetricPath", () => {
+  const apiHost = "https://internal-c.posthog.com";
 
-    recordNavigationSettled(125, "/tasks/$taskId", "hidden");
+  it("leaves the path undefined for the app's own API host", async () => {
+    const { networkMetricPath } = await loadAnalytics();
 
-    expect(mockPosthog.metrics.histogram).toHaveBeenCalledWith(
-      "desktop.navigation.settled.duration",
-      125,
+    const path = networkMetricPath(
       {
-        unit: "ms",
-        attributes: {
-          route: "/tasks/$taskId",
-          visibility_at_settle: "hidden",
-        },
+        url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+        method: "GET",
       },
+      apiHost,
     );
+
+    expect(path).toBeUndefined();
   });
 
-  it("does nothing before init", async () => {
-    const { recordNavigationSettled } = await loadAnalytics();
+  it("collapses the path for a presigned artifact URL on another host", async () => {
+    const { networkMetricPath } = await loadAnalytics();
 
-    recordNavigationSettled(125, "/tasks/$taskId", "visible");
+    const path = networkMetricPath(
+      {
+        url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
+        method: "GET",
+      },
+      apiHost,
+    );
 
-    expect(mockPosthog.metrics.histogram).not.toHaveBeenCalled();
+    expect(path).toBe("external");
+  });
+
+  it("collapses the path for an unparseable URL", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath(
+      { url: "not a url", method: "GET" },
+      apiHost,
+    );
+
+    expect(path).toBe("external");
+  });
+});
+
+describe("metrics.network.attributes callback", () => {
+  it("returns undefined for requests to the app's own API host", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    const attributesCallback =
+      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
+    const result = attributesCallback({
+      url: "https://internal-c.posthog.com/api/projects/1/tasks/",
+      method: "GET",
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it("returns { path: 'external' } for requests to other hosts", async () => {
+    const { initializePostHog } = await loadAnalytics();
+
+    initializePostHog();
+
+    const attributesCallback =
+      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
+    const result = attributesCallback({
+      url: "https://s3.example.com/bucket/artifacts/secret_filename.pdf",
+      method: "GET",
+    });
+
+    expect(result).toEqual({ path: "external" });
   });
 });
 
@@ -298,6 +342,7 @@ describe("initializePostHog", () => {
         metrics: {
           serviceName: "posthog-desktop",
           environment: "development",
+          network: { attributes: expect.any(Function) },
         },
       }),
     );

@@ -335,6 +335,7 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
@@ -738,6 +739,7 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
