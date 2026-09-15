@@ -8,6 +8,8 @@ Use `affected_users` only for distinct people. It needs exactly one series with 
 
 Do not author comparisons. The server does not yet keep equal adjacent comparison windows live. Stored legacy comparisons remain compatible, but list and detail responses do not expose them as live values.
 
+An actionable report summary includes an Expected impact section after its Solution section. The section uses a queried baseline to estimate the metric's post-fix value or range and its delta. This forecast stays in prose because it is an estimate, not a live report metric or comparison. If the solution does not directly change the observed metric, the summary names the measurement needed to verify the solution. If the evidence has no usable baseline or denominator, the summary states that it cannot make a credible estimate.
+
 Metric refresh serves snapshots measured in the last 15 minutes from the query cache. Each request runs at most 40 source series and stops on a best-effort 20-second deadline. A refresh saves `value`, `value_at`, and `series`, and clears `comparison`. The endpoint allows 10 requests per minute for each team.
 
 Use lowercase non-currency units such as `users`, `sessions`, or `failure`. Use uppercase ISO currency codes such as `USD`.
