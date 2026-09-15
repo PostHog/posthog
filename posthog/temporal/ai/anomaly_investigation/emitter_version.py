@@ -34,6 +34,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.event_definitions.backend.models.event_property import EventProperty
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -162,13 +163,18 @@ def _parse_day(value: str) -> date | None:
 
 
 def _version_properties(*, team: Team, event: str) -> list[str]:
-    """Version-ish properties recorded on ``event``, from the team's own taxonomy.
+    """Version-ish properties recorded on ``event``, from the project's own taxonomy.
 
     Taken from the taxonomy rather than a hardcoded list of names: the producer names its
     own version property, and `$lib_version` is only one of the names it picks.
+
+    Scoped by project, like every other reader of this table: the row is unique per project,
+    so the first environment to ingest the pair owns it and keeps its own team id. Filtering
+    by team id would miss every other environment of the same project.
     """
     names = (
-        EventProperty.objects.filter(team_id=team.id, event=event, property__icontains=_PROPERTY_NAME_HINT)
+        EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, event=event, property__icontains=_PROPERTY_NAME_HINT)
         .order_by("property")
         .values_list("property", flat=True)[:MAX_PROBED_PROPERTIES]
     )

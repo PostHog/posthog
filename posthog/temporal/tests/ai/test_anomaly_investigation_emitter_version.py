@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.temporal.ai.anomaly_investigation.emitter_version import describe_emitter_version_shift
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 
@@ -140,6 +141,20 @@ class TestEmitterVersionAgainstClickHouse(ClickhouseTestMixin, BaseTest):
 
         assert "old went 50% to 0% of events" in described
         assert "mid went" not in described
+
+    def test_reads_a_taxonomy_row_a_sibling_environment_ingested(self) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])
+        # Ingestion writes one row per project, keyed to whichever environment saw the pair first.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project, name="sibling")
+        EventProperty.objects.create(team=sibling, project=self.team.project, event=JUDGED, property="judge_version")
+        for day in ("2026-09-01", "2026-09-05", "2026-09-10"):
+            self._judge(day, "17", 10)
+        self._judge("2026-09-14", "23", 10)
+        flush_persons_and_events()
+
+        described = describe_emitter_version_shift(team=self.team, event=JUDGED, triggered_dates=["2026-09-14"])
+
+        assert "`judge_version` changed mix: 23 went 0% to 100% of events" in described
 
     def test_says_nothing_when_the_event_records_no_version_property(self) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])
