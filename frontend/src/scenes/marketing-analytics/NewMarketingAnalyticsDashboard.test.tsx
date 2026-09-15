@@ -3,15 +3,16 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
-jest.mock('./Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
+jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
 
-jest.mock('./Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
+jest.mock('scenes/marketing-analytics/Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
 jest.mock('@posthog/lemon-ui', () => ({
     LemonBanner: () => null,
+    LemonCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     LemonSelect: ({
         value,
         onChange,
@@ -98,6 +99,7 @@ describe('NewMarketingAnalyticsDashboard', () => {
             responseLoading: false,
             setupPlan: {},
             visibleSuggestions: [],
+            trafficOrderBy: {},
         })
 
         render(<NewMarketingAnalyticsDashboard />)

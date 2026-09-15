@@ -9,6 +9,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { suggestionsForSection } from 'scenes/marketing-analytics/Setup/sectionRouting'
+import { SuggestionRow } from 'scenes/marketing-analytics/Setup/SuggestionRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
@@ -22,7 +24,6 @@ import {
 import { marketingAttributionLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
-import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
@@ -35,10 +36,10 @@ import {
     WebOverviewQueryResponse,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
 
-import { suggestionsForSection } from './Setup/sectionRouting'
-import { SuggestionRow } from './Setup/SuggestionRow'
+import { CustomerAcquisitionCards } from './CustomerAcquisitionCards'
+import { marketingAcquisitionLogic } from './marketingAcquisitionLogic'
+import { marketingTrafficQueryContext } from './marketingTrafficQueryContext'
 
 const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialChannelType, label: 'Channel' },
@@ -48,16 +49,6 @@ const TRAFFIC_BREAKDOWNS = [
     { value: WebStatsBreakdown.InitialReferringDomain, label: 'Referring domain' },
     { value: WebStatsBreakdown.InitialPage, label: 'Landing page' },
 ]
-
-const QUERY_CONTEXT: QueryContext = {
-    ...webAnalyticsDataTableQueryContext,
-    columns: {
-        ...webAnalyticsDataTableQueryContext.columns,
-        visitors: { ...webAnalyticsDataTableQueryContext.columns?.visitors, renderTitle: () => <>Visitors</> },
-        views: { ...webAnalyticsDataTableQueryContext.columns?.views, renderTitle: () => <>Pageviews</> },
-        bounce_rate: { ...webAnalyticsDataTableQueryContext.columns?.bounce_rate, renderTitle: () => <>Bounce rate</> },
-    },
-}
 
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
@@ -110,6 +101,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const isTraffic = activeSection === 'acquisition' || activeSection === 'engagement'
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
+    const { customerGoals, selectedCustomerGoal, customerConversionGoal, trafficOrderBy } =
+        useValues(marketingAcquisitionLogic)
+    const { setCustomerGoalId, toggleTrafficSort } = useActions(marketingAcquisitionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
     const { setDates, setCompareFilter, setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { setupPlan, setupPlanLoading, visibleSuggestions } = useValues(setupPlanLogic)
@@ -149,6 +143,22 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const { response, responseLoading, responseError } = useValues(overviewLogic)
     const { loadData } = useActions(overviewLogic)
     const overview = response as WebOverviewQueryResponse | undefined
+    const customerOverviewLogic = dataNodeLogic({
+        query: { ...query, conversionGoal: activeSection === 'acquisition' ? customerConversionGoal : null },
+        key: 'marketing-acquisition-customers',
+        autoLoad: !!customerConversionGoal && activeSection === 'acquisition',
+    })
+    const {
+        response: customerResponse,
+        responseLoading: customersLoading,
+        responseError: customersError,
+    } = useValues(customerOverviewLogic)
+    const { loadData: loadCustomers } = useActions(customerOverviewLogic)
+    const customerOverview = customerResponse as WebOverviewQueryResponse | undefined
+    const reviewCustomerGoals = (): void => {
+        setSetupSection(SetupSection.CONVERSION_GOALS)
+        setActiveTab(MarketingAnalyticsTab.SETUP)
+    }
 
     return (
         <div className="mt-4 flex flex-col gap-4">
@@ -157,7 +167,19 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 {isTraffic && (
                     <>
                         <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                        <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
+                        <LemonButton
+                            size="small"
+                            loading={
+                                responseLoading ||
+                                (activeSection === 'acquisition' && !!customerConversionGoal && customersLoading)
+                            }
+                            onClick={() => {
+                                loadData('force_async')
+                                if (activeSection === 'acquisition' && customerConversionGoal) {
+                                    loadCustomers('force_async')
+                                }
+                            }}
+                        >
                             Reload summary
                         </LemonButton>
                     </>
@@ -268,21 +290,57 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                             .map(({ title, keys }) => (
                                 <section key={title} className="flex flex-col gap-2" aria-label={title}>
                                     <h2 className="mb-0">{title}</h2>
-                                    <OverviewMetricCardGrid
-                                        items={keys.flatMap((key) =>
-                                            (overview?.results?.filter((item) => item.key === key) ?? []).map(
-                                                (item) => ({
-                                                    ...item,
-                                                    value: item.value,
-                                                })
-                                            )
+                                    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] auto-rows-fr gap-2">
+                                        <div className="contents">
+                                            <OverviewMetricCardGrid
+                                                layout="contents"
+                                                items={keys.flatMap((key) =>
+                                                    (overview?.results?.filter((item) => item.key === key) ?? []).map(
+                                                        (item) => ({
+                                                            ...item,
+                                                            value: item.value,
+                                                        })
+                                                    )
+                                                )}
+                                                loading={responseLoading}
+                                                numSkeletons={keys.length}
+                                                samplingRate={overview?.samplingRate}
+                                                preComputeStrategy={overview?.preComputeStrategy}
+                                                labelFromKey={labelFromKey}
+                                            />
+                                        </div>
+                                        {activeSection === 'acquisition' && (
+                                            <CustomerAcquisitionCards
+                                                configurationLoading={currentTeamLoading}
+                                                configured={!!customerConversionGoal}
+                                                loading={customersLoading || responseLoading}
+                                                error={!!customersError}
+                                                customerResults={customerOverview?.results}
+                                                trafficResults={overview?.results}
+                                                samplingRate={customerOverview?.samplingRate}
+                                                onConfigure={reviewCustomerGoals}
+                                                onRetry={() => loadCustomers('force_async')}
+                                            />
                                         )}
-                                        loading={responseLoading}
-                                        numSkeletons={keys.length}
-                                        samplingRate={overview?.samplingRate}
-                                        preComputeStrategy={overview?.preComputeStrategy}
-                                        labelFromKey={labelFromKey}
-                                    />
+                                    </div>
+                                    {activeSection === 'acquisition' && customerConversionGoal && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span>New customer goal</span>
+                                            <LemonSelect
+                                                aria-label="Customer goal"
+                                                value={selectedCustomerGoal?.conversion_goal_id}
+                                                onChange={setCustomerGoalId}
+                                                options={customerGoals.map((goal) => ({
+                                                    value: goal.conversion_goal_id,
+                                                    label: goal.conversion_goal_name,
+                                                }))}
+                                            />
+                                            <span className="text-secondary text-xs">
+                                                Unique visitors completing this goal in the period. Use a
+                                                once-per-customer goal to measure new customers.
+                                            </span>
+                                        </div>
+                                    )}
                                 </section>
                             ))
                     ))}
@@ -375,20 +433,34 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                                 source: {
                                     kind: NodeKind.WebStatsTableQuery,
                                     breakdownBy: trafficBreakdown,
+                                    orderBy: trafficOrderBy[activeSection],
                                     dateRange,
                                     compareFilter,
                                     filterTestAccounts: shouldFilterTestAccounts,
                                     includeBounceRate: activeSection === 'engagement',
+                                    includeTrafficMetrics: activeSection === 'acquisition',
+                                    conversionGoal: activeSection === 'acquisition' ? customerConversionGoal : null,
                                     properties: [],
                                     limit: 25,
                                     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
-                                hiddenColumns: activeSection === 'engagement' ? ['context.columns.views'] : [],
+                                hiddenColumns:
+                                    activeSection === 'engagement'
+                                        ? ['context.columns.views']
+                                        : [
+                                              'context.columns.total_conversions',
+                                              ...(customerConversionGoal ? ['context.columns.cross_sell'] : []),
+                                          ],
                                 full: true,
                                 embedded: false,
                                 showOpenEditorButton: false,
                             }}
-                            context={{ ...QUERY_CONTEXT, compareFilter }}
+                            context={{
+                                ...marketingTrafficQueryContext(trafficOrderBy[activeSection], (field) =>
+                                    toggleTrafficSort(activeSection, field)
+                                ),
+                                compareFilter,
+                            }}
                             readOnly
                         />
                     </>
