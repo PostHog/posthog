@@ -15,7 +15,6 @@ matcher here is project-scoped.
 
 from collections import defaultdict
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from django.db import transaction
@@ -25,6 +24,7 @@ from django.dispatch import receiver
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -33,12 +33,12 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
-REPLAY_LINKED_FLAG_DELETE_ERROR = (
+REPLAY_GATE_DELETE_ERROR = (
     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
 )
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class TriggerGroupFlagRef:
     """One trigger group's reference to a feature flag, and where in the stored config it sits."""
 
@@ -48,7 +48,7 @@ class TriggerGroupFlagRef:
     flag_id: int | None
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class ReplayGateRewrite:
     """New values for a team's gate columns. `None` leaves that column alone."""
 
@@ -56,7 +56,7 @@ class ReplayGateRewrite:
     trigger_groups: dict[str, Any] | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class ReplayFlagGates:
     """Which flags a project's teams gate recording on, keyed the way each column stores it."""
 

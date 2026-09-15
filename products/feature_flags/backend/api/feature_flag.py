@@ -124,7 +124,7 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
 from products.feature_flags.backend.session_recording_links import (
-    REPLAY_LINKED_FLAG_DELETE_ERROR,
+    REPLAY_GATE_DELETE_ERROR,
     ReplayFlagGates,
     replay_gated_flags,
     teams_gating_replay_on_flag,
@@ -2197,11 +2197,11 @@ class FeatureFlagSerializer(
             # Check for other flags that depend on this flag
             raise_if_flag_has_dependents(instance, action="delete")
 
-            # Asks the database rather than reading `is_used_in_replay_settings`: that field can be
-            # served from an annotation resolved when the queryset was built, which is fine for
-            # rendering a badge and too stale to decide a delete on.
+            # Asks the database rather than reading `is_used_in_replay_settings`. That field is
+            # annotated on the list action alone, so a delete never sees it today, and querying
+            # here keeps the guard reading live state if the annotation ever widens.
             if teams_gating_replay_on_flag(instance, key=instance.key).exists():
-                raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
+                raise exceptions.ValidationError(REPLAY_GATE_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
             # Append ID to the key when soft-deleting to prevent key conflicts.
@@ -4399,7 +4399,7 @@ class FeatureFlagViewSet(
                     {
                         "id": flag_id,
                         "key": flag.key,
-                        "reason": REPLAY_LINKED_FLAG_DELETE_ERROR,
+                        "reason": REPLAY_GATE_DELETE_ERROR,
                     }
                 )
                 continue
