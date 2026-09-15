@@ -4,6 +4,7 @@ from contextlib import AsyncExitStack
 from datetime import timedelta
 
 import httpx
+import structlog
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
@@ -17,6 +18,8 @@ class MCPClientError(Exception):
 
 
 CLIENT_TIMEOUT = 60.0
+
+logger = structlog.get_logger(__name__)
 
 
 class MCPClient:
@@ -34,13 +37,13 @@ class MCPClient:
             await self._connect_streamable_http()
             return
         except Exception:
-            await self._stack.aclose()
+            await self.close()
             self._stack = AsyncExitStack()
 
         try:
             await self._connect_sse()
         except Exception:
-            await self._stack.aclose()
+            await self.close()
             raise MCPClientError("Failed to connect to MCP server")
 
     async def _connect_streamable_http(self) -> None:
@@ -71,7 +74,13 @@ class MCPClient:
         self._session = session
 
     async def close(self) -> None:
-        await self._stack.aclose()
+        try:
+            await self._stack.aclose()
+        except Exception:
+            # The SDK closes its task group here, so an upstream HTTP error on a request that is
+            # still in flight surfaces as an ExceptionGroup at teardown. Callers close in a
+            # `finally`, where a raise replaces the result of the call.
+            logger.warning("Failed to close MCP client session", server_url=self._server_url, exc_info=True)
 
     async def list_tools(self) -> list[dict]:
         if self._session is None:
