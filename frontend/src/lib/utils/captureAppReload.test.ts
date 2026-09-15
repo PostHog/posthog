@@ -65,6 +65,16 @@ describe('captureAppReload', () => {
         expect(event.properties.$process_person_profile).toBe(false)
     })
 
+    it('absorbs a throwing posthog-js capture, so the caller still reaches its reload', () => {
+        window.posthog = {
+            capture: jest.fn(() => {
+                throw new Error('SDK capture blew up')
+            }),
+        } as any
+
+        expect(() => captureAppReload('scene_import_error', new Error('ChunkLoadError'))).not.toThrow()
+    })
+
     it('sends nothing when capture is opted out for the instance', () => {
         delete window.JS_POSTHOG_API_KEY
 

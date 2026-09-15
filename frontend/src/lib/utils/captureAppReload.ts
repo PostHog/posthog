@@ -15,16 +15,20 @@ export type AppReloadReason = 'chunk_load_error_boundary' | 'scene_import_error'
  * SDK has initialized, and the beacon covers the boot case where it has not.
  */
 export function captureAppReload(reason: AppReloadReason, error: unknown): void {
-    const err = error && typeof error === 'object' ? (error as { name?: string; message?: string }) : null
-    const properties = {
-        reason,
-        error_name: err?.name ?? 'unknown',
-        error_message: typeof err?.message === 'string' ? err.message : String(error),
-    }
-    // sendBeacon because the caller reloads in the same tick, which cancels an XHR or a fetch.
-    if (window.posthog) {
-        window.posthog.capture(APP_RELOAD_EVENT, properties, { send_instantly: true, transport: 'sendBeacon' })
-    } else {
-        captureViaBeacon(APP_RELOAD_EVENT, properties)
+    try {
+        const err = error && typeof error === 'object' ? (error as { name?: string; message?: string }) : null
+        const properties = {
+            reason,
+            error_name: err?.name ?? 'unknown',
+            error_message: typeof err?.message === 'string' ? err.message : String(error),
+        }
+        // sendBeacon because the caller reloads in the same tick, which cancels an XHR or a fetch.
+        if (window.posthog) {
+            window.posthog.capture(APP_RELOAD_EVENT, properties, { send_instantly: true, transport: 'sendBeacon' })
+        } else {
+            captureViaBeacon(APP_RELOAD_EVENT, properties)
+        }
+    } catch {
+        // Both callers reload on the next line, so losing the event beats canceling the recovery.
     }
 }

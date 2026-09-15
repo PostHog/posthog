@@ -90,6 +90,25 @@ describe('ChunkLoadErrorBoundary', () => {
         )
     })
 
+    it('reloads even when capturing the event fails', () => {
+        const reload = jest.fn()
+        window.posthog = {
+            capture: jest.fn(() => {
+                throw new Error('SDK capture blew up')
+            }),
+        } as any
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload}>
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).toHaveBeenCalledTimes(1)
+    })
+
     it('surfaces repeated chunk errors instead of reloading in a loop', () => {
         const reload = jest.fn()
         window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
