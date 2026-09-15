@@ -724,6 +724,15 @@ class TestSummarizerScannerSteps:
         assert steps[0].response_model is SummarizerSummaryResponse
         assert steps[0].required is True
 
+    @pytest.mark.parametrize(
+        "length,guidance", [("short", "1-2 sentences"), ("medium", "1 paragraph"), ("long", "3-5 paragraphs")]
+    )
+    def test_core_step_carries_the_configured_length_guidance(self, length: str, guidance: str) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": length})
+        )
+        assert guidance in scanner.core_steps()[0].instruction
+
     def test_summary_step_makes_title_follow_operator_naming_convention(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
