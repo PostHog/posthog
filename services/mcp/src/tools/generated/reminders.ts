@@ -49,6 +49,9 @@ const reminderCreate = (): ToolBase<ReturnType<typeof ReminderCreateSchema>, Sch
         if (params.end_date !== undefined) {
             body['end_date'] = params.end_date
         }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
         const result = await context.api.request<Schemas.Reminder>({
             method: 'POST',
             path: `/api/reminders/`,
@@ -136,6 +139,9 @@ const reminderUpdate = (): ToolBase<ReturnType<typeof ReminderUpdateSchema>, Sch
         }
         if (params.end_date !== undefined) {
             body['end_date'] = params.end_date
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
         }
         const result = await context.api.request<Schemas.Reminder>({
             method: 'PATCH',
