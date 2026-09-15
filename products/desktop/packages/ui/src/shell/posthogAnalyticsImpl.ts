@@ -49,7 +49,7 @@ const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 let registeredApiBaseHost: string | null = null;
 
 /** Record the backend host used for the current authenticated session. */
-export function registerApiBaseHost(host: string): void {
+export function registerApiBaseHost(host: string | null): void {
   registeredApiBaseHost = host;
 }
 
