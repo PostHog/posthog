@@ -23,7 +23,6 @@ export interface projectLogicValues {
     currentProject: ProjectType | null
     currentProjectId: number | null
     currentProjectLoading: boolean
-    cancelProjectDeletionLoading: boolean
     moveProjectDisabledReason: "You can't move the project because you aren't a member of another organization" | null
     projectBeingDeleted: ProjectType | null
     projectBeingMoved: ProjectType | null
@@ -50,6 +49,21 @@ export interface projectLogicActions {
         destination: string | undefined
         organizationId: string
     } // userLogic
+    cancelProjectDeletion: () => any
+    cancelProjectDeletionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    cancelProjectDeletionSuccess: (
+        currentProject: ProjectType,
+        payload?: any
+    ) => {
+        currentProject: ProjectType
+        payload?: any
+    }
     createProject: ({ name }: { name: string }) => {
         name: string
     }
@@ -76,21 +90,6 @@ export interface projectLogicActions {
     }
     deleteProjectFailure: () => {
         value: true
-    }
-    cancelProjectDeletion: () => any
-    cancelProjectDeletionFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    cancelProjectDeletionSuccess: (
-        currentProject: ProjectType | null,
-        payload?: any
-    ) => {
-        currentProject: ProjectType | null
-        payload?: any
     }
     deleteProjectSuccess: () => {
         value: true
