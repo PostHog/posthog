@@ -2,24 +2,14 @@ export type OnboardingStep =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   "project-select",
   "consent",
   "connect-github",
   "install-cli",
-  "select-repo",
 ];
-
-export interface DetectedRepo {
-  organization: string;
-  repository: string;
-  fullName: string;
-  remote?: string;
-  branch?: string;
-}
 
 export interface StepGates {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
@@ -74,8 +64,7 @@ export function stepGatePending(
  * gates resolve). Prefers the next remaining step in canonical order — the
  * user was moving forward — and falls back to the closest earlier one, so a
  * vanishing step never resets progress to the start of the flow. Returns
- * `step` unchanged when it is still active, or when `activeSteps` is empty
- * (degenerate input: the flow always keeps at least the select-repo step).
+ * `step` unchanged when it is still active, or when `activeSteps` is empty.
  */
 export function nearestActiveStep(
   activeSteps: OnboardingStep[],

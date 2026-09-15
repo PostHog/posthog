@@ -5,13 +5,13 @@ import {
   Lifebuoy,
   SignOut,
 } from "@phosphor-icons/react";
-import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import {
   buildAbandonedProps,
   buildCompletedProps,
   buildStepCompletedProps,
   type StepCompletedContext,
 } from "@posthog/core/onboarding/analytics";
+import type { OnboardingStep } from "@posthog/core/onboarding/steps";
 import {
   Button,
   ButtonGroup,
@@ -33,28 +33,19 @@ import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/Co
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
-import { saveOnboardingRepository } from "@posthog/ui/features/onboarding/saveOnboardingRepository";
-import type { OnboardingStep } from "@posthog/ui/features/onboarding/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { firstRun } from "@posthog/ui/shell/firstRun";
-import { logger } from "@posthog/ui/shell/logger";
-import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { isMac, isWindows } from "@posthog/ui/utils/platform";
-import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ProjectSelectStep } from "./ProjectSelectStep";
-import { SelectRepoStep } from "./SelectRepoStep";
 
 const IS_DEV = import.meta.env.DEV;
-
-const log = logger.scope("onboarding-flow");
 
 const stepVariants = {
   enter: (dir: number) => ({ opacity: 0, x: dir * 20 }),
@@ -223,21 +214,14 @@ function OnboardingHeader({
 export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const [consentSubmitting, setConsentSubmitting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
-  const queryClient = useQueryClient();
   const {
     currentStep,
     currentIndex,
     activeSteps,
     direction,
+    isLastStep,
     next,
     back,
-    selectedDirectory,
-    detectedRepo,
-    isDetectingRepo,
-    handleDirectoryChange,
-    selectedCloudRepo,
-    handleCloudRepoChange,
-    hasGithubIntegration,
     consentSatisfied,
     consentRequirement,
     currentStepPending,
@@ -256,28 +240,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   );
   const apiClient = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client: apiClient });
-  const { localWorkspaces } = useHostCapabilities();
-  const startupIdentity = useAuthStateValue(getAuthIdentity);
-
-  // Best-effort. This also seeds the cache that the first screen reads.
-  const assignRepoToSpaces = async (): Promise<void> => {
-    if (!apiClient || !startupIdentity) return;
-    // Cloud-only hosts store the GitHub repository in selectedDirectory.
-    // Local-workspace hosts keep cloud and local selections separate.
-    const cloudRepo = localWorkspaces
-      ? selectedCloudRepo
-      : selectedDirectory || null;
-    if (!cloudRepo) return;
-    const provisioned = await firstRun(startupIdentity, apiClient).provisioned;
-    if (!provisioned) return;
-    await saveOnboardingRepository({
-      client: apiClient,
-      provisioned,
-      queryClient,
-      repository: cloudRepo,
-    });
-  };
-
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
 
@@ -341,6 +303,27 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     );
   };
 
+  const handleComplete = (context?: StepCompletedContext) => {
+    if (isCompleting) return;
+    setIsCompleting(true);
+    recordStepViewed();
+    trackStepCompleted(context);
+    track(
+      ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
+      buildCompletedProps({
+        flowStartedAtMs: flowStartedAtRef.current,
+        nowMs: Date.now(),
+        githubConnected: githubUserIntegrations.length > 0,
+      }),
+    );
+    if (githubUserIntegrations.length > 0) {
+      setLastUsedWorkspaceMode("cloud");
+    }
+    shipIt();
+    completeOnboarding();
+    openTaskInput();
+  };
+
   const handleNext = (context?: StepCompletedContext) => {
     if (
       currentStep === "consent" &&
@@ -348,12 +331,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     ) {
       return;
     }
-    // `onClick={onNext}` would pass the click event here; a DOM event spread
-    // into capture properties poisons the whole analytics batch.
     const safeContext =
       context && "nativeEvent" in context ? undefined : context;
-    // A person can leave a step before its gate answers, which the effect above
-    // skips. Record the view first, so a completion never arrives without one.
+    if (isLastStep) {
+      handleComplete(safeContext);
+      return;
+    }
     recordStepViewed();
     trackStepCompleted(safeContext);
     next();
@@ -364,56 +347,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     back();
   };
 
-  // The first active step has nowhere to go back to, and which step that is
-  // shifts as the conditional steps resolve.
   const onBack = currentIndex <= 0 ? undefined : handleBack;
 
   useHotkeys("right", () => handleNext(), { enableOnFormTags: false }, [
     handleNext,
   ]);
   useHotkeys("left", handleBack, { enableOnFormTags: false }, [handleBack]);
-
-  const handleComplete = async (repoSkipped: boolean) => {
-    if (isCompleting) return;
-    setIsCompleting(true);
-    recordStepViewed();
-    if (repoSkipped) {
-      track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
-        step_id: currentStep,
-        step_index: currentIndex,
-        reason: "no_repo_selected",
-      });
-    } else {
-      trackStepCompleted();
-    }
-    track(
-      ANALYTICS_EVENTS.ONBOARDING_COMPLETED,
-      buildCompletedProps({
-        flowStartedAtMs: flowStartedAtRef.current,
-        nowMs: Date.now(),
-        githubConnected: githubUserIntegrations.length > 0,
-        repoSkipped,
-      }),
-    );
-    if (githubUserIntegrations.length > 0) {
-      // GitHub connected defaults the run mode to cloud (overriding a local
-      // mode left behind by an earlier session), but an explicit local folder
-      // pick in this step must win over that default. On cloud-only hosts
-      // selectedDirectory holds an "owner/repo" value, not a local path, so
-      // only treat it as a local pick on local-workspace hosts.
-      const pickedLocalRepo =
-        localWorkspaces && !selectedCloudRepo && !!selectedDirectory;
-      setLastUsedWorkspaceMode(pickedLocalRepo ? "local" : "cloud");
-    }
-    try {
-      await assignRepoToSpaces();
-    } catch (error) {
-      log.warn("Failed to save onboarding repo to spaces", { error });
-    }
-    shipIt();
-    completeOnboarding();
-    openTaskInput();
-  };
 
   const handleSkip = () => {
     if (isCompleting) return;
@@ -528,32 +467,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
                   className="w-full"
                 >
                   <InstallCliStep onNext={handleNext} onBack={handleBack} />
-                </motion.div>
-              )}
-
-              {currentStep === "select-repo" && (
-                <motion.div
-                  key="select-repo"
-                  custom={direction}
-                  initial="enter"
-                  animate="center"
-                  exit="exit"
-                  variants={stepVariants}
-                  transition={{ duration: 0.3 }}
-                  className="w-full"
-                >
-                  <SelectRepoStep
-                    onComplete={handleComplete}
-                    onBack={handleBack}
-                    selectedDirectory={selectedDirectory}
-                    detectedRepo={detectedRepo}
-                    isDetectingRepo={isDetectingRepo}
-                    onDirectoryChange={handleDirectoryChange}
-                    selectedCloudRepo={selectedCloudRepo}
-                    onCloudRepoChange={handleCloudRepoChange}
-                    hasGithubIntegration={hasGithubIntegration}
-                    isCompleting={isCompleting}
-                  />
                 </motion.div>
               )}
             </AnimatePresence>
