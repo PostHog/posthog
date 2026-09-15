@@ -40,6 +40,7 @@ from ...api.skill_services import (
     backfill_skill_digests,
     compute_spec_problems,
     create_skill,
+    create_skill_file,
     publish_skill_version,
     resolve_skill_owners,
     set_skill_owners,
@@ -394,14 +395,15 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("non_numeric", "abc"),
-            ("float", "1.5"),
+            ("non_numeric", "abc", ""),
+            ("float", "1.5", ""),
+            ("conditional", "abc", "*"),
         ]
     )
-    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value):
+    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value, etag):
         self.create_skill(name="some-skill")
 
-        response = self.client.get(self._url() + f"?created_by_id={value}")
+        response = self.client.get(self._url() + f"?created_by_id={value}", HTTP_IF_NONE_MATCH=etag)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -423,6 +425,129 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
+
+    @parameterized.expand([("weak",), ("strong",), ("wildcard",)])
+    def test_list_answers_304_when_nothing_changed(self, validator: str) -> None:
+        self.create_skill(name="skill-a", description="Does A things.")
+        first = self.client.get(self._url())
+        assert first.status_code == status.HTTP_200_OK
+        assert first["ETag"]
+        assert first["Cache-Control"] == "private, no-cache"
+
+        etag = first["ETag"]
+        if validator == "strong":
+            etag = etag.removeprefix("W/")
+        elif validator == "wildcard":
+            etag = "*"
+        second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert second.status_code == status.HTTP_304_NOT_MODIFIED
+        assert second["ETag"] == first["ETag"]
+        assert second["X-Skills-Version"] == first["X-Skills-Version"]
+        assert not second.content
+
+    @parameterized.expand(
+        [
+            (
+                "publish",
+                lambda self: publish_skill_version(
+                    self.team, user=self.user, skill_name="skill-a", description="Does B things.", base_version=1
+                ),
+            ),
+            (
+                "file_edit",
+                lambda self: create_skill_file(
+                    self.team, user=self.user, skill_name="skill-a", path="notes.md", content="x"
+                ),
+            ),
+            ("archive", lambda self: archive_skill(self.team, "skill-a")),
+            # Owners are keyed on the skill name, so an owner-only change touches no skill row. The
+            # skills version alone cannot see it, and the list serializes owners.
+            (
+                "owner_change",
+                lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
+            ),
+            ("category", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").update(category="scout")),
+            ("hard_delete", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").delete()),
+            ("creator_profile", lambda self: User.objects.filter(pk=self.user.pk).update(first_name="Updated")),
+            (
+                "owner_profile",
+                lambda self: User.objects.filter(email="listowner@example.com").update(first_name="Updated"),
+            ),
+            (
+                "owner_access",
+                lambda self: OrganizationMembership.objects.filter(
+                    organization=self.organization, user__email="listowner@example.com"
+                ).delete(),
+            ),
+        ]
+    )
+    def test_list_etag_changes_after_a_store_change(self, _label, change):
+        self.create_skill(name="skill-a", description="Does A things.")
+        set_skill_owners(self.team, "skill-a", [])
+        self.create_skill(name="skill-b", description="Does B things.")
+        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")])
+        first = self.client.get(self._url())
+
+        change(self)
+        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["ETag"] != first["ETag"]
+        assert response.json() != first.json()
+
+    def test_list_etag_does_not_carry_across_a_deploy(self):
+        # Every other seed input is a store row, so without the revision a release that serializes
+        # the list differently would answer 304 with the previous shape until the next store write.
+        self.create_skill(name="skill-a", description="Does A things.")
+        with patch("products.skills.backend.api.skills.get_git_commit_short", return_value="1111111111"):
+            etag = self.client.get(self._url())["ETag"]
+
+        with patch("products.skills.backend.api.skills.get_git_commit_short", return_value="2222222222"):
+            response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["ETag"] != etag
+
+    def test_list_etag_does_not_carry_between_filtered_pages(self):
+        self.create_skill(name="pdf-processing", description="Handles PDFs.")
+        self.create_skill(name="code-review", description="Reviews code.")
+        etag = self.client.get(self._url())["ETag"]
+
+        response = self.client.get(self._url() + "?search=pdf", HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["pdf-processing"]
+
+    def test_list_etag_does_not_carry_between_users(self):
+        # Access filtering is per user, so one member's validator must never match another's list.
+        other = self._create_user("otherlister@example.com")
+        self.create_skill(name="skill-a", description="Does A things.")
+        etag = self.client.get(self._url())["ETag"]
+
+        self.client.force_login(other)
+        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["skill-a"]
+
+    @parameterized.expand([("burst", "Burst"), ("sustained", "Sustained")])
+    def test_list_skills_throttles_a_session_caller(self, _label: str, window: str) -> None:
+        # The default burst/sustained classes count personal-API-key traffic only, so without its
+        # own throttles the list action lets a session or OAuth client poll it with no ceiling.
+        self.create_skill(name="throttle-list-skill")
+        period = "minute" if window == "Burst" else "hour"
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch(f"products.skills.backend.api.skills.SkillList{window}Throttle.rate", new=f"1/{period}"),
+            patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000),
+        ):
+            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+            blocked = self.client.get(self._url())
+
+            assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS, blocked.content
+            assert int(blocked["Retry-After"]) > 0
 
     # --- Search ---
 
@@ -2273,6 +2398,18 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["count"] == 1
             assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
+            for access, expected_count in [("viewer", 2), ("none", 1)]:
+                AccessControl.objects.filter(
+                    team=self.team,
+                    resource="llm_skill",
+                    resource_id=str(restricted.id),
+                    organization_member=membership,
+                ).update(access_level=access)
+                response = self.client.get(
+                    self._url(), {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"]
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == expected_count
             return
 
         allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
@@ -2479,9 +2616,11 @@ class TestLLMSkillOwners(APIBaseTest):
         create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
         set_skill_owners(self.team, "orphaned", [member])
 
+        url = self._url() + f"?owner_id={member.id}"
+        etag = self.client.get(url)["ETag"]
         member.organization_memberships.filter(organization=self.organization).delete()
 
-        response = self.client.get(self._url() + f"?owner_id={member.id}")
+        response = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == []
