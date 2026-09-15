@@ -26,6 +26,7 @@ from google.api_core.exceptions import (
     InternalServerError,
     NotFound,
     PermissionDenied,
+    RetryError,
     ServiceUnavailable,
     TooManyRequests,
 )
@@ -93,8 +94,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when attempting to run a batch export without required BigQuery permissions.
     # Our own version of `Forbidden`.
     "MissingRequiredPermissionsError",
-    # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
-    "StartQueryTimeoutError",
+    # Raised when a job takes too long to start (i.e. remains in "PENDING" state for too long).
+    "StartJobTimeoutError",
     # A service account we are supposed to impersonate does not exist.
     "ServiceAccountNotFoundError",
     # We could not verify that the service account we are meant to use belongs to the
@@ -725,36 +726,70 @@ class BigQueryClient:
             The query result.
 
         Raises:
-            StartQueryTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
+            StartJobTimeoutError: If the query took too long to start (i.e. remained in "PENDING" state for
                 longer than the timeout duration).
         """
         job_config = bigquery.QueryJobConfig()
-        query_start_time = time.monotonic()
         query_job = await asyncio.to_thread(self.sync_client.query, query, job_config=job_config)
 
-        # if query is in "PENDING" state, wait for it to start (and timeout if it takes too long)
-        if query_job.state == "PENDING":
-            while True:
-                await asyncio.to_thread(query_job.reload)
-                if query_job.state != "PENDING":
-                    break
-                query_duration = time.monotonic() - query_start_time
-                if query_duration > start_query_timeout:
-                    query_id = query_job.query_id
-                    error_msg = f"Query still in 'PENDING' state after {start_query_timeout} seconds; timing out."
-                    if query_id is not None:
-                        error_msg += f" Query ID: {query_id}"
-                    self.external_logger.error(error_msg)
-                    # best-effort attempt to cancel the query
-                    try:
-                        await asyncio.to_thread(query_job.cancel)
-                    except (GoogleAPICallError, requests.exceptions.RequestException) as err:
-                        self.external_logger.warning("Failed to cancel query when cleaning up: %s", err)
-                    raise StartQueryTimeoutError(query_id, start_query_timeout)
-                await asyncio.sleep(poll_interval)
+        try:
+            await self._wait_for_job_start_or_timeout(query_job, start_query_timeout, poll_interval)
+        except TimeoutError:
+            error_msg = f"Query still in 'PENDING' state after {start_query_timeout} seconds; timing out."
 
-        # wait for the query to complete and return the result
+            query_id = query_job.query_id
+            if query_id is not None:
+                error_msg += f" Query ID: {query_id}"
+            self.external_logger.error(error_msg)  # noqa: TRY400
+
+            raise StartJobTimeoutError(query_job, start_query_timeout)
+
         return await asyncio.to_thread(query_job.result)
+
+    async def _wait_for_job_start_or_timeout(
+        self,
+        job: bigquery.job._AsyncJob,
+        timeout: int | float = 15 * 60,
+        poll_interval: int | float = 0.5,
+        *,
+        start_time: float | None = None,
+    ) -> None:
+        """Wait until job starts or raise if it takes longer than timeout.
+
+        Additionally, we will attempt to cancel the job if the timeout fires.
+        This is only a best effort cancellation, so no guarantee is made.
+
+        Raises:
+            TimeoutError: If `timeout` is exceeded before the job starts.
+        """
+        if job.state != "PENDING":
+            return
+
+        job_start_time = time.monotonic() if start_time is None else start_time
+
+        while True:
+            job_duration = time.monotonic() - job_start_time
+
+            if job_duration >= timeout:
+                self.logger.error("Job start timeout exceeded", timeout=timeout, job_id=job.job_id)
+
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(job.cancel, retry=None, timeout=5), timeout=5)
+                except (GoogleAPICallError, RetryError, requests.exceptions.RequestException, TimeoutError) as err:
+                    self.logger.warning("Job cancel failed", exc_info=err, job_id=job.job_id)
+
+                raise TimeoutError(f"Job did not start within {timeout} seconds")
+
+            if start_time is None:
+                await asyncio.to_thread(job.reload)
+            else:
+                # The SDK accepts retry=None, but reload's annotation excludes it.
+                await asyncio.to_thread(job.reload, retry=None, timeout=min(30, timeout - job_duration))  # type: ignore[arg-type]
+
+            if job.state != "PENDING":
+                break
+
+            await asyncio.sleep(poll_interval)
 
     async def check_for_query_permissions(
         self,
@@ -1028,7 +1063,7 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
-    async def load_file(self, file, format: FileFormat, table: BigQueryTable):
+    async def load_file(self, file, format: FileFormat, table: BigQueryTable, timeout: int | float = 15 * 60):
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
@@ -1048,33 +1083,59 @@ class BigQueryClient:
         else:
             raise ValueError(f"Unsupported file format '{format}'")
 
-        self.logger.info("Creating BigQuery load job", format=format, table_id=table.name)
-
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
-
-        self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
         initial_retry = 1
         backoff_factor = 2
         max_retry = 32
         attempt = 0
 
+        load_job: None | bigquery.LoadJob = None
+        load_job_start_time: float | None = None
         while True:
             try:
-                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+                if not load_job:
+                    load_job = await asyncio.to_thread(self._start_load_job, file, bq_table, job_config=job_config)
+                    load_job_start_time = time.monotonic()
+                    self.logger.info("BigQuery load job created", format=format, table_id=table.name)
+
+                try:
+                    await self._wait_for_job_start_or_timeout(load_job, timeout, start_time=load_job_start_time)
+
+                except TimeoutError:
+                    error_msg = (
+                        f"LoadJob '{load_job.job_id}' still in 'PENDING' state after {timeout} seconds; timing out."
+                    )
+                    self.external_logger.error(error_msg)  # noqa: TRY400
+
+                    raise StartJobTimeoutError(load_job, timeout)
+
+                self.logger.info("BigQuery load job started", format=format, table_id=table.name)
+                try:
+                    result = await asyncio.to_thread(load_job.result)
+                except Exception:
+                    # A failed status request does not mean the load itself failed.
+                    if load_job.state == "DONE" and load_job.error_result is not None:
+                        load_job = None
+                    raise
+
             except (
                 TooManyRequests,
                 ServiceUnavailable,
                 GatewayTimeout,
                 InternalServerError,
                 BigQueryQuotaExceededError,
+                RetryError,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
             ) as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                error_code = getattr(err.cause if isinstance(err, RetryError) else err, "code", None)
                 self.logger.warning(
                     "LoadJob transient error encountered",
                     attempt=attempt,
                     backoff=backoff,
-                    error_code=err.code,
+                    error_code=error_code,
                     exc_info=True,
                 )
                 self.external_logger.warning(
@@ -1087,7 +1148,7 @@ class BigQueryClient:
                     err,
                     attempt=attempt,
                     backoff=backoff,
-                    error_code=err.code,
+                    error_code=error_code,
                 )
 
                 await asyncio.sleep(backoff)
@@ -1113,6 +1174,7 @@ class BigQueryClient:
                 )
                 await asyncio.sleep(backoff)
                 attempt += 1
+
             except BadRequest as err:
                 if "matched no files" in str(err):
                     backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
@@ -1157,14 +1219,16 @@ class BigQueryClient:
             else:
                 return result
 
-    def _run_load_job(self, file, bq_table, job_config):
-        """Run a BigQuery LoadJob and return its result.
+    def _start_load_job(self, file, bq_table: bigquery.Table, job_config: bigquery.LoadJobConfig) -> bigquery.LoadJob:
+        """Start a BigQuery LoadJob and return a handler.
 
-        This method blocks and should only be run on an executor.
+        This method issues a blocking network request that starts the load job
+        and should be run off the event loop.
+
+        The returned handler can be used to check the job's state and obtain
+        its results.
         """
-        load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-        result = load_job.result()
-        return result
+        return self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -1187,13 +1251,19 @@ class BigQueryQuotaExceededError(Exception):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
 
 
-class StartQueryTimeoutError(TimeoutError):
-    """Exception raised when a query takes too long to start."""
+class StartJobTimeoutError(TimeoutError):
+    """Exception raised when a BigQuery job takes too long to start.
 
-    def __init__(self, query_id: str | None, timeout: float | int):
-        error_msg = f"Query still in 'PENDING' state after {timeout} seconds; timing out."
-        if query_id is not None:
-            error_msg += f" Query ID: {query_id}"
+    This is the user-facing error of a `TimeoutError`. Includes more
+    information about the job to help the user understand the error.
+    """
+
+    def __init__(self, job: bigquery.job._AsyncJob, timeout: float | int):
+        error_msg = f"The {job.job_type} job '{job.job_id}' has not started after we waited {timeout} seconds. This may indicate your BigQuery instance is under too much load and unresponsive."
+
+        if isinstance(job, bigquery.QueryJob) and job.query_id is not None:
+            error_msg += f" Query ID: {job.query_id}"
+
         super().__init__(error_msg)
 
 
