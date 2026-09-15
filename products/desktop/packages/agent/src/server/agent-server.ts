@@ -491,6 +491,13 @@ export class AgentServer {
   private adapterEmittedTurnComplete = false;
   private suppressAdapterTurnComplete = false;
   private readonly cancelledStartupSessions = new WeakSet<ActiveSession>();
+  // Wakes a retry backoff that is mid-wait. A rate-limit backoff runs tens of
+  // seconds, so without this a cancelled startup turn stays active for the whole
+  // delay before the loop reaches its next cancellation check.
+  private readonly pendingRetryWakeups = new WeakMap<
+    ActiveSession,
+    () => void
+  >();
   private runUsage = new RunUsageAccumulator();
   private runUsageRunId: string | null = null;
   private detectedPrUrl: string | null = null;
@@ -1609,6 +1616,7 @@ export class AgentServer {
         });
         if (this.isRetryWrappedSession(this.session)) {
           this.cancelledStartupSessions.add(this.session);
+          this.pendingRetryWakeups.get(this.session)?.();
         }
         await this.session.clientConnection.cancel({
           sessionId: this.session.acpSessionId,
@@ -2543,6 +2551,33 @@ export class AgentServer {
    * case retries with a hidden continuation; failures where the request may
    * never have been processed re-send the original prompt instead.
    */
+  /**
+   * Wait before a retry, waking early when the run is cancelled. The caller's
+   * own cancellation check runs straight after, so this only decides how long
+   * the turn stays active, never whether it retries.
+   */
+  private async waitBeforeRetry(
+    session: ActiveSession,
+    delayMs: number,
+  ): Promise<void> {
+    if (this.cancelledStartupSessions.has(session)) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRetryWakeups.delete(session);
+        resolve();
+      }, delayMs);
+      this.pendingRetryWakeups.set(session, () => {
+        clearTimeout(timer);
+        this.pendingRetryWakeups.delete(session);
+        // Yield one tick rather than resolving inside the cancel handler. The
+        // caller can still replace the session after it cancels, and the loop
+        // must re-read that state once the handler's own work is done, so a
+        // session replacement keeps winning over the stale cancellation.
+        setTimeout(resolve, 0);
+      });
+    });
+  }
+
   private async promptWithUpstreamRetry(
     request: {
       sessionId: string;
@@ -2648,7 +2683,7 @@ export class AgentServer {
             continueInterruptedTurn,
           },
         );
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await this.waitBeforeRetry(originatingSession, delayMs);
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn could be retried",
