@@ -16,7 +16,7 @@ import { cn, Text } from "@posthog/quill";
 import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
-import { GoalDialog, type GoalSubmitOptions } from "./GoalDialog";
+import { GoalComposer } from "./GoalComposer";
 
 interface GoalsScoreboardProps {
   goals: ContextGoal[];
@@ -30,8 +30,8 @@ type Editing = { index: number | null } | null;
 
 /**
  * The numbers this space moves, as one row of tiles above the briefing. A tile
- * opens the goal for editing; removal lives in the dialog so the tile stays a
- * single button.
+ * opens the goal in the composer below the row; removal lives there too, so a
+ * tile stays a single button.
  */
 export function GoalsScoreboard({
   goals,
@@ -43,14 +43,18 @@ export function GoalsScoreboard({
   const editingGoal =
     editing && editing.index !== null ? goals[editing.index] : null;
 
-  const upsert = async (goal: ContextGoal, options: GoalSubmitOptions) => {
+  const save = async (goal: ContextGoal) => {
     if (editing?.index == null) {
       await onChange([...goals, goal]);
     } else {
       await onChange(goals.map((g, i) => (i === editing.index ? goal : g)));
     }
     setEditing(null);
-    if (options.askAgent) await onAskAgentForMeasure(goal);
+  };
+
+  const askAgent = async (goal: ContextGoal) => {
+    await save(goal);
+    await onAskAgentForMeasure(goal);
   };
 
   const remove = async () => {
@@ -69,44 +73,48 @@ export function GoalsScoreboard({
           <li key={`${goal.name}-${index}`}>
             <GoalTile
               goal={goal}
+              selected={editing?.index === index}
               onOpen={() => setEditing({ index })}
               disabled={isSaving}
             />
           </li>
         ))}
-        <li>
-          <button
-            type="button"
-            onClick={() => setEditing({ index: null })}
-            disabled={isSaving}
-            className={cn(
-              "flex h-full min-h-[104px] w-full flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed px-3 py-3 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground",
-              goals.length === 0 && "items-start text-left",
-            )}
-          >
-            <span className="flex items-center gap-1.5 font-medium text-xs">
-              <PlusIcon size={14} />
-              {goals.length === 0 ? "Add the first goal" : "Add goal"}
-            </span>
-            {goals.length === 0 ? (
-              <span className="text-xxs">
-                Write HogQL, link an insight, or ask an agent to measure it.
+        {editing?.index === null ? null : (
+          <li>
+            <button
+              type="button"
+              onClick={() => setEditing({ index: null })}
+              disabled={isSaving}
+              className={cn(
+                "flex h-full min-h-[104px] w-full flex-col items-center justify-center gap-1 rounded-lg border border-border border-dashed px-3 py-3 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground",
+                goals.length === 0 && "items-start text-left",
+              )}
+            >
+              <span className="flex items-center gap-1.5 font-medium text-xs">
+                <PlusIcon size={14} />
+                {goals.length === 0 ? "Add the first goal" : "Add goal"}
               </span>
-            ) : null}
-          </button>
-        </li>
+              {goals.length === 0 ? (
+                <span className="text-xxs">
+                  Say it in a sentence. The query and the target follow.
+                </span>
+              ) : null}
+            </button>
+          </li>
+        )}
       </ul>
 
-      <GoalDialog
-        open={editing !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditing(null);
-        }}
-        initial={editingGoal}
-        onSubmit={upsert}
-        onDelete={editingGoal ? remove : undefined}
-        isSaving={isSaving}
-      />
+      {editing ? (
+        <GoalComposer
+          key={editing.index ?? "new"}
+          initial={editingGoal}
+          onSave={save}
+          onAskAgent={askAgent}
+          onDelete={editingGoal ? remove : undefined}
+          onClose={() => setEditing(null)}
+          isSaving={isSaving}
+        />
+      ) : null}
     </section>
   );
 }
@@ -141,10 +149,12 @@ function formatDueDate(iso: string): string {
 
 function GoalTile({
   goal,
+  selected,
   onOpen,
   disabled,
 }: {
   goal: ContextGoal;
+  selected: boolean;
   onOpen: () => void;
   disabled: boolean;
 }) {
@@ -160,7 +170,11 @@ function GoalTile({
       onClick={onOpen}
       disabled={disabled}
       title={goal.why || goal.name}
-      className="flex h-full w-full flex-col gap-2 rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-fill-hover"
+      aria-pressed={selected}
+      className={cn(
+        "flex h-full w-full flex-col gap-2 rounded-lg border bg-card px-3 py-3 text-left transition-colors hover:bg-fill-hover",
+        selected ? "border-foreground/40" : "border-border",
+      )}
     >
       <span className="flex items-center gap-1.5 truncate text-muted-foreground text-xs">
         {goal.measure?.kind === "insight" ? (
