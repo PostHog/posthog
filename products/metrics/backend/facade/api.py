@@ -39,7 +39,7 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import cached_metric_names
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
@@ -223,6 +223,7 @@ def list_metric_names(
     search: str = "",
     limit: int = 100,
     services: Sequence[str] = (),
+    names: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
@@ -234,7 +235,27 @@ def list_metric_names(
     The unsearched list is cached per team and service scope for a minute;
     searches are not.
     """
+    if names:
+        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
     return cached_metric_names(team=team, search=search, limit=limit, services=services)
+
+
+def list_metric_picker_names(
+    *,
+    team: Team,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """List current metric names for the viewer picker without sparklines or caching."""
+    rows = MetricNamesQueryRunner(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        include_sparklines=False,
+    ).run()
+    return [{"name": row["name"], "metric_type": row["metric_type"]} for row in rows]
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
@@ -251,21 +272,30 @@ def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) ->
 def list_metric_attribute_keys(
     *,
     team: Team,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List distinct attribute keys seen on the team's metrics, most frequent
-    first, for the filter bar's key autocomplete.
+    """List attribute keys by distinct series count, from highest to lowest.
 
-    Datapoint and resource attributes are merged into one list (filters run
-    with scope 'auto', so the split doesn't matter to callers); `service_name`
-    is always surfaced when it matches the search. The window defaults to the
-    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
-    out-of-range limit or an inverted window.
+    When a metric name is provided, only series that emitted that metric in the
+    recent window supply choices. Datapoint and resource attributes are merged
+    into one list (filters run with scope 'auto', so the split doesn't matter
+    to callers); `service_name` is always surfaced when it matches the search.
+    The window defaults to the last 7 days. Returns `{"name": str,
+    "series_count": int}` dicts. Raises `ValueError` for an out-of-range limit
+    or an inverted window.
     """
-    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    runner = MetricAttributeKeysQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
     return runner.run()
 
 

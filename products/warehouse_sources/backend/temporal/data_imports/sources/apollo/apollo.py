@@ -128,13 +128,14 @@ def get_rows(
         if config.method == "GET":
             response = session.get(url, params=page_params, timeout=REQUEST_TIMEOUT_SECONDS)
         else:
-            body: dict[str, Any] = dict(page_params)
+            query_params: dict[str, Any] = page_params if config.page_params_in_query else {}
+            body: dict[str, Any] = {} if config.page_params_in_query else dict(page_params)
             if config.sort_by_field is not None:
                 # Newest-first lets incremental runs stop at the watermark instead
                 # of paging through history (and keeps full scans deterministic).
                 body["sort_by_field"] = config.sort_by_field
                 body["sort_ascending"] = False
-            response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+            response = session.post(url, params=query_params, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             retry_after = (

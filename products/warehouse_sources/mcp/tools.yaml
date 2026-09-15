@@ -277,9 +277,24 @@ tools:
     external-data-schemas-update:
         operation: external_data_schemas_update
         enabled: false
-    external-data-sources-bulk-update-schemas-partial-update:
+    external-data-sources-bulk-update-schemas:
         operation: external_data_sources_bulk_update_schemas_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update many table schemas in one request
+        description: >
+            Apply sync configuration to several of a source's table schemas at once: enable or disable syncing
+            (should_sync), sync_type, sync frequency and UTC time of day, incremental field, and primary key columns.
+            Each entry needs the schema id plus the fields to change. Prefer this over looping
+            'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source,
+            such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before
+            anything is written, and a schema that fails is reported by name while the rest of the batch is saved.
+            Changes take effect on the next sync, not retroactively.
     external-data-sources-cdc-status-retrieve:
         operation: external_data_sources_cdc_status_retrieve
         enabled: false

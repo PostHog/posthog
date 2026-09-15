@@ -9,16 +9,20 @@ from rest_framework import serializers
 from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, serialize_fields
+from posthog.hogql.database.database import SerializedField, serialize_fields
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import User
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.api import get_incremental_config
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 from . import sync_cadence, view_description
+
+# Only these two are still written to the column: MODIFIED on edit, CANCELLED by the cancel action.
+# Every other value was last written by the v1 materialization workflow, which no longer exists, so it
+# describes a run no current code path could have produced.
+STATUSES_STILL_WRITTEN = frozenset({DataWarehouseSavedQuery.Status.MODIFIED, DataWarehouseSavedQuery.Status.CANCELLED})
 
 
 class DataWarehouseSavedQuerySerializerMixin:
@@ -38,8 +42,7 @@ class DataWarehouseSavedQuerySerializerMixin:
             return jobs[0] if jobs else None
         except AttributeError:
             return (
-                DataModelingJob.objects.filter(saved_query_id=view.id)
-                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                DataModelingJob.objects.filter(saved_query_id=view.id, engine=DataModelingJobEngine.CLICKHOUSE)
                 .order_by("-last_run_at")
                 .first()
             )
@@ -47,13 +50,13 @@ class DataWarehouseSavedQuerySerializerMixin:
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         run = self._serving_run(view)
-        return run.last_run_at if run is not None else view.last_run_at
+        return run.last_run_at if run is not None else None
 
     @extend_schema_field(serializers.ChoiceField(choices=DataWarehouseSavedQuery.Status.choices, allow_null=True))
     def get_status(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
         if run is None:
-            return view.status
+            return view.status if view.status in STATUSES_STILL_WRITTEN else None
         # Modified means "edited and not materialized since", which no run can express. A run that
         # happened after the edit answers it, so the column only wins while the edit is the newer fact.
         edited_since_the_run = (
@@ -66,7 +69,7 @@ class DataWarehouseSavedQuerySerializerMixin:
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
-        return run.error if run is not None else view.latest_error
+        return run.error if run is not None else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
@@ -95,22 +98,18 @@ class DataWarehouseSavedQuerySerializerMixin:
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
-        query = view.query or {}
-        if not isinstance(query, dict) or "query" not in query:
+        # `hogql_fields` rather than `hogql_definition`, which would read the SQL body the list
+        # page defers.
+        hogql_fields = view.hogql_fields()
+        if not hogql_fields:
             return []
 
-        team_id = self.context["team_id"]  # type: ignore[attr-defined]
-        database = self.context.get("database", None)  # type: ignore[attr-defined]
-        if not database:
-            database = Database.create_for(
-                team_id=team_id,
-                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
-            )
-
-        context = HogQLContext(team_id=team_id, database=database)
+        # `hogql_fields` holds concrete `DatabaseField` subclasses only, and `serialize_fields`
+        # reads the context database for none of those, so this needs no HogQL database build.
+        context = HogQLContext(team_id=self.context["team_id"])  # type: ignore[attr-defined]
 
         descriptions = view_description.view_annotation_map(view)
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
+        fields = serialize_fields(hogql_fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
                 key=field.name,

@@ -393,6 +393,7 @@ from .ebay.source import EbaySource
 from .ecb_data_portal.source import EcbDataPortalSource
 from .elasticemail.source import ElasticemailSource
 from .elasticsearch.source import ElasticsearchSource
+from .electricity_maps.source import ElectricityMapsSource
 from .elevenlabs.source import ElevenLabsSource
 from .eloqua.source import EloquaSource
 from .emailoctopus.source import EmailOctopusSource
@@ -1097,6 +1098,7 @@ from .sleekplan.source import SleekplanSource
 from .sleuth.source import SleuthSource
 from .smaily.source import SmailySource
 from .smartengage.source import SmartEngageSource
+from .smartlead.source import SmartleadSource
 from .smartlook.source import SmartlookSource
 from .smartreach.source import SmartreachSource
 from .smartrecruiters.source import SmartrecruitersSource
@@ -1143,6 +1145,7 @@ from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .stytch.source import StytchSource
+from .substack.source import SubstackSource
 from .sumo_logic.source import SumoLogicSource
 from .sumsub.source import SumsubSource
 from .supabase.source import SupabaseSource

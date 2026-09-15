@@ -98,6 +98,7 @@ class TestQueryFailureHandling(SimpleTestCase):
         [
             ("interactive", None, BUDGET_INTERACTIVE),
             ("query", LimitContext.QUERY, BUDGET_INTERACTIVE),
+            ("data_catalog", LimitContext.DATA_CATALOG, BUDGET_INTERACTIVE),
             ("worker", LimitContext.QUERY_ASYNC, BUDGET_EXTENDED),
             ("export", LimitContext.EXPORT, BUDGET_EXTENDED),
         ]

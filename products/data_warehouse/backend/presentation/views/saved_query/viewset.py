@@ -22,7 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.temporal.common.client import sync_connect
@@ -106,7 +106,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         request_data = getattr(self.request, "data", {})
-        should_include_database = self.action in {"create", "list", "retrieve"} or (
+        # Read actions stay out: building a database selects every view in the team, SQL body
+        # included, and neither serializer reads it. Only the write paths below do, to check a
+        # name collision and to resolve a query's source tables.
+        should_include_database = self.action == "create" or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
@@ -127,12 +130,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "column_annotations",
                 Prefetch(
                     "datamodelingjob_set",
-                    queryset=DataModelingJob.objects.exclude(engine=DataModelingJobEngine.DUCKGRES).order_by(
+                    queryset=DataModelingJob.objects.filter(engine=DataModelingJobEngine.CLICKHOUSE).order_by(
                         "-last_run_at"
                     )[:1],
                     to_attr="jobs",
                 ),
             )
+            # Both serializers read `folder.id` and `folder.name`, so without the join Django
+            # fetches the folder once per foldered view.
+            .select_related("folder")
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
@@ -140,7 +146,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
         # Allow retrieve so the Node detail page can fetch them by ID.
         if self.action == "list":
-            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+            # The list serializer reads none of these large JSONB columns. Left in the SELECT,
+            # Postgres detoasts each one per view, and a page holds up to a thousand views.
+            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
+                "query", "external_tables", "incremental_state"
+            )
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -164,12 +174,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if not is_managed_viewset_enabled:
             base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
-        # Only annotate with latest activity ID for list operations, not for single object retrieves
-        # This avoids the annotation when we're getting a single object for update/create/etc.
-        action = self.action if hasattr(self, "action") else None
-        if action == "list" or action == "retrieve":
-            # Add latest query-changing activity id annotation to avoid N+1 queries. Scoped to query
-            # edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs don't advance the head.
+        # Only the detail serializer returns `latest_history_id`, and the subquery costs a jsonb
+        # key-path filter the GIN index on `detail` cannot serve, so keep it off the list page.
+        if getattr(self, "action", None) == "retrieve":
+            # Scoped to query edits (see QUERY_CHANGE_ACTIVITY_FILTER) so materialization syncs
+            # don't advance the head.
             latest_activity = (
                 ActivityLog.objects.filter(
                     scope="DataWarehouseSavedQuery",
@@ -555,8 +564,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         item_id = kwargs["pk"]
         if not DataWarehouseSavedQuery.objects.filter(id=item_id, team_id=self.team_id).exists():
@@ -566,10 +574,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             scope="DataWarehouseSavedQuery",
             team_id=self.team_id,
             item_ids=[str(item_id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["POST"], detail=True)
     def cancel(self, request: request.Request, *args, **kwargs) -> response.Response:

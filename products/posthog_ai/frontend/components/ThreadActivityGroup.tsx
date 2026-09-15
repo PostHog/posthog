@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
 import {
+    ACTIVITY_CHAIN_MIN,
     activityWindow,
     groupConsecutiveTools,
     type ThreadActivityGroup as ActivityGroup,
@@ -36,10 +37,7 @@ export function ThreadActivityGroup({
     const isFollowing = VirtualizedThread.useIsFollowing()
     const [expanded, setExpanded] = useState(false)
     const [visibleIds, setVisibleIds] = useState<string[]>([])
-    const [middlePage, setMiddlePage] = useState(0)
     const [showMiddle, setShowMiddle] = useState(false)
-    const [showFailures, setShowFailures] = useState(false)
-    const [failurePage, setFailurePage] = useState(0)
     useEffect(() => {
         if (expanded && isFollowing) {
             setVisibleIds((previous) =>
@@ -53,7 +51,6 @@ export function ThreadActivityGroup({
         const call = item.toolCallId ? toolInvocations.get(item.toolCallId) : undefined
         return call ? [call] : []
     })
-    const failures = calls.filter((call) => call.status === 'failed')
     const thoughtsOnly = group.items.every((item) => item.type === 'assistant_thought')
     const activeLabel = thoughtsOnly ? 'Thinking' : 'Working'
     const finishedLabel = thoughtsOnly ? 'Thought' : 'Worked'
@@ -69,21 +66,7 @@ export function ThreadActivityGroup({
     const visible = new Set(visibleIds)
     const snapshot = isFollowing ? group.items : group.items.filter((item) => visible.has(item.id))
     const visibleThoughtsOnly = snapshot.every((item) => item.type === 'assistant_thought')
-    const chainKeys = new Map(
-        groupConsecutiveTools(group.items, toolInvocations).flatMap((chain) =>
-            chain.map((item) => [item.id, chain[0].id] as const)
-        )
-    )
-    const window = activityWindow(snapshot, middlePage)
-    const displayedIds = new Set(
-        [...window.first, ...(showMiddle ? window.middle : []), ...window.last].map((item) => item.id)
-    )
-    const additionalFailures = snapshot.filter(
-        (item) =>
-            !displayedIds.has(item.id) && item.toolCallId && toolInvocations.get(item.toolCallId)?.status === 'failed'
-    )
-    const failurePageCount = Math.ceil(additionalFailures.length / 10)
-    const currentFailurePage = Math.max(0, Math.min(failurePage, failurePageCount - 1))
+    const window = activityWindow(snapshot, showMiddle)
     const newCount = isFollowing ? 0 : group.items.filter((item) => !visible.has(item.id)).length
     const toggle = (): void => {
         if (!expanded) {
@@ -91,7 +74,7 @@ export function ThreadActivityGroup({
         }
         setExpanded(!expanded)
     }
-    const individualRows = (items: ThreadItem[]): ReactNode =>
+    const individualRows = (items: ThreadItem[]): ReactNode[] =>
         items.map((item) => (
             <Fragment key={item.id}>
                 {visibleThoughtsOnly ? (
@@ -103,10 +86,12 @@ export function ThreadActivityGroup({
                 )}
             </Fragment>
         ))
-    const rows = (items: ThreadItem[]): ReactNode =>
-        groupConsecutiveTools(items, toolInvocations).map((chain) => {
-            if (chain.length === 1) {
-                return <Fragment key={chain[0].id}>{individualRows(chain)}</Fragment>
+    // The first and last rows stay flat so a reader never opens two accordions to reach one call.
+    // Flat rows keep their own item keys, so a row's expanded state survives when the window shifts.
+    const rows = (items: ThreadItem[], fold: boolean): ReactNode =>
+        groupConsecutiveTools(items, toolInvocations).flatMap((chain) => {
+            if (!fold || chain.length < ACTIVITY_CHAIN_MIN) {
+                return individualRows(chain)
             }
             const chainCalls = chain.map((item) => toolInvocations.get(item.toolCallId!)!)
             const resolved = resolveToolCall(chainCalls[0])
@@ -115,7 +100,7 @@ export function ThreadActivityGroup({
             const running =
                 active && chainCalls.some((call) => call.status === 'pending' || call.status === 'in_progress')
             return (
-                <div key={chainKeys.get(chain[0].id)} data-attr="thread-tool-chain">
+                <div key={chain[0].id} data-attr="thread-tool-chain">
                     <Activity
                         id={`chain-${chain[0].id}`}
                         title={
@@ -177,11 +162,6 @@ export function ThreadActivityGroup({
                             tool {calls.length === 1 ? 'call' : 'calls'}
                         </span>
                     )}
-                    {failures.length > 0 && (
-                        <span className="text-danger">
-                            · {failures.length} tool {failures.length === 1 ? 'call' : 'calls'} failed
-                        </span>
-                    )}
                 </span>
             </LemonButton>
             {active && (!thoughtsOnly || waitingForInput) && (
@@ -191,73 +171,7 @@ export function ThreadActivityGroup({
             )}
             <ActivityDisclosure open={expanded} id={`activity-details-${group.id}`}>
                 <div className="ml-3 pl-3 border-l border-border-secondary flex flex-col gap-1 min-w-0">
-                    {(additionalFailures.length > 0 || showFailures) && (
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            status="danger"
-                            data-attr="thread-activity-failures"
-                            aria-expanded={showFailures}
-                            aria-controls={`activity-failures-${group.id}`}
-                            onClick={() => {
-                                pauseFollowing()
-                                setShowFailures(!showFailures)
-                            }}
-                        >
-                            {showFailures
-                                ? 'Hide additional failed calls'
-                                : `Show ${additionalFailures.length} hidden failed ${additionalFailures.length === 1 ? 'call' : 'calls'}`}
-                        </LemonButton>
-                    )}
-                    <ActivityDisclosure open={showFailures} id={`activity-failures-${group.id}`}>
-                        <div
-                            className="flex flex-col gap-1 pb-2 border-b border-border-secondary"
-                            data-attr="thread-activity-additional-failures"
-                        >
-                            {additionalFailures.length === 0 && (
-                                <span className="text-muted">All failed calls are visible in the activity below.</span>
-                            )}
-                            {failurePageCount > 1 && (
-                                <div className="flex items-center gap-2 flex-wrap text-muted">
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        data-attr="thread-activity-failures-previous"
-                                        disabledReason={currentFailurePage === 0 ? 'First page' : undefined}
-                                        onClick={() => {
-                                            pauseFollowing()
-                                            setFailurePage(currentFailurePage - 1)
-                                        }}
-                                    >
-                                        Previous
-                                    </LemonButton>
-                                    <span>
-                                        Failed calls {currentFailurePage * 10 + 1}–
-                                        {Math.min((currentFailurePage + 1) * 10, additionalFailures.length)} of{' '}
-                                        {additionalFailures.length}
-                                    </span>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        data-attr="thread-activity-failures-next"
-                                        disabledReason={
-                                            currentFailurePage + 1 === failurePageCount ? 'Last page' : undefined
-                                        }
-                                        onClick={() => {
-                                            pauseFollowing()
-                                            setFailurePage(currentFailurePage + 1)
-                                        }}
-                                    >
-                                        Next
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {individualRows(
-                                additionalFailures.slice(currentFailurePage * 10, (currentFailurePage + 1) * 10)
-                            )}
-                        </div>
-                    </ActivityDisclosure>
-                    {rows(window.first)}
+                    {rows(window.first, false)}
                     {window.hiddenCount > 0 && (
                         <>
                             <LemonButton
@@ -271,47 +185,14 @@ export function ThreadActivityGroup({
                                     setShowMiddle(!showMiddle)
                                 }}
                             >
-                                {showMiddle ? 'Hide middle activity' : `Show ${window.hiddenCount} more`}
+                                {showMiddle ? 'Show less' : `Show ${window.hiddenCount} more`}
                             </LemonButton>
                             <ActivityDisclosure open={showMiddle} id={`activity-middle-${group.id}`}>
-                                <div className="flex flex-col gap-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap text-muted">
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="tertiary"
-                                            disabledReason={window.page === 0 ? 'First page' : undefined}
-                                            onClick={() => {
-                                                pauseFollowing()
-                                                setMiddlePage(window.page - 1)
-                                            }}
-                                            data-attr="thread-activity-previous"
-                                        >
-                                            Previous
-                                        </LemonButton>
-                                        <span>
-                                            Page {window.page + 1} of {window.pageCount}
-                                        </span>
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="tertiary"
-                                            disabledReason={
-                                                window.page + 1 === window.pageCount ? 'Last page' : undefined
-                                            }
-                                            onClick={() => {
-                                                pauseFollowing()
-                                                setMiddlePage(window.page + 1)
-                                            }}
-                                            data-attr="thread-activity-next"
-                                        >
-                                            Next
-                                        </LemonButton>
-                                    </div>
-                                    {rows(window.middle)}
-                                </div>
+                                <div className="flex flex-col gap-1 min-w-0">{rows(window.middle, true)}</div>
                             </ActivityDisclosure>
                         </>
                     )}
-                    {rows(window.last)}
+                    {rows(window.last, false)}
                     {newCount > 0 && (
                         <LemonButton
                             type="tertiary"

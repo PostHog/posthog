@@ -48,7 +48,7 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 
 - One suite = one Braintrust experiment. Bundle related cases into one suite; split only when the scorecard would be heterogeneous (self-skipping scorers stretch a shared scorer list across mildly different cases, but a scorecard where half the scorers skip half the cases is a sign to split).
 - `experiment_name` is the Braintrust history key — renaming it resets cross-run comparison. Existing sandboxed suites end in `-cli` because the MCP server serves the `cli` surface.
-- `SandboxedPublicEval` sends logs to Braintrust (summary gets an experiment URL); `SandboxedPrivateEval` runs with `no_send_logs`, so the local log dir is the only record. Use private for cases whose prompts or seeds shouldn't leave the machine.
+- `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust and PostHog, including available input, output, and expected values. `SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written. PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients. See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md).
 
 ## One-shot suites
 

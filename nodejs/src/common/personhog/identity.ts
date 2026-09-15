@@ -14,7 +14,7 @@ import { PersonPropertiesSizeViolationError } from '~/common/persons/repositorie
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
-import { encodeJsonBytes, protoPersonToDomain } from './persons'
+import { PersonIdentity, encodeJsonBytes, protoPersonToDomain, protoPersonToIdentity } from './persons'
 
 /**
  * A single get-or-create key: resolve distinct_id within team_id,
@@ -83,6 +83,11 @@ export interface MergeSagaRequest {
 export const SEMANTIC_REFUSAL_METADATA_KEY = 'x-semantic-refusal'
 /** The op id belongs to a different recorded merge; refused before any durable work. */
 export const SEMANTIC_REFUSAL_OP_ID_REUSED = 'op_id_reused'
+
+/** Only a created person carries a document; a found one is identity only, the leader owns its properties. */
+export type GetOrCreatePersonOutcome =
+    | { created: true; person: InternalPerson }
+    | { created: false; person: PersonIdentity }
 
 export type MergeSagaSourceOutcome =
     | 'merged'
@@ -166,15 +171,16 @@ export class PersonhogIdentityOperations {
      * Resolve-only counterpart of get-or-create: primary-backed
      * resolution, never creates. Results come back in request order;
      * a null person means the distinct id resolves to no live person.
+     * Answers carry identity only; state comes from the leader.
      */
     async getPersonsByDistinctIds(
         keys: DistinctIdKey[],
         callerTag?: string
-    ): Promise<{ teamId: number; distinctId: string; person: InternalPerson | null }[]> {
+    ): Promise<{ teamId: number; distinctId: string; person: PersonIdentity | null }[]> {
         if (keys.length === 0) {
             return []
         }
-        const out: { teamId: number; distinctId: string; person: InternalPerson | null }[] = []
+        const out: { teamId: number; distinctId: string; person: PersonIdentity | null }[] = []
         for (let i = 0; i < keys.length; i += IDENTITY_BATCH_SIZE) {
             const chunk = keys.slice(i, i + IDENTITY_BATCH_SIZE)
             const response = await this.client.getPersonsByDistinctIds(
@@ -190,7 +196,7 @@ export class PersonhogIdentityOperations {
                 out.push({
                     teamId: Number(result.teamId),
                     distinctId: result.distinctId,
-                    person: result.person ? protoPersonToDomain(result.person) : null,
+                    person: result.person ? protoPersonToIdentity(result.person) : null,
                 })
             }
         }
@@ -237,7 +243,7 @@ export class PersonhogIdentityOperations {
     async getOrCreatePersonByDistinctId(
         entry: GetOrCreatePersonEntry,
         callerTag?: string
-    ): Promise<{ person: InternalPerson; created: boolean }> {
+    ): Promise<GetOrCreatePersonOutcome> {
         try {
             const response = await this.client.getOrCreatePersonByDistinctId(
                 create(GetOrCreatePersonByDistinctIdRequestSchema, {
@@ -259,7 +265,9 @@ export class PersonhogIdentityOperations {
                     `identity get-or-create returned no person for team ${entry.teamId} distinct_id ${entry.distinctId}`
                 )
             }
-            return { person: protoPersonToDomain(response.person), created: response.created }
+            return response.created
+                ? { created: true, person: protoPersonToDomain(response.person) }
+                : { created: false, person: protoPersonToIdentity(response.person) }
         } catch (error) {
             // Surfaced as the domain error the create service handles;
             // untranslated, the raw gRPC error matches no non-retriable

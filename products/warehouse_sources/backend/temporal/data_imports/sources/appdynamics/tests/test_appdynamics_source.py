@@ -72,6 +72,7 @@ class TestAppdynamicsSource:
         }
         assert cursors == {
             "health_rule_violations": {"startTimeInMillis"},
+            "anomalies": {"startTime"},
             "metric_data": {"startTimeInMillis"},
             "events": {"eventTime"},
             "request_snapshots": {"serverStartTime"},

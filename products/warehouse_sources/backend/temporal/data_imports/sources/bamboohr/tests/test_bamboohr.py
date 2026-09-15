@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -9,6 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr import (
     BAMBOOHR_API_HOST,
+    EMPLOYEE_TABLE_HISTORY_START,
     INVALID_SUBDOMAIN_MESSAGE,
     BambooHRBasicAuth,
     BambooHRResumeConfig,
@@ -17,11 +19,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
     bamboohr_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import BAMBOOHR_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
+    BAMBOOHR_ENDPOINTS,
+    EMPLOYEE_TABLE_EMPLOYEE_ID,
+)
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.bamboohr"
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+FANOUT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout"
 
 
 def _response(payload: Any, status_code: int = 200) -> Response:
@@ -49,7 +55,10 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     def _prepare(request: Any) -> mock.MagicMock:
         request_snapshots.append({"url": request.url, "params": dict(request.params or {}), "auth": request.auth})
-        return mock.MagicMock()
+        prepared = mock.MagicMock()
+        # The client re-checks the host of the prepared URL before sending, so it must be real.
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
@@ -66,11 +75,14 @@ def _run(
     MockSession: mock.MagicMock,
     manager: mock.MagicMock | None = None,
     subdomain: str = "acme",
+    rows_from_pages: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
     session = MockSession.return_value
     requests_made = _wire(session, responses)
     manager = manager if manager is not None else _make_manager()
-    rows = _rows(bamboohr_source(subdomain, "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager))
+    response = bamboohr_source(subdomain, "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+    # Fan-out resources yield rows; every other resource yields pages of rows.
+    rows = _rows(response) if rows_from_pages else list(cast(Any, response.items()))
     return rows, requests_made, manager
 
 
@@ -258,7 +270,7 @@ class TestValidateSubdomain:
         ]
     )
     def test_valid_subdomains_build_urls(self, _name: str, subdomain: str) -> None:
-        assert _base_url(subdomain) == f"{BAMBOOHR_API_HOST}/{subdomain}/v1"
+        assert _base_url(subdomain) == f"{BAMBOOHR_API_HOST}/{subdomain}"
 
     @parameterized.expand(
         [
@@ -314,6 +326,219 @@ class TestValidateCredentials:
         assert valid is False
         assert message == INVALID_SUBDOMAIN_MESSAGE
         session.get.assert_not_called()
+
+
+class TestEmployeeTableStreams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_the_employee_map_onto_rows(self, MockSession) -> None:
+        payload = {
+            "table": "jobInfo",
+            "employees": {
+                "2": {
+                    "lastChanged": "2024-03-01T00:00:00+00:00",
+                    # The row carries a stale employeeId; the map key is what the API grouped by.
+                    "rows": [{"id": "20", "employeeId": "999", "jobTitle": "Engineer"}],
+                },
+                "1": {
+                    "lastChanged": "2024-01-01T00:00:00+00:00",
+                    "rows": [{"id": "10", "jobTitle": "Designer"}, {"id": "11", "jobTitle": "Lead"}],
+                },
+            },
+        }
+
+        rows, requests_made, _manager = _run("employee_job_info", [_response(payload)], MockSession)
+
+        assert requests_made[0]["url"] == (
+            "https://api.bamboohr.com/api/gateway.php/acme/v1/employees/changed/tables/jobInfo"
+        )
+        # Employees come back in map order, so the rows must be re-sorted onto the cursor before
+        # the pipeline checkpoints a watermark against them.
+        assert rows == [
+            {"id": "10", "jobTitle": "Designer", "employeeId": "1", "lastChanged": "2024-01-01T00:00:00+00:00"},
+            {"id": "11", "jobTitle": "Lead", "employeeId": "1", "lastChanged": "2024-01-01T00:00:00+00:00"},
+            {"id": "20", "employeeId": "2", "jobTitle": "Engineer", "lastChanged": "2024-03-01T00:00:00+00:00"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_without_a_last_changed_sort_first(self, MockSession) -> None:
+        payload = {
+            "employees": {
+                "1": {"lastChanged": "2024-01-01T00:00:00+00:00", "rows": [{"id": "10"}]},
+                "2": {"rows": [{"id": "20"}]},
+            }
+        }
+
+        rows, _requests, _manager = _run("employee_compensation", [_response(payload)], MockSession)
+
+        assert [row["id"] for row in rows] == ["20", "10"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_yields_no_rows(self, MockSession) -> None:
+        rows, _requests, _manager = _run(
+            "employee_employment_status", [_response({"table": "employmentStatus", "employees": {}})], MockSession
+        )
+        assert rows == []
+
+    @parameterized.expand(
+        [
+            ("missing_employees_key", {"table": "jobInfo"}),
+            ("employees_is_a_list", {"employees": [{"id": "1"}]}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_shape_fails_loudly(self, _name: str, payload: Any, MockSession) -> None:
+        with pytest.raises(ValueError, match="'employees' object"):
+            _run("employee_job_info", [_response(payload)], MockSession)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_asks_for_the_whole_history(self, MockSession) -> None:
+        _rows_, requests_made, _manager = _run("employee_job_info", [_response({"employees": {}})], MockSession)
+        assert requests_made[0]["params"] == {"since": EMPLOYEE_TABLE_HISTORY_START.isoformat()}
+
+    @parameterized.expand(
+        [
+            ("watermark_as_string", "2024-05-06T07:08:09+00:00", "2024-05-06T07:08:09+00:00"),
+            ("watermark_as_datetime", datetime(2024, 5, 6, 7, 8, 9, tzinfo=UTC), "2024-05-06T07:08:09+00:00"),
+            ("no_watermark_yet", None, EMPLOYEE_TABLE_HISTORY_START.isoformat()),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_sync_sends_the_watermark(self, _name: str, watermark: Any, expected: str, MockSession) -> None:
+        session = MockSession.return_value
+        requests_made = _wire(session, [_response({"employees": {}})])
+
+        response = bamboohr_source(
+            "acme",
+            "key",
+            "employee_job_info",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+        )
+        _rows(response)
+
+        assert requests_made[0]["params"] == {"since": expected}
+
+
+class TestTimesheetEntries:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_the_year_in_contiguous_windows(self, MockSession) -> None:
+        window = BAMBOOHR_ENDPOINTS["timesheet_entries"].chunked_date_window
+        assert window is not None
+        expected_requests = -(-(window.history_days + 1) // window.chunk_days)
+
+        _rows_, requests_made, _manager = _run(
+            "timesheet_entries", [_response([]) for _ in range(expected_requests)], MockSession
+        )
+
+        assert len(requests_made) == expected_requests
+        windows = [
+            (date.fromisoformat(r["params"]["start"]), date.fromisoformat(r["params"]["end"])) for r in requests_made
+        ]
+        today = datetime.now(UTC).date()
+        # The whole supported range is covered exactly once: no gap and no overlap between slices,
+        # and nothing reaching past the API's 365-day limit.
+        assert windows[0][0] == today - timedelta(days=window.history_days)
+        assert windows[-1][1] == today
+        for (_start, end), (next_start, _next_end) in zip(windows, windows[1:]):
+            assert next_start == end + timedelta(days=1)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_entries_from_every_window_are_yielded(self, MockSession) -> None:
+        window = BAMBOOHR_ENDPOINTS["timesheet_entries"].chunked_date_window
+        assert window is not None
+        request_count = -(-(window.history_days + 1) // window.chunk_days)
+        responses = [_response([]) for _ in range(request_count)]
+        responses[0] = _response([{"id": 1}])
+        responses[-1] = _response([{"id": 2}])
+
+        rows, _requests, _manager = _run("timesheet_entries", responses, MockSession)
+
+        assert rows == [{"id": 1}, {"id": 2}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_fails_loudly(self, MockSession) -> None:
+        with pytest.raises(ValueError, match="list response body"):
+            _run("timesheet_entries", [_response({"error": "nope"})], MockSession)
+
+
+class _FakeDltResource:
+    """Stand-in for the DltResource the fan-out helper returns.
+
+    ``process_parent_data_item`` injects parent fields as ``_<parent_resource>_<field>``, which is
+    what the rename mapper under test reads.
+    """
+
+    def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
+        self.name = name
+        self._rows = rows
+
+    def add_map(self, mapper: Any) -> "_FakeDltResource":
+        self._rows = [mapper(dict(row)) for row in self._rows]
+        return self
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+
+class TestEmployeeFanout:
+    @parameterized.expand(
+        [
+            (
+                "time_off_policies",
+                "employee_time_off_policies",
+                {"timeOffPolicyId": "5", "timeOffTypeId": 1, "_employees_id": "7"},
+                {"timeOffPolicyId": "5", "timeOffTypeId": 1, "employeeId": "7"},
+            ),
+            (
+                "time_off_balances",
+                "employee_time_off_balances",
+                {"timeOffType": "1", "balance": "24.50", "_employees_id": "7"},
+                {"timeOffType": "1", "balance": "24.50", "employeeId": "7"},
+            ),
+        ]
+    )
+    @mock.patch(f"{FANOUT_MODULE}.rest_api_resources")
+    def test_child_rows_carry_the_parent_employee_id(
+        self, _name: str, endpoint: str, child_row: dict[str, Any], expected: dict[str, Any], mock_resources
+    ) -> None:
+        mock_resources.return_value = [
+            _FakeDltResource("employees", [{"id": "7"}]),
+            _FakeDltResource(endpoint, [child_row]),
+        ]
+
+        response = bamboohr_source(
+            "acme", "key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+        )
+
+        assert list(cast(Any, response.items())) == [expected]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_requests_resolve_the_versioned_employee_path(self, MockSession) -> None:
+        directory = _response({"employees": [{"id": "7"}, {"id": "8"}]})
+        policies = [_response([{"timeOffPolicyId": "5"}]), _response([])]
+
+        _rows_, requests_made, _manager = _run(
+            "employee_time_off_policies", [directory, *policies], MockSession, rows_from_pages=False
+        )
+
+        assert [r["url"] for r in requests_made] == [
+            "https://api.bamboohr.com/api/gateway.php/acme/v1/employees/directory",
+            "https://api.bamboohr.com/api/gateway.php/acme/v1_1/employees/7/time_off/policies",
+            "https://api.bamboohr.com/api/gateway.php/acme/v1_1/employees/8/time_off/policies",
+        ]
+
+
+class TestEndpointCatalog:
+    @parameterized.expand(
+        [(name,) for name, config in BAMBOOHR_ENDPOINTS.items() if config.fanout or config.employee_table]
+    )
+    def test_employee_scoped_endpoints_key_on_the_employee(self, endpoint: str) -> None:
+        # These ids are only unique within one employee, so a key without the employee collides
+        # across the directory and every later merge multi-matches the duplicates.
+        assert EMPLOYEE_TABLE_EMPLOYEE_ID in BAMBOOHR_ENDPOINTS[endpoint].primary_keys
 
 
 class TestBambooHRSource:

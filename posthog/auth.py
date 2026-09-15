@@ -1371,11 +1371,13 @@ class WebauthnBackend(BaseBackend):
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
+            # Django passes the same keyword arguments to every authentication backend, so `response`
+            # can hold another backend's credentials. Log only whether it is present.
             structlog_logger.warning(
                 "no request, response, or credential id while authenticating webauthn credential",
                 credential_id=credential_id,
                 challenge=challenge,
-                response=response,
+                has_response=response is not None,
             )
             return None
 

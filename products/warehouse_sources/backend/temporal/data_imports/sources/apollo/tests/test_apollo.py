@@ -42,6 +42,14 @@ def _response(data_key: str, items: list[dict[str, Any]], total_pages: int = 1) 
     return resp
 
 
+def _raw_response(body: dict[str, Any]) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.json.return_value = body
+    resp.status_code = 200
+    resp.ok = True
+    return resp
+
+
 def _lookup_response(data_key: str, items: list[dict[str, Any]]) -> mock.MagicMock:
     # The stage lookups answer with just the rows: no page params echoed, no pagination object.
     resp = mock.MagicMock()
@@ -156,6 +164,41 @@ class TestGetRows:
 
         body = mock_session.return_value.post.call_args.kwargs["json"]
         assert "sort_by_field" not in body
+
+    @pytest.mark.parametrize("endpoint", ["tasks", "emailer_campaigns"])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_query_param_post_endpoints_paginate_in_the_query_string(self, mock_session, endpoint):
+        # These POSTs only read page params from the query string. Sent in the JSON body they
+        # are ignored, so every request comes back as page 1 and the walk re-yields it until
+        # the 500-page cap.
+        mock_session.return_value.post.side_effect = [
+            _response(endpoint, [{"id": "a1"}], total_pages=2),
+            _response(endpoint, [{"id": "a2"}], total_pages=2),
+        ]
+
+        batches = list(get_rows("key", endpoint, mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["a1", "a2"]
+        calls = mock_session.return_value.post.call_args_list
+        assert [call.kwargs["params"]["page"] for call in calls] == [1, 2]
+        assert calls[0].kwargs["params"]["per_page"] == PAGE_SIZE
+        assert calls[0].kwargs["json"] == {}
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_emailer_messages_stops_without_a_pagination_object(self, mock_session):
+        # This endpoint answers with no pagination object at all, so there is no total_pages
+        # to break on — the walk has to end on the first empty page instead of running to the cap.
+        page = {"emailer_messages": [{"id": "m1", "created_at": "2024-01-01T00:00:00Z"}], "emailer_steps": []}
+        empty: dict[str, list[Any]] = {"emailer_messages": [], "emailer_steps": []}
+        mock_session.return_value.get.side_effect = [
+            _raw_response(page),
+            _raw_response(empty),
+        ]
+
+        batches = list(get_rows("key", "emailer_messages", mock.MagicMock(), _make_manager()))
+
+        assert [item["id"] for batch in batches for item in batch] == ["m1"]
+        assert mock_session.return_value.get.call_count == 2
 
     @pytest.mark.parametrize("endpoint", ["contact_stages", "account_stages", "opportunity_stages"])
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -281,8 +324,10 @@ class TestApolloSourceResponse:
 
     @pytest.mark.parametrize("config", list(APOLLO_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
+        # A partition key that moves (updated_at, last_activity_date) rewrites partitions
+        # on every sync. Only fields fixed when the record is written belong here.
         if config.partition_key:
-            assert config.partition_key == "created_at"
+            assert config.partition_key in {"created_at", "start_time"}
 
 
 class TestRetryAfter:
