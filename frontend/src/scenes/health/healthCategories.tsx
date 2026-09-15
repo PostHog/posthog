@@ -148,7 +148,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
-    stale_feature_flags: 'Stale feature flag',
+    stale_feature_flags: 'Feature flag cleanup candidate',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
