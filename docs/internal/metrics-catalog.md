@@ -34,6 +34,7 @@ The expiry timestamp still controls row retention.
 
 `metric_attributes3` includes `metric_name` in its columns, sort key, and materialized view grouping.
 Both metric attributes and resource attributes include the metric name.
+The sort key also includes `service_name` and `original_expiry_time_bucket` to keep their counts and retention separate during merges.
 The hourly buckets, expiry partitions, label filter, and attribute length limits match `metric_attributes2`.
 
 `metric_names3` stores metric names in hourly activity buckets, partitioned by day.

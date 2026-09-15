@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_ATTRIBUTES3_TABLE_NAME}
 )
 ENGINE = {AggregatingMergeTree(METRIC_ATTRIBUTES3_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_time_bucket)
-ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value)
+ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket)
 TTL original_expiry_time_bucket
 SETTINGS
     index_granularity = 8192,

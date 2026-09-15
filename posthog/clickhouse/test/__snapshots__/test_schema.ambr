@@ -4122,7 +4122,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes3', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value)
+  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket)
   TTL original_expiry_time_bucket
   SETTINGS
       index_granularity = 8192,
@@ -11419,7 +11419,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes3', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value)
+  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket)
   TTL original_expiry_time_bucket
   SETTINGS
       index_granularity = 8192,

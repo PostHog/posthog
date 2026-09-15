@@ -1505,7 +1505,7 @@ SQL
   }
 
   table "metric_attributes3" {
-    order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value"]
+    order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_time_bucket"
     settings = {
