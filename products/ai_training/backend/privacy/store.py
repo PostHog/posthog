@@ -20,7 +20,7 @@ from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
-# Shared with ML_MONTH_DELETE_GRACE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema.ts, where ingestion stops creating keys for a month that is old enough to delete.
+# Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 

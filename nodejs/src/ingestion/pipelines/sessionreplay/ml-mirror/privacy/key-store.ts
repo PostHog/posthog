@@ -11,7 +11,6 @@ import {
     TableKey,
     imageKeyId,
     keySessionMonth,
-    monthIsDeletable,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
@@ -92,14 +91,14 @@ export function groupTransactions(units: TransactWriteItem[][]): TransactWriteIt
 export class MlSessionKeyStore {
     constructor(
         private readonly db: MlPrivacyDynamoDB,
-        private readonly encryption: MlKeyEncryption,
-        private readonly nowMs: () => number = Date.now
+        private readonly encryption: MlKeyEncryption
     ) {}
 
     public async prepare(identities: MlSessionIdentity[]): Promise<MlKeyBatch> {
         const eligible = identities.filter((identity) => {
             try {
-                return !monthIsDeletable(sessionStartMonth(identity.sessionId), this.nowMs())
+                sessionStartMonth(identity.sessionId)
+                return true
             } catch {
                 return false
             }
@@ -184,7 +183,7 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    // prepare() refuses a month that is old enough to delete, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
+    // The pipeline drops sessions older than the month deletion grace period, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
     private guards(identity: MlKeyIdentity): TransactWriteItem[] {
         return [this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)')]
     }

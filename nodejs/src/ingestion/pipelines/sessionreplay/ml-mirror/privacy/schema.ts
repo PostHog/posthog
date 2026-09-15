@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 export const ML_KEY_SHARDS = 32
-export const ML_MONTH_DELETE_GRACE_DAYS = 14
 export const INGESTION_VERSION_HEADER = 'ai_research_ingestion_version'
 
 /** Value of {@link INGESTION_VERSION_HEADER}: '2' carries an encrypted envelope, '1' carries cleartext. */
@@ -60,12 +59,6 @@ export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKe
 
 export function teamBlockId(teamId: number): TableKey {
     return { pk: `team:${teamId}`, sk: 'deleted' }
-}
-
-/** Shared with MONTH_DELETE_GRACE_DAYS in products/ai_training/backend/privacy/store.py, so a month that the command may sweep is a month ingestion no longer keys. */
-export function monthIsDeletable(month: string, nowMs: number): boolean {
-    const [year, monthNumber] = month.split('-').map(Number)
-    return nowMs >= Date.UTC(year, monthNumber, 1) + ML_MONTH_DELETE_GRACE_DAYS * 24 * 60 * 60 * 1000
 }
 
 export function tableKeyString(key: TableKey): string {
