@@ -14,6 +14,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.capture import capture_batch_internal
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import (
@@ -39,6 +40,10 @@ from products.feature_flags.backend.local_evaluation import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.rebuild_queue import drain_rebuild_requests
+from products.feature_flags.backend.stale_flag_notifications import (
+    notify_stale_flags_for_team,
+    teams_subscribed_to_stale_flags,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -562,3 +567,14 @@ def feature_flags_local_eval_canary_task(self: PushGatewayTask) -> None:
         run_local_eval_canary(self.metrics_registry)
     finally:
         django_cache.delete(lock_key)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def notify_stale_feature_flags() -> None:
+    """Daily: emit stale flag events for teams with a subscribed destination."""
+    for team_id in teams_subscribed_to_stale_flags():
+        try:
+            notify_stale_flags_for_team(team_id)
+        except Exception as e:
+            logger.exception("notify_stale_feature_flags_team_failed", team_id=team_id, error=str(e))
+            capture_exception(e, additional_properties={"team_id": team_id})

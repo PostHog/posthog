@@ -57,6 +57,10 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
         label: 'Health alerts',
         url: urls.healthAlerts(),
     },
+    'feature-flag-alerts': {
+        label: 'Feature flags',
+        url: urls.featureFlags('notifications'),
+    },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

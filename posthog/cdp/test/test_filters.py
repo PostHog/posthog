@@ -419,6 +419,33 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         bytecode = self.filters_to_bytecode(filters=filters)
         assert execute_bytecode(bytecode, hog_globals).result is expected
 
+    @parameterized.expand(
+        [
+            ("same_item", {"scope": "FeatureFlag", "item_id": "42"}, True),
+            ("other_item_in_same_scope", {"scope": "FeatureFlag", "item_id": "43"}, False),
+            ("same_item_id_in_another_scope", {"scope": "Insight", "item_id": "42"}, False),
+        ]
+    )
+    def test_activity_log_filter_bound_to_one_item(
+        self, _name: str, properties: dict[str, str], expected: bool
+    ) -> None:
+        # The activity log serializes item_id as a string
+        filters = {
+            "source": "internal-events",
+            "events": [
+                {
+                    "id": "$activity_log_entry_created",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [{"key": "scope", "value": ["FeatureFlag"], "operator": "exact", "type": "event"}],
+                }
+            ],
+            "properties": [{"key": "item_id", "value": ["42"], "operator": "exact", "type": "event"}],
+        }
+        bytecode = self.filters_to_bytecode(filters=filters)
+        hog_globals = {"event": "$activity_log_entry_created", "properties": properties}
+        assert execute_bytecode(bytecode, hog_globals).result is expected
+
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_build_behavioral_event_expr_supported_with_event_filters(self):
