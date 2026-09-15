@@ -1,6 +1,8 @@
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { AccessControlLevel, UserType } from '~/types'
 
+import type { NotebookRunStatusResponseApi } from 'products/notebooks/frontend/generated/api.schemas'
+
 import { NotebookType } from '../types'
 
 export type NotebookOpenedProperties = {
@@ -31,4 +33,44 @@ export function buildNotebookOpenedEvent(
         access_source: isShared ? 'shared_link' : 'direct',
         node_count: notebook.content?.content?.length ?? 0,
     }
+}
+
+export type NotebookRunAllStartedProperties = {
+    short_id: string
+    cell_count: number
+}
+
+export type NotebookRunAllFinishedProperties = {
+    short_id: string
+    cell_count: number
+    python_cell_count: number
+    completed_count: number
+    outcome: string
+    duration_ms: number
+}
+
+/** No code and no cell content in the properties: a run's payload is counts and an outcome. */
+export function buildNotebookRunStartedEvent(
+    shortId: string,
+    cellCount: number
+): ['notebook run all started', NotebookRunAllStartedProperties] {
+    return ['notebook run all started', { short_id: shortId, cell_count: cellCount }]
+}
+
+export function buildNotebookRunFinishedEvent(
+    shortId: string,
+    run: NotebookRunStatusResponseApi,
+    durationMs: number
+): ['notebook run all finished', NotebookRunAllFinishedProperties] {
+    return [
+        'notebook run all finished',
+        {
+            short_id: shortId,
+            cell_count: run.cell_count,
+            python_cell_count: run.cells.filter((cell) => cell.cell_type === 'python').length,
+            completed_count: run.cells.filter((cell) => cell.status === 'done').length,
+            outcome: run.status,
+            duration_ms: durationMs,
+        },
+    ]
 }
