@@ -19974,6 +19974,16 @@ export namespace Schemas {
     /**
      * Response shape for the wiki's current state.
      */
+    export interface ContextLayerOnboardingStatus {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** Whether the organization has established context for onboarding. */
+      org_has_context: boolean;
+    }
+
+    /**
+     * Response shape for the wiki's current state.
+     */
     export interface ContextLayerStatus {
       /** Commit sha of the wiki's current head. */
       head_sha: string;

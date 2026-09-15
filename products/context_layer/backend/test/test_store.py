@@ -13,8 +13,9 @@ from redis.exceptions import RedisError
 import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
 
-from products.context_layer.backend import repo_lint, store
+from products.context_layer.backend import enablement, repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
+from products.context_layer.backend.scaffold import ORG_OVERVIEW_MD
 
 
 class TestRepoWriterLock(SimpleTestCase):
@@ -113,6 +114,7 @@ class TestContextLayerStore(BaseTest):
         config = store.initialize_repo(self.organization.id, created_by_id=self.user.id)
 
         assert len(config.head_sha) == 40
+        assert config.org_has_context is False
         with store.checkout_repo(self.organization.id) as checkout:
             assert checkout.head_sha == config.head_sha
             assert (checkout.path / "AGENTS.md").is_file()
@@ -141,8 +143,65 @@ class TestContextLayerStore(BaseTest):
         assert new_head != config.head_sha
         config.refresh_from_db()
         assert config.head_sha == new_head
+        assert config.org_has_context is False
         with store.checkout_repo(self.organization.id) as checkout:
             assert (checkout.path / "areas" / "analytics.md").is_file()
+
+    def test_landing_transitions_org_context_after_an_overview_change(self) -> None:
+        store.initialize_repo(self.organization.id)
+
+        def populate_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(
+                ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+            )
+
+        store.apply_changes(self.organization.id, message="Populate organization overview", mutate=populate_overview)
+        after_population = ContextLayerConfig.objects.get(organization_id=self.organization.id)
+        assert after_population.org_has_context is True
+
+        def add_area_page(root: Path) -> None:
+            (root / "areas").mkdir(exist_ok=True)
+            (root / "areas" / "analytics.md").write_text(_page("Analytics"))
+
+        store.apply_changes(self.organization.id, message="Add analytics area", mutate=add_area_page)
+        assert ContextLayerConfig.objects.get(organization_id=self.organization.id).org_has_context is True
+
+        def reset_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(ORG_OVERVIEW_MD)
+
+        store.apply_changes(self.organization.id, message="Reset organization overview", mutate=reset_overview)
+        assert ContextLayerConfig.objects.get(organization_id=self.organization.id).org_has_context is True
+
+        def remove_overview(root: Path) -> None:
+            (root / "org" / "overview.md").unlink()
+
+        store.apply_changes(self.organization.id, message="Remove organization overview", mutate=remove_overview)
+        assert ContextLayerConfig.objects.get(organization_id=self.organization.id).org_has_context is True
+
+    def test_resolve_org_context_persists_unknown_state(self) -> None:
+        config = store.initialize_repo(self.organization.id)
+        ContextLayerConfig.objects.filter(id=config.id).update(org_has_context=None)
+
+        resolved = enablement.resolve_org_context(self.organization.id)
+
+        assert resolved.org_has_context is False
+        config.refresh_from_db()
+        assert config.org_has_context is False
+
+    def test_resolve_org_context_reads_the_overview_once(self) -> None:
+        config = store.initialize_repo(self.organization.id)
+
+        def populate_overview(root: Path) -> None:
+            (root / "org" / "overview.md").write_text(
+                ORG_OVERVIEW_MD.replace("- Mission:", "- Mission: Build products.")
+            )
+
+        store.apply_changes(self.organization.id, message="Populate organization overview", mutate=populate_overview)
+        ContextLayerConfig.objects.filter(id=config.id).update(org_has_context=None)
+
+        resolved = enablement.resolve_org_context(self.organization.id)
+
+        assert resolved.org_has_context is True
 
     def test_apply_changes_rejects_lint_violations_without_moving_head(self) -> None:
         config = store.initialize_repo(self.organization.id)

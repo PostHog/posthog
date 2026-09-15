@@ -20,6 +20,7 @@ class ContextLayerConfig(models.Model):
         db_constraint=False,
     )
     head_sha = models.CharField(max_length=64)
+    org_has_context = models.BooleanField(null=True)
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
