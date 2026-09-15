@@ -110,6 +110,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   The same classification buys a scheduled run a bounded retry: the runner reports the refusal as `RunResult.retryable_upstream`, and `RunSignalsScoutWorkflow._run_attempts` re-runs the activity up to `UPSTREAM_RETRY_MAX_ATTEMPTS` with a doubling backoff.
   Only a failed attempt that emitted nothing is offered, so a retry cannot re-derive findings already written.
   The retry lives in the workflow because the per-turn poll budget already fills one activity's `start_to_close_timeout`, leaving no room in-process for a second turn.
+  It is gated on `workflow.patched("scout-upstream-retry")` because the backoff adds a command to the history, and the workflow shares a task queue with its activity under no worker versioning — so across a deploy a workflow task can land on a worker from either build.
   Scheduled only: an off-schedule trigger holds a deterministic workflow id, so a backoff there would refuse the person's next "run now" rather than recover their current one.
   A new retryable category is added to `RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS` in the desktop agent's `error-classification.ts` (the source of truth) and mirrored into `UPSTREAM_RETRYABLE_ERROR_CATEGORIES` in the tasks product.
   A category missing from either reads as a scout defect, which is how provider rate limits fed the breaker before they had a category at all.

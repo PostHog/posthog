@@ -283,8 +283,14 @@ class RunSignalsScoutWorkflow:
 
         A refusal arrives as `retryable_upstream` rather than an exception, because the activity
         keeps its "never raises" contract — so a raise here is still the infrastructure failure
-        the caller's handler expects. That is also why no `workflow.patched` gate is needed: an
-        older history carries a result without the field, which decodes to False.
+        the caller's handler expects.
+
+        The retry is gated on `workflow.patched` because it adds a command to the workflow's
+        history. The workflow and its activity share a task queue with no worker versioning, so
+        during a rolling deploy a new activity worker can return a refusal while workflow tasks
+        still land on workers from either build. The gate keeps the pre-patch single-attempt path
+        for any history that did not record the marker, so a worker without this code replays a
+        sequence it can produce.
         """
         attempt = 1
         while True:
@@ -299,6 +305,8 @@ class RunSignalsScoutWorkflow:
                 not output.retryable_upstream
                 or input.triggered_by != TRIGGERED_BY_SCHEDULE
                 or attempt >= UPSTREAM_RETRY_MAX_ATTEMPTS
+                # Last, so a run that never needed a retry records no marker.
+                or not temporalio.workflow.patched("scout-upstream-retry")
             ):
                 return output
             temporalio.workflow.logger.info(

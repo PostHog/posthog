@@ -69,6 +69,10 @@ describe("classifyAgentError", () => {
       "Selected model is at capacity. Please try a different model.",
       "upstream_rate_limit",
     ],
+    // A defect whose text only mentions rate limiting stays a defect, so it keeps feeding the
+    // failure-streak breaker instead of being exempted as an upstream refusal.
+    ["agent exited while reading the rate limit dashboard", "agent_error"],
+    ["the checked endpoint returns too many requests errors", "agent_error"],
     // A rate-limited status keeps the provider-failure category it already had.
     ["API Error: 429 rate limit exceeded", "upstream_provider_failure"],
     // The spend limit quotes a rate limit but stops this run alone, so it stays permanent.

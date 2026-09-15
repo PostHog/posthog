@@ -36,8 +36,13 @@ const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
 // limit, a "too many requests" refusal, or a model at capacity. The provider prose carries no
 // HTTP status, so the status patterns above miss it and it used to read as a generic
 // "agent_error" — indistinguishable from a broken agent body.
+//
+// Each alternative matches a refusal, not the topic. A bare "rate limited" or "too many
+// requests" also appears in an agent's own failure text when the run was reading about someone
+// else's rate limiting, and classifying that as upstream would exempt a real defect from the
+// failure-streak breaker. A false negative only costs the retry, so the narrower form wins.
 const UPSTREAM_RATE_LIMIT_PATTERN =
-  /\brate[- ]?limit(?:ed|s|ing)?\b|\btoo many requests\b|\bis at capacity\b/i;
+  /\brate limit (?:exceeded|reached)\b|\bprocessing too many requests\b|\bis at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =

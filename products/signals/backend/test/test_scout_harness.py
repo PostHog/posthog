@@ -3199,9 +3199,13 @@ async def test_workflow_retries_a_scheduled_run_the_provider_refused(
             "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.sleep",
             new=AsyncMock(side_effect=lambda delay: slept.append(delay)),
         ),
-        # The workflow logger resolves the replay state off the workflow event loop, which a
-        # direct call to `run` has no access to.
+        # The workflow logger and the patch gate both resolve replay state off the workflow
+        # event loop, which a direct call to `run` has no access to.
         patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched",
+            return_value=True,
+        ),
     ):
         output = await RunSignalsScoutWorkflow().run(
             RunSignalsScoutInput(team_id=7, skill_name="signals-scout-errors", triggered_by=triggered_by)
