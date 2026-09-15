@@ -1431,7 +1431,11 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("implementation_decision", {"supersede": True, "reason": "the root cause moved"}),
+            (
+                "implementation_decision",
+                {"supersede": True, "reason": "the root cause moved"},
+                {"supersede": False, "reason": "a client rewrote this"},
+            ),
             (
                 "implementation_replacement",
                 {
@@ -1439,12 +1443,21 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
                     "run_id": str(uuid.UUID(int=2)),
                     "decision": {"supersede": True, "reason": "the root cause moved"},
                 },
+                {
+                    "decision_id": str(uuid.UUID(int=3)),
+                    "run_id": str(uuid.UUID(int=4)),
+                    "decision": {"supersede": False, "reason": "a client rewrote this"},
+                },
             ),
-            ("implementation_handover", {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"}),
+            (
+                "implementation_handover",
+                {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"},
+                {"replacement_id": str(uuid.UUID(int=2)), "status": "failed"},
+            ),
         ]
     )
     def test_implementation_lifecycle_artefacts_cannot_be_forged_or_removed(
-        self, artefact_type: str, content: dict
+        self, artefact_type: str, content: dict, edited: dict
     ) -> None:
         report = self._create_report()
         artefact = SignalReportArtefact.objects.create(
@@ -1454,21 +1467,27 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
             content=json.dumps(content),
             actor_kind="system",
         )
+        stored = artefact.content
         response = self.client.post(
             self._list_url(str(report.id)),
             data=json.dumps({"artefact_type": artefact_type, "content": content}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # `edited` is valid for the type, so the refusal is what keeps the row as it was rather than
+        # the payload being unusable. A rejected write must leave no trace: the status code alone
+        # would still pass if a guard moved below the save.
         response = self.client.patch(
             self._detail_url(str(report.id), str(artefact.id)),
-            data=json.dumps({"content": content}),
+            data=json.dumps({"content": edited}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert SignalReportArtefact.objects.filter(id=artefact.id).exists()
+        artefact.refresh_from_db()
+        assert artefact.content == stored
+        assert SignalReportArtefact.objects.filter(report=report, type=artefact_type).count() == 1
 
     def test_delete_latest_status_artefact_reverts_canonical_to_previous(self):
         report = self._create_report()
