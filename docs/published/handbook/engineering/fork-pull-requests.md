@@ -3,20 +3,16 @@ title: Pull requests from forks
 sidebar: Handbook
 ---
 
-Once Depot CI posts the required `Django Tests Pass` check (the ci-backend cutover), that check exists only for branches inside the PostHog/posthog repository.
-A pull request from a fork keeps its GitHub Actions runs but gets no Depot run, so the check never appears on the fork's head.
+Backend CI runs on one of two engines per pull request, decided by `.github/scripts/ci_backend_route.py`: GitHub Actions or Depot CI.
+Depot CI never runs a fork's code, so the router sends every fork pull request to GitHub Actions.
+The required `Django Tests Pass` check is a GitHub Actions job on every head, fork or not, and nothing about the merge queue changes for a fork.
 
-Two rules keep fork PRs mergeable:
+What a fork contributor sees:
 
-- **The merge queue gates on its own branch.**
-  Trunk tests every merge on a `trunk-merge/**` branch inside this repository, so the required check runs there for every PR, fork or not.
-- **A maintainer re-pushes the branch in-repo when the PR needs a full run before the queue.**
-  Push the fork's head to a `contrib/` branch here and open a PR from it.
-  Reviewers then see the same checks an in-repo PR gets.
+- The full backend matrix runs on GitHub Actions, as it always has.
+- Depot's optional checks show as skipped. They are not required and nothing waits on them.
+- Steps that need a secret skip, on both engines. The same-repo `if:` guard that makes that safe is in the [CI authoring skill](../../../../.agents/skills/authoring-ci-workflows/SKILL.md).
 
-  ```bash
-  git fetch origin pull/<n>/head && git push origin FETCH_HEAD:refs/heads/contrib/<short-name>
-  ```
-
-Fork PRs receive no secrets on either engine, so steps that need one skip on forks.
-The same-repo `if:` guard that makes that safe is in the [CI authoring skill](../../../../.agents/skills/authoring-ci-workflows/SKILL.md).
+Never push a fork's head to a branch inside this repository to get it a Depot run.
+An in-repo branch is trusted: every secret-gated step runs, with the fork's code in control of the job.
+Review the fork PR as it is, and let the merge queue test it on its own branch.
