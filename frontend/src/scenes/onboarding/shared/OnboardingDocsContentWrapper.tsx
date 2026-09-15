@@ -196,7 +196,7 @@ function CodeBlock({
         return (
             <div className="my-4">
                 {block.language === PROSE_LANGUAGE ? (
-                    <LemonMarkdown disableDocsRedirect={true}>{block.code}</LemonMarkdown>
+                    <LemonMarkdown>{block.code}</LemonMarkdown>
                 ) : (
                     <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
                 )}
@@ -225,7 +225,7 @@ function CodeBlock({
                 />
             )}
             {selectedBlock.language === PROSE_LANGUAGE ? (
-                <LemonMarkdown disableDocsRedirect={true}>{selectedBlock.code}</LemonMarkdown>
+                <LemonMarkdown>{selectedBlock.code}</LemonMarkdown>
             ) : (
                 <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
             )}
@@ -282,7 +282,7 @@ function OSButton(props: any): JSX.Element {
 function Markdown({ children }: { children: string | ReactNode }): JSX.Element {
     const content = typeof children === 'string' ? children : String(children)
 
-    return <LemonMarkdown disableDocsRedirect={true}>{content}</LemonMarkdown>
+    return <LemonMarkdown>{content}</LemonMarkdown>
 }
 
 function Blockquote({ children }: { children: ReactNode }): JSX.Element {
