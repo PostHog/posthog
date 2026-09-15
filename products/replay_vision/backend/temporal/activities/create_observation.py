@@ -63,6 +63,8 @@ def _monitor_verify_mode(scanner: ReplayScanner) -> str:
         VERIFY_POSITIVES_FLAG,
         replay_vision_distinct_id(scanner.team_id),
         groups={"organization": str(scanner.team.organization_id)},
+        # So a release condition on the organization id evaluates without a per-scan decide call.
+        group_properties={"organization": {"id": str(scanner.team.organization_id)}},
         send_feature_flag_events=False,
     )
     return cast(str, variant) if variant in ("shadow", "enforce") else "off"
