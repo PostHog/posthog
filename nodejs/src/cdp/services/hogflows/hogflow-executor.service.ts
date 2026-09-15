@@ -6,6 +6,7 @@ import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
+import { counterInvocationBuildFailures } from '../../consumers/metrics'
 import {
     ConversionWatcherRow,
     CyclotronJobInvocationHogFlow,
@@ -220,6 +221,10 @@ export class HogFlowExecutorService {
                 }))
             )
             logs.push(...filterResults.logs)
+
+            if (filterResults.error) {
+                counterInvocationBuildFailures.labels({ step: 'filter', function_type: 'hogflow' }).inc()
+            }
 
             if (!filterResults.match) {
                 continue

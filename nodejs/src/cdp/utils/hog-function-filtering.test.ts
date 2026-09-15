@@ -1,4 +1,6 @@
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
+import { counterInvocationBuildFailures } from '../consumers/metrics'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import {
     convertClickhouseRawEventToFilterGlobals,
@@ -397,6 +399,25 @@ describe('hog-function-filtering', () => {
 
                 expect(result.match).toBe(expectedMatch)
             })
+        })
+    })
+
+    describe('build-failure counting', () => {
+        it('does not count a filter error as a build failure', async () => {
+            // This helper also runs mid-execution, for conditional branches and trigger checks.
+            // Counting here would put execution-time errors into the build-failure series the
+            // fleet alert watches, and a workflow with a failing branch would read as a platform
+            // bug. The two build-time call sites count instead.
+            const before = JSON.stringify((await counterInvocationBuildFailures.get()).values)
+
+            const result = await filterFunctionInstrumented({
+                fn: { id: 'fn-1', team_id: 1, type: 'destination' } as HogFunctionType,
+                filters: HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                filterGlobals: { event: '$pageview' } as HogFunctionFilterGlobals,
+            })
+
+            expect(result.error).toBeDefined()
+            expect(JSON.stringify((await counterInvocationBuildFailures.get()).values)).toEqual(before)
         })
     })
 })

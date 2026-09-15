@@ -72,6 +72,10 @@ export async function buildHogFunctionInvocations(
         metrics.push(...filterResults.metrics)
         logs.push(...filterResults.logs)
 
+        if (filterResults.error) {
+            counterInvocationBuildFailures.labels({ step: 'filter', function_type: hogFunction.type }).inc()
+        }
+
         return filterResults.match
     }
 

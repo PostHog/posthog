@@ -24,8 +24,12 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     labelNames: ['hog_flow_id', 'reason'],
 })
 
-// The signal that was missing when a HogVM regression broke input templates: an invocation that
-// never gets built produces an app metric per function, but nothing fleet-wide to alert on.
+// An event that matched a function but produced no invocation. Counted here as well as in the
+// per-function app metrics, because only a fleet-wide series separates one customer's broken
+// config from a platform bug that breaks every function using one builtin.
+//
+// Incremented at the two build-time call sites rather than inside filterFunctionInstrumented,
+// which also runs mid-execution for conditional branches and would inflate this.
 export const counterInvocationBuildFailures = new Counter({
     name: 'cdp_invocation_build_failures_total',
     help: 'An event matched a function but no invocation could be built for it',
