@@ -9,9 +9,9 @@ The required `Django Tests Pass` check is a GitHub Actions job on every head, fo
 
 What a fork contributor sees:
 
-- The full backend matrix runs on GitHub Actions, as it always has.
+- Backend CI runs on GitHub Actions, as it always has, and selects the same tests it selects for any other pull request.
 - Depot's optional checks show as skipped. They are not required and nothing waits on them.
-- Steps that need a secret skip, on both engines. The same-repo `if:` guard that makes that safe is in the [CI authoring skill](../../../../.agents/skills/authoring-ci-workflows/SKILL.md).
+- Steps that need a secret skip, on both engines. The same-repo `if:` guard that makes that safe is in the [CI authoring skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/authoring-ci-workflows/SKILL.md).
 
 Never push a fork's head to a branch inside this repository to get it a Depot run.
 An in-repo branch is trusted: every secret-gated step runs, with the fork's code in control of the job.
