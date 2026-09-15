@@ -2258,52 +2258,68 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
-    it("continues after tool progress and preserves usage across retries", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValueOnce(
-            new RequestError(-32603, "transient failure", {
-              classification: "upstream_provider_failure",
-              result: "unexpected status 503",
-              madeProgress: true,
-              usage: {
-                inputTokens: 10,
-                outputTokens: 5,
-                totalTokens: 15,
-              },
-            }),
-          )
-          .mockResolvedValueOnce({
-            stopReason: "end_turn",
-            usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    // Every retryable classification must round-trip through
+    // `agentErrorClassificationSchema`. One missing from that enum fails the
+    // structured parse, so the fallback drops `madeProgress` and `usage` and the
+    // retry re-sends the original prompt instead of the continuation.
+    it.each([
+      {
+        classification: "upstream_provider_failure",
+        result: "unexpected status 503",
+      },
+      {
+        classification: "upstream_rate_limit",
+        result: "we are processing too many requests",
+      },
+    ])(
+      "continues after tool progress and preserves usage across retries ($classification)",
+      async ({ classification, result }) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValueOnce(
+              new RequestError(-32603, "transient failure", {
+                classification,
+                result,
+                madeProgress: true,
+                usage: {
+                  inputTokens: 10,
+                  outputTokens: 5,
+                  totalTokens: 15,
+                },
+              }),
+            )
+            .mockResolvedValueOnce({
+              stopReason: "end_turn",
+              usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+            });
+          const testServer = createRetryTestServer(prompt);
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
           });
-        const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        await vi.advanceTimersByTimeAsync(5_000);
+          await vi.advanceTimersByTimeAsync(5_000);
 
-        await expect(resultPromise).resolves.toMatchObject({
-          stopReason: "end_turn",
-          usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
-        });
-        const retryRequest = prompt.mock.calls[1][0] as {
-          prompt: Array<{
-            text: string;
-            _meta?: { ui?: { hidden?: boolean } };
-          }>;
-        };
-        expect(retryRequest.prompt[0].text).toContain(
-          "Continue from where you left off",
-        );
-        expect(retryRequest.prompt[0]._meta?.ui?.hidden).toBe(true);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await expect(resultPromise).resolves.toMatchObject({
+            stopReason: "end_turn",
+            usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
+          });
+          const retryRequest = prompt.mock.calls[1][0] as {
+            prompt: Array<{
+              text: string;
+              _meta?: { ui?: { hidden?: boolean } };
+            }>;
+          };
+          expect(retryRequest.prompt[0].text).toContain(
+            "Continue from where you left off",
+          );
+          expect(retryRequest.prompt[0]._meta?.ui?.hidden).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("re-sends the original prompt when the failure happened before the stream started", async () => {
       vi.useFakeTimers();

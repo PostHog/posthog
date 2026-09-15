@@ -29,7 +29,9 @@ from products.signals.backend.scout_harness.limits import (
     TRIGGERED_BY_MANUAL,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
+    UPSTREAM_RETRY_MAX_ATTEMPTS,
     WORKFLOW_HARD_CEILING_S,
+    upstream_retry_backoff_s,
 )
 from products.signals.backend.temporal import metrics
 
@@ -70,6 +72,9 @@ class RunSignalsScoutOutput:
     skill_version: int
     skip_reason: str | None = None
     last_message: str | None = None
+    # The attempt failed upstream and emitted nothing, so the run workflow may try again.
+    # Defaults False so an in-flight workflow history decodes to today's single-attempt behavior.
+    retryable_upstream: bool = False
 
 
 def _to_output(result: RunResult) -> RunSignalsScoutOutput:
@@ -82,6 +87,7 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
         skill_version=result.skill_version,
         skip_reason=result.skip_reason,
         last_message=result.last_message,
+        retryable_upstream=result.retryable_upstream,
     )
 
 
@@ -244,13 +250,7 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             input = replace(input, workflow_managed_resume=True)
         try:
-            output = await temporalio.workflow.execute_activity(
-                run_signals_scout_activity,
-                input,
-                start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
+            output = await self._run_attempts(input)
         except (ActivityError, asyncio.CancelledError) as error:
             if managed_resume:
                 output = RunSignalsScoutOutput(
@@ -267,6 +267,58 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _run_attempts(self, input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
+        """Run the scout, retrying a scheduled run the upstream provider refused.
+
+        A provider rate limit or outage fails every due lane at once, and the activity's own
+        failure path is terminal — so without this the whole tick's worth of scans is simply
+        lost, one silent lane at a time. Each attempt is a fresh activity because the per-turn
+        poll budget fills the activity's `start_to_close_timeout`, leaving no room in-process
+        for a second turn plus a backoff.
+
+        Retries are scheduled-only. An off-schedule trigger is single-flighted on a
+        deterministic workflow id, so holding the id through a backoff would refuse the
+        person's next `run now` instead of recovering their current one.
+
+        A refusal arrives as `retryable_upstream` rather than an exception, because the activity
+        keeps its "never raises" contract — so a raise here is still the infrastructure failure
+        the caller's handler expects.
+
+        The retry is gated on `workflow.patched` because it adds a command to the workflow's
+        history. The workflow and its activity share a task queue with no worker versioning, so
+        during a rolling deploy a new activity worker can return a refusal while workflow tasks
+        still land on workers from either build. The gate keeps the pre-patch single-attempt path
+        for any history that did not record the marker, so a worker without this code replays a
+        sequence it can produce.
+        """
+        attempt = 1
+        while True:
+            output = await temporalio.workflow.execute_activity(
+                run_signals_scout_activity,
+                input,
+                start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            if (
+                not output.retryable_upstream
+                or input.triggered_by != TRIGGERED_BY_SCHEDULE
+                or attempt >= UPSTREAM_RETRY_MAX_ATTEMPTS
+                # Last, so a run that never needed a retry records no marker.
+                or not temporalio.workflow.patched("scout-upstream-retry")
+            ):
+                return output
+            temporalio.workflow.logger.info(
+                "signals_scout: retrying run refused by the upstream provider",
+                extra={
+                    "team_id": input.team_id,
+                    "skill_name": input.skill_name,
+                    "attempt": attempt,
+                },
+            )
+            await temporalio.workflow.sleep(timedelta(seconds=upstream_retry_backoff_s(attempt)))
+            attempt += 1
 
     async def _resume_step(self, input: RunSignalsScoutInput, output: RunSignalsScoutOutput) -> None:
         await temporalio.workflow.execute_activity(

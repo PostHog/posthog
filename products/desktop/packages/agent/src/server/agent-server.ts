@@ -70,6 +70,7 @@ import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-c
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
+  AGENT_ERROR_CLASSIFICATIONS,
   type AgentErrorClassification,
   classifyAgentError,
   isPromptTooLongError,
@@ -152,17 +153,7 @@ import { buildStoreSkillsInstructions, syncStoreSkills } from "./store-skills";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
 import { waitForFile } from "./wait-for-file";
 
-const agentErrorClassificationSchema = z.enum([
-  "upstream_stream_terminated",
-  "upstream_connection_error",
-  "upstream_timeout",
-  "upstream_provider_failure",
-  "content_block_rejection",
-  "turn_ended_without_response",
-  "subscription_usage_limit",
-  "task_spend_limit",
-  "agent_error",
-]) satisfies z.ZodType<AgentErrorClassification>;
+const agentErrorClassificationSchema = z.enum(AGENT_ERROR_CLASSIFICATIONS);
 
 const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 

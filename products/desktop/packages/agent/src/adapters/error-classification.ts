@@ -1,15 +1,23 @@
 import { getErrorMessage } from "@posthog/shared";
 
+// The single source of truth for the classification set. The runtime schema in
+// agent-server.ts builds its enum from this list, so a new category cannot reach
+// the union while the schema still rejects it.
+export const AGENT_ERROR_CLASSIFICATIONS = [
+  "upstream_stream_terminated",
+  "upstream_connection_error",
+  "upstream_timeout",
+  "upstream_provider_failure",
+  "upstream_rate_limit",
+  "content_block_rejection",
+  "turn_ended_without_response",
+  "subscription_usage_limit",
+  "task_spend_limit",
+  "agent_error",
+] as const;
+
 export type AgentErrorClassification =
-  | "upstream_stream_terminated"
-  | "upstream_connection_error"
-  | "upstream_timeout"
-  | "upstream_provider_failure"
-  | "content_block_rejection"
-  | "turn_ended_without_response"
-  | "subscription_usage_limit"
-  | "task_spend_limit"
-  | "agent_error";
+  (typeof AGENT_ERROR_CLASSIFICATIONS)[number];
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
   new Set<AgentErrorClassification>([
@@ -17,6 +25,7 @@ const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
     "upstream_connection_error",
     "upstream_timeout",
     "upstream_provider_failure",
+    "upstream_rate_limit",
   ]);
 
 export function isRetryableUpstreamErrorClassification(
@@ -30,6 +39,21 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+// A provider that refuses the request for shared capacity rather than for this run: a rate
+// limit, a "too many requests" refusal, or a model at capacity. The provider prose carries no
+// HTTP status, so the status patterns above miss it and it used to read as a generic
+// "agent_error" — indistinguishable from a broken agent body.
+//
+// Each alternative matches a refusal, not the topic. A bare "rate limited" or "too many
+// requests" also appears in an agent's own failure text when the run was reading about someone
+// else's rate limiting, and classifying that as upstream would exempt a real defect from the
+// failure-streak breaker. A false negative only costs the retry, so the narrower form wins.
+//
+// The capacity alternative names the model for the same reason. "<subject> is at capacity" is
+// also how this product's own throttles read, and a run can surface one of those through a tool
+// it called, which reports a failure of the service the run was reading, not of the provider.
+const UPSTREAM_RATE_LIMIT_PATTERN =
+  /\brate limit (?:exceeded|reached)\b|\bprocessing too many requests\b|\bmodel is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -87,6 +111,11 @@ export function classifyAgentError(
   ) {
     return "upstream_provider_failure";
   }
+  // After the status patterns, so a 429 keeps its established provider-failure category, and
+  // after the spend limit, whose own wording quotes a rate limit.
+  if (UPSTREAM_RATE_LIMIT_PATTERN.test(text)) {
+    return "upstream_rate_limit";
+  }
   if (/API Error:\s*Content block\b/i.test(text)) {
     return "content_block_rejection";
   }
@@ -116,7 +145,8 @@ export function sanitizeAgentErrorCause(
     classification === "upstream_provider_failure" ||
     classification === "upstream_connection_error" ||
     classification === "upstream_stream_terminated" ||
-    classification === "upstream_timeout"
+    classification === "upstream_timeout" ||
+    classification === "upstream_rate_limit"
   ) {
     return classification;
   }
