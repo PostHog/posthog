@@ -20,7 +20,13 @@ from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
-from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
+from posthog.models.identity_provider_config import (
+    ConfigScope,
+    DomainScope,
+    IdentityProviderConfig,
+    oidc_configured_q,
+    saml_configured_q,
+)
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -271,14 +277,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
         domain_scope = attrs.get("domain_scope", getattr(instance, "domain_scope", None))
         if is_oidc:
-            configured_ids = [
-                config.id
-                for config in IdentityProviderConfig.objects.filter(
-                    organization=organization, config_scope=ConfigScope.OIDC
-                )
-                if config.has_oidc
-            ]
-            other_auth_configs = IdentityProviderConfig.objects.filter(organization=organization, id__in=configured_ids)
+            other_auth_configs = IdentityProviderConfig.objects.filter(
+                oidc_configured_q(), organization=organization, config_scope=ConfigScope.OIDC
+            )
         else:
             other_auth_configs = IdentityProviderConfig.objects.filter(
                 saml_configured_q(), organization=organization
@@ -331,11 +332,17 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             ]
         )
 
+    @staticmethod
+    def _merge_oidc_client_secret(validated_data: dict[str, Any]) -> None:
+        if "oidc_client_secret" not in validated_data:
+            return
+        client_secret = validated_data.pop("oidc_client_secret")
+        validated_data["oidc_credentials"] = {"client_secret": client_secret} if client_secret else {}
+
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> IdentityProviderConfig:
         validated_data["organization"] = self.context["view"].organization
-        if "oidc_client_secret" in validated_data:
-            validated_data["oidc_credentials"] = {"client_secret": validated_data.pop("oidc_client_secret")}
+        self._merge_oidc_client_secret(validated_data)
         scim_enabled = validated_data.pop("scim_enabled", None)
         organization_domains = validated_data.pop("organization_domains", [])
         validated_data.pop("scim_bearer_token", None)
@@ -350,8 +357,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance: IdentityProviderConfig, validated_data: dict[str, Any]) -> IdentityProviderConfig:
-        if "oidc_client_secret" in validated_data:
-            validated_data["oidc_credentials"] = {"client_secret": validated_data.pop("oidc_client_secret")}
+        self._merge_oidc_client_secret(validated_data)
         scim_enabled = validated_data.pop("scim_enabled", None)
         organization_domains = validated_data.pop("organization_domains", None)
         validated_data.pop("scim_bearer_token", None)

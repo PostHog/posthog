@@ -60,6 +60,17 @@ def saml_configured_q() -> models.Q:
     )
 
 
+def oidc_configured_q() -> models.Q:
+    # `oidc_credentials` encrypts each value but not the keys, so only a key's presence is
+    # queryable. An empty secret is stored as an empty mapping, never an empty-string value.
+    return ~models.Q(
+        models.Q(oidc_issuer_url="")
+        | models.Q(oidc_issuer_url__isnull=True)
+        | models.Q(oidc_client_id="")
+        | models.Q(oidc_client_id__isnull=True)
+    ) & models.Q(oidc_credentials__has_key="client_secret")
+
+
 class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
     def for_scope(self, config_scope: str) -> "IdentityProviderConfigQuerySet":
         return self.filter(models.Q(config_scope=config_scope) | models.Q(config_scope__isnull=True))
