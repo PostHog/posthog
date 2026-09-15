@@ -128,6 +128,18 @@ export const ProviderDataWithoutWorkflowRates: StoryFn = () => {
     return <WorkflowsReputation />
 }
 
+export const AllowanceNotEnforced: StoryFn = () => {
+    // Before the tiers shape sends, the batch audience limit still truncates a run, so the card
+    // has to name the tier and that limit rather than disappearing.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: { ...baseResponse.sending_allowance!, enforced: false, max_batch_audience: 1000 },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
 export const SharedSendingDomain: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isp_shared_domains: ['mail.example.com'] }))
     return <WorkflowsReputation />

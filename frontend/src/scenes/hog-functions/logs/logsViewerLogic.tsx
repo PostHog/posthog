@@ -37,6 +37,12 @@ export type LogsViewerLogicProps = {
     groupByInstanceId?: boolean
     searchGroups?: string[]
     defaultFilters?: Partial<LogEntryParams>
+    /**
+     * Opt out of reading and writing the shared `levels`, `search`, `date_from` and `date_to`
+     * params. Set it on a viewer scoped to one run: several can mount on one scene, the params
+     * carry no prefix, and a value another viewer left in the URL overrides `defaultFilters`.
+     */
+    disableUrlSync?: boolean
 }
 
 export type LogsViewerFilters = {
@@ -799,7 +805,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     beforeUnmount(() => {
         // Disposables handle cleanup automatically
     }),
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
+        if (props.disableUrlSync) {
+            return {}
+        }
         const syncProperties = (
             properties: Record<string, any>
         ): [string, Record<string, any>, Record<string, any>] => {
@@ -817,8 +826,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             setIsGrouped: () => syncProperties({ grouped: values.isGrouped }),
         }
     }),
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const reactToTabChange = (_: any, search: Record<string, any>): void => {
+            if (props.disableUrlSync) {
+                return
+            }
             Object.keys(search).forEach((key) => {
                 if (key in values.filters && search[key] !== values.filters[key as keyof LogsViewerFilters]) {
                     actions.setFilters({ [key]: search[key] })

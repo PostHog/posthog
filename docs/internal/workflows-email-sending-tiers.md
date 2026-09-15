@@ -9,10 +9,12 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.
 - Tier movement: a daily Celery sweep (07:15 UTC, after the SES tenant-state reconcile at 07:00) in `products/workflows/backend/services/email_sending_tier.py`.
-- Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
+- Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview and on the sending allowance card.
 - Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
-- Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
+- Customer surface: the Reputation tab's sending allowance card.
+  The tier and the largest batch audience always show, because a batch run stops at that limit in every mode.
+  The hourly and daily meters only show while the team is enforced, because those caps shape sends only then.
 
 ## Configuration
 
@@ -49,7 +51,8 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
 3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
-4. Set both modes to `enforce`. Enforcement applies to every team at once; the Reputation tab's allowance card appears at this point.
+4. Set both modes to `enforce`. Enforcement applies to every team at once; the allowance card's hourly and daily meters appear at this point.
+   The card itself shows in every mode, so its presence does not confirm that enforce mode took effect.
    Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
 
