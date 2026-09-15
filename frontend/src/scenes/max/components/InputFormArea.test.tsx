@@ -1,15 +1,16 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import type { MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
 
-import { MultiQuestionFormInput } from './InputFormArea'
+import { InputFormArea, MultiQuestionFormInput } from './InputFormArea'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useActions: jest.fn(),
+    useValues: jest.fn(),
 }))
 
 jest.mock('use-resize-observer', () => () => ({
@@ -21,7 +22,7 @@ jest.mock('../maxThreadLogic', () => ({
     maxThreadLogic: { __mock: 'maxThreadLogic' },
 }))
 
-describe('MultiQuestionFormInput', () => {
+describe('InputFormArea', () => {
     afterEach(() => {
         cleanup()
     })
@@ -54,6 +55,7 @@ describe('MultiQuestionFormInput', () => {
             continueAfterForm,
             continueAfterFormDismissal,
         })
+        ;(useValues as jest.Mock).mockReturnValue({})
     })
 
     it('submits partial answers when the user skips the final question', () => {
@@ -134,5 +136,43 @@ describe('MultiQuestionFormInput', () => {
             goal: 'Growth',
             features: ['Funnels', 'Custom insight'],
         })
+    })
+
+    it('renders nothing when the form has no questions', () => {
+        const { container } = render(<MultiQuestionFormInput form={{ questions: [] }} />)
+
+        expect(container).toBeEmptyDOMElement()
+    })
+
+    it('starts a follow-up form on its first question', () => {
+        const followUpForm: MultiQuestionForm = {
+            questions: [
+                {
+                    id: 'timeframe',
+                    title: 'Timeframe',
+                    question: 'Which timeframe?',
+                    type: 'select',
+                    options: [{ value: 'Last week' }, { value: 'Last month' }],
+                },
+            ],
+        }
+        ;(useValues as jest.Mock).mockReturnValue({
+            activeMultiQuestionForm: { form, toolCallId: 'tc-1' },
+            pendingApprovalsData: {},
+            resolvedApprovalStatuses: {},
+        })
+        const { rerender } = render(<InputFormArea />)
+
+        // Move onto the second question, so the retained index would point past the follow-up form.
+        fireEvent.click(screen.getByText('Activation'))
+        expect(screen.getByText('Which area should I focus on?')).toBeInTheDocument()
+        ;(useValues as jest.Mock).mockReturnValue({
+            activeMultiQuestionForm: { form: followUpForm, toolCallId: 'tc-2' },
+            pendingApprovalsData: {},
+            resolvedApprovalStatuses: {},
+        })
+        rerender(<InputFormArea />)
+
+        expect(screen.getByText('Which timeframe?')).toBeInTheDocument()
     })
 })

@@ -15,6 +15,7 @@ import {
     dashboardToMaxContext,
     insightToMaxContext,
     findPendingClientToolCall,
+    getPendingMultiQuestionForm,
     isMultiQuestionFormMessage,
     threadEndsWithMultiQuestionForm,
 } from './utils'
@@ -170,6 +171,8 @@ describe('max/utils', () => {
         // With NodeInterrupt(None), the thread ends with the AssistantMessage containing
         // the create_form tool call - no ToolCall message is created
 
+        const question = { id: 'goal', title: 'Goal', question: 'Which goal matters most?', type: 'select' }
+
         it('returns true when last message is AssistantMessage with create_form tool call', () => {
             const messages = [
                 {
@@ -183,7 +186,7 @@ describe('max/utils', () => {
                         {
                             id: 'tc-1',
                             name: 'create_form',
-                            args: { questions: [] },
+                            args: { questions: [question] },
                             type: 'tool_call' as const,
                         },
                     ],
@@ -219,7 +222,7 @@ describe('max/utils', () => {
                         {
                             id: 'tc-1',
                             name: 'create_form',
-                            args: { questions: [] },
+                            args: { questions: [question] },
                             type: 'tool_call' as const,
                         },
                     ],
@@ -268,6 +271,44 @@ describe('max/utils', () => {
                 },
             ] as unknown as RootAssistantMessage[]
             expect(threadEndsWithMultiQuestionForm(messages)).toBe(false)
+        })
+
+        it('returns false when the create_form call has no questions yet', () => {
+            const messages = [
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'Please answer:',
+                    tool_calls: [
+                        {
+                            id: 'tc-1',
+                            name: 'create_form',
+                            args: { questions: [] },
+                            type: 'tool_call' as const,
+                        },
+                    ],
+                },
+            ] as unknown as RootAssistantMessage[]
+            expect(threadEndsWithMultiQuestionForm(messages)).toBe(false)
+            expect(getPendingMultiQuestionForm(messages[0])).toBeNull()
+        })
+
+        it('returns the form with the id of the create_form call', () => {
+            const message = {
+                type: AssistantMessageType.Assistant,
+                content: 'Please answer:',
+                tool_calls: [
+                    {
+                        id: 'tc-1',
+                        name: 'create_form',
+                        args: { questions: [question] },
+                        type: 'tool_call' as const,
+                    },
+                ],
+            } as unknown as RootAssistantMessage
+            expect(getPendingMultiQuestionForm(message)).toEqual({
+                form: { questions: [question] },
+                toolCallId: 'tc-1',
+            })
         })
     })
 
