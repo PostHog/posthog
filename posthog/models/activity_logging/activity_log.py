@@ -7,7 +7,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
-from django.core.paginator import Paginator
+from django.core.paginator import EmptyPage, Paginator
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
@@ -379,6 +379,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
         "default_open_pull_request_ready": "PRs open as",
+        "github_issue_writeback_enabled": "comment back on GitHub issues",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -585,6 +586,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # Context rows use a fail-closed team manager that has no scope during signal handling.
+        "contexts",
         # FK to a connected Slack integration. The generic field-diff captures the related object,
         # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
@@ -1351,7 +1354,17 @@ class ActivityPage:
 
 def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
-    activity_page = paginator.page(page)
+    try:
+        activity_page = paginator.page(page)
+    except EmptyPage:
+        # A page after the last one holds no records. It is not an error.
+        return ActivityPage(
+            results=[],
+            total_count=paginator.count,
+            limit=limit,
+            has_next=False,
+            has_previous=page > 1,
+        )
 
     return ActivityPage(
         results=list(activity_page.object_list),

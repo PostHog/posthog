@@ -67,6 +67,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -819,6 +822,15 @@ async def _handle_import_error(
     if isinstance(error, TemporaryHostResolutionError):
         await logger.awarning(error_msg)
         await logger.adebug("Temporary host resolution failure - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # PostHog's own egress proxy throttled or refused the connection, whichever source was talking.
+    # The next attempt recovers and there is nothing on the customer's side to fix, so classify it
+    # here rather than in each source's get_retryable_errors. The original text carries through so
+    # `external_data_job.Transient_Error_Messages` still rewrites it for the customer.
+    if is_transient_egress_proxy_error(error_msg):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient egress-proxy error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS

@@ -20,6 +20,10 @@ pub struct SinkConfig {
     pub database_url: String,
     #[serde(default = "default_retention")]
     pub retention_days: u32,
+    /// Per-collector retention in days, keyed by collector name (`ts_<name>`);
+    /// overrides `retention_days` for that table only.
+    #[serde(default)]
+    pub retention: BTreeMap<String, u32>,
 }
 fn default_retention() -> u32 {
     14
