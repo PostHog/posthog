@@ -5712,10 +5712,18 @@ snapshots:
         hash: v1.k794b7964.d434bef909772810035f7365e0708f55638dbd6b9b067f8103ae5fc44bdeee86.B6D2vcrTN4lAr9wyJhdppEe8pxfhv5BBdg-yMIKOGCs
     products-data-modeling-node-detail-scene--narrow-materialized-view--light:
         hash: v1.k794b7964.3dd7a8488d960144bef5a3cd7473c9337bd4881ed62e5f4559b66f22b52610e6.e_43r1kxIPrLb6ZQA6oQHHh23lYQrIfOqTwMJwKfIWE
+    products-data-modeling-node-detail-scene--narrow-suspended-with-run-history--dark:
+        hash: v1.k794b7964.61e9fdf103d31a89474fce6c238e7daf727a23734c93113d0ce6beda8bd6bde8.5xne6j1ft6cwHmCVvkk8XTwAJvjmbjYu0H_viJzPrws
+    products-data-modeling-node-detail-scene--narrow-suspended-with-run-history--light:
+        hash: v1.k794b7964.bb01b3a50bc5b002f1cf7c9cbd6dc8ddca449d37abbdc6750623d2873630879e.AsQNacWMvT8ZkkMBKJH0Ux0tO2oE_Afzh9Y-qdCzTqc
     products-data-modeling-node-detail-scene--narrow-view--dark:
         hash: v1.k794b7964.9110aa72356c45ec91a7ac3ac712904e28cf6b51a2b4ae6b032d60b524327427.6x6APOu5hbFc9JZVJBA1YQNgrxqszt3X2PfHorWYzrw
     products-data-modeling-node-detail-scene--narrow-view--light:
         hash: v1.k794b7964.42808291c239b90849edc8df8dfc10a69b0d73974de964412492325fdca5cb01.YfMvngDzfur4xRvb7O6msDlyuLsJkv7gcunSWAhNG5g
+    products-data-modeling-node-detail-scene--suspended-with-run-history--dark:
+        hash: v1.k794b7964.8777021fae0861f86ccd00ee197d14fcacf12d0ae1ba8a8fe7b38f20591cbc41.r_GyHK2h2ozRGIYXoZ3N4CAlJMClpccnfeC5TEgiDOo
+    products-data-modeling-node-detail-scene--suspended-with-run-history--light:
+        hash: v1.k794b7964.8e3a299698deffd2d09cc49fcef1f040cf40d0ec3be8fddf52ca34551c8f7e0a.uq9M5UbnFlUTEOem2aXKGYcYItgfYjMxhBk7AG-UvyQ
     products-data-modeling-node-detail-scene--view--dark:
         hash: v1.k794b7964.c3a0122ed3c944fd0036bf07405b2e09e14f7f218660863779a3587da606f3aa.HS-n7WOMbDZm10kaWIku0Y01udvSaEeEdFoDzUBLlrk
     products-data-modeling-node-detail-scene--view--light:
