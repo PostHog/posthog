@@ -31,6 +31,8 @@ from posthog.models import Team
 
 from products.event_definitions.backend.models.event_property import EventProperty
 
+from ee.hogai.utils.untrusted import as_untrusted_data
+
 logger = structlog.get_logger(__name__)
 
 # Days before the window the mix is compared against. Long enough that a stable producer
@@ -43,11 +45,15 @@ MAX_PROBED_PROPERTIES = 3
 # returned rows, so the cap has to clear the tail rather than land in it.
 MAX_QUERIED_VALUES = 25
 MAX_DESCRIBED_VALUES = 5
+# Event names, property names and version values are all collected text. A real one is far
+# shorter than this, so the cap only trims a value written to fill the prompt.
+MAX_TEXT_CHARS = 48
 # Share movement that marks a boundary rather than ordinary rollout bleed. A producer
 # swap moves a value most of the way across; a canary at a few percent does not.
 MIN_SHARE_SHIFT = 0.25
 
 _PROPERTY_NAME_HINT = "version"
+_FENCE_LABEL = "emitter-version"
 
 _GUIDANCE = (
     "How to read this block:\n"
@@ -79,6 +85,10 @@ def describe_emitter_version_shift(*, team: Team, event: str, triggered_dates: l
     Never raises, and returns an empty string when there is nothing to say: this only
     enriches the agent's context, so a failed query must not fail an investigation that
     would otherwise have run.
+
+    The event name, the property names and the version values are all collected traffic, so
+    the measured lines go inside the shared untrusted-data fence. The reading guidance stays
+    outside it, because that part is ours.
     """
     try:
         window = _window_bounds(triggered_dates)
@@ -107,18 +117,21 @@ def describe_emitter_version_shift(*, team: Team, event: str, triggered_dates: l
         return ""
 
     header = (
-        f'Emitter version — how the version properties on event "{event}" moved inside the '
+        "Emitter version — how the version properties on the alerted event moved inside the "
         f"triggered window ({_describe_window(window_from, window_to)}), against the "
         f"{BASELINE_DAYS} days before it:"
     )
+    measured = [f'Event "{_single_line(event)}"']
     if not shifted:
-        stable = ", ".join(f"`{name}`" for name in properties)
-        return f"{header}\n- No version boundary: {stable} held the same mix across both periods.\n{_GUIDANCE}"
-    lines = [header]
-    for name, mixes in shifted.items():
-        lines.append(f"- `{name}` changed mix: " + "; ".join(_describe_mix(mix) for mix in mixes))
-    lines.append(_GUIDANCE)
-    return "\n".join(lines)
+        stable = ", ".join(f"`{_single_line(name)}`" for name in properties)
+        measured.append(f"- No version boundary: {stable} held the same mix across both periods.")
+    else:
+        measured.extend(
+            f"- `{_single_line(name)}` changed mix: " + "; ".join(_describe_mix(mix) for mix in mixes)
+            for name, mixes in shifted.items()
+        )
+    fenced = as_untrusted_data(_FENCE_LABEL, measured, source="collected from product traffic")
+    return f"{header}\n{fenced}\n{_GUIDANCE}"
 
 
 def _window_bounds(triggered_dates: list[str]) -> tuple[date, date] | None:
@@ -184,7 +197,7 @@ def _query_version_mix(
         ),
         team=team,
     )
-    rows = [(str(row[0] or "unset"), int(row[1]), int(row[2])) for row in response.results or []]
+    rows = [(_single_line(str(row[0] or "unset")), int(row[1]), int(row[2])) for row in response.results or []]
     window_total = sum(row[1] for row in rows)
     before_total = sum(row[2] for row in rows)
     if not window_total or not before_total:
@@ -204,7 +217,21 @@ def _shifted_values(mixes: list[_VersionMix]) -> list[_VersionMix]:
 
 
 def _describe_mix(mix: _VersionMix) -> str:
-    return f"{mix.value} went {mix.before_share:.0%} -> {mix.window_share:.0%} of events"
+    # No angle bracket: the fence defangs one, which would leave the arrow unreadable.
+    return f"{mix.value} went {mix.before_share:.0%} to {mix.window_share:.0%} of events"
+
+
+def _single_line(text: str) -> str:
+    """One short printable line of collected text.
+
+    The fence tells the model to read the block as data. This stops a crafted value from
+    also forging the block's own line structure, or from filling the prompt on its own.
+    """
+    printable = "".join(character if character.isprintable() else " " for character in text)
+    collapsed = " ".join(printable.split())
+    if len(collapsed) > MAX_TEXT_CHARS:
+        return f"{collapsed[:MAX_TEXT_CHARS]}…"
+    return collapsed or "unset"
 
 
 def _describe_window(window_from: date, window_to: date) -> str:
