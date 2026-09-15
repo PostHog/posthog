@@ -59,6 +59,10 @@ Loops can edit only their configured channel page, and read-only task tokens can
 Do not grant broader token scopes to work around a denied write.
 Ordinary tasks cannot publish commit bundles or use `scripts/publish` to bypass review.
 Server-owned nightly maintenance can publish a dated, content-only dream branch. The server verifies an active internal maintenance task in the organization, not just a branch name or token scope.
+Scheduled dreams run `scripts/publish --dream <summary-file>` from the mounted wiki after consolidation and lint.
+The helper creates the dated branch and local commit, includes the summary in the commit message, and uploads a git bundle through the context layer API.
+GitHub signed-commit tools do not apply to this local bundle repository.
+The helper reports `publish: landed` only after a successful upload, reports `publish: no changes` for an unchanged wiki, and returns a nonzero exit for failures.
 Direct human page editing remains available.
 This review gate applies to server-minted task and loop tokens. Human/API credentials keep their existing permissions.
 

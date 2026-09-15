@@ -1165,28 +1165,33 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
-def get_latest_active_internal_task_run_for_organization(
-    organization_id: str | UUID, *, ai_stage: str
+def get_latest_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False
 ) -> contracts.TaskRunDTO | None:
-    """Return the newest active cloud run for a server-owned organization flow."""
-    run = (
-        TaskRun.objects.filter(
-            team__organization_id=organization_id,
-            task__team__organization_id=organization_id,
-            task__internal=True,
-            environment=TaskRun.Environment.CLOUD,
-            state__ai_stage=ai_stage,
+    runs = TaskRun.objects.filter(
+        team__organization_id=organization_id,
+        task__team__organization_id=organization_id,
+        task__internal=True,
+        environment=TaskRun.Environment.CLOUD,
+        state__ai_stage=ai_stage,
+    )
+    if active_only:
+        runs = runs.filter(
             status__in=[
                 TaskRun.Status.NOT_STARTED,
                 TaskRun.Status.QUEUED,
                 TaskRun.Status.IN_PROGRESS,
-            ],
+            ]
         )
-        .select_related("task", "task__created_by")
-        .order_by("-created_at", "-id")
-        .first()
-    )
+    run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
     return _task_run_to_dto(run) if run is not None else None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
 
 
 def get_stale_queued_task_run_ids(
