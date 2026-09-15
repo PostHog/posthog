@@ -2354,9 +2354,9 @@ class TestGitHubWebhookFanout(TestCase):
 
     @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
     def test_failed_handler_releases_dedup_so_redelivery_is_processed(self, mock_secret):
-        # The dedup mark is set before the handler runs; a handler failure must release it so
-        # GitHub's redelivery of the same GUID gets processed instead of silently skipped for
-        # 24h. A successful handler keeps the mark, so a duplicate delivery stays deduped.
+        # The dedup mark is set before the handler runs; a handler failure must release it and
+        # answer 5xx so GitHub marks the delivery failed and a redelivery of the same GUID gets
+        # processed. A successful handler keeps the mark, so a duplicate delivery stays deduped.
         mock_secret.return_value = self.webhook_secret
         payload = {
             "action": "created",
@@ -2368,7 +2368,7 @@ class TestGitHubWebhookFanout(TestCase):
 
         with patch(loops_handler, side_effect=RuntimeError("boom")):
             first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
-        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.status_code, 503)
 
         with patch(loops_handler) as mock_loops:
             second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")

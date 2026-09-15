@@ -15,7 +15,8 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     Verifies the HMAC-SHA256 signature once, parses JSON once, then routes by
     ``X-GitHub-Event`` to every registered product handler. Each handler runs in
     isolation: one handler raising is logged and captured but never blocks another
-    handler or the response sent back to GitHub.
+    handler. If any handler raises, the response is a 503 so GitHub marks the
+    delivery failed and it can be redelivered.
     """
     if request.method != "POST":
         return HttpResponse(status=405)

@@ -91,7 +91,7 @@ class TestGitHubDispatch(SimpleTestCase):
         cache.clear()
 
     @parameterized.expand([("success", False), ("failure", True)])
-    def test_fanout_preserves_response_and_retries_only_failed_consumer(self, _name: str, fails: bool) -> None:
+    def test_fanout_reports_failure_to_github_and_retries_only_failed_consumer(self, _name: str, fails: bool) -> None:
         request = RequestFactory().post("/webhooks/github/", data="{}", content_type="application/json")
         first = (
             Mock(side_effect=RuntimeError("consumer failed")) if fails else Mock(return_value=HttpResponse(status=202))
@@ -101,7 +101,7 @@ class TestGitHubDispatch(SimpleTestCase):
             response = dispatch_github_event(
                 request, "pull_request", {}, "delivery-example", [("tasks_pr_backstop", first), ("loops", second)]
             )
-        self.assertEqual(response.status_code, 204 if fails else 202)
+        self.assertEqual(response.status_code, 503 if fails else 202)
         self.assertEqual(second.call_count, 1)
         first.side_effect = None
         first.return_value = HttpResponse(status=202)
