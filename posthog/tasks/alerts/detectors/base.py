@@ -29,6 +29,11 @@ class BaseDetector(ABC):
     # Higher values make the model slower to adapt to recent distribution shifts.
     DEFAULT_TRAINING_OFFSET = 1
 
+    # Whether this detector compares preprocessed values against absolute bounds rather
+    # than a normalized score. Such detectors keep the rectangular smoothing kernel so a
+    # saved bound stays calibrated - see preprocess_data's preserve_scale argument.
+    COMPARES_ABSOLUTE_VALUES = False
+
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.preprocessing_config = config.get("preprocessing") or {}
@@ -71,7 +76,7 @@ class BaseDetector(ABC):
 
     def preprocess(self, data: np.ndarray) -> np.ndarray:
         """Apply preprocessing pipeline to data."""
-        return preprocess_data(data, self.preprocessing_config)
+        return preprocess_data(data, self.preprocessing_config, preserve_scale=self.COMPARES_ABSOLUTE_VALUES)
 
     @classmethod
     def get_default_config(cls) -> dict[str, Any]:
