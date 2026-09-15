@@ -81,9 +81,10 @@ import {
     getFunnelDropoffReason,
     getMetricSessionFilters,
     getMetricSourceEventNames,
+    getMetricUnlinkableReason,
     isUnlinkableEventFilter,
 } from '../utils'
-import { getMetricUnlinkableReason, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
+import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
     type ExperimentRecordingsDeepLink,
     type ExperimentRecordingsEntryPoint,
@@ -941,6 +942,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             { persist: true },
             {
                 setExposureScope: (_, { scope }) => scope,
+                // A link names the population it opens. An 'in_session' scope left over from an
+                // earlier visit would narrow that population further, with nothing on screen
+                // saying why, so the link starts from the whole exposed set.
+                applyDeepLink: () => 'all_exposed' as ExperimentReplayExposureScope,
             },
         ],
         // Empty = no metric filter. Every selected metric narrows the playlist further (AND) —
@@ -1886,9 +1891,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (Number(id) !== Number(props.experiment.id)) {
                 return
             }
-            const link = parseExperimentRecordingsDeepLink(searchParams)
-            if (!link) {
+            const parsed = parseExperimentRecordingsDeepLink(searchParams)
+            if (!parsed) {
                 return
+            }
+            // A renamed or deleted variant is dropped before it reaches the facet, which persists.
+            // The query selector already ignores an unknown key, but the stored one would outlive
+            // this visit and show as a selected variant the experiment doesn't have.
+            const variantKeys = getExperimentVariants(props.experiment).map((variant) => variant.key)
+            const link = {
+                ...parsed,
+                variantKey:
+                    parsed.variantKey !== null && variantKeys.includes(parsed.variantKey) ? parsed.variantKey : null,
             }
             // The replace below re-enters here without the params, so this only guards against a
             // repeat of the same link. Keyed on the link rather than set once, so a second link

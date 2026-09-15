@@ -1,7 +1,11 @@
 import { ExperimentMetric, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 
-import { getFunnelDropoffReason, getMetricSessionFilters, getMetricSourceEventNames } from '../utils'
-import { getMetricUnlinkableReason } from '../viewRecordingsLinkabilityLogic'
+import {
+    getFunnelDropoffReason,
+    getMetricSessionFilters,
+    getMetricSourceEventNames,
+    getMetricUnlinkableReason,
+} from '../utils'
 import type { ExperimentReplayMetricFilterMode } from './experimentRecordingsDeepLink'
 
 export const METRIC_WITHOUT_UUID_REASON = "This metric can't be selected on the Recordings tab."
@@ -65,7 +69,7 @@ const MODE_COPY: { [M in ExperimentReplayMetricFilterMode]: ExperimentRecordingM
             return {
                 label: events ? `Didn't fire ${events}` : "Didn't fire metric events",
                 tooltip: events
-                    ? `Watch sessions of this variant that fired no ${events} event. The same person may have fired one in another session.`
+                    ? `Watch sessions of this variant that never fired ${events}. The same person may have fired one in another session.`
                     : "Watch sessions of this variant that fired none of the metric's events. The same person may have fired them in another session.",
             }
         },

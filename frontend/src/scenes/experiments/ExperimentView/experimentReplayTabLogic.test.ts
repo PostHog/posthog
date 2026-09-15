@@ -31,8 +31,12 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
-import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
-import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
+import {
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+    RETENTION_UNLINKABLE_REASON,
+} from '../utils'
+import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
     type ExperimentReplayRecording,
     ExperimentReplayListEmptyReason,
@@ -1056,6 +1060,30 @@ describe('experimentReplayTabLogic', () => {
         remounted.unmount()
     })
 
+    it('starts a deep link from the whole exposed set, whatever scope the last visit left', async () => {
+        // The scope persists, and 'in_session' narrows to the sessions carrying exposure evidence.
+        // Left in place it would cut the population the row's label promised, with nothing on
+        // screen saying why.
+        const earlier = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        earlier.mount()
+        await expectLogic(earlier).toFinishAllListeners()
+        earlier.actions.setExposureScope('in_session')
+        await expectLogic(earlier).toMatchValues({ effectiveExposureScope: 'in_session' })
+        earlier.unmount()
+
+        router.actions.push('/experiments/68', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.effectiveExposureScope).toBe('all_exposed')
+        expect(fromResults.values.recordingsFilters.experiment_exposure).toEqual({
+            experiment_id: 68,
+            variant: 'test',
+        })
+        fromResults.unmount()
+    })
+
     it('degrades a deep link the experiment cannot answer to the tab defaults', async () => {
         router.actions.push('/experiments/66', {
             tab: 'recordings',
@@ -1070,6 +1098,9 @@ describe('experimentReplayTabLogic', () => {
         // A link that names a renamed variant, a deleted metric, or a mode that no longer exists
         // has to land on the tab's own defaults rather than on a stuck filter or a refused request.
         expect(stale.values.effectiveVariantKey).toBeNull()
+        // The facet persists, so a variant the experiment doesn't have must never be written: it
+        // would outlive this visit and show as a selection on the next one.
+        expect(stale.values.selectedVariantKey).toBeNull()
         expect(stale.values.effectiveMetricUuids).toEqual([])
         expect(stale.values.metricFilterMode).toBe('fired_all')
         expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()

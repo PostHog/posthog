@@ -1,11 +1,12 @@
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 
-import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
 import {
     DATA_WAREHOUSE_UNLINKABLE_REASON,
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
     METRIC_UNLINKABLE_REASON,
     RETENTION_UNLINKABLE_REASON,
-} from '../viewRecordingsLinkabilityLogic'
+} from '../utils'
 import { METRIC_WITHOUT_UUID_REASON, getMetricRecordingModes } from './experimentRecordingModes'
 
 const meanMetric = (source: Record<string, unknown>): ExperimentMetric =>
