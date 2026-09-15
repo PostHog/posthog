@@ -5,22 +5,40 @@ set -o pipefail
 
 # Copies objects out of the legacy MinIO volume into the SeaweedFS services that replaced
 # it. MinIO is no longer a service in docker-compose.hobby.yml, so the source is a
-# temporary container mounted on the orphaned volume. Session recordings go to the
-# seaweedfs service and everything else to objectstorage, because that is where the stack
-# reads each of them.
+# temporary container mounted on the orphaned volume. Each destination is the store the
+# stack actually reads that data from.
 
 MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
 SOURCE_CONTAINER="posthog-legacy-minio"
 S3_KEY="object_storage_root_user"
 S3_SECRET="object_storage_root_password"
 
-# `service|destination endpoint`. query-cache is left out on purpose: PostHog rebuilds it.
+OBJECTSTORAGE_ENDPOINT="http://objectstorage:19000"
+SEAWEEDFS_ENDPOINT="http://seaweedfs:8333"
+
+# `service|destination`, in run order. general-storage covers the whole posthog bucket
+# apart from session recordings and the query cache, so a prefix no one listed here still
+# comes across. source-maps repeats a prefix general-storage already copied, because
+# cymbal reads symbol sets from seaweedfs while Django reads them from objectstorage.
 ALL_SERVICES=(
-    "exports|http://objectstorage:19000"
-    "media-uploads|http://objectstorage:19000"
-    "source-maps|http://objectstorage:19000"
-    "session-recordings|http://seaweedfs:8333"
-    "session-recordings-lts|http://seaweedfs:8333"
+    "general-storage|$OBJECTSTORAGE_ENDPOINT"
+    "ai-blobs|$OBJECTSTORAGE_ENDPOINT"
+    "source-maps|$SEAWEEDFS_ENDPOINT"
+    "session-recordings|$SEAWEEDFS_ENDPOINT"
+    "session-recordings-lts|$SEAWEEDFS_ENDPOINT"
+)
+
+# Destinations for a single-service run. A named prefix goes to the store the app reads
+# it from, so `source-maps` on its own lands where Django looks.
+SINGLE_SERVICES=(
+    "general-storage|$OBJECTSTORAGE_ENDPOINT"
+    "ai-blobs|$OBJECTSTORAGE_ENDPOINT"
+    "exports|$OBJECTSTORAGE_ENDPOINT"
+    "media-uploads|$OBJECTSTORAGE_ENDPOINT"
+    "source-maps|$OBJECTSTORAGE_ENDPOINT"
+    "query-cache|$OBJECTSTORAGE_ENDPOINT"
+    "session-recordings|$SEAWEEDFS_ENDPOINT"
+    "session-recordings-lts|$SEAWEEDFS_ENDPOINT"
 )
 
 if command -v docker-compose >/dev/null 2>&1; then
@@ -35,21 +53,23 @@ Copy hobby object storage out of MinIO into SeaweedFS
 
 PostHog replaced MinIO with SeaweedFS. SeaweedFS starts on a new volume and cannot read
 the MinIO format, so your old objects sit in the `objectstorage` volume until this script
-copies them across. Run it with the stack up, then check your data before you delete the
-old volume.
+copies them across. Run it from the directory that holds your docker-compose.yml, with
+the stack up.
 
-It copies exports, uploaded media and error tracking symbol sets into objectstorage, and
-session recordings into seaweedfs. Query cache is skipped because PostHog rebuilds it.
+A full run copies the whole `posthog` bucket into objectstorage, the `ai-blobs` bucket
+into objectstorage, and session recordings into seaweedfs. Symbol sets are copied to both
+stores, because cymbal reads them from seaweedfs and Django reads them from objectstorage.
+The query cache is skipped, because PostHog rebuilds it.
 
 Usage:
-  ./bin/migrate-storage-hobby                     Copy everything
-  ./bin/migrate-storage-hobby exports             Copy one service
-  ./bin/migrate-storage-hobby --dry-run           Show what would be copied
-  ./bin/migrate-storage-hobby --volume <id>       Read a specific MinIO volume
+  ./posthog/bin/migrate-storage-hobby                 Copy everything
+  ./posthog/bin/migrate-storage-hobby exports         Copy one service
+  ./posthog/bin/migrate-storage-hobby --dry-run       Show what would be copied
+  ./posthog/bin/migrate-storage-hobby --volume <id>   Read a specific MinIO volume
 
 Services:
-  exports, media-uploads, source-maps, session-recordings, session-recordings-lts,
-  query-cache
+  general-storage, ai-blobs, exports, media-uploads, source-maps, query-cache,
+  session-recordings, session-recordings-lts
 
 Options:
   --dry-run        List the objects instead of copying them
@@ -65,24 +85,54 @@ is_minio_volume() {
     docker run --rm -v "$1:/data:ro" alpine test -d /data/.minio.sys 2>/dev/null
 }
 
-list_minio_volumes() {
-    echo "Scanning for MinIO volumes..."
-    echo ""
-    docker volume ls -q | while read -r vol; do
-        if is_minio_volume "$vol"; then
-            SIZE=$(docker run --rm -v "$vol:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown")
-            echo "  $vol ($SIZE)"
-        fi
-    done
+volume_size() {
+    docker run --rm -v "$1:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown"
 }
 
-detect_minio_volume() {
-    docker volume ls -q | while read -r vol; do
+minio_volumes() {
+    local vol
+    while read -r vol; do
         if is_minio_volume "$vol"; then
             echo "$vol"
-            return
         fi
-    done
+    done < <(docker volume ls -q)
+}
+
+list_minio_volumes() {
+    local vol
+    echo "Scanning for MinIO volumes..."
+    echo ""
+    while read -r vol; do
+        [ -z "$vol" ] && continue
+        echo "  $vol ($(volume_size "$vol"))"
+    done < <(minio_volumes)
+}
+
+# The hobby stack named its MinIO volume `objectstorage`, which compose prefixes with the
+# project name. Anything else on the host — another install, an unrelated MinIO — is not
+# this stack's data, and copying it would import another tenant's objects.
+detect_minio_volume() {
+    local vol candidates=()
+    while read -r vol; do
+        [ -z "$vol" ] && continue
+        if [ "$vol" = "objectstorage" ] || [[ "$vol" == *_objectstorage ]]; then
+            candidates+=("$vol")
+        fi
+    done < <(minio_volumes)
+
+    if [ ${#candidates[@]} -eq 1 ]; then
+        echo "${candidates[0]}"
+        return 0
+    fi
+
+    if [ ${#candidates[@]} -gt 1 ]; then
+        echo "❌ This host has more than one legacy objectstorage volume:" >&2
+        printf '   %s\n' "${candidates[@]}" >&2
+        echo "Pick the one for this install with --volume <id>." >&2
+        return 1
+    fi
+
+    return 0
 }
 
 # The copy runs inside the plugins container, so both endpoints must be reachable on the
@@ -127,7 +177,8 @@ start_source() {
 
 # NODE_ENV=development clears the migration script's own guard against running outside a
 # development environment. The plugins image ships NODE_ENV=production, and both endpoints
-# here are inside the stack's network.
+# here are inside the stack's network. The migration script exits non-zero if any object
+# failed, and set -e stops the run there rather than reporting a clean copy.
 run_service() {
     local service="$1" endpoint="$2"
 
@@ -150,22 +201,18 @@ run_service() {
 
 destination_for() {
     local service="$1" entry
-    for entry in "${ALL_SERVICES[@]}"; do
+    for entry in "${SINGLE_SERVICES[@]}"; do
         if [ "${entry%%|*}" = "$service" ]; then
             echo "${entry##*|}"
             return 0
         fi
     done
-    # query-cache is a valid service that is not copied by default.
-    if [ "$service" = "query-cache" ]; then
-        echo "http://objectstorage:19000"
-        return 0
-    fi
     return 1
 }
 
 SERVICE=""
 VOLUME=""
+DRY_RUN=false
 EXTRA_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -176,10 +223,10 @@ while [[ $# -gt 0 ]]; do
             list_minio_volumes; exit 0 ;;
         --volume)
             VOLUME="$2"; shift 2 ;;
-        --dry-run|--force)
+        --dry-run|-n)
+            DRY_RUN=true; EXTRA_ARGS+=("--dry-run"); shift ;;
+        --force)
             EXTRA_ARGS+=("$1"); shift ;;
-        -n)
-            EXTRA_ARGS+=("--dry-run"); shift ;;
         --workers)
             EXTRA_ARGS+=("$1" "$2"); shift 2 ;;
         *)
@@ -198,7 +245,7 @@ if [ -z "$VOLUME" ]; then
 fi
 
 if [ -z "$VOLUME" ]; then
-    echo "No MinIO volume found on this host, so there is nothing to copy."
+    echo "No legacy objectstorage volume found on this host, so there is nothing to copy."
     echo "If you moved the data, pass the volume with --volume <id>."
     exit 0
 fi
@@ -215,12 +262,14 @@ if [ -z "$NETWORK" ]; then
     exit 1
 fi
 
-SIZE=$(docker run --rm -v "$VOLUME:/data:ro" alpine du -sh /data 2>/dev/null | awk '{print $1}' || echo "unknown")
 echo ""
-echo "MinIO volume: $VOLUME ($SIZE)"
+echo "MinIO volume: $VOLUME ($(volume_size "$VOLUME"))"
 echo "Stack network: $NETWORK"
+if [ "$DRY_RUN" = true ]; then
+    echo "Dry run: nothing is copied."
+fi
 echo ""
-read -r -p "Copy these objects into SeaweedFS? [y/N] " confirm
+read -r -p "Continue? [y/N] " confirm
 if [[ ! "$confirm" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
     echo "Cancelled."
     exit 0
@@ -243,11 +292,33 @@ trap - EXIT
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ Copy finished"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Check your exports, media and recordings in PostHog. Once they look right,"
-echo "free the disk space with:"
-echo ""
-echo "  docker volume rm $VOLUME"
-echo ""
+
+# Only a complete run that copied something can say the volume is safe to drop. A dry run
+# copies nothing, and a single service leaves the rest of the volume behind.
+if [ "$DRY_RUN" = true ]; then
+    echo "🔍 Dry run finished. Nothing was copied."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Run the same command without --dry-run to copy the objects."
+    echo ""
+elif [ -n "$SERVICE" ]; then
+    echo "✅ Copied $SERVICE"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "The rest of the volume is still only in MinIO. Keep volume $VOLUME until you"
+    echo "have run this script without a service argument."
+    echo ""
+else
+    echo "✅ Copy finished"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "The query cache was skipped, because PostHog rebuilds it."
+    echo ""
+    echo "Check your exports, media, symbol sets and recordings in PostHog. Once you are"
+    echo "sure everything you need is there, free the disk space with:"
+    echo ""
+    echo "  docker volume rm $VOLUME"
+    echo ""
+    echo "Until you run that, the old objects are still on disk, so there is no rush."
+    echo ""
+fi
