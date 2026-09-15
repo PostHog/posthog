@@ -53,7 +53,12 @@ from posthog.taxonomy.definition_listing import (
     DefinitionListTimedOut,
     definition_read_db_alias,
 )
-from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.definition_search import (
+    LARGE_PROJECT_COUNT_CAP,
+    PROJECT_SCAN_MAX_DEFINITIONS,
+    bounded_count_sql,
+    is_large_project,
+)
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
@@ -63,6 +68,12 @@ EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
     "event_definitions_list_timed_out_total",
     "Event definition list requests cancelled by the statement timeout.",
 )
+
+EVENT_DEFINITION_ORDERING_FIELDS = ("name", "last_seen_at", "last_seen_at::date", "created_at", "created_at::date")
+
+# `name` is NOT NULL, so a NULLS clause on it changes no row order but stops the planner from matching
+# the unique index's default order (ASC NULLS LAST): the whole project then sorts before the page is cut.
+_NOT_NULL_ORDER_EXPRESSIONS = frozenset({"name", "length(name)"})
 
 
 class EventDefinitionsTimedOut(DefinitionListTimedOut):
@@ -125,13 +136,19 @@ def create_event_definitions_count_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
+    bounded: bool = False,
 ) -> str:
     """Counts the rows `create_event_definitions_sql` pages over.
 
     Selecting no column lets Postgres drop the enterprise join whenever `conditions` reads only
-    base-table columns, so the common count is an index-only scan.
+    base-table columns, so the common count is an index-only scan. A bounded count stops at
+    %(count_cap)s rows, because an exact count over millions of definitions walks the project's whole
+    index range on every page load.
     """
-    return f"SELECT count(*) {_event_definitions_source_sql(event_type, is_enterprise, conditions)}"
+    source_sql = _event_definitions_source_sql(event_type, is_enterprise, conditions)
+    if bounded:
+        return bounded_count_sql(source_sql, "posthog_eventdefinition.name")
+    return f"SELECT count(*) {source_sql}"
 
 
 def create_event_definitions_sql(
@@ -157,7 +174,11 @@ def create_event_definitions_sql(
 
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
-        if order_expression:
+        if not order_expression:
+            continue
+        if order_expression in _NOT_NULL_ORDER_EXPRESSIONS:
+            additional_ordering.append(f"{order_expression} {order_direction}")
+        else:
             additional_ordering.append(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
@@ -405,20 +426,30 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
-        plan = (
-            search_plan("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
-            if has_search_terms
-            else None
-        )
+        large_project = is_large_project("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+        # A small project is cheaper to search through its own index than through the global trigram index.
         search_query, search_kwargs = term_search_filter_sql(
-            self.search_fields, search, avoid_trigram_index=plan == "project_scan"
+            self.search_fields, search, avoid_trigram_index=not large_project
         )
 
-        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
-        order_expressions = self._ordering_params_from_request()
-        has_explicit_ordering = "ordering" in self.request.GET
+        params = {
+            "project_id": self.project_id,
+            "is_posthog_event": "$%",
+            "count_cap": LARGE_PROJECT_COUNT_CAP,
+            **search_kwargs,
+        }
+        # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
+        # `ordering=event`, which nothing serves, and it must still get the large-project default.
+        requested_ordering = self._requested_ordering()
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
+        if large_project and not requested_ordering:
+            # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
+            # project has for each page. Name order pages straight from the unique index instead.
+            order_expressions = [("name", "ASC")]
+        else:
+            order_expressions = self._stable_ordering(requested_ordering)
 
-        if has_search_terms and not has_explicit_ordering:
+        if has_search_terms and not requested_ordering:
             order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
@@ -494,6 +525,7 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
+            bounded=large_project,
         )
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
@@ -517,24 +549,18 @@ class EventDefinitionViewSet(
             return []
         return [tag for tag in decoded if isinstance(tag, str)]
 
-    def _ordering_params_from_request(
-        self,
-    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+    def _requested_ordering(self) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        """The `?ordering=` fields this endpoint can serve, in request order. Unknown fields are dropped."""
         order_direction: Literal["ASC", "DESC"]
 
-        results = []
+        results: list[tuple[str, Literal["ASC", "DESC"]]] = []
 
-        # API client can send more than one ordering
-        orderings = self.request.GET.getlist("ordering")
+        # A client can send more than one ordering as repeated parameters or as one comma-joined value, which is
+        # how the generated client serializes `ordering: string[]`.
+        orderings = [value for raw in self.request.GET.getlist("ordering") for value in raw.split(",")]
 
         for ordering in orderings:
-            if ordering and ordering.replace("-", "") in [
-                "name",
-                "last_seen_at",
-                "last_seen_at::date",
-                "created_at",
-                "created_at::date",
-            ]:
+            if ordering and ordering.replace("-", "") in EVENT_DEFINITION_ORDERING_FIELDS:
                 order = ordering.replace("-", "")
                 if "-" in ordering:
                     order_direction = "DESC"
@@ -543,19 +569,78 @@ class EventDefinitionViewSet(
 
                 results.append((order, order_direction))
 
-        if not results:
-            results = [("last_seen_at::date", "DESC"), ("name", "ASC")]
+        return results
+
+    @staticmethod
+    def _stable_ordering(
+        order_expressions: list[tuple[str, Literal["ASC", "DESC"]]],
+    ) -> list[tuple[str, Literal["ASC", "DESC"]]]:
+        if not order_expressions:
+            order_expressions = [("last_seen_at::date", "DESC"), ("name", "ASC")]
 
         # `name` is unique per project, so it is the tiebreaker that keeps SQL LIMIT/OFFSET paging
         # stable. An explicit `?ordering=` without it can order tied rows differently per page, so a
         # row is paged twice or skipped.
-        if not any(expression == "name" for expression, _ in results):
-            results.append(("name", "ASC"))
+        if not any(expression == "name" for expression, _ in order_expressions):
+            order_expressions = [*order_expressions, ("name", "ASC")]
 
-        return results
+        return order_expressions
 
     @extend_schema(
+        description=(
+            "List the event definitions of a project. On projects with more than "
+            f"{PROJECT_SCAN_MAX_DEFINITIONS} event definitions `count` is capped at {LARGE_PROJECT_COUNT_CAP} "
+            "and the default ordering is by name."
+        ),
         parameters=[
+            EventDefinitionQuerySerializer,
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on the event name. Every whitespace-separated term has to match.",
+            ),
+            OpenApiParameter(
+                "event_type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[event_type.value for event_type in EventDefinitionType],
+                description=(
+                    "`event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. "
+                    "Default `event`."
+                ),
+            ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                enum=[*EVENT_DEFINITION_ORDERING_FIELDS, *(f"-{field}" for field in EVENT_DEFINITION_ORDERING_FIELDS)],
+                description=(
+                    "Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. "
+                    f"Projects with more than {PROJECT_SCAN_MAX_DEFINITIONS} event definitions default to `name`."
+                ),
+            ),
+            OpenApiParameter(
+                "verified",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, keep only verified events and core PostHog events. When false, keep the rest "
+                    "(Enterprise only)."
+                ),
+            ),
+            OpenApiParameter(
+                "tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names. Keeps events that carry any of them.",
+            ),
             OpenApiParameter(
                 "exclude_stale",
                 OpenApiTypes.BOOL,
