@@ -11,6 +11,7 @@ import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    InvocationBuildFailure,
     LogEntry,
     MinimalAppMetric,
 } from '../types'
@@ -38,7 +39,8 @@ export function createInvocation(
 
 /**
  * Matches a batch of hog functions against one event's globals and builds an invocation per match,
- * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue.
+ * resolving each one's inputs. Filter metrics/logs come back alongside for the caller to queue, as
+ * do the functions that matched but produced no invocation, which the caller dead-letters.
  */
 export async function buildHogFunctionInvocations(
     hogInputsService: HogInputsService,
@@ -48,10 +50,12 @@ export async function buildHogFunctionInvocations(
     invocations: CyclotronJobInvocationHogFunction[]
     metrics: MinimalAppMetric[]
     logs: LogEntry[]
+    buildFailures: InvocationBuildFailure[]
 }> {
     const metrics: MinimalAppMetric[] = []
     const logs: LogEntry[] = []
     const invocations: CyclotronJobInvocationHogFunction[] = []
+    const buildFailures: InvocationBuildFailure[] = []
 
     // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
     const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
@@ -70,6 +74,17 @@ export async function buildHogFunctionInvocations(
         // Add any generated metrics and logs to our collections
         metrics.push(...filterResults.metrics)
         logs.push(...filterResults.logs)
+
+        // Checked against undefined, not for truthiness: a thrown error whose message is empty is
+        // still a failure, and treating it as success drops the event with no record of it.
+        if (filterResults.error !== undefined) {
+            buildFailures.push({
+                sourceId: hogFunction.id,
+                sourceKind: 'hog_function',
+                step: 'filter',
+                error: String(filterResults.error),
+            })
+        }
 
         return filterResults.match
     }
@@ -95,6 +110,13 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            buildFailures.push({
+                sourceId: hogFunction.id,
+                sourceKind: 'hog_function',
+                step: 'inputs',
+                error: error.message,
+            })
+
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',
@@ -156,6 +178,7 @@ export async function buildHogFunctionInvocations(
         invocations,
         metrics,
         logs,
+        buildFailures,
     }
 }
 
