@@ -40,6 +40,7 @@ import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
+import { PullRequestStateSettings } from "@posthog/ui/features/settings/sections/PullRequestStateSettings";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
   resolveDefaultCloudRepository,
@@ -87,8 +88,10 @@ export function ConfigureAgentsSection() {
     teamConfig,
     teamConfigLoading,
     handleUpdateMaxReportsPerDay,
+    handleUpdateDefaultOpenPullRequestReady,
     userAutonomyConfig,
     userAutonomyConfigLoading,
+    handleUpdateOpenPullRequestReady,
   } = useSignalSourceManager();
   const { hasGithubIntegration, isLoadingIntegrations } =
     useRepositoryIntegration();
@@ -180,6 +183,19 @@ export function ConfigureAgentsSection() {
           config={teamConfig}
           onSave={handleUpdateMaxReportsPerDay}
           isLoading={teamConfigLoading}
+        />
+      </SettingsSubsection>
+
+      <SettingsSubsection
+        title="Pull requests"
+        description="Choose the state Self-driving pull requests open in on GitHub."
+      >
+        <PullRequestStateSettings
+          teamConfig={teamConfig}
+          userConfig={userAutonomyConfig}
+          onSaveTeamDefault={handleUpdateDefaultOpenPullRequestReady}
+          onSaveMine={handleUpdateOpenPullRequestReady}
+          isLoading={teamConfigLoading || userAutonomyConfigLoading}
         />
       </SettingsSubsection>
 
