@@ -82,6 +82,33 @@ The command exits with zero only when every case completes. It exits with one fo
 
 The JSON output contains the run ID, pinned dataset revision, expected routing metadata, duration, status, conversation/trace correlation IDs, task ID, task-run ID, and direct task URLs. Failed attempts retain their task correlation when the open request succeeded. An agent failure starts a fresh attempt with new correlation and task IDs. An open request that fails before it returns a response is different: the retry reuses the same conversation ID, so a task the server created before the failure is resumed instead of duplicated. Stream rotation or a dropped connection resumes the same task run with `Last-Event-ID` and never resends the question.
 
-A turn completes when the task stream emits `_posthog/turn_complete`, asks a structured clarification question, or reaches a terminal completed state. Other permission requests and terminal failed/cancelled states fail the attempt. PostHog AI tasks remain open briefly for interactive follow-ups after a successful turn; the runner does not cancel them.
+A turn completes when the task stream emits `_posthog/turn_complete`, asks a structured clarification question, or reaches a terminal completed state. Other permission requests and terminal failed/cancelled states fail the attempt. PostHog AI tasks remain open briefly for interactive follow-ups after a successful turn; the runner does not cancel them, with one exception.
+
+A structured clarification question parks a permission request that stays open with no timeout. Anyone or anything that answers it later resumes the agent, and the run then continues past the question the canary was measuring. So the runner records the question text on the case result and cancels that run immediately. Scoring reads `clarification_questions` on the case; an empty list means the agent never asked.
+
+## Scoring a canary batch
+
+`semantic_layer_canary_score.py` grades a completed batch from the full ACP session log of each run, using the same scorers as the offline evals in `products/data_catalog/evals/`. It reads the runner's output, so score the file the runner just wrote:
+
+```bash
+POSTHOG_API_KEY=phx_... flox activate -- .venv/bin/python \
+  products/data_catalog/scripts/semantic_layer_canary_score.py \
+  --results .context/semantic-layer-canary.json
+```
+
+It prints one JSON verdict row per case on stdout and a batch summary on stderr. `--emit` additionally publishes an `$ai_evaluation` event per scored case, tagged with the canary run id, and needs `POSTHOG_CAPTURE_TOKEN`.
+
+Each case is graded against its dataset `expected_routing`:
+
+| `expected_routing`     | Passes when                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `canonical_metric`     | the catalog was consulted before any data-bearing call, and `expected_metric` ran successfully |
+| `derive_from_approved` | the same, and the named metric was never run for the answer                                    |
+| `clarify`              | a question was asked before any data-bearing call, and no metric ran                           |
+| `no_match`             | the catalog was consulted first, and no metric ran                                             |
+
+An unrecognized `expected_routing` and a run without a confirmed terminal status both come back as `unscored` rather than a guess. `metric_describe_before_adapted_sql` is advisory: it never fails a case on its own, because a run that listed the catalog and then wrote its own SQL did consult the catalog.
+
+It reads whole logs, paginating at 5000 entries from offset zero. A partial log cannot show what a run did before the slice, so there is no tail-reading mode.
 
 Questions, assistant answers, streamed failure content, and exception messages are deliberately excluded from the output. Inspect the task run and its ACP session logs in PostHog to verify metric routing and answer quality. Keep local output under `.context/`, which is gitignored.
