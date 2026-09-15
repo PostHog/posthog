@@ -1102,6 +1102,24 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user". Host/IP and port are volatile.
+            'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+            "Failed to identify your database: Your Postgres credentials are incorrect. "
+            "Please check your username and password and try again.",
+        ],
+    )
+    def test_identify_database_credentials_error_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "Your Postgres credentials are incorrect" in non_retryable
+        assert "password authentication failed" not in error_msg
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Proxy credentials rejection should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed for user "u"',
             'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed\nuser "u"',
             "connection failed: error received from server in SCRAM exchange: Wrong password",
@@ -1478,6 +1496,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "FDW column-width mismatch error should surface an actionable message"
         assert "Widen the local" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+        ],
+    )
+    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+
+    def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'invalid input syntax for type timestamp: "\\N"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FDW timestamp mismatch error should surface an actionable message"
+        assert "timestamp" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -4609,6 +4648,15 @@ class TestValidateCredentialsErrorMapping:
                 "Your database's connection pooler has temporarily blocked new connections after "
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
+            ),
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user".
+            (
+                'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+                "Failed to identify your database: Your Postgres credentials are incorrect. "
+                "Please check your username and password and try again.",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
