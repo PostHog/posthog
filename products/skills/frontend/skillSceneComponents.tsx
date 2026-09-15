@@ -106,7 +106,8 @@ export function openPublishToCommunityDialog({
 
     LemonDialog.openForm({
         title: 'Publish to the PostHog community?',
-        description: 'All PostHog users can find and use this skill. Its contents will also be public on GitHub.',
+        description:
+            'If approved for the PostHog catalog, all PostHog users can find and use this skill. Its contents will be public on GitHub immediately.',
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',

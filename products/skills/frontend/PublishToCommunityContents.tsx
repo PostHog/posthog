@@ -47,7 +47,7 @@ export function PublishToCommunityContents({
                                     key: 'files',
                                     header: 'Review files',
                                     content: (
-                                        <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
+                                        <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto break-all">
                                             <li>SKILL.md</li>
                                             {publishPreview.files.map((file) => (
                                                 <li key={file.path}>{file.path}</li>
