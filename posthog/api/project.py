@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
-from django.db.models.functions import Trim
+from django.db.models.functions import Now, Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -1689,12 +1689,32 @@ class ProjectViewSet(
         if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():
             raise exceptions.ValidationError("This project deletion has already started.")
 
+        deletion_scheduled_at = project.deletion_scheduled_at
+        claimed_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+            deletion_scheduled_at__gt=Now(),
+        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+        if not claimed_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
+
         from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
 
-        cancel_delete_project_data_workflow(project_id=project.pk)
+        try:
+            cancel_delete_project_data_workflow(project_id=project.pk)
+        except Exception:
+            Project.objects.filter(
+                pk=project.pk,
+                is_pending_deletion=False,
+                deletion_scheduled_at__isnull=True,
+            ).update(is_pending_deletion=True, deletion_scheduled_at=deletion_scheduled_at)
+            raise
+
         project.is_pending_deletion = False
         project.deletion_scheduled_at = None
-        project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(

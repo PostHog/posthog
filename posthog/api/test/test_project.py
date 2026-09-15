@@ -598,6 +598,50 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_deletion_cancellation_rejects_a_stale_schedule(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale_scheduled_at = timezone.now() + timedelta(hours=48)
+        current_scheduled_at = timezone.now() - timedelta(seconds=1)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=current_scheduled_at,
+        )
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = stale_scheduled_at
+
+        with patch.object(ProjectViewSet, "get_object", return_value=self.project):
+            response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("can no longer be canceled", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, current_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch(
+        "posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow",
+        side_effect=Exception("temporal unavailable"),
+    )
+    def test_project_deletion_cancellation_failure_restores_schedule(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=scheduled_at,
+        )
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     def test_project_member_cannot_cancel_deletion(self, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
