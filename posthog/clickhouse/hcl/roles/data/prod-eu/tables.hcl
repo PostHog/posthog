@@ -1898,6 +1898,9 @@ SQL
     settings = {
       ttl_only_drop_parts = "1"
     }
+    modify_column "snapshot_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
   }
 
   patch_table "writable_events_recent" {

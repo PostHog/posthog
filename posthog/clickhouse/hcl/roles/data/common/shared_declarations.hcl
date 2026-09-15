@@ -1132,7 +1132,7 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "all_urls" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -1169,8 +1169,8 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "snapshot_mode_v2" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1459,7 +1459,7 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "all_urls" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -1496,8 +1496,8 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "snapshot_mode_v2" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    column "snapshot_mode" {
+      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
     }
     order_by     = ["toDate(min_first_timestamp)", "team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"

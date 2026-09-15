@@ -1611,6 +1611,9 @@ SQL
   }
 
   patch_table "sharded_session_replay_events" {
+    modify_column "snapshot_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/reshard/{shard}/posthog.session_replay_events"
       replica_name = "{replica}"

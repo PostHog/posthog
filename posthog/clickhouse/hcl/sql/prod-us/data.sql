@@ -1464,7 +1464,7 @@ CREATE TABLE posthog.sharded_session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/reshard/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.swap_person_distinct_id (
   distinct_id String,
@@ -2107,9 +2107,9 @@ CREATE TABLE posthog.writable_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
   retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
 ) ENGINE = Distributed('posthog_writable', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
@@ -2926,7 +2926,7 @@ CREATE TABLE posthog.session_replay_events (
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
   _timestamp SimpleAggregateFunction(max, DateTime),
-  snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
@@ -2938,7 +2938,7 @@ CREATE TABLE posthog.session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_raw_sessions_v3 (
   team_id Int64,
