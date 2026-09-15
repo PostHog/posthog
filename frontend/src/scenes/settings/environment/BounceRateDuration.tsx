@@ -22,8 +22,11 @@ export function BounceRateDurationSetting(): JSX.Element {
     })
 
     const savedDuration =
-        currentTeam?.modifiers?.bounceRateDurationSeconds ?? currentTeam?.default_modifiers?.bounceRateDurationSeconds
-    const [bounceRateDuration, setBounceRateDuration] = useState<number>(savedDuration ?? DEFAULT_BOUNCE_RATE_DURATION)
+        currentTeam?.modifiers?.bounceRateDurationSeconds ??
+        currentTeam?.default_modifiers?.bounceRateDurationSeconds ??
+        DEFAULT_BOUNCE_RATE_DURATION
+    const [editedDuration, setEditedDuration] = useState<number | null>(null)
+    const bounceRateDuration = editedDuration ?? savedDuration
 
     const handleChange = (duration: number | undefined): void => {
         if (Number.isNaN(duration)) {
@@ -45,9 +48,9 @@ export function BounceRateDurationSetting(): JSX.Element {
                 value={bounceRateDuration ?? null}
                 onChange={(x) => {
                     if (x == null || Number.isNaN(x)) {
-                        setBounceRateDuration(DEFAULT_BOUNCE_RATE_DURATION)
+                        setEditedDuration(DEFAULT_BOUNCE_RATE_DURATION)
                     } else {
-                        setBounceRateDuration(x)
+                        setEditedDuration(x)
                     }
                 }}
                 inputRef={inputRef}
@@ -59,7 +62,7 @@ export function BounceRateDurationSetting(): JSX.Element {
                         tooltip="Clear input"
                         onClick={(e) => {
                             e.stopPropagation()
-                            setBounceRateDuration(DEFAULT_BOUNCE_RATE_DURATION)
+                            setEditedDuration(DEFAULT_BOUNCE_RATE_DURATION)
                             inputRef.current?.focus()
                         }}
                     />

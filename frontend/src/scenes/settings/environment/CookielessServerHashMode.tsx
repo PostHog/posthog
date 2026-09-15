@@ -21,7 +21,8 @@ export function CookielessServerHashModeSetting(): JSX.Element {
     const savedEnabled =
         (currentTeam?.cookieless_server_hash_mode ?? CookielessServerHashMode.Disabled) !==
         CookielessServerHashMode.Disabled
-    const [enabled, setEnabled] = useState<boolean>(savedEnabled)
+    const [editedEnabled, setEditedEnabled] = useState<boolean | null>(null)
+    const enabled = editedEnabled ?? savedEnabled
 
     const handleSave = (): void => {
         updateCurrentTeam({
@@ -41,7 +42,7 @@ export function CookielessServerHashModeSetting(): JSX.Element {
             <LemonSwitch
                 label="Enable cookieless tracking"
                 checked={enabled}
-                onChange={setEnabled}
+                onChange={setEditedEnabled}
                 disabledReason={restrictedReason}
                 data-attr="cookieless-tracking-toggle"
             />
