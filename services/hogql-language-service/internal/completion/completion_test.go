@@ -1,6 +1,7 @@
 package completion
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -118,6 +119,57 @@ func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
 	}
 }
 
+func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		position   int
+		label      string
+		kind       string
+		insertText string
+		excluded   string
+	}{
+		{name: "function in select", query: "SELECT cou FROM orders", position: len("SELECT cou"), label: "count", kind: "function", insertText: "count()"},
+		{name: "embedded function in select", query: "SELECT geoD FROM orders", position: len("SELECT geoD"), label: "geoDistance", kind: "function", insertText: "geoDistance()"},
+		{name: "function in where", query: "SELECT * FROM orders WHERE coa", position: len("SELECT * FROM orders WHERE coa"), label: "coalesce", kind: "function", insertText: "coalesce()"},
+		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: "AND"},
+		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: "="},
+		{name: "field after boolean", query: "SELECT * FROM orders WHERE amount > 0 AND ", position: len("SELECT * FROM orders WHERE amount > 0 AND "), label: "amount", kind: "field"},
+		{name: "field after select comma", query: "SELECT amount,  FROM orders", position: len("SELECT amount, "), label: "amount", kind: "field", excluded: "orders"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := Complete(testCatalog(), test.query, test.position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			suggestion, ok := findSuggestion(result.Suggestions, test.label)
+			if !ok || suggestion.Kind != test.kind || suggestion.InsertText != test.insertText {
+				t.Fatalf("suggestion %q = %#v; all suggestions = %#v; parse error = %q", test.label, suggestion, result.Suggestions, result.ParseError)
+			}
+			if test.excluded != "" && hasSuggestion(result.Suggestions, test.excluded) {
+				t.Fatalf("unexpected suggestion %q in %#v", test.excluded, result.Suggestions)
+			}
+		})
+	}
+}
+
+func TestCompletionReturnsNoSuggestionsInsideStringOrComment(t *testing.T) {
+	for _, query := range []string{
+		"SELECT * FROM orders WHERE order_id = 'cou",
+		"SELECT * FROM orders -- cou",
+		"SELECT * FROM orders /* cou",
+	} {
+		result, err := Complete(testCatalog(), query, len(query), PositionEncodingUTF8, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Suggestions) != 0 {
+			t.Fatalf("query %q returned %#v", query, result.Suggestions)
+		}
+	}
+}
+
 func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	schema := &catalog.Catalog{Tables: map[string]catalog.Table{}}
 	for index := 0; index < 30; index++ {
@@ -157,4 +209,52 @@ func hasSuggestion(suggestions []Suggestion, label string) bool {
 		}
 	}
 	return false
+}
+
+func findSuggestion(suggestions []Suggestion, label string) (Suggestion, bool) {
+	for _, suggestion := range suggestions {
+		if suggestion.Label == label {
+			return suggestion, true
+		}
+	}
+	return Suggestion{}, false
+}
+
+func BenchmarkCompleteContextualCatalog(b *testing.B) {
+	schema := &catalog.Catalog{Tables: make(map[string]catalog.Table, 1024)}
+	for tableIndex := 0; tableIndex < 1024; tableIndex++ {
+		fields := make(map[string]catalog.Field, 25)
+		for fieldIndex := 0; fieldIndex < 25; fieldIndex++ {
+			name := fmt.Sprintf("column_%02d", fieldIndex)
+			fields[name] = catalog.Field{Name: name, Type: "String"}
+		}
+		name := fmt.Sprintf("table_%04d", tableIndex)
+		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: fields}
+	}
+	for _, benchmark := range []struct {
+		name     string
+		query    string
+		position int
+	}{
+		{name: "operator", query: "SELECT * FROM table_0500 WHERE column_10 ", position: len("SELECT * FROM table_0500 WHERE column_10 ")},
+		{name: "function prefix", query: "SELECT countD FROM table_0500", position: len("SELECT countD")},
+	} {
+		b.Run(benchmark.name, func(b *testing.B) {
+			result, err := Complete(schema, benchmark.query, benchmark.position, PositionEncodingUTF8, "")
+			if err != nil {
+				b.Fatal(err)
+			}
+			payload, err := json.Marshal(result)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ResetTimer()
+			b.ReportMetric(float64(len(payload)), "response-B")
+			for range b.N {
+				if _, err := Complete(schema, benchmark.query, benchmark.position, PositionEncodingUTF8, ""); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
