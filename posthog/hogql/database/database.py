@@ -59,6 +59,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
     VirtualTable,
+    data_warehouse_timestamp_alias,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
@@ -2500,6 +2501,21 @@ class Database(BaseModel):
                                 name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]
                             ),
                         )
+
+            # `timestamp` holds one mapping per table, so the last modifier applied wins. Each mapping also
+            # gets a hidden alias, which lets a query whose series read one table on two different columns
+            # keep the column each series declared.
+            mapped_timestamp = table.fields["timestamp"]
+            timestamp_alias = data_warehouse_timestamp_alias(warehouse_modifier.timestamp_field)
+            table.fields[timestamp_alias] = ExpressionField(
+                name=timestamp_alias,
+                expr=(
+                    mapped_timestamp.expr
+                    if isinstance(mapped_timestamp, ExpressionField)
+                    else ast.Field(chain=["timestamp"])
+                ),
+                hidden=True,
+            )
 
             # As with `id` and `timestamp` above, the configured `distinct_id_field` must win over a
             # source column literally named `distinct_id`; otherwise the virtual mapping is skipped and

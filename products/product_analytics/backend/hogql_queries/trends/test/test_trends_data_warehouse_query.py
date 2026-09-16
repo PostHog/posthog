@@ -160,6 +160,59 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
+    def setup_data_warehouse_with_two_timestamps(self):
+        # Table with two event times per row: when a record was created, and when it was completed.
+        # A ratio insight puts one series on each field, so both series read the same table with a
+        # different `timestamp_field`.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_dw_two_timestamps.csv",
+            table_name="test_table_two_timestamps",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "merged": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        return table.name
+
+    def test_trends_data_warehouse_series_keep_their_own_timestamp_field(self):
+        # Regression: every series declares its own `timestamp_field`, but the virtual `timestamp`
+        # field is defined once per table. Two series on one table must still bucket on their own
+        # column, instead of both collapsing onto one of the two fields.
+        table_name = self.setup_data_warehouse_with_two_timestamps()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="merged",
+                ),
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                ),
+            ],
+        )
+
+        with time_machine.travel("2023-01-07", tick=False):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 2
+        assert response.results[0]["data"] == [0, 0, 1, 2, 0, 0, 0]
+        assert response.results[1]["data"] == [2, 1, 0, 0, 0, 0, 0]
+
     def setup_data_warehouse_with_decoy_distinct_id(self):
         # Table whose real actor identifier lives in `user_id`, but which also has a column literally
         # named `distinct_id` (a decoy, e.g. a source-system id). With `aggregate_users_by_distinct_id`,
