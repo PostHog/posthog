@@ -31,9 +31,12 @@ const RESIZE_STEP = 40;
  */
 export function PermissionDock({
   compact,
+  footer,
   children,
 }: {
   compact: boolean;
+  /** Sits below the card, outside its scroll, so a long card cannot bury it. */
+  footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const height = usePermissionDockHeight();
@@ -202,8 +205,11 @@ export function PermissionDock({
           </TooltipContent>
         </Tooltip>
       </div>
-      <div className={isHidden ? "hidden" : "min-h-0 flex-1 overflow-y-auto"}>
-        <ComposerWidth compact={compact}>{children}</ComposerWidth>
+      <div className={isHidden ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ComposerWidth compact={compact}>{children}</ComposerWidth>
+        </div>
+        {footer && <ComposerWidth compact={compact}>{footer}</ComposerWidth>}
       </div>
     </div>
   );

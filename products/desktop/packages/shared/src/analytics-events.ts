@@ -1618,6 +1618,7 @@ export const ANALYTICS_EVENTS = {
   // Permission events
   PERMISSION_RESPONDED: "Permission responded",
   PERMISSION_CANCELLED: "Permission cancelled",
+  PERMISSION_BYPASS_HINT_OPENED: "Permission bypass hint opened",
 
   // Session config events
   SESSION_CONFIG_CHANGED: "Session config changed",
@@ -1831,6 +1832,7 @@ export type EventPropertyMap = {
   // Permission events
   [ANALYTICS_EVENTS.PERMISSION_RESPONDED]: PermissionRespondedProperties;
   [ANALYTICS_EVENTS.PERMISSION_CANCELLED]: PermissionCancelledProperties;
+  [ANALYTICS_EVENTS.PERMISSION_BYPASS_HINT_OPENED]: never;
 
   // Session config events
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
