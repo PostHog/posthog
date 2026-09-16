@@ -36,6 +36,25 @@ const breakdownRows = [
     cohortRow('2024-01-01T00:00:00Z', BREAKDOWN_OTHER_STRING_LABEL),
 ]
 
+const overallRows = [
+    {
+        date: '2024-01-01T00:00:00Z',
+        label: 'Day 0',
+        values: [
+            { count: 100, aggregation_value: 100 },
+            { count: 50, aggregation_value: 60 },
+        ],
+    },
+    {
+        date: '2024-01-02T00:00:00Z',
+        label: 'Day 0',
+        values: [
+            { count: 80, aggregation_value: 80 },
+            { count: 40, aggregation_value: 20 },
+        ],
+    },
+]
+
 let logic: ReturnType<typeof retentionGraphLogic.build>
 let builtRetentionLogic: ReturnType<typeof retentionLogic.build>
 
@@ -130,5 +149,48 @@ describe('retentionGraphLogic', () => {
         // Without a mounted dashboard there is no override, so a breakdown value is still positional
         expect(token('Chrome', 1)).toBe('preset-2')
         expect(builtRetentionLogic.values.getRetentionColor('Chrome', 1)).toBe('#222222')
+    })
+
+    describe('meanLineData', () => {
+        it.each([
+            ['off by default', { period: RetentionPeriod.Day }, null],
+            [
+                'on with no breakdown or interval selected',
+                { period: RetentionPeriod.Day, showMeanLine: true },
+                [100, 50],
+            ],
+            [
+                'suppressed when an interval is selected',
+                { period: RetentionPeriod.Day, showMeanLine: true, selectedInterval: 1 },
+                null,
+            ],
+        ])('%s', async (_name, retentionFilter, expected) => {
+            await loadResults({ kind: NodeKind.RetentionQuery, retentionFilter }, overallRows)
+            expect(logic.values.meanLineData).toEqual(expected)
+        })
+
+        it('is suppressed when a breakdown is active', async () => {
+            await loadResults(
+                { ...breakdownQuery, retentionFilter: { period: RetentionPeriod.Day, showMeanLine: true } },
+                breakdownRows
+            )
+            expect(logic.values.meanLineData).toBeNull()
+        })
+
+        it('uses meanValues instead of meanPercentages for property-value aggregation', async () => {
+            await loadResults(
+                {
+                    kind: NodeKind.RetentionQuery,
+                    retentionFilter: {
+                        period: RetentionPeriod.Day,
+                        showMeanLine: true,
+                        aggregationType: 'sum',
+                        aggregationProperty: 'revenue',
+                    },
+                },
+                overallRows
+            )
+            expect(logic.values.meanLineData).toEqual([90, 40])
+        })
     })
 })
