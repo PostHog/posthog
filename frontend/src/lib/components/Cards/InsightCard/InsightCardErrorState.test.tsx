@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardPlacement, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { InsightCard } from './InsightCard'
 
@@ -32,25 +32,14 @@ describe('InsightCard error states', () => {
         cleanup()
     })
 
-    it.each([
-        {
-            label: 'an error that is not an ApiError',
-            insight: INSIGHT,
-            apiError: new Error('Something went wrong'),
-        },
-        {
-            label: 'an insight the person cannot view',
-            insight: { ...INSIGHT, user_access_level: AccessControlLevel.None },
-            apiError: undefined,
-        },
-    ])('reports the query context of $label', ({ insight, apiError }) => {
+    it('reports the query context of an error that is not an ApiError', () => {
         render(
             <InsightCard
-                insight={insight}
+                insight={INSIGHT}
                 placement={DashboardPlacement.Export}
                 queryId="query-1"
-                apiErrored={!!apiError}
-                apiError={apiError}
+                apiErrored
+                apiError={new Error('Something went wrong')}
             />
         )
 

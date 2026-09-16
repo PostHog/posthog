@@ -367,9 +367,6 @@ function InsightCardInternal(
                     data-attr="insight-access-denied-state"
                     title={errorMessage || "You don't have permission to view this insight."}
                     titleStatus={403}
-                    query={insight.query}
-                    queryId={queryId}
-                    placement={placement}
                     excludeDetail
                 />
             )
