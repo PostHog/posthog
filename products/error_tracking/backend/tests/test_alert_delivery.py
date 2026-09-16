@@ -13,16 +13,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.tasks.tasks import dispatch_error_tracking_alert_deliveries
+from products.error_tracking.backend.temporal.alerts.activities import deliver_alert_notifications_activity
 from products.error_tracking.backend.temporal.alerts.delivery import (
     PENDING_CLAIM_TTL,
     AlertDeliveryError,
+    AlertThreadBusyError,
     deliver_alert_notifications,
     plan_alert_deliveries,
 )
@@ -32,8 +34,8 @@ from products.error_tracking.backend.temporal.alerts.dispatch import (
     start_alert_delivery_workflows,
 )
 from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message
-from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
-from products.error_tracking.backend.temporal.alerts.workflow import ACTIVITY_RETRY_POLICY
+from products.error_tracking.backend.temporal.alerts.types import THREAD_BUSY_ERROR_TYPE, AlertDeliveryWorkflowInputs
+from products.error_tracking.backend.temporal.alerts.workflow import BUSY_WAIT_LIMIT
 
 
 class AlertTestMixin(BaseTest):
@@ -250,7 +252,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert "TypeError" in kwargs["text"]
         with team_scope(self.team.id):
             thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
-        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222", "root_status": "Active"}
         assert thread.root_headline == "🔴 New issue"
         assert thread.delivered_notification_ids == ["notif-1"]
 
@@ -306,7 +308,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
 
         def post_while_holding_claim(**kwargs):
             client.chat_postMessage.side_effect = None
-            with self.assertRaises(AlertDeliveryError):
+            with self.assertRaises(AlertThreadBusyError):
                 deliver_alert_notifications(second)
             return {"channel": "C0123", "ts": "111.222"}
 
@@ -345,7 +347,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
             assert thread.pending_notification_id is None
             assert thread.delivered_notification_ids == ["notif-1"]
         else:
-            with self.assertRaises(AlertDeliveryError):
+            with self.assertRaises(AlertThreadBusyError):
                 deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
             client.chat_postMessage.assert_not_called()
             thread.refresh_from_db()
@@ -373,17 +375,70 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert thread.external_ref == {}
         assert thread.delivered_notification_ids == []
 
-    def test_retry_schedule_outlasts_the_claim_ttl(self):
-        # A busy loser must still be retrying when a dead holder's claim goes stale,
+    def test_busy_wait_outlasts_the_claim_ttl(self):
+        # A busy loser must still be waiting when a dead holder's claim goes stale,
         # otherwise the notification is dropped for good.
-        policy = ACTIVITY_RETRY_POLICY
-        assert policy.maximum_interval is not None
-        interval = policy.initial_interval
-        total = timedelta(0)
-        for _ in range(policy.maximum_attempts - 1):
-            total += interval
-            interval = min(interval * policy.backoff_coefficient, policy.maximum_interval)
-        assert total > PENDING_CLAIM_TTL
+        assert BUSY_WAIT_LIMIT > PENDING_CLAIM_TTL
+
+    def test_busy_thread_surfaces_as_a_non_retryable_activity_error(self):
+        # Contention must not spend the activity's retry budget: the workflow waits instead.
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.alerts.activities.deliver_alert_notifications",
+                side_effect=AlertThreadBusyError("busy"),
+            ),
+            self.assertRaises(ApplicationError) as raised,
+        ):
+            deliver_alert_notifications_activity(self._inputs("$error_tracking_issue_created"))
+        assert raised.exception.type == THREAD_BUSY_ERROR_TYPE
+        assert raised.exception.non_retryable is True
+
+    def test_root_shows_the_issue_row_status_at_post_time(self):
+        # A resolve that ran before the opener must not leave an "Active" root behind.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        ErrorTrackingIssue.objects.filter(id=self.issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
+
+        delivered = deliver_alert_notifications(self._inputs("$error_tracking_issue_created", status="Active"))
+
+        assert delivered == 1
+        blocks = client.chat_postMessage.call_args.kwargs["blocks"]
+        context_texts = [el["text"] for block in blocks if block["type"] == "context" for el in block["elements"]]
+        assert "Status: Resolved" in context_texts
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
+        assert thread.external_ref["root_status"] == "Resolved"
+
+    def test_any_reply_reconciles_a_stale_root_status(self):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert)
+        thread.external_ref = {**thread.external_ref, "root_status": "Active"}
+        thread.save()
+
+        # The row says Active, as the root shows: nothing to edit.
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_assigned", "n-1", status="Active")) == 1
+        client.chat_update.assert_not_called()
+
+        # The resolve's root edit fails: the reply still counts, the root stays recorded as stale.
+        ErrorTrackingIssue.objects.filter(id=self.issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
+        client.chat_update.side_effect = RuntimeError("slack hiccup")
+        assert (
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_resolved", "n-2", status="Resolved")) == 1
+        )
+        thread.refresh_from_db()
+        assert thread.external_ref["root_status"] == "Active"
+
+        # A delayed assignment still carries the status it snapshotted before the resolve. The
+        # row is the reference, so it heals the root to Resolved instead of flipping it back.
+        client.chat_update.side_effect = None
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_assigned", "n-3", status="Active")) == 1
+        assert client.chat_update.call_count == 2
+        edit_kwargs = client.chat_update.call_args.kwargs
+        assert edit_kwargs["ts"] == "111.222"
+        assert edit_kwargs["text"].startswith("🔴 New issue")
+        thread.refresh_from_db()
+        assert thread.external_ref["root_status"] == "Resolved"
 
     def test_failed_post_releases_the_claim(self):
         client = self._mock_slack()
@@ -410,7 +465,7 @@ class TestSlackThreadDelivery(AlertTestMixin):
         assert delivered == 1
         assert client.chat_postMessage.call_args.kwargs["channel"] == "C0123"
         thread.refresh_from_db()
-        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222", "root_status": "Active"}
         assert thread.delivered_notification_ids == ["notif-1"]
 
     def test_opener_with_configured_filters_stays_dark(self):

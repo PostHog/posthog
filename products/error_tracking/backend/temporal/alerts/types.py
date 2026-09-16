@@ -55,6 +55,10 @@ class AlertDeliveryWorkflowInputs:
         )
 
 
+# Activity error type the workflow waits on instead of spending activity retries.
+THREAD_BUSY_ERROR_TYPE = "AlertThreadBusy"
+
+
 @dataclasses.dataclass(frozen=True)
 class AlertDeliveryWorkflowResult:
     deliveries: int = 0

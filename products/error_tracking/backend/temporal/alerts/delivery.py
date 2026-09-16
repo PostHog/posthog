@@ -31,6 +31,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertDestination,
     ErrorTrackingAlertThread,
+    ErrorTrackingIssue,
 )
 from products.error_tracking.backend.temporal.alerts.messages import (
     DEFAULT_HEADLINE,
@@ -51,21 +52,13 @@ OPENER_TRIGGERS = {
     "$error_tracking_issue_assigned": ErrorTrackingAlert.Trigger.ISSUE_ASSIGNED,
 }
 
-# Status transitions also update the root message in place. The headline stays:
-# it is the thread's identity.
-ROOT_EDIT_EVENTS = {
-    "$error_tracking_issue_resolved",
-    "$error_tracking_issue_suppressed",
-    "$error_tracking_issue_reopened",
-}
-
 DELIVERED_NOTIFICATION_IDS_CAP = 200
 # A send claim older than this belongs to a holder that died between posting and
 # saving; the next delivery takes over. A live holder makes at most two Slack calls
 # per thread (post, then root edit); each is up to two 30s attempts under the SDK's
 # default connection-error retry, so ~130s worst case, and 240s cannot expire under
-# a live holder. It must stay shorter than the activity retry schedule (workflow.py)
-# so a busy loser is still retrying when it expires.
+# a live holder. It must stay shorter than the workflow's busy wait (workflow.py)
+# so a busy loser is still waiting when it expires.
 PENDING_CLAIM_TTL = timedelta(seconds=240)
 
 
@@ -139,13 +132,14 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     planned = plan_alert_deliveries(inputs)
     delivered = 0
     failures = 0
+    busy = 0
     for delivery in planned:
         try:
             if _deliver_one(delivery, inputs):
                 delivered += 1
         except AlertThreadBusyError:
-            # Expected contention, not a fault: the retry lands as a reply once the
-            # holder has saved its root.
+            # Expected contention, not a fault: the workflow waits and runs the
+            # activity again once the holder has saved its root.
             logger.info(
                 "error_tracking_alert_thread_busy",
                 team_id=inputs.team_id,
@@ -154,7 +148,7 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
                 issue_id=inputs.issue_id,
                 notification_id=inputs.notification_id,
             )
-            failures += 1
+            busy += 1
         except Exception:
             # Give every destination a chance before surfacing the failure to
             # Temporal; the per-notification claim makes the retry safe for the
@@ -171,6 +165,10 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
             failures += 1
     if failures:
         raise AlertDeliveryError(f"{failures} of {len(planned)} alert deliveries failed")
+    if busy:
+        # Only contention left: surfaced as its own error so the wait does not spend
+        # the activity's failure budget.
+        raise AlertThreadBusyError(f"{busy} of {len(planned)} alert threads are busy")
     return delivered
 
 
@@ -238,9 +236,13 @@ def _post_claimed(
         channel = delivery.destination.config.get("channel")
         if not channel:
             return False
-        message = build_root_message(inputs)
+        # Transitions run as independent workflows, so a later one (resolved, assigned)
+        # can land before the opener: the root shows the issue row as it is now, not
+        # as the opener's payload saw it.
+        root_inputs = _with_current_status(inputs)
+        message = build_root_message(root_inputs)
         response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
-        external_ref = {"channel": response["channel"], "ts": response["ts"]}
+        external_ref = {"channel": response["channel"], "ts": response["ts"], "root_status": root_inputs.status}
         root_headline = message["headline"]
     else:
         reply = build_reply_text(inputs)
@@ -249,7 +251,7 @@ def _post_claimed(
         # Replies stay in the thread's own channel: a provider thread cannot move,
         # so a repointed destination only applies to newly opened threads.
         client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
-        _maybe_edit_root(client, thread, inputs)
+        external_ref = _reconcile_root_status(client, thread, inputs)
 
     delivered_ids = [*(thread.delivered_notification_ids or []), inputs.notification_id][
         -DELIVERED_NOTIFICATION_IDS_CAP:
@@ -303,25 +305,54 @@ def _release_thread(
     ).update(pending_notification_id=None, pending_claimed_at=None)
 
 
-def _maybe_edit_root(client: WebClient, thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> None:
-    if inputs.event not in ROOT_EDIT_EVENTS:
-        return
+def _with_current_status(inputs: AlertDeliveryWorkflowInputs) -> AlertDeliveryWorkflowInputs:
+    status = (
+        ErrorTrackingIssue.objects.filter(id=inputs.issue_id, team_id=inputs.team_id)
+        .values_list("status", flat=True)
+        .first()
+    )
+    if status is None:
+        return inputs
+    try:
+        label = str(ErrorTrackingIssue.Status(status).label)
+    except ValueError:
+        label = status
+    return dataclasses.replace(inputs, status=label)
+
+
+def _reconcile_root_status(
+    client: WebClient, thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs
+) -> dict:
+    """Edit the root's status line whenever it differs from the issue row's status.
+
+    Every reply checks, not only status transitions: a root edit that failed on the
+    resolve heals on the next assignment or spike instead of staying stale for good.
+    The row is the reference, not the reply's payload: transitions arrive out of
+    order, and a delayed assignment must not flip a resolved root back to Active.
+    The headline never changes on edit: it is the thread's identity.
+    """
+    external_ref = thread.external_ref
+    inputs = _with_current_status(inputs)
+    if not inputs.status or inputs.status == external_ref.get("root_status"):
+        return external_ref
     message = build_root_edit(inputs, headline=thread.root_headline or DEFAULT_HEADLINE)
     try:
         client.chat_update(
-            channel=thread.external_ref["channel"],
-            ts=thread.external_ref["ts"],
+            channel=external_ref["channel"],
+            ts=external_ref["ts"],
             blocks=message["blocks"],
             text=message["text"],
         )
     except Exception:
-        # The threaded reply already delivered the update; a failed root edit only
-        # leaves a stale status line behind, so it never fails the delivery.
+        # The threaded reply already delivered the update; the stale status line is
+        # retried by the next reply, so it never fails the delivery.
         logger.exception(
             "error_tracking_alert_root_edit_failed",
             thread_id=str(thread.id),
             lifecycle_event=inputs.event,
         )
+        return external_ref
+    return {**external_ref, "root_status": inputs.status}
 
 
 def _slack_client(destination: ErrorTrackingAlertDestination) -> WebClient | None:
