@@ -110,8 +110,8 @@ function SeriesBands(): JSX.Element {
         <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto" data-attr="logs-anomalies-band-charts">
             <div className="text-secondary text-sm">
                 Log volume per hour from {formatWindowBound(seriesBands.window_start)} to{' '}
-                {formatWindowBound(seriesBands.window_end)}, against the range seen at the same time of week in the
-                previous weeks. Marked points fell outside that range. Click a bucket to read its logs.
+                {formatWindowBound(seriesBands.window_end)}, against the expected range learned from the same time of
+                week in previous weeks. Marked points fell outside that range. Click a bucket to read its logs.
             </div>
             {seriesBands.series_truncated ? (
                 <div data-attr="logs-anomalies-truncated">

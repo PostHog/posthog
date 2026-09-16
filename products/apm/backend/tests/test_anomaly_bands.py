@@ -51,6 +51,12 @@ class TestCountBands:
         assert nb_band.lower == poisson_band.lower
         assert nb_band.upper == poisson_band.upper
 
+    def test_negative_binomial_one_outlier_does_not_collapse_the_band(self) -> None:
+        samples = np.append(np.full(14, 10.0), 10000.0)
+        band = NegativeBinomialBandModel().compute(samples, 10.0, ALPHA)
+        assert band.lower < 10.0 < band.upper
+        assert band.upper < 10000.0
+
     def test_flat_baseline_still_produces_nonzero_width_band(self) -> None:
         samples = np.full(40, 20.0)
         band = NegativeBinomialBandModel().compute(samples, 20.0, ALPHA)

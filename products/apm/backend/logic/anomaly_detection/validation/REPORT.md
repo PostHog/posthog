@@ -3,6 +3,9 @@
 Run: `python -m products.apm.backend.logic.anomaly_detection.validation.run --weeks 10 --eval-weeks 2 --ephemerals 30 --seed 7`
 (49 series seeded from the calibration defaults in calibration.py — production-shaped, with absolute volumes rounded — 133 injected anomalies over a 2-week eval window that crosses the 2026-03-08 US DST shift; requires a booted Django env for the registry-backed scorers.)
 
+> [!NOTE]
+> These numbers predate the change that estimates the negative binomial's variance from the same trimmed samples as its rate (September 2026). Bands on overdispersed series are somewhat narrower since. Re-run the command above to refresh.
+
 ## Band model recommendation: negative binomial, no severity widening
 
 - **negative_binomial**: 6.7 fp/series/day, tier A info precision 0.61 and tier B info 0.78 at window-recall 0.71–1.0. Best on every persistent info/warn group, and the **only model calibrated across the count range**: on clean NB data at lambda 1–10,000 x CV {0.12, 0.5, 2.2} its false-flag rate stays at 0.000–0.006, near the 3.5e-4 target.
