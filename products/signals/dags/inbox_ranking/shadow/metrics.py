@@ -10,7 +10,8 @@ rows were worth the top of the list.
 Three orders are graded on each list, on exactly the same rows:
 
 - `model`, descending score of the head whose outcome is being graded;
-- `heuristic`, the rank the list served, which is what the person saw;
+- `heuristic`, the rank the list served, which is what the person saw, minus any row no score
+  existed for;
 - `random`, seeded permutations, the chance line a gap has to clear.
 
 Pure functions over frames; `shadow/dag.py` owns the ClickHouse, S3 and telemetry plumbing.
@@ -104,6 +105,14 @@ class RankingGrade:
     # training job found it readable, and a family is skipped on a partition it has no metadata
     # for, so one grade can rest on far fewer of the served rows than another one of the same day.
     score_coverage: float | None
+    # The same share over the served rows that drew this outcome. The join drops unscored rows,
+    # and those are the reports born on the day they were impressed, which is where an open lands
+    # most often. Below 1 these lists are conditioned on the outcome falling on an older report.
+    positive_coverage: float | None
+    # Share of this group's lists that kept every row the person saw. Below 1 the rest were graded
+    # with their unscored rows removed, so the served ranks close up and the NDCG cutoffs bite on
+    # a shorter list than the one that was rendered.
+    full_list_coverage: float | None
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -118,6 +127,8 @@ class RankingGrade:
             "mrr_std": self.mrr_std,
             "positive_served_rank_mean": self.positive_served_rank_mean,
             "score_coverage": self.score_coverage,
+            "positive_coverage": self.positive_coverage,
+            "full_list_coverage": self.full_list_coverage,
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -334,15 +345,39 @@ def _positive_served_rank_mean(lists: Sequence[ServedList]) -> float | None:
     return float(ranks.mean()) if len(ranks) else None
 
 
-def grade_lists(joined: pd.DataFrame, *, served_rows: int) -> list[RankingGrade]:
+def _positive_coverage(rows: pd.DataFrame, outcome: str, served_positives: int) -> float | None:
+    """Share of the served rows that drew `outcome` which this group had a score for."""
+    if not served_positives:
+        return None
+    return float(rows[outcome_column(outcome)].sum() / served_positives)
+
+
+def _full_list_coverage(rows: pd.DataFrame, served_per_list: pd.Series) -> float | None:
+    """Share of this group's lists that the join left whole."""
+    per_list = rows.groupby("impression_id").size()
+    if per_list.empty:
+        return None
+    return float((per_list == served_per_list.reindex(per_list.index)).mean())
+
+
+def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGrade]:
     """Three grades per (model, outcome): the model's order, the served order, and chance.
 
     Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
     one day's lists are ranked by whichever version scored each report at its birth.
+
+    `served` is the pre-join frame, and it is here to be a denominator. The join keeps only the
+    rows a score existed for, so the graded lists are a subset of the rendered ones in two ways
+    the ranking metrics cannot show: an outcome on an unscored row leaves the sample entirely, and
+    a surviving list loses the rows above its positives. `positive_coverage` and
+    `full_list_coverage` report both, the way `positive_served_rank_mean` reports position bias.
     """
     grades: list[RankingGrade] = []
     if joined.empty:
         return grades
+    served_rows = len(served)
+    served_per_list = served.groupby("impression_id").size()
+    served_positives = {outcome: int(served[outcome_column(outcome)].sum()) for outcome in OUTCOMES}
     for (model_name, model_role, head), rows in joined.groupby(["model_name", "model_role", "head"], sort=True):
         if head not in OUTCOMES:
             continue
@@ -359,6 +394,8 @@ def grade_lists(joined: pd.DataFrame, *, served_rows: int) -> list[RankingGrade]
             "mean_list_size": float(np.mean([len(entry.relevance) for entry in lists])),
             "positive_served_rank_mean": _positive_served_rank_mean(lists),
             "score_coverage": score_coverage(served_rows, rows),
+            "positive_coverage": _positive_coverage(rows, str(head), served_positives[str(head)]),
+            "full_list_coverage": _full_list_coverage(rows, served_per_list),
         }
         grades.extend(
             _grade(shared, ranking_order=order, metrics=metrics)

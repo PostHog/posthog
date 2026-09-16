@@ -83,6 +83,8 @@ _GRADE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("positive_served_rank_mean", pa.float64()),
     # This grade's own coverage; `run_score_coverage` is the same share over every grade of the day.
     ("score_coverage", pa.float64()),
+    ("positive_coverage", pa.float64()),
+    ("full_list_coverage", pa.float64()),
     ("served_rows", pa.int64()),
     ("served_lists", pa.int64()),
     ("run_score_coverage", pa.float64()),
@@ -233,7 +235,7 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
     joined = join_scores(lists, scores)
     served_rows = len(lists)
     coverage = score_coverage(served_rows, joined)
-    grades = grade_lists(joined, served_rows=served_rows)
+    grades = grade_lists(joined, served=lists)
     served_lists = int(lists["impression_id"].nunique()) if not lists.empty else 0
 
     rows = grade_rows(

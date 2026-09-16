@@ -178,10 +178,10 @@ def test_lists_without_an_outcome_or_a_choice_to_make_are_not_graded():
 
 def test_the_model_order_is_graded_against_the_served_order_and_chance():
     # The served order buries the only report anyone opened; the model scores it highest.
-    rows = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"]))
-    joined = rows.assign(
-        outcome_open=[False, False, False, True],
-        outcome_action=False,
+    served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
+        outcome_open=[False, False, False, True], outcome_action=False
+    )
+    joined = served.assign(
         model_name="tabular_xgb",
         model_version="2026-09-09",
         model_role="champion",
@@ -189,7 +189,7 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
         score=[0.1, 0.2, 0.3, 0.9],
     )
 
-    grades = {grade.ranking_order: grade for grade in grade_lists(joined, served_rows=len(rows))}
+    grades = {grade.ranking_order: grade for grade in grade_lists(joined, served=served)}
     ndcg_5 = {order: grade.ndcg_5 or 0.0 for order, grade in grades.items()}
 
     assert grades[MODEL_ORDER].mrr == 1.0
@@ -201,25 +201,23 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     assert grades[MODEL_ORDER].mrr_std is None
     # The served rank of the opened report, which is how much position bias these numbers carry.
     assert grades[MODEL_ORDER].positive_served_rank_mean == 4.0
-    assert {grade.outcome for grade in grade_lists(joined, served_rows=len(rows))} == {"open"}
+    assert {grade.outcome for grade in grade_lists(joined, served=served)} == {"open"}
 
 
 def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     # A head is scored only on the partitions the training job found it readable on, so one head
     # can rest on far fewer of a day's served rows than another. The run figure hides that.
-    served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"]))
+    served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
+        outcome_open=[True, False, False, False], outcome_action=[True, False, False, False]
+    )
     scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "model_role": "champion", "score": 0.5}
     joined = pd.concat(
-        [
-            served.assign(outcome_open=[True, False, False, False], outcome_action=False, head="open", **scored),
-            served.head(2).assign(outcome_open=False, outcome_action=[True, False], head="action", **scored),
-        ],
+        [served.assign(head="open", **scored), served.head(2).assign(head="action", **scored)],
         ignore_index=True,
     )
 
     coverage = {
-        (grade.outcome, grade.ranking_order): grade.score_coverage
-        for grade in grade_lists(joined, served_rows=len(served))
+        (grade.outcome, grade.ranking_order): grade.score_coverage for grade in grade_lists(joined, served=served)
     }
 
     assert score_coverage(len(served), joined) == 1.0
@@ -227,11 +225,33 @@ def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     assert coverage[("action", MODEL_ORDER)] == 0.5
 
 
+def test_a_grade_reports_the_engagement_and_the_rows_the_join_dropped():
+    # The join keeps only scored rows, and the unscored ones are reports born the day they were
+    # impressed — where an open lands most often. A list whose only open is unscored leaves the
+    # sample, and a surviving list is graded with its unscored rows closed up.
+    served = _lists(
+        [
+            *_served("kept", [UUID_A, UUID_B, UUID_B + "-c"]),
+            *_served("dropped", [UUID_B + "-d", UUID_B + "-e"], at=SERVED_AT + datetime.timedelta(hours=2)),
+        ]
+    ).assign(outcome_open=[True, False, False, True, False], outcome_action=False)
+    # Only the first two rows of `kept` were scored; the newborns everywhere else were not.
+    joined = served.head(2).assign(
+        model_name="tabular_xgb", model_version="2026-09-09", model_role="champion", head="open", score=[0.9, 0.1]
+    )
+
+    grade = next(grade for grade in grade_lists(joined, served=served) if grade.ranking_order == MODEL_ORDER)
+
+    # One of the two opens survived the join, and the one list graded lost a row it was served.
+    assert grade.positive_coverage == 0.5
+    assert grade.full_list_coverage == 0.0
+
+
 def test_a_grade_carries_the_versions_that_scored_the_day():
-    rows = _lists([*_served("first", [UUID_A, UUID_B]), *_served("second", [UUID_A, UUID_B])])
-    joined = rows.assign(
-        outcome_open=[True, False, True, False],
-        outcome_action=False,
+    served = _lists([*_served("first", [UUID_A, UUID_B]), *_served("second", [UUID_A, UUID_B])]).assign(
+        outcome_open=[True, False, True, False], outcome_action=False
+    )
+    joined = served.assign(
         model_name="tabular_xgb",
         model_version=["2026-09-01", "2026-09-02", "2026-09-01", "2026-09-02"],
         model_role="champion",
@@ -239,7 +259,7 @@ def test_a_grade_carries_the_versions_that_scored_the_day():
         score=0.5,
     )
 
-    assert {grade.model_versions for grade in grade_lists(joined, served_rows=len(rows))} == {2}
+    assert {grade.model_versions for grade in grade_lists(joined, served=served)} == {2}
 
 
 class TestShadowQueries(ClickhouseTestMixin, BaseTest):
@@ -350,10 +370,8 @@ def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
 def test_a_day_that_graded_nothing_still_reports_a_run():
     # A day whose lists had no score available at impression time grades nothing, and without a
     # run event that is byte-identical to a run that crashed before capturing anything.
-    rows = _lists(_served("first", [UUID_A, UUID_B]))
-    joined = rows.assign(
-        outcome_open=[True, False],
-        outcome_action=False,
+    served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
+    joined = served.assign(
         model_name="tabular_xgb",
         model_version="2026-09-09",
         model_role="champion",
@@ -367,7 +385,7 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
         served_rows=2,
         served_lists=1,
         run_score_coverage=1.0,
-        grades=grade_lists(joined, served_rows=len(rows)),
+        grades=grade_lists(joined, served=served),
     )
 
     assert [event.event for event in empty] == [SHADOW_RUN_COMPLETED_EVENT]
@@ -385,10 +403,8 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
 def test_grade_rows_match_the_parquet_schema_exactly():
     # pa.Table.from_pylist drops keys the schema does not name, so a grade field added without a
     # column would vanish from the object without failing anything.
-    rows = _lists(_served("first", [UUID_A, UUID_B]))
-    joined = rows.assign(
-        outcome_open=[True, False],
-        outcome_action=False,
+    served = _lists(_served("first", [UUID_A, UUID_B])).assign(outcome_open=[True, False], outcome_action=False)
+    joined = served.assign(
         model_name="tabular_xgb",
         model_version="2026-09-09",
         model_role="champion",
@@ -396,7 +412,7 @@ def test_grade_rows_match_the_parquet_schema_exactly():
         score=[0.9, 0.1],
     )
     graded = grade_rows(
-        grade_lists(joined, served_rows=len(rows)),
+        grade_lists(joined, served=served),
         partition_key=DAY.isoformat(),
         served_rows=2,
         served_lists=1,
