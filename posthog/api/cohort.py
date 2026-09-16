@@ -2346,17 +2346,6 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
         COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
         COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
-        # The flush above finalized cohort state, including the recomputed count. Recording the run
-        # here as well keeps every static population path writing one history row per attempt, so a
-        # flag-backed cohort's calculation history is not just its failures.
-        CohortCalculationHistory.objects.create(
-            team_id=team_id,
-            cohort=cohort,
-            filters=cohort.filters or {},
-            started_at=started_at,
-            finished_at=timezone.now(),
-            count=cohort.count,
-        )
     except Exception as err:
         logger.exception(
             "cohort_from_feature_flag_failed",
@@ -2395,3 +2384,27 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             error_code=error_code,
         )
         raise
+
+    # The flush above finalized cohort state, including the recomputed count. Recording the run
+    # here as well keeps every static population path writing one history row per attempt, so a
+    # flag-backed cohort's calculation history is not just its failures. The write stays outside
+    # the block above: the population is already committed, so a failure to record it must not
+    # report a finished run as a failed one.
+    try:
+        CohortCalculationHistory.objects.create(
+            team_id=team_id,
+            cohort=cohort,
+            filters=cohort.filters or {},
+            started_at=started_at,
+            finished_at=timezone.now(),
+            count=cohort.count,
+        )
+    except Exception as err:
+        logger.warning(
+            "cohort_from_feature_flag_history_write_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            exc_info=True,
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
