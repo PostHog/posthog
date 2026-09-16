@@ -12,6 +12,7 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { Text } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 
 // The shared channel header. Every space scene renders the same breadcrumb —
 // the root segment is identical whether or not there's a leaf, so the space
@@ -22,6 +23,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 export function ChannelHeader({
   channelId,
   page,
+  leaf,
 }: {
   channelId: string;
   /**
@@ -30,8 +32,15 @@ export function ChannelHeader({
    * the root segment alone, for scenes that carry no page of their own.
    */
   page?: ChannelPageKey;
+  /**
+   * A document inside `page`, e.g. "{space} / Context / CONTEXT.md". The page
+   * moves to the middle segment and links back to itself, so the way out of
+   * the document is always in the header.
+   */
+  leaf?: { icon?: ReactNode; label: string };
 }) {
   const channelsLayout = useChannelsLayout();
+  const navigate = useNavigate();
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   // Every channel surface renders this header, so mark the channel read here.
@@ -42,14 +51,57 @@ export function ChannelHeader({
   // layout flag graduates.
   if (!channelsLayout) return <LegacyChannelHeader channelId={channelId} />;
 
+  const pageSegment = page
+    ? {
+        icon: channelPageIcon(page, { size: 12 }),
+        label: channelPageLabel(page),
+      }
+    : undefined;
+
+  if (leaf && page && pageSegment) {
+    return (
+      <ChannelBreadcrumb
+        channelName={channelName ?? "Space"}
+        channelId={channelId}
+        middle={{
+          ...pageSegment,
+          onClick: () =>
+            void navigate({
+              to: channelPageRoute(page),
+              params: { channelId },
+            }),
+        }}
+        leafIcon={leaf.icon}
+        leafLabel={leaf.label}
+      />
+    );
+  }
+
   return (
     <ChannelBreadcrumb
       channelName={channelName ?? "Space"}
       channelId={channelId}
-      leafIcon={page ? channelPageIcon(page, { size: 12 }) : undefined}
-      leafLabel={page ? channelPageLabel(page) : undefined}
+      leafIcon={pageSegment?.icon}
+      leafLabel={pageSegment?.label}
     />
   );
+}
+
+function channelPageRoute(page: ChannelPageKey) {
+  switch (page) {
+    case "home":
+      return "/spaces/$channelId" as const;
+    case "context":
+      return "/spaces/$channelId/context" as const;
+    case "loops":
+      return "/spaces/$channelId/loops" as const;
+    case "canvases":
+      return "/spaces/$channelId/canvases" as const;
+    case "history":
+      return "/spaces/$channelId/history" as const;
+    case "settings":
+      return "/spaces/$channelId/settings" as const;
+  }
 }
 
 function LegacyChannelHeader({ channelId }: { channelId: string }) {

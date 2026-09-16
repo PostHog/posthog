@@ -12,7 +12,17 @@ import {
   goalProgress,
   goalStatus,
 } from "@posthog/core/canvas/contextDocument";
-import { Button, cn, Text } from "@posthog/quill";
+import {
+  Button,
+  cn,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  Text,
+} from "@posthog/quill";
 import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
@@ -30,7 +40,8 @@ type Editing = { index: number | null } | null;
 
 /**
  * The numbers this space moves, as rows at the top of the document. A row
- * opens the goal in the composer below the list; removal lives there too.
+ * opens the goal in a dialog, where removal lives too, so the list never
+ * changes shape while someone is writing.
  */
 export function GoalsList({
   goals,
@@ -68,17 +79,15 @@ export function GoalsList({
         <Text size="xs" weight="medium" variant="muted">
           Goals
         </Text>
-        {editing?.index === null ? null : (
-          <Button
-            variant="link-muted"
-            size="xs"
-            disabled={isSaving}
-            onClick={() => setEditing({ index: null })}
-          >
-            <PlusIcon size={12} />
-            Add goal
-          </Button>
-        )}
+        <Button
+          variant="link-muted"
+          size="xs"
+          disabled={isSaving}
+          onClick={() => setEditing({ index: null })}
+        >
+          <PlusIcon size={12} />
+          Add goal…
+        </Button>
       </div>
 
       {goals.length > 0 ? (
@@ -94,7 +103,7 @@ export function GoalsList({
             </li>
           ))}
         </ul>
-      ) : editing ? null : (
+      ) : (
         <button
           type="button"
           onClick={() => setEditing({ index: null })}
@@ -111,17 +120,31 @@ export function GoalsList({
       )}
 
       {editing ? (
-        <div className="pt-3">
-          <GoalComposer
-            key={editing.index ?? "new"}
-            initial={editingGoal}
-            onSave={save}
-            onAskAgent={askAgent}
-            onDelete={editingGoal ? remove : undefined}
-            onClose={() => setEditing(null)}
-            isSaving={isSaving}
-          />
-        </div>
+        <Dialog open onOpenChange={(open) => !open && setEditing(null)}>
+          <DialogContent className="w-[640px] max-w-[92vw]">
+            <DialogHeader>
+              <DialogTitle>
+                {editingGoal ? "Edit goal" : "New goal"}
+              </DialogTitle>
+              <DialogDescription>
+                {editingGoal
+                  ? "Change the name, the query, or the target. Agents read the saved version."
+                  : "Say it in a sentence. The query and the target follow."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <GoalComposer
+                key={editing.index ?? "new"}
+                initial={editingGoal}
+                onSave={save}
+                onAskAgent={askAgent}
+                onDelete={editingGoal ? remove : undefined}
+                onClose={() => setEditing(null)}
+                isSaving={isSaving}
+              />
+            </DialogBody>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </section>
   );

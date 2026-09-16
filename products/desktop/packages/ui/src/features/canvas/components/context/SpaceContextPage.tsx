@@ -29,6 +29,7 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
@@ -58,8 +59,8 @@ export function SpaceContextPage({
   store,
   onOpenInWiki,
 }: SpaceContextPageProps) {
+  const navigate = useNavigate();
   const [agentOpen, setAgentOpen] = useState(false);
-  const [writing, setWriting] = useState(false);
   const [measureTask, setMeasureTask] = useState<{
     goal: string;
     task: Task;
@@ -111,6 +112,24 @@ export function SpaceContextPage({
             {store.isRefreshing || store.isSaving ? (
               <Spinner size="xs" aria-hidden="true" />
             ) : null}
+            <PageHeaderActions>
+              {onOpenInWiki ? (
+                <Button variant="outline" size="sm" onClick={onOpenInWiki}>
+                  <ArrowSquareOutIcon size={14} />
+                  Open in wiki
+                </Button>
+              ) : null}
+              {!isBlank ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAgentOpen(true)}
+                >
+                  <SparkleIcon size={14} />
+                  Update with agent
+                </Button>
+              ) : null}
+            </PageHeaderActions>
           </PageHeaderTitleRow>
           <PageHeaderDescription>
             {isBlank ? (
@@ -130,24 +149,6 @@ export function SpaceContextPage({
             )}
           </PageHeaderDescription>
         </PageHeaderHeading>
-        <PageHeaderActions>
-          {onOpenInWiki ? (
-            <Button variant="outline" size="sm" onClick={onOpenInWiki}>
-              <ArrowSquareOutIcon size={14} />
-              Open in wiki
-            </Button>
-          ) : null}
-          {!isBlank ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAgentOpen(true)}
-            >
-              <SparkleIcon size={14} />
-              Update with agent
-            </Button>
-          ) : null}
-        </PageHeaderActions>
       </PageHeader>
 
       {store.isLoading ? (
@@ -206,11 +207,17 @@ export function SpaceContextPage({
               />
             ) : null}
 
-            {isBlank && !writing ? (
+            {isBlank ? (
               <ContextEmptyHero
                 channelName={channelName}
                 onAskAgent={() => setAgentOpen(true)}
-                onWrite={() => setWriting(true)}
+                onWrite={() =>
+                  void navigate({
+                    to: "/spaces/$channelId/context/document",
+                    params: { channelId },
+                    search: { edit: true },
+                  })
+                }
               />
             ) : (
               <div className="flex min-w-0 flex-col gap-10">
@@ -223,19 +230,15 @@ export function SpaceContextPage({
                 <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">
                   <div className="@4xl:order-none order-last min-w-0">
                     <KnowledgeList
+                      channelId={channelId}
                       knowledge={doc.knowledge}
                       links={doc.links}
                       objects={doc.objects}
-                      onKnowledgeSave={(knowledge) =>
-                        saveDoc({ ...doc, knowledge })
-                      }
                       onLinksChange={(links) => saveDoc({ ...doc, links })}
                       onObjectsChange={(objects) =>
                         saveDoc({ ...doc, objects })
                       }
-                      onAskAgent={() => setAgentOpen(true)}
                       isSaving={store.isSaving}
-                      startWriting={writing && isBlank}
                     />
                   </div>
                   <div className="min-w-0">

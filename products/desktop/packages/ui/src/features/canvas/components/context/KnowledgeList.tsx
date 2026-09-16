@@ -27,46 +27,46 @@ import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { AddContextDialog } from "./AddContextDialog";
 import { connectLabel, unconnectedWarning } from "./addContextRows";
-import { KnowledgeBriefing } from "./KnowledgeBriefing";
+import { sectionHeadings } from "./briefingSections";
 import { KIND_ICONS } from "./kindIcons";
 
 interface KnowledgeListProps {
+  channelId: string;
   knowledge: string;
   links: ContextLink[];
   objects: ContextObject[];
-  onKnowledgeSave: (knowledge: string) => Promise<void>;
   onLinksChange: (links: ContextLink[]) => Promise<void>;
   onObjectsChange: (objects: ContextObject[]) => Promise<void>;
-  onAskAgent: () => void;
   isSaving: boolean;
-  /** Open the briefing straight into the editor, seeded with the template. */
-  startWriting?: boolean;
 }
 
 /**
  * Everything a person told this space, as one flat list: the briefing first,
- * then the docs and files, then the objects the space owns. Nothing here is
- * inferred; what agents find about these rows shows up under Signals.
+ * then the docs and files, then the objects the space owns. Every row leads
+ * somewhere; the briefing opens on its own page, the rest open where they
+ * live. Nothing here is inferred; what agents find about these rows shows up
+ * under Signals.
  */
 export function KnowledgeList({
+  channelId,
   knowledge,
   links,
   objects,
-  onKnowledgeSave,
   onLinksChange,
   onObjectsChange,
-  onAskAgent,
   isSaving,
-  startWriting = false,
 }: KnowledgeListProps) {
+  const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
-  const [briefing, setBriefing] = useState<Briefing>(
-    startWriting ? "edit" : "closed",
-  );
   const sources = useContextSources();
   const hasKnowledge = knowledge.trim().length > 0;
   const sections = useMemo(() => sectionHeadings(knowledge), [knowledge]);
-  const briefingOpen = briefing !== "closed";
+  const openDocument = (edit: boolean) =>
+    void navigate({
+      to: "/spaces/$channelId/context/document",
+      params: { channelId },
+      search: { edit: edit ? true : undefined },
+    });
 
   return (
     <section className="flex flex-col gap-1">
@@ -97,11 +97,7 @@ export function KnowledgeList({
                   ? firstLine(knowledge)
                   : "Nothing written yet. What this is, how to work here, key files, gotchas."
             }
-            onOpen={() =>
-              setBriefing(
-                briefingOpen ? "closed" : hasKnowledge ? "read" : "edit",
-              )
-            }
+            onOpen={() => openDocument(!hasKnowledge)}
             actions={
               <Button
                 variant="default"
@@ -109,35 +105,14 @@ export function KnowledgeList({
                 aria-label="Edit CONTEXT.md"
                 title="Edit CONTEXT.md"
                 disabled={isSaving}
-                onClick={() => setBriefing("edit")}
+                onClick={() => openDocument(true)}
                 className="text-muted-foreground"
               >
                 <PencilSimpleIcon size={13} />
               </Button>
             }
-            trailing={
-              <CaretRightIcon
-                size={13}
-                className={cn(
-                  "transition-transform",
-                  briefingOpen && "rotate-90",
-                )}
-              />
-            }
-            expanded={briefingOpen}
+            trailing={<CaretRightIcon size={13} />}
           />
-          {briefingOpen ? (
-            <div className="pt-1 pb-5 @lg:pl-[30px]">
-              <KnowledgeBriefing
-                key={briefing}
-                knowledge={knowledge}
-                onSave={onKnowledgeSave}
-                onAskAgent={onAskAgent}
-                isSaving={isSaving}
-                startEditing={briefing === "edit"}
-              />
-            </div>
-          ) : null}
         </li>
 
         {links.map((link, index) => (
@@ -323,7 +298,6 @@ function KnowledgeRow({
   onRemove,
   actions,
   trailing,
-  expanded,
   disabled = false,
 }: {
   icon: ReactNode;
@@ -335,8 +309,6 @@ function KnowledgeRow({
   /** Controls that stay visible; the remove button only shows on hover. */
   actions?: ReactNode;
   trailing: ReactNode;
-  /** Set on the one row that opens in place; the others lead somewhere. */
-  expanded?: boolean;
   disabled?: boolean;
 }) {
   const body = (
@@ -362,18 +334,12 @@ function KnowledgeRow({
     </>
   );
   return (
-    <div
-      className={cn(
-        "group/row -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover",
-        expanded === true && "bg-fill-hover",
-      )}
-    >
+    <div className="group/row -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-3 rounded-md px-3 py-2.5 transition-colors hover:bg-fill-hover">
       {onOpen ? (
         <button
           type="button"
           onClick={onOpen}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          aria-expanded={expanded}
         >
           {body}
         </button>
@@ -410,12 +376,6 @@ function OpenGlyph() {
       className="opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100"
     />
   );
-}
-
-type Briefing = "closed" | "read" | "edit";
-
-function sectionHeadings(markdown: string): string[] {
-  return [...markdown.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]);
 }
 
 function firstLine(markdown: string): string {

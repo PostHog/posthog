@@ -68,6 +68,7 @@ import { Route as ShellSpacesChannelIdArtifactsRouteImport } from './routes/_she
 import { Route as ShellSpacesChannelIdTasksTaskIdRouteImport } from './routes/_shell/spaces/$channelId/tasks/$taskId'
 import { Route as ShellSpacesChannelIdReportsReportIdRouteImport } from './routes/_shell/spaces/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdDashboardsDashboardIdRouteImport } from './routes/_shell/spaces/$channelId/dashboards/$dashboardId'
+import { Route as ShellSpacesChannelIdContextDocumentRouteImport } from './routes/_shell/spaces/$channelId/context_.document'
 
 const UsageRoute = UsageRouteImport.update({
   id: '/usage',
@@ -373,6 +374,12 @@ const ShellSpacesChannelIdDashboardsDashboardIdRoute =
     path: '/spaces/$channelId/dashboards/$dashboardId',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellSpacesChannelIdContextDocumentRoute =
+  ShellSpacesChannelIdContextDocumentRouteImport.update({
+    id: '/spaces/$channelId/context_/document',
+    path: '/spaces/$channelId/context/document',
+    getParentRoute: () => ShellRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
@@ -430,6 +437,7 @@ export interface FileRoutesByFullPath {
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/spaces/$channelId/settings': typeof ShellSpacesChannelIdSettingsRoute
   '/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
+  '/spaces/$channelId/context/document': typeof ShellSpacesChannelIdContextDocumentRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -484,6 +492,7 @@ export interface FileRoutesByTo {
   '/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/spaces/$channelId/settings': typeof ShellSpacesChannelIdSettingsRoute
   '/spaces/$channelId': typeof ShellSpacesChannelIdIndexRoute
+  '/spaces/$channelId/context/document': typeof ShellSpacesChannelIdContextDocumentRoute
   '/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -546,6 +555,7 @@ export interface FileRoutesById {
   '/_shell/spaces/$channelId/new': typeof ShellSpacesChannelIdNewRoute
   '/_shell/spaces/$channelId/settings': typeof ShellSpacesChannelIdSettingsRoute
   '/_shell/spaces/$channelId/': typeof ShellSpacesChannelIdIndexRoute
+  '/_shell/spaces/$channelId/context_/document': typeof ShellSpacesChannelIdContextDocumentRoute
   '/_shell/spaces/$channelId/dashboards/$dashboardId': typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   '/_shell/spaces/$channelId/reports/$reportId': typeof ShellSpacesChannelIdReportsReportIdRoute
   '/_shell/spaces/$channelId/tasks/$taskId': typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -608,6 +618,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/new'
     | '/spaces/$channelId/settings'
     | '/spaces/$channelId/'
+    | '/spaces/$channelId/context/document'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
@@ -662,6 +673,7 @@ export interface FileRouteTypes {
     | '/spaces/$channelId/new'
     | '/spaces/$channelId/settings'
     | '/spaces/$channelId'
+    | '/spaces/$channelId/context/document'
     | '/spaces/$channelId/dashboards/$dashboardId'
     | '/spaces/$channelId/reports/$reportId'
     | '/spaces/$channelId/tasks/$taskId'
@@ -723,6 +735,7 @@ export interface FileRouteTypes {
     | '/_shell/spaces/$channelId/new'
     | '/_shell/spaces/$channelId/settings'
     | '/_shell/spaces/$channelId/'
+    | '/_shell/spaces/$channelId/context_/document'
     | '/_shell/spaces/$channelId/dashboards/$dashboardId'
     | '/_shell/spaces/$channelId/reports/$reportId'
     | '/_shell/spaces/$channelId/tasks/$taskId'
@@ -1164,6 +1177,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/spaces/$channelId/context_/document': {
+      id: '/_shell/spaces/$channelId/context_/document'
+      path: '/spaces/$channelId/context/document'
+      fullPath: '/spaces/$channelId/context/document'
+      preLoaderRoute: typeof ShellSpacesChannelIdContextDocumentRouteImport
+      parentRoute: typeof ShellRoute
+    }
   }
 }
 
@@ -1189,6 +1209,7 @@ interface ShellRouteChildren {
   ShellSpacesChannelIdNewRoute: typeof ShellSpacesChannelIdNewRoute
   ShellSpacesChannelIdSettingsRoute: typeof ShellSpacesChannelIdSettingsRoute
   ShellSpacesChannelIdIndexRoute: typeof ShellSpacesChannelIdIndexRoute
+  ShellSpacesChannelIdContextDocumentRoute: typeof ShellSpacesChannelIdContextDocumentRoute
   ShellSpacesChannelIdDashboardsDashboardIdRoute: typeof ShellSpacesChannelIdDashboardsDashboardIdRoute
   ShellSpacesChannelIdReportsReportIdRoute: typeof ShellSpacesChannelIdReportsReportIdRoute
   ShellSpacesChannelIdTasksTaskIdRoute: typeof ShellSpacesChannelIdTasksTaskIdRoute
@@ -1216,6 +1237,8 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellSpacesChannelIdNewRoute: ShellSpacesChannelIdNewRoute,
   ShellSpacesChannelIdSettingsRoute: ShellSpacesChannelIdSettingsRoute,
   ShellSpacesChannelIdIndexRoute: ShellSpacesChannelIdIndexRoute,
+  ShellSpacesChannelIdContextDocumentRoute:
+    ShellSpacesChannelIdContextDocumentRoute,
   ShellSpacesChannelIdDashboardsDashboardIdRoute:
     ShellSpacesChannelIdDashboardsDashboardIdRoute,
   ShellSpacesChannelIdReportsReportIdRoute:

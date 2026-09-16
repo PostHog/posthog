@@ -184,7 +184,7 @@ export function GoalComposer({
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm">
+    <div className="flex flex-col gap-3">
       {step === "ask" ? (
         <>
           <textarea
