@@ -247,6 +247,37 @@ export function humanizeActivity(activity: string): string {
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }
 
+const SIMPLE_ACTIVITY_VERBS: Record<string, string> = {
+    deleted: 'deleted',
+    created: 'created',
+    restored: 'restored',
+    updated: 'updated',
+}
+
+function describeComment(logItem: ActivityLogItem, asNotification: boolean): HumanizedChange {
+    const description =
+        logItem.scope === 'Comment' ? (
+            <>
+                <ActivityLogUserName logItem={logItem} /> replied to a {humanizeScope(logItem.scope, true)}
+            </>
+        ) : (
+            <>
+                <ActivityLogUserName logItem={logItem} /> commented
+                {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
+            </>
+        )
+    const commentContent = logItem.detail.changes?.[0].after as string | undefined
+
+    return {
+        description,
+        extendedDescription: commentContent ? (
+            <div className="border rounded bg-surface-primary p-4">
+                <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+            </div>
+        ) : undefined,
+    }
+}
+
 export function defaultDescriber(
     logItem: ActivityLogItem,
     asNotification = false,
@@ -254,41 +285,12 @@ export function defaultDescriber(
 ): HumanizedChange {
     resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope, true)}`
 
-    if (logItem.activity == 'deleted') {
+    const verb = SIMPLE_ACTIVITY_VERBS[logItem.activity]
+    if (verb) {
         return {
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> deleted <b>{resource}</b>
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'created') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> created <b>{resource}</b>
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'restored') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> restored <b>{resource}</b>
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'updated') {
-        return {
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> updated <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> {verb} <b>{resource}</b>
                 </>
             ),
         }
@@ -305,32 +307,7 @@ export function defaultDescriber(
     }
 
     if (logItem.activity == 'commented') {
-        let description: JSX.Element | string
-
-        if (logItem.scope === 'Comment') {
-            description = (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> replied to a {humanizeScope(logItem.scope, true)}
-                </>
-            )
-        } else {
-            description = (
-                <>
-                    <ActivityLogUserName logItem={logItem} /> commented
-                    {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
-                </>
-            )
-        }
-        const commentContent = logItem.detail.changes?.[0].after as string | undefined
-
-        return {
-            description,
-            extendedDescription: commentContent ? (
-                <div className="border rounded bg-surface-primary p-4">
-                    <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
-                </div>
-            ) : undefined,
-        }
+        return describeComment(logItem, asNotification)
     }
 
     return { description: null }

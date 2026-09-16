@@ -1,6 +1,10 @@
 import { Fragment } from 'react'
 
 import {
+    describeListChanges,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
@@ -12,10 +16,6 @@ import {
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import {
-    describeListChanges,
-    describeTagChanges,
-} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'

@@ -6,7 +6,11 @@ import { pluralize } from 'lib/utils/strings'
 import { ActivityChange, ChangeMapping, Description } from '../humanizeActivity'
 
 /** Describes added/removed string lists rendered as inline tags, e.g. tags or evaluation contexts. */
-export function describeListChanges(change: ActivityChange | undefined, singular: string, plural: string): ChangeMapping {
+export function describeListChanges(
+    change: ActivityChange | undefined,
+    singular: string,
+    plural: string
+): ChangeMapping {
     const before = (change?.before as string[] | null) ?? []
     const after = (change?.after as string[] | null) ?? []
     const added = after.filter((t) => before.indexOf(t) === -1)

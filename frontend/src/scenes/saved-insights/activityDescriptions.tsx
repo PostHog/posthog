@@ -2,6 +2,10 @@ import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
 import {
+    describeDescriptionChange,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
+import {
     ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
@@ -17,10 +21,6 @@ import {
     PropertiesSummary,
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
-import {
-    describeDescriptionChange,
-    describeTagChanges,
-} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
