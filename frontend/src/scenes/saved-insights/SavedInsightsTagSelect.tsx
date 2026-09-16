@@ -10,9 +10,11 @@ import { savedInsightsTagFilterLogic } from './savedInsightsTagFilterLogic'
 export function SavedInsightsTagSelect({
     value,
     onChange,
+    borderless = false,
 }: {
     value: string[]
     onChange: (value: string[]) => void
+    borderless?: boolean
 }): JSX.Element {
     const fallbackKey = useId()
     const logic = savedInsightsTagFilterLogic({ logicKey: fallbackKey })
@@ -73,7 +75,7 @@ export function SavedInsightsTagSelect({
                                     </LemonButton>
                                 </li>
                             ))}
-                            {!tagPageLoading && tagResults.length === 0 ? (
+                            {!tagPageLoading && !tagPageError && tagResults.length === 0 ? (
                                 <li className="p-2 text-secondary italic truncate border-t">
                                     {tagSearch ? 'No matching tags' : 'No tags'}
                                 </li>
@@ -100,7 +102,12 @@ export function SavedInsightsTagSelect({
                 </div>
             }
         >
-            <LemonButton size="small" type="secondary" active={value.length > 0}>
+            <LemonButton
+                size="small"
+                type="secondary"
+                active={value.length > 0}
+                status={borderless && value.length === 0 ? 'alt' : 'default'}
+            >
                 {value.length > 0 ? `Tags (${value.length})` : 'Tags'}
             </LemonButton>
         </LemonDropdown>

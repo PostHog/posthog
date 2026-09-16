@@ -62,6 +62,7 @@ export function SavedInsightsFilters({
                     {quickFilterSet.has('tags') && (
                         <SavedInsightsTagSelect
                             value={tags || []}
+                            borderless={borderless}
                             onChange={(tags) => {
                                 setFilters({ tags: tags.length > 0 ? tags : [] })
                                 posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })

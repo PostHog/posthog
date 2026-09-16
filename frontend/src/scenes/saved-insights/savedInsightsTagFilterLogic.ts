@@ -132,6 +132,7 @@ export const savedInsightsTagFilterLogic = kea<savedInsightsTagFilterLogicType>(
                 setTagSearch: () => null,
                 setTagPopoverOpen: () => null,
                 loadTagResultsSuccess: () => null,
+                retryTagResults: () => null,
                 loadTagResultsFailure: (_, { error }) => error,
             },
         ],
