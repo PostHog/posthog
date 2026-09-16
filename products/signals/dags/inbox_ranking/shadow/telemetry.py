@@ -19,11 +19,12 @@ def shadow_grade_events(
     run_id: str,
     served_rows: int,
     served_lists: int,
-    score_coverage: float | None,
+    run_score_coverage: float | None,
     grades: Sequence[RankingGrade],
 ) -> list[TrainingEvent]:
     """The run-level counts ride on every row so a chart can filter on coverage without a join:
-    a day whose lists were mostly unscored says little about either order."""
+    a day whose lists were mostly unscored says little about either order. Each grade also carries
+    its own `score_coverage`, which is the one to filter a single line on."""
     return [
         TrainingEvent(
             event=SHADOW_RANKING_GRADED_EVENT,
@@ -32,7 +33,7 @@ def shadow_grade_events(
                 "run_id": run_id,
                 "served_rows": served_rows,
                 "served_lists": served_lists,
-                "score_coverage": score_coverage,
+                "run_score_coverage": run_score_coverage,
             },
         )
         for grade in grades

@@ -31,7 +31,7 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 - Grade every order on the same rows. Dropping a report from one order and not another, or grading the model on its covered subset while the heuristic keeps the whole list, makes the gap unreadable.
 - **Never present the heuristic line without the position-bias caveat.** Every logged outcome happened under the served order, so the heuristic is being graded on the clicks it caused. No re-ranking of logged clicks removes that; `positive_served_rank_mean` is how the effect stays visible.
 - `open` and `action` are the outcomes because they are the heads of the same name. A new outcome means a head that predicts it, not a new relevance rule bolted onto the grader.
-- Coverage is the number that says whether a day means anything. It is reported on the asset and on every event; a day of unscored lists is not a day the model did badly.
+- Coverage says whether a grade means anything. Every grade carries its own `score_coverage` over the rows that grade had, next to the run-wide `run_score_coverage`. Keep the two apart: per-head readability and per-family skips make one grade's coverage differ from the day's, so one number for both lets a thin grade read as a well-covered one. A day of unscored lists is not a day the model did badly.
 
 ## Invariants — do not break
 

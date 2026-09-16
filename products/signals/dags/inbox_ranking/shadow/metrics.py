@@ -100,6 +100,10 @@ class RankingGrade:
     # Mean served rank of the rows that drew the outcome: how much of the outcome the top of the
     # served list already collected, which is the size of the position bias in these numbers.
     positive_served_rank_mean: float | None
+    # This group's own coverage, not the run's. A head is only scored on a partition where the
+    # training job found it readable, and a family is skipped on a partition it has no metadata
+    # for, so one grade can rest on far fewer of the served rows than another one of the same day.
+    score_coverage: float | None
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -113,6 +117,7 @@ class RankingGrade:
             "ndcg_10_std": self.ndcg_10_std,
             "mrr_std": self.mrr_std,
             "positive_served_rank_mean": self.positive_served_rank_mean,
+            "score_coverage": self.score_coverage,
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -220,13 +225,18 @@ def join_scores(lists: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def score_coverage(lists: pd.DataFrame, joined: pd.DataFrame) -> float | None:
+def score_coverage(served_rows: int, joined: pd.DataFrame) -> float | None:
     """Share of served rows a model score was available for. The number the whole read rests on:
-    before this asset it was zero, because no scoring moment was ever paired with a served list."""
-    if lists.empty:
+    before this asset it was zero, because no scoring moment was ever paired with a served list.
+
+    Over the whole join it is the run's coverage; over one grade's rows it is that grade's. They
+    part whenever a head or a family scored fewer of the days the lists came from, so the run
+    figure alone would let a thin grade read as a well-covered one.
+    """
+    if not served_rows:
         return None
     covered = joined.drop_duplicates(subset=["impression_id", "report_id"])
-    return float(len(covered) / len(lists))
+    return float(len(covered) / served_rows)
 
 
 def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
@@ -307,7 +317,7 @@ def _positive_served_rank_mean(lists: Sequence[ServedList]) -> float | None:
     return float(ranks.mean()) if len(ranks) else None
 
 
-def grade_lists(joined: pd.DataFrame) -> list[RankingGrade]:
+def grade_lists(joined: pd.DataFrame, *, served_rows: int) -> list[RankingGrade]:
     """Three grades per (model, outcome): the model's order, the served order, and chance.
 
     Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
@@ -331,6 +341,7 @@ def grade_lists(joined: pd.DataFrame) -> list[RankingGrade]:
             "reports": sum(len(entry.relevance) for entry in lists),
             "mean_list_size": float(np.mean([len(entry.relevance) for entry in lists])),
             "positive_served_rank_mean": _positive_served_rank_mean(lists),
+            "score_coverage": score_coverage(served_rows, rows),
         }
         grades.extend(
             _grade(shared, ranking_order=order, metrics=metrics)

@@ -157,7 +157,7 @@ def test_a_list_only_uses_scores_that_already_existed_when_it_was_served():
 
     assert joined["report_id"].tolist() == [UUID_A]
     assert joined["score"].tolist() == [0.4]
-    assert score_coverage(rows, joined) == 0.5
+    assert score_coverage(len(rows), joined) == 0.5
 
 
 def test_lists_without_an_outcome_or_a_choice_to_make_are_not_graded():
@@ -180,7 +180,7 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
         score=[0.1, 0.2, 0.3, 0.9],
     )
 
-    grades = {grade.ranking_order: grade for grade in grade_lists(joined)}
+    grades = {grade.ranking_order: grade for grade in grade_lists(joined, served_rows=len(rows))}
     ndcg_5 = {order: grade.ndcg_5 or 0.0 for order, grade in grades.items()}
 
     assert grades[MODEL_ORDER].mrr == 1.0
@@ -192,7 +192,30 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     assert grades[MODEL_ORDER].mrr_std is None
     # The served rank of the opened report, which is how much position bias these numbers carry.
     assert grades[MODEL_ORDER].positive_served_rank_mean == 4.0
-    assert {grade.outcome for grade in grade_lists(joined)} == {"open"}
+    assert {grade.outcome for grade in grade_lists(joined, served_rows=len(rows))} == {"open"}
+
+
+def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
+    # A head is scored only on the partitions the training job found it readable on, so one head
+    # can rest on far fewer of a day's served rows than another. The run figure hides that.
+    served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"]))
+    scored = {"model_name": "tabular_xgb", "model_version": "2026-09-09", "model_role": "champion", "score": 0.5}
+    joined = pd.concat(
+        [
+            served.assign(outcome_open=[True, False, False, False], outcome_action=False, head="open", **scored),
+            served.head(2).assign(outcome_open=False, outcome_action=[True, False], head="action", **scored),
+        ],
+        ignore_index=True,
+    )
+
+    coverage = {
+        (grade.outcome, grade.ranking_order): grade.score_coverage
+        for grade in grade_lists(joined, served_rows=len(served))
+    }
+
+    assert score_coverage(len(served), joined) == 1.0
+    assert coverage[("open", MODEL_ORDER)] == 1.0
+    assert coverage[("action", MODEL_ORDER)] == 0.5
 
 
 def test_a_grade_carries_the_versions_that_scored_the_day():
@@ -207,7 +230,7 @@ def test_a_grade_carries_the_versions_that_scored_the_day():
         score=0.5,
     )
 
-    assert {grade.model_versions for grade in grade_lists(joined)} == {2}
+    assert {grade.model_versions for grade in grade_lists(joined, served_rows=len(rows))} == {2}
 
 
 class TestShadowQueries(ClickhouseTestMixin, BaseTest):
@@ -328,7 +351,13 @@ def test_grade_rows_match_the_parquet_schema_exactly():
         head="open",
         score=[0.9, 0.1],
     )
-    graded = grade_rows(grade_lists(joined), partition_key=DAY.isoformat(), served_rows=2, served_lists=1, coverage=1.0)
+    graded = grade_rows(
+        grade_lists(joined, served_rows=len(rows)),
+        partition_key=DAY.isoformat(),
+        served_rows=2,
+        served_lists=1,
+        run_coverage=1.0,
+    )
 
     assert set(graded[0]) == set(GRADE_SCHEMA.names)
     assert pa.Table.from_pylist(graded, schema=GRADE_SCHEMA).num_rows == 3

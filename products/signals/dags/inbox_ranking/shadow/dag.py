@@ -81,9 +81,11 @@ _GRADE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("ndcg_10_std", pa.float64()),
     ("mrr_std", pa.float64()),
     ("positive_served_rank_mean", pa.float64()),
+    # This grade's own coverage; `run_score_coverage` is the same share over every grade of the day.
+    ("score_coverage", pa.float64()),
     ("served_rows", pa.int64()),
     ("served_lists", pa.int64()),
-    ("score_coverage", pa.float64()),
+    ("run_score_coverage", pa.float64()),
 ]
 GRADE_SCHEMA = pa.schema(_GRADE_FIELDS)
 
@@ -149,7 +151,7 @@ def grade_rows(
     partition_key: str,
     served_rows: int,
     served_lists: int,
-    coverage: float | None,
+    run_coverage: float | None,
 ) -> list[dict[str, object]]:
     return [
         {
@@ -157,7 +159,7 @@ def grade_rows(
             "snapshot_date": datetime.date.fromisoformat(partition_key),
             "served_rows": served_rows,
             "served_lists": served_lists,
-            "score_coverage": coverage,
+            "run_score_coverage": run_coverage,
         }
         for grade in grades
     ]
@@ -229,16 +231,17 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
         ],
     )
     joined = join_scores(lists, scores)
-    coverage = score_coverage(lists, joined)
-    grades = grade_lists(joined)
+    served_rows = len(lists)
+    coverage = score_coverage(served_rows, joined)
+    grades = grade_lists(joined, served_rows=served_rows)
     served_lists = int(lists["impression_id"].nunique()) if not lists.empty else 0
 
     rows = grade_rows(
         grades,
         partition_key=partition_key,
-        served_rows=len(lists),
+        served_rows=served_rows,
         served_lists=served_lists,
-        coverage=coverage,
+        run_coverage=coverage,
     )
     key = partition_object_key(prefix, SHADOW_TABLE, partition_key)
     write_parquet(client, bucket, key, pa.Table.from_pylist(rows, schema=GRADE_SCHEMA), snapshot_date=partition_key)
@@ -247,17 +250,17 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
         context.log.info(f"shadow grade: {grade.as_dict()}")
     if not grades:
         context.log.warning(
-            f"dt={partition_key} graded nothing: {served_lists} lists, {len(lists)} served rows, "
+            f"dt={partition_key} graded nothing: {served_lists} lists, {served_rows} served rows, "
             f"{len(scores)} scores in the lookback window"
         )
     context.add_output_metadata(
         {
             "served_lists": dagster.MetadataValue.int(served_lists),
-            "served_rows": dagster.MetadataValue.int(len(lists)),
+            "served_rows": dagster.MetadataValue.int(served_rows),
             # The number the read rests on. A day whose lists were mostly unscored says little
             # about either order; the residual is reports impressed on their birth day, which the
-            # daily job cannot have scored yet.
-            "score_coverage": dagster.MetadataValue.float(coverage if coverage is not None else 0.0),
+            # daily job cannot have scored yet. `grade_metadata` carries each grade's own share.
+            "run_score_coverage": dagster.MetadataValue.float(coverage if coverage is not None else 0.0),
             **grade_metadata(grades),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -267,9 +270,9 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
         partition_key,
         shadow_grade_events(
             run_id=context.run.run_id,
-            served_rows=len(lists),
+            served_rows=served_rows,
             served_lists=served_lists,
-            score_coverage=coverage,
+            run_score_coverage=coverage,
             grades=grades,
         ),
     )
