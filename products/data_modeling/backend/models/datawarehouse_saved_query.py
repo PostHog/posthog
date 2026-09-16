@@ -423,25 +423,30 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.column_order = list(columns.keys())
 
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.api.services.query import process_query_dict
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.query import execute_hogql_query
+
         from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-        from posthog.hogql_queries.query_runner import ExecutionMode
 
         query = self.query or {}
-        if not isinstance(query, dict):
+        sql = query.get("query") if isinstance(query, dict) else None
+        if not isinstance(sql, str) or not sql.strip():
             raise Exception("Saved query is missing a query definition")
 
-        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
-        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
-        if "kind" not in query and "query" in query:
-            query = {"kind": "HogQLQuery", **query}
+        # ClickHouse reports column names and types in the response header, which it fills in even
+        # when the query reads no rows. Wrapping the view in a zero-row probe gets the same types
+        # without scanning the underlying tables, so inference stays cheap on a view whose own
+        # result set is expensive to compute.
+        probe = ast.SelectQuery(
+            select=[ast.Field(chain=["*"])],
+            select_from=ast.JoinExpr(table=parse_select(sql)),
+            limit=ast.Constant(value=0),
+        )
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=user
-            )
+            response = execute_hogql_query(query=probe, team=self.team, user=user)
         result = getattr(response, "types", [])
 
         if result is None or isinstance(result, int):
