@@ -389,6 +389,28 @@ describe('SlackChannelPicker', () => {
         }
     })
 
+    it('does not look up a channel id that is already selected', async () => {
+        // Callers store the bare channel id, and LemonInputSelect puts the selected value back in
+        // the input, so the picker is handed its own id as if it were a fresh paste. Treating it as
+        // one re-arms the resolution effect, which writes state and calls back into the caller.
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value={OFF_PAGE_CHANNEL.id} onChange={onChange} />
+            </Provider>
+        )
+        // Mount resolves the saved id to a name through one by-id lookup.
+        await waitFor(() => expect(channelIdLookups).toEqual([OFF_PAGE_CHANNEL.id]))
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.paste(OFF_PAGE_CHANNEL.id)
+
+        await waitFor(() => expect(channelsRequestSearchQueries).toEqual(['']))
+        expect(channelIdLookups).toEqual([OFF_PAGE_CHANNEL.id])
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('drops the reported search when the caller swaps the workspace', async () => {
         // Some callers swap the integration without unmounting, so an error raised against the old
         // workspace would otherwise sit over a picker now listing a different workspace's channels.

@@ -491,6 +491,16 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         setPastedChannelId(null)
     }, [integration.id])
 
+    // Callers rebuild the value and the onChange on every render (the CyclotronJob field chain
+    // does), so the resolution effect below reads the selection through this ref instead of
+    // depending on their identity. It writes state and calls back into the caller, so it must run
+    // when a paste resolves and not on every render of the caller. This effect is declared first,
+    // so each commit refreshes the ref before the effect that reads it.
+    const selectionRef = useRef({ values, onValuesChange, mode: props.mode })
+    useEffect(() => {
+        selectionRef.current = { values, onValuesChange, mode: props.mode }
+    })
+
     useEffect(() => {
         if (!pastedChannelId) {
             return
@@ -506,11 +516,12 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
         }
         setPastedChannelId(null)
         clearDroppedSearch()
-        if (!values.some((value) => slackChannelId(value) === channel.id)) {
+        const { values: selectedValues, onValuesChange: emitValues, mode } = selectionRef.current
+        if (!selectedValues.some((value) => slackChannelId(value) === channel.id)) {
             const selectedChannel = `${channel.id}|#${channel.name}`
-            onValuesChange(props.mode === 'multiple' ? [...values, selectedChannel] : [selectedChannel])
+            emitValues(mode === 'multiple' ? [...selectedValues, selectedChannel] : [selectedChannel])
         }
-    }, [pastedChannelId, slackChannels, slackChannelByIdLoading, values, props.mode, onValuesChange])
+    }, [pastedChannelId, slackChannels, slackChannelByIdLoading])
 
     // Read-only pickers still need direct lookups because saved channels may not be on the first page.
     useEffect(() => {
@@ -560,18 +571,27 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
                         // anything else fires only the search, skipping the otherwise-redundant
                         // by-id call for a free-text channel name.
                         const idCandidate = val.trim().toUpperCase()
-                        if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
-                            loadSlackChannelById(idCandidate)
-                            setPastedChannelId(idCandidate)
-                        } else if (!modifiedValues.includes(val)) {
-                            setPastedChannelId(null)
-                            // LemonInputSelect auto-fills the input with the selected option's key on
-                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
-                            // search — the composite "id|#name" matches no channel server-side and
-                            // would overwrite the cached list with [], so the bare ID could no longer
-                            // resolve to a name after blur.
-                            loadAllSlackChannels(false, val)
-                            hasActiveSearchRef.current = true
+                        const isChannelId = SLACK_CHANNEL_ID_PATTERN.test(idCandidate)
+                        // LemonInputSelect puts the selected value back in the input (see
+                        // LemonInputSelect._onFocus), so the input can hold a channel that is
+                        // already selected. A caller that stores the bare ID gets that ID back, and
+                        // treating that echo as a fresh paste re-arms the resolution effect for a
+                        // channel that needs no resolving. The composite
+                        // "id|#name" echo is skipped for a second reason: it matches no channel
+                        // server-side, so the search would overwrite the cached list with [], and
+                        // the bare ID could no longer resolve to a name after blur.
+                        const echoesSelection = isChannelId
+                            ? values.some((value) => slackChannelId(value) === idCandidate)
+                            : modifiedValues.includes(val)
+                        if (!echoesSelection) {
+                            if (isChannelId) {
+                                loadSlackChannelById(idCandidate)
+                                setPastedChannelId(idCandidate)
+                            } else {
+                                setPastedChannelId(null)
+                                loadAllSlackChannels(false, val)
+                                hasActiveSearchRef.current = true
+                            }
                         }
                         hasUnselectedSearchRef.current = true
                         setBlurredWithoutSelection(false)
