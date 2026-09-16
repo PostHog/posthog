@@ -38,6 +38,7 @@ type queryScope struct {
 	query    *clickhouse.SelectQuery
 	parent   *queryScope
 	bindings map[string]Relation
+	sources  []Source
 	visible  map[string]Relation
 	unique   []Relation
 	budget   *projectionBudget
@@ -91,9 +92,12 @@ func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*querySc
 
 func addBinding(scope *queryScope, name, alias string, binding Relation) {
 	scope.bindings[strings.ToLower(name)] = binding
+	source := Source{name: name, relation: binding}
 	if alias != "" {
 		scope.bindings[strings.ToLower(alias)] = binding
+		source.name = alias
 	}
+	scope.sources = append(scope.sources, source)
 }
 
 func (s *queryScope) visibleCTEs(position int) []*cteBinding {
@@ -192,7 +196,7 @@ func normalizeHogQLTableReferences(query string) (string, map[string]string) {
 	return string(normalized), originalNames
 }
 
-func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end int, ok bool) {
+func tableReference(expr *clickhouse.TableExpr) (name, alias, implicitAlias string, start, end int, ok bool) {
 	node := expr.Expr
 	if aliased, isAlias := node.(*clickhouse.AliasExpr); isAlias {
 		node = aliased.Expr
@@ -202,13 +206,15 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	}
 	identifier, isTable := node.(*clickhouse.TableIdentifier)
 	if !isTable || identifier.Table == nil {
-		return "", "", 0, 0, false
+		return "", "", "", 0, 0, false
 	}
 	name = identifier.Table.Name
+	implicitAlias = name
 	if identifier.Database != nil {
 		name = identifier.Database.Name + "." + name
+		implicitAlias = identifier.Database.Name + "__" + identifier.Table.Name
 	}
-	return name, alias, int(identifier.Pos()), int(identifier.End()), true
+	return name, alias, implicitAlias, int(identifier.Pos()), int(identifier.End()), true
 }
 
 func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *projectionBudget) bool {
