@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+import structlog.testing
 from parameterized import parameterized
 
 from posthog.ingress.github.provider import build_github_provider
@@ -62,15 +63,21 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.content, b"Invalid signature")
         self.dispatcher.dispatch.assert_not_called()
 
-    def test_an_unparseable_body_is_400(self) -> None:
+    def test_an_unparseable_body_is_400_and_logs_the_parser_error(self) -> None:
         body = b"{not json"
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
 
         with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
-            response = self._github_view()(request)
+            with structlog.testing.capture_logs() as logs:
+                response = self._github_view()(request)
 
         self.assertEqual(response.status_code, 400)
         self.dispatcher.dispatch.assert_not_called()
+        warning = next(log for log in logs if log["event"] == "ingress_delivery_invalid_payload")
+        self.assertEqual(warning["log_level"], "warning")
+        self.assertEqual(warning["provider"], "github")
+        self.assertEqual(warning["app"], "posthog")
+        self.assertIn("Expecting property name", warning["error"])
 
     def test_a_verified_delivery_is_202_whatever_the_consumers_did(self) -> None:
         body = json.dumps({"action": "opened", "installation": {"id": 42}}).encode()
