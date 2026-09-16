@@ -49,6 +49,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("TimeoutError", False),
             ("ValueError", False),
             ("CHQueryErrorS3Error", False),
+            ("CHQueryErrorS3AccessDenied", True),
             ("ClickHouseAtCapacity", False),
             ("ConcurrencyLimitExceeded", False),
             ("ReadTimeoutError", False),
@@ -79,6 +80,7 @@ class TestClassifyFailureType(TestCase):
             ("ValidationError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
+            ("CHQueryErrorS3AccessDenied", FAILURE_TYPE_USER),
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
@@ -153,6 +155,15 @@ class TestExportSloFailureDetails(TestCase):
                 True,
             ),
             ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
+            # Same storage category, but the customer has to fix their credentials before a retry
+            # can succeed, so this one is not retryable.
+            (
+                "storage_access_denied",
+                "CHQueryErrorS3AccessDenied",
+                SLO_FAILURE_CATEGORY_STORAGE,
+                "object_storage",
+                False,
+            ),
             ("unknown", "RuntimeError", SLO_FAILURE_CATEGORY_APPLICATION, "exporter", False),
         ]
     )

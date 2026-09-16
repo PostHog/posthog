@@ -100,6 +100,24 @@ RAGGED_ROWS_MESSAGE = (
 )
 
 
+STORAGE_ACCESS_DENIED_MESSAGE = (
+    "Access was denied when reading the files for this table from your storage bucket. "
+    "Check that the credentials are still valid and can list the bucket (s3:ListBucket) "
+    "and read its objects (s3:GetObject), then try again."
+)
+
+# Phrases ClickHouse uses when the object store refuses the read. A 401 or 403 carries the HTTP
+# code, while a failed list reports the S3 exception name instead. A missing file is a 404 and
+# stays out, because it is not a permission problem.
+STORAGE_ACCESS_DENIED_PHRASES = (
+    "HTTP response code: 401",
+    "HTTP response code: 403",
+    "Access Denied",
+    "InvalidAccessKeyId",
+    "SignatureDoesNotMatch",
+)
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -155,6 +173,10 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "S3_ERROR":
         if "The requested range is not satisfiable" in err.message:
             return _wrap_storage_file_changed_error(err)
+        if any(phrase in err.message for phrase in STORAGE_ACCESS_DENIED_PHRASES):
+            return CHQueryErrorS3AccessDenied(
+                STORAGE_ACCESS_DENIED_MESSAGE, code=err.code, code_name="s3_access_denied"
+            )
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
@@ -234,11 +256,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
-    # Code 636 stays not user_safe because its raw message can carry data values, so the code lookup
-    # below would classify this as ERROR. The ragged-rows cause is re-wrapped as a user-safe class
-    # with a fixed message, so classify it by class to keep it USER_ERROR, which keeps it out of
-    # error tracking.
-    if isinstance(e, CHQueryErrorRaggedFileRows):
+    # Codes 636 and 499 stay not user_safe because their raw messages can carry data values, so the
+    # code lookup below would classify these as ERROR. Both causes are re-wrapped as a user-safe
+    # class with a fixed message, so classify them by class to keep them USER_ERROR, which keeps
+    # them out of error tracking.
+    if isinstance(e, CHQueryErrorRaggedFileRows | CHQueryErrorS3AccessDenied):
         return QueryErrorCategory.USER_ERROR
 
     if isinstance(e, ServerException):
@@ -274,6 +296,12 @@ class CHQueryErrorS3Error(InternalCHQueryError):
 
 class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
+
+    pass
+
+
+class CHQueryErrorS3AccessDenied(ExposedCHQueryError):
+    """The storage bucket behind a warehouse table refused the read, e.g. an expired key."""
 
     pass
 
@@ -1076,6 +1104,8 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
 # and an operator or user deliberately killing one are indistinguishable at this layer, so callers
 # that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
+# CHQueryErrorS3AccessDenied (499) is deliberately absent too: the bucket refuses the read until
+# the customer fixes their credentials, so a retry only doubles the work.
 # The two clickhouse_driver classes are raised only while a connection is being opened (connect, or
 # the ping-then-reconnect on a stale pooled socket), before any query is sent, so nothing has run and
 # a retry is safe. They are not ServerExceptions, so wrap_clickhouse_query_error passes them through

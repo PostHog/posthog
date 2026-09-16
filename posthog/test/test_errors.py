@@ -2,7 +2,10 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
     RAGGED_ROWS_MESSAGE,
+    STORAGE_ACCESS_DENIED_MESSAGE,
+    CHQueryErrorS3AccessDenied,
     CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
     InternalCHQueryError,
@@ -102,6 +105,41 @@ class TestWrapClickhouseQueryError:
         # The wrapped class keeps outer code 636, which is not user_safe, so classification must key
         # off the class to reach USER_ERROR. Otherwise the query runner captures it to error tracking.
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+    @parameterized.expand(
+        [
+            # A refused read reports the HTTP code, while a refused list reports the S3 exception
+            # name instead, so both shapes have to reach the same class.
+            (
+                "forbidden_read",
+                "DB::Exception: Failed to get object info: No response body.. HTTP response code: 403. "
+                "Please check your AWS credentials and permissions: while reading 'orders.csv' in bucket "
+                "'example-bucket' on disk 'StorageS3': While executing ReadFromObjectStorage",
+            ),
+            (
+                "unauthorized_read",
+                "DB::Exception: Failed to get object info: No response body.. HTTP response code: 401. "
+                "Please check your AWS credentials and permissions: while reading 'orders.csv' in bucket "
+                "'example-bucket' on disk 'StorageS3': While executing ReadFromObjectStorage",
+            ),
+            (
+                "refused_list",
+                "DB::Exception: Could not list objects in bucket 'example-bucket' with prefix 'orders/', "
+                "S3 exception: `InvalidAccessKeyId`, message: 'The AWS Access Key Id you provided does not "
+                "exist in our records.'",
+            ),
+        ]
+    )
+    def test_storage_access_denied_wraps_as_exposed_error(self, _name: str, message: str) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=499))
+
+        assert isinstance(wrapped, CHQueryErrorS3AccessDenied)
+        assert str(wrapped) == STORAGE_ACCESS_DENIED_MESSAGE
+        # Code 499 is not user_safe, so classification must key off the class to reach USER_ERROR.
+        # Otherwise the customer's bucket permissions are reported as a PostHog failure.
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+        # The bucket keeps refusing until the customer fixes it, so no caller may retry it.
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
     def test_nested_parquet_magic_bytes_wraps_as_file_changed_error(self) -> None:
         err = ServerException(

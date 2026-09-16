@@ -50,7 +50,7 @@ from posthog.hogql.test.utils import (
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.errors import CHQueryErrorS3AccessDenied, CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
@@ -2373,6 +2373,20 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 execute_hogql_query("SELECT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_s3_access_denied_is_not_retried(self):
+        # The bucket refuses the read until the customer fixes their credentials, so a retry only
+        # doubles the ClickHouse work. A plain CHQueryErrorS3Error is retried once, above.
+        access_denied = CHQueryErrorS3AccessDenied("Access was denied.", code=499)
+        with (
+            patch("posthog.hogql.query.sync_execute", side_effect=access_denied) as mock_sync_execute,
+            patch("posthog.hogql.query.sleep") as mock_sleep,
+        ):
+            with self.assertRaises(CHQueryErrorS3AccessDenied):
+                execute_hogql_query("SELECT 1", team=self.team)
+
+        self.assertEqual(mock_sync_execute.call_count, 1)
+        mock_sleep.assert_not_called()
 
     def test_non_transient_errors_are_not_retried(self):
         with (

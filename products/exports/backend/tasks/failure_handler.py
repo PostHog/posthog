@@ -25,6 +25,7 @@ from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
     CHQueryErrorNumberOfArgumentsDoesntMatch,
+    CHQueryErrorS3AccessDenied,
     CHQueryErrorTooManyBytes,
     CHQueryErrorTypeMismatch,
     CHQueryErrorUnknownFunction,
@@ -212,6 +213,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorUnknownIdentifier,
     CHQueryErrorTooManyBytes,
     CHQueryErrorCannotParseUuid,
+    CHQueryErrorS3AccessDenied,  # The customer's own storage bucket refused the read
     ClickHouseQuerySizeExceeded,
     CHQueryErrorUnsupportedMethod,
     ResolutionError,
@@ -327,6 +329,15 @@ def export_slo_failure_details(exception: Exception | str) -> ExportFailureDetai
             "failure_category": SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
             "failure_component": SLO_FAILURE_COMPONENT_QUERY,
             "failure_retryable": True,
+        }
+
+    # Checked before the storage branch below, which matches every "s3" name and would report this
+    # as retryable. The bucket keeps refusing until the customer fixes their own credentials.
+    if exception_type == CHQueryErrorS3AccessDenied.__name__:
+        return {
+            "failure_category": SLO_FAILURE_CATEGORY_STORAGE,
+            "failure_component": SLO_FAILURE_COMPONENT_STORAGE,
+            "failure_retryable": False,
         }
 
     if exception_type == ObjectStorageError.__name__ or "s3" in exception_type.lower():
