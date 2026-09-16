@@ -528,6 +528,24 @@ def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link
     assert builder.lint_all() is expected
 
 
+@pytest.mark.parametrize("subdir", ["references", "scripts"])
+def test_lint_all_catches_template_and_plain_file_building_to_one_path(tmp_path: Path, subdir: str) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "collider"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: collider\ndescription: D\n---\nBody.\n")
+    files = skill_dir / subdir
+    files.mkdir()
+    (files / "payload.md.j2").write_text("# {{ 'generated' }}\n")
+    (files / "payload.md").write_text("# stale hand-written copy\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+
+
 def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     for product in ("alpha", "beta"):
         skill_dir = tmp_path / "products" / product / "skills" / "same-name"

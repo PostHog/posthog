@@ -336,6 +336,34 @@ def _check_reference_links(entry: Path, repo_root: Path) -> list[str]:
     return errors
 
 
+def _check_bundle_path_collisions(entry: Path, repo_root: Path) -> list[str]:
+    """Find source files that build to the same path in the shipped bundle.
+
+    Stripping .j2 makes `references/x.md.j2` and a leftover `references/x.md` collide, and the
+    build writes both under the one name. Which content survives depends on walk order, so a
+    stale hand-written copy can ship in place of the generated one.
+    """
+    skill_dir = entry.parent
+    sources: dict[str, list[str]] = {}
+    for subdir_name in sorted(_ALLOWED_SUBDIRS):
+        subdir = skill_dir / subdir_name
+        if not subdir.is_dir():
+            continue
+        for root, dirs, filenames in os.walk(subdir):
+            dirs[:] = sorted(dirs)
+            for filename in sorted(filenames):
+                file_path = Path(root) / filename
+                rel = str(file_path.relative_to(skill_dir))
+                sources.setdefault(rel.removesuffix(".j2"), []).append(str(file_path.relative_to(repo_root)))
+
+    return [
+        f"Bundle path collision in {skill_dir.relative_to(repo_root)}: {' and '.join(paths)} "
+        f"both build to '{bundled}'. Delete the stale copy and keep one source."
+        for bundled, paths in sorted(sources.items())
+        if len(paths) > 1
+    ]
+
+
 class SkillFrontmatter(BaseModel):
     name: str
     description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
@@ -667,6 +695,7 @@ class SkillBuilder:
         - Jinja2 syntax validation via parse-only (all .j2 files)
         - Frontmatter validation for product and project skill entry points
         - Tool/skill reference validation in markdown (against the MCP schema registries)
+        - Bundle path collisions between a template and a same-named plain file
 
         Returns True if all checks pass, False otherwise.
         """
@@ -723,6 +752,7 @@ class SkillBuilder:
 
             if skill.depth == 1:
                 errors.extend(_check_reference_links(skill.source_file, self.repo_root))
+                errors.extend(_check_bundle_path_collisions(skill.source_file, self.repo_root))
 
             for file_path in lint_files:
                 source_label = str(file_path.relative_to(self.repo_root))
