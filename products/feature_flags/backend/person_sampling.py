@@ -90,8 +90,11 @@ def _run_person_count(
         query_type=query_type,
         # Pin v1 for the unfiltered count, as count_persons_seen_so_far does: the v2 persons
         # path pushes the executor's default LIMIT into its dedup subquery, which caps a bare
-        # count() at ~101 for teams pinned to v2 (see #87323). A filtered count reads person
-        # properties, where v2 is the faster shape, so it keeps the automatic choice.
+        # count() at ~101 for teams pinned to v2 (see #87323). The team_id condition already
+        # sends these queries down the persons table's prefilter path, which emits the v1 dedup
+        # whatever this says, so the pin is only load-bearing if that path is ever lost. A
+        # filtered count reads person properties, where v2 is the faster shape, so it keeps the
+        # automatic choice.
         modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1) if filter is None else None,
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
