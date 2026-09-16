@@ -756,11 +756,11 @@ impl MergeDriver {
             self.tables.is_validation(),
             r#"
             INSERT INTO {lifecycle_op_person}
-                (op_id, team_id, person_id, person_uuid, role, ordinal, status)
-            SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, $6
+                (op_id, team_id, person_id, person_uuid, role, ordinal, status, mark_active)
+            SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, $6, true
             FROM unnest($3::bigint[], $4::uuid[], $5::text[], $7::int[])
                 AS u(person_id, person_uuid, role, ordinal)
-            ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed') DO NOTHING
+            ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
             RETURNING person_id
             "#,
             op.op_id,
@@ -862,7 +862,7 @@ impl MergeDriver {
             mirrored_query!(
                 self.tables.is_validation(),
                 r#"
-                UPDATE {lifecycle_op_person} SET status = $2
+                UPDATE {lifecycle_op_person} SET status = $2, mark_active = false
                 WHERE op_id = $1 AND person_id = ANY($3) AND status = $4
                 "#,
                 op.op_id,
@@ -882,7 +882,7 @@ impl MergeDriver {
             mirrored_query!(
                 self.tables.is_validation(),
                 r#"
-                UPDATE {lifecycle_op_person} SET status = $2
+                UPDATE {lifecycle_op_person} SET status = $2, mark_active = false
                 WHERE op_id = $1 AND role = $3 AND status = $4
                 "#,
                 op.op_id,
@@ -923,7 +923,7 @@ impl MergeDriver {
 async fn unmark(tx: &mut Tx<'_>, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     mirrored_query!(
         tables.is_validation(),
-        "UPDATE {lifecycle_op_person} SET status = $2 WHERE op_id = $1 AND status = $3",
+        "UPDATE {lifecycle_op_person} SET status = $2, mark_active = false WHERE op_id = $1 AND status = $3",
         op.op_id,
         STATUS_ABORTED,
         STATUS_MARKED
@@ -1132,7 +1132,7 @@ impl MergeDriver {
             SET status = $4, sealed = u.sealed
             FROM unnest($2::bigint[], $3::jsonb[]) AS u(person_id, sealed)
             WHERE lop.op_id = $1 AND lop.person_id = u.person_id
-              AND lop.status IN ('marked', 'sealed')
+              AND lop.mark_active
             "#,
             op.op_id,
             &sealed_ids,
@@ -1275,7 +1275,7 @@ async fn live_sources(
         tables.is_validation(),
         r#"
         SELECT person_id, person_uuid FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND role = $2 AND status IN ('marked', 'sealed')
+        WHERE op_id = $1 AND role = $2 AND mark_active
         "#,
         op.op_id,
         ROLE_SOURCE
@@ -1292,8 +1292,8 @@ async fn abort_marks(
     mirrored_query!(
         tables.is_validation(),
         r#"
-        UPDATE {lifecycle_op_person} SET status = $2
-        WHERE op_id = $1 AND role = $3 AND status IN ('marked', 'sealed')
+        UPDATE {lifecycle_op_person} SET status = $2, mark_active = false
+        WHERE op_id = $1 AND role = $3 AND mark_active
         "#,
         op.op_id,
         STATUS_ABORTED,
@@ -1319,8 +1319,8 @@ async fn settle_drops(
     mirrored_query!(
         tables.is_validation(),
         r#"
-        UPDATE {lifecycle_op_person} SET status = $2
-        WHERE op_id = $1 AND person_id = ANY($3) AND status IN ('marked', 'sealed')
+        UPDATE {lifecycle_op_person} SET status = $2, mark_active = false
+        WHERE op_id = $1 AND person_id = ANY($3) AND mark_active
         "#,
         op.op_id,
         STATUS_DROPPED,
@@ -1813,7 +1813,7 @@ async fn clear_target_mark(
 ) -> Result<(), SagaError> {
     mirrored_query!(
         tables.is_validation(),
-        "UPDATE {lifecycle_op_person} SET status = $2 WHERE op_id = $1 AND role = $3",
+        "UPDATE {lifecycle_op_person} SET status = $2, mark_active = false WHERE op_id = $1 AND role = $3",
         op.op_id,
         STATUS_CLEARED,
         ROLE_TARGET
@@ -1884,7 +1884,7 @@ impl MergeDriver {
         mirrored_query!(
             self.tables.is_validation(),
             r#"
-            UPDATE {lifecycle_op_person} SET status = $2
+            UPDATE {lifecycle_op_person} SET status = $2, mark_active = false
             WHERE op_id = $1 AND role = $3 AND status = $4
             "#,
             op.op_id,

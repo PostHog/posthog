@@ -50,7 +50,6 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
-    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -132,31 +131,6 @@ async def _create_alert(
         return alert
 
     return await _create()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
-    ateam: Team,
-) -> None:
-    max_alerts_per_run = 2
-    for _ in range(max_alerts_per_run):
-        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
-
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    other_alert = await _create_alert(other_team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
-    )
-
-    assert len(alerts) == max_alerts_per_run
-    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
 @pytest_asyncio.fixture

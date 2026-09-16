@@ -64,13 +64,15 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("2025-09", "2025-10-14T23:59:59+00:00", False),
-            ("2025-09", "2025-10-15T00:00:00+00:00", True),
-            ("2025-12", "2026-01-14T23:59:59+00:00", False),
-            ("2025-12", "2026-01-15T00:00:00+00:00", True),
+            ("2025-09", "2025-10-15T00:59:59+00:00", False),
+            ("2025-09", "2025-10-15T01:00:00+00:00", True),
+            ("2025-12", "2026-01-15T00:59:59+00:00", False),
+            ("2025-12", "2026-01-15T01:00:00+00:00", True),
         ]
     )
-    def test_month_deletion_opens_fourteen_days_after_the_month_ends(self, month: str, now: str, allowed: bool) -> None:
+    def test_month_deletion_opens_fourteen_days_and_one_hour_after_the_month_ends(
+        self, month: str, now: str, allowed: bool
+    ) -> None:
         client = MagicMock()
         client.query.return_value = {"Items": []}
         store = AITrainingPrivacyStore(client, "table")
@@ -96,15 +98,19 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         )
         client.query.assert_not_called()
 
-    def test_completion_waits_for_reader_leases_without_sleeping_in_the_worker(self) -> None:
-        request = MagicMock(kind="team", cursor={"work": []}, completed_at=None)
-        store = AITrainingPrivacyStore(MagicMock(), "table")
+    def test_completion_waits_for_reader_leases_then_sweeps_the_team_once_more(self) -> None:
+        request = MagicMock(kind="team", team_id=7, cursor={"work": []}, completed_at=None)
+        client = MagicMock()
+        client.query.return_value = {"Items": []}
+        store = AITrainingPrivacyStore(client, "table")
         now = timezone.now()
         with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=now):
             self.assertFalse(store.apply(request, time.monotonic() + 1))
         self.assertIsNone(request.completed_at)
+        client.query.assert_not_called()
         with patch(
             "products.ai_training.backend.privacy.store.timezone.now", return_value=now + timedelta(seconds=301)
         ):
             self.assertTrue(store.apply(request, time.monotonic() + 1))
+        self.assertEqual(client.query.call_count, 33)
         self.assertEqual(request.identifiers, [])

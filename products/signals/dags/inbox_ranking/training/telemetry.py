@@ -59,6 +59,9 @@ class TrainingEvent:
 class HeadExampleCounts:
     rows: int
     positives: int
+    # Of the positives, how many sit on their report's birth day: most outcomes land there, so a
+    # drop in this share is the first sign the birth-day rule stopped keeping them.
+    birth_day_positives: int
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -113,6 +116,7 @@ def examples_events(
                 "head": head,
                 "rows": counts.rows,
                 "positives": counts.positives,
+                "birth_day_positives": counts.birth_day_positives,
             },
         )
         for head, counts in per_head.items()
