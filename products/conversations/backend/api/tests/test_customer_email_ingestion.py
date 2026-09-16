@@ -1,6 +1,7 @@
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import time_machine
@@ -18,6 +19,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.conversations.backend.api.tests.mailgun_signing import (
+    SENDER_STATUS_REQUEST,
     MailgunWebhookTestMixin,
     mailgun_delivery,
     post_mailgun,
@@ -556,6 +558,50 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         assert response.status_code == 202
         mock_forward.assert_not_called()
         assert EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            # Channel uniqueness is per region, so a sender active in both would attach one team's
+            # private outbound mail to the other team's thread.
+            ("the sender is active in both regions", 204, 202, False),
+            ("only this region holds the sender", 404, 202, True),
+            # The question went unanswered, so Mailgun has to ask it again.
+            ("the other region answers nothing useful", 500, 502, False),
+        ]
+    )
+    def test_the_primary_region_asks_the_other_region_before_it_ingests_a_capture(
+        self, _name: str, sender_status: int, expected_status: int, expected_ingestion: bool
+    ) -> None:
+        with patch(SENDER_STATUS_REQUEST) as mock_sender_status:
+            mock_sender_status.return_value = SimpleNamespace(status_code=sender_status)
+            response = self._post_outbound_email(message_id=f"<ambiguous-{_name}@example.com>")
+
+        assert response.status_code == expected_status
+        mock_sender_status.assert_called_once()
+        assert EmailThread.objects.for_team(self.team.id).exists() is expected_ingestion
+
+    def test_the_secondary_region_never_asks_itself_about_the_sender(self) -> None:
+        # A host other than the primary domain makes this deployment the secondary, which would
+        # otherwise ask itself and always find its own channel.
+        with self.settings(SITE_URL="https://us.posthog.com"), patch(SENDER_STATUS_REQUEST) as mock_sender_status:
+            response = self._post_outbound_email(message_id="<secondary-no-probe@example.com>")
+
+        assert response.status_code == 202
+        mock_sender_status.assert_not_called()
+        assert EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_the_sender_status_endpoint_answers_only_a_signed_caller(self) -> None:
+        unsigned = self.client.post("/api/conversations/v1/email/sender-status", {"sender": self.channel.from_email})
+        active = post_mailgun(
+            self.client, "/api/conversations/v1/email/sender-status", {"sender": self.channel.from_email}
+        )
+        absent = post_mailgun(
+            self.client, "/api/conversations/v1/email/sender-status", {"sender": "nobody@example.com"}
+        )
+
+        assert unsigned.status_code == 403
+        assert active.status_code == 204
+        assert absent.status_code == 404
 
     @parameterized.expand(
         [

@@ -8,6 +8,7 @@ stubbing the verifier, and posts a freshly signed form each time.
 import hmac
 import time
 import hashlib
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -20,8 +21,12 @@ from django.utils import timezone
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.mailgun.provider import FILES_KEY
 
+from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT
+
 MAILGUN_SIGNING_KEY = "mailgun-signing-key"
 _SIGNING_KEY_SETTING = "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY"
+# The transport behind the cross-region sender lookup, which a test patches to choose the answer.
+SENDER_STATUS_REQUEST = "products.conversations.backend.services.mailgun_events.requests.post"
 
 
 def _instance_setting(name: str) -> str:
@@ -64,7 +69,12 @@ def mailgun_delivery(fields: dict[str, Any], *, app: str = "inbound") -> Webhook
 
 
 class MailgunWebhookTestMixin:
-    """Gives a test class a signing key the endpoints verify against, and an empty dedup cache."""
+    """Gives a test class a signing key the endpoints verify against, and an empty dedup cache.
+
+    The outbound path asks the other region whether it also holds the sender. That is the only
+    outbound call the service makes, and it answers "no" here, so a test that is not about the
+    cross-region check reaches ingestion. A test that is about it patches the same target.
+    """
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
@@ -74,4 +84,11 @@ class MailgunWebhookTestMixin:
         )
         signing_key.start()
         self.addCleanup(signing_key.stop)  # type: ignore[attr-defined]
+
+        sender_status = patch(
+            SENDER_STATUS_REQUEST,
+            return_value=SimpleNamespace(status_code=SENDER_STATUS_ABSENT),
+        )
+        sender_status.start()
+        self.addCleanup(sender_status.stop)  # type: ignore[attr-defined]
         cache.clear()

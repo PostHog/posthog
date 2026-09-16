@@ -14,16 +14,21 @@ stream or by a temporary file, so it does not survive the response and cannot be
 import re
 import json
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F
 from django.utils import timezone
 
+import requests
 import structlog
+from requests import RequestException
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
@@ -32,6 +37,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.regions import PRIMARY_REGION_DOMAIN, SECONDARY_REGION_DOMAIN
 
 from products.conversations.backend.models import (
     Channel,
@@ -92,6 +98,21 @@ MAX_SENT_AT_CLOCK_SKEW = timedelta(minutes=5)
 # The channel lookups run inside the request, before dispatch, so they draw on the delivery's
 # wall clock.
 _CHANNEL_LOOKUP_TIMEOUT_MS = 800
+SENDER_STATUS_PATH = "/api/conversations/v1/email/sender-status"
+# The same window the endpoint allowed the cross-region sender lookup before it moved to ingress.
+_SENDER_STATUS_TIMEOUT_SECONDS = 10
+# The other region holds an active channel for this sender.
+SENDER_STATUS_ACTIVE = 204
+# It does not.
+SENDER_STATUS_ABSENT = 404
+
+
+class MailgunSenderProbeError(Exception):
+    """The other region could not say whether it also holds an active channel for the sender.
+
+    Raising costs the delivery its receipt, so Mailgun redelivers and the question is asked again.
+    Ingesting on an unanswered question is the failure this check exists to prevent.
+    """
 
 
 def _is_plausible_email(addr: str) -> bool:
@@ -298,12 +319,7 @@ class MailgunMessage:
                 logger.warning("email_inbound_invalid_timestamp")
         return now
 
-    def _recover_dmarc_rewritten_sender(
-        self,
-        config: EmailChannel,
-        sender_email: str,
-        sender_name: str,
-    ) -> tuple[str, str]:
+    def _recover_dmarc_rewritten_sender(self, config: EmailChannel, sender: EmailAddress) -> EmailAddress:
         """Recover the original sender when DMARC-compliant forwarding rewrote From.
 
         Google Groups / Workspace and other forwarders rewrite the From header to
@@ -326,11 +342,11 @@ class MailgunMessage:
         is vanishingly unlikely — the "via" pattern is injected by mail
         forwarders, not by human MUAs.
         """
-        if sender_email.lower() != config.from_email.lower():
-            return sender_email, sender_name
+        if sender.email.lower() != config.from_email.lower():
+            return sender
 
-        if " via " not in sender_name.lower():
-            return sender_email, sender_name
+        if " via " not in sender.name.lower():
+            return sender
 
         logger.info(
             "email_inbound_dmarc_rewrite_detected",
@@ -343,14 +359,14 @@ class MailgunMessage:
         if x_original:
             orig_name, orig_email = parseaddr(x_original)
             if orig_email and _is_plausible_email(orig_email):
-                return orig_email, orig_name or orig_email.split("@")[0]
+                return EmailAddress(name=orig_name or orig_email.split("@")[0], email=orig_email)
 
         # 2. Try Reply-To (most forwarding services preserve this)
         reply_to = self.field("Reply-To")
         if reply_to:
             rt_name, rt_email = parseaddr(reply_to)
             if rt_email and rt_email.lower() != config.from_email.lower() and _is_plausible_email(rt_email):
-                return rt_email, rt_name or rt_email.split("@")[0]
+                return EmailAddress(name=rt_name or rt_email.split("@")[0], email=rt_email)
 
         # 3. Neither header yielded a usable address. Strip " via <GroupName>"
         #    from the display name as a cosmetic fix.
@@ -359,9 +375,7 @@ class MailgunMessage:
             team_id=config.team_id,
             from_header=self.field("from"),
         )
-        sender_name = _VIA_SUFFIX_RE.sub("", sender_name).strip("'\"").strip()
-
-        return sender_email, sender_name
+        return replace(sender, name=_VIA_SUFFIX_RE.sub("", sender.name).strip("'\"").strip())
 
     def _attachments(self, config: EmailChannel) -> tuple[UploadedFile, ...]:
         attachments: list[UploadedFile] = []
@@ -389,7 +403,7 @@ class MailgunMessage:
         sender_email = sender_email.strip().lower()[:400]
         if not sender_name:
             sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
-        sender_email, sender_name = self._recover_dmarc_rewritten_sender(config, sender_email, sender_name)
+        sender = self._recover_dmarc_rewritten_sender(config, EmailAddress(name=sender_name, email=sender_email))
 
         stripped_text = self.field("stripped-text")
         stripped_signature = self.field("stripped-signature")
@@ -403,7 +417,7 @@ class MailgunMessage:
             in_reply_to=in_reply_to_ids[0] if in_reply_to_ids else None,
             references=_parse_message_ids(self.field("References")),
             sent_at=self.sent_at(),
-            sender=EmailAddress(name=sender_name[:400], email=sender_email),
+            sender=replace(sender, name=sender.name[:400]),
             to_recipients=_parse_addresses(self.field("To")),
             cc_recipients=_parse_addresses(self.field("Cc")),
             subject=self.field("subject")[:500],
@@ -411,7 +425,7 @@ class MailgunMessage:
             stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
             body_html=self.field("body-html")[:MAX_EMAIL_BODY_LENGTH],
             stripped_html=self.field("stripped-html")[:MAX_EMAIL_BODY_LENGTH],
-            sender_authenticated=self.sender_authenticated(sender_email),
+            sender_authenticated=self.sender_authenticated(sender.email),
             dkim_passed=self.authentication_passed("X-Mailgun-Dkim-Check-Result"),
             dkim_signing_domains=self.dkim_signing_domains(),
             capture_address=self.recipient,
@@ -760,6 +774,62 @@ def _channel_for_outbound_sender(sender_email: str) -> EmailChannel | None:
         )
 
 
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel for this sender.
+
+    The other region asks this before it ingests a captured outbound message. It is a lookup and
+    nothing else: the asking region decides what to do with the answer.
+    """
+    return bool(sender_email) and _channel_for_outbound_sender(sender_email) is not None
+
+
+def _other_region_sender_status_url() -> str | None:
+    """The other region's sender-status URL, or None when this deployment is the other region.
+
+    `posthog.regions.is_primary_region` answers the same question from a request host, and a
+    consumer never sees a request. `SITE_URL` is this deployment's own address, which is how
+    `posthog.regions` derives the primary domain in development, so comparing the two says which
+    region this is without a second source for it. Only the primary asks, because the secondary
+    would otherwise ask itself and find its own channel.
+    """
+    if urlparse(settings.SITE_URL).netloc != PRIMARY_REGION_DOMAIN:
+        return None
+    return f"https://{SECONDARY_REGION_DOMAIN}{SENDER_STATUS_PATH}"
+
+
+def _sender_is_active_in_other_region(message: "MailgunMessage", sender_email: str) -> bool:
+    """Ask the other region whether it also holds an active channel for this sender.
+
+    Channel uniqueness is per region, so a sender active in both would otherwise attach one team's
+    private outbound mail to the other team's thread. The probe replays the delivery's own Mailgun
+    signature triple, which is the proof the endpoint checks, exactly as the old `sender_lookup`
+    mode on the webhook path did.
+    """
+    target_url = _other_region_sender_status_url()
+    if target_url is None:
+        return False
+
+    try:
+        response = requests.post(
+            target_url,
+            data={
+                "timestamp": message.field("timestamp"),
+                "token": message.field("token"),
+                "signature": message.field("signature"),
+                "sender": sender_email,
+            },
+            timeout=_SENDER_STATUS_TIMEOUT_SECONDS,
+        )
+    except RequestException as error:
+        raise MailgunSenderProbeError(f"sender status request failed: {error}") from error
+
+    if response.status_code == SENDER_STATUS_ACTIVE:
+        return True
+    if response.status_code == SENDER_STATUS_ABSENT:
+        return False
+    raise MailgunSenderProbeError(f"sender status answered {response.status_code}")
+
+
 def _ownership_of_channel(channel: EmailChannel | None) -> DeliveryOwnership:
     """A channel this region does not hold is `ELSEWHERE` rather than undecided.
 
@@ -940,6 +1010,15 @@ def accept_mailgun_outbound_message(delivery: WebhookDelivery) -> None:
     config = _channel_for_outbound_sender(sender_email)
     if config is None:
         # Quiet on purpose: ingress reports a delivery no region here owns.
+        return
+
+    if _sender_is_active_in_other_region(message, sender_email):
+        logger.error(
+            "email_outbound_sender_region_ambiguous",
+            sender_email=sender_email,
+            team_id=config.team_id,
+            config_id=str(config.id),
+        )
         return
 
     email = message.parse(config)

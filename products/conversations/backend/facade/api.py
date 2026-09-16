@@ -166,6 +166,18 @@ def mailgun_capture_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwn
     return mailgun_events.mailgun_capture_delivery_ownership(delivery)
 
 
+def mailgun_sender_is_active_here(sender_email: str) -> bool:
+    """Whether this region holds an active customer-communication channel sending as this address.
+
+    The other region asks before it ingests a captured outbound message, because a sender active
+    in both regions would otherwise land on the wrong team's thread.
+    """
+    # Deferred to keep the email ingestion modules off the facade import path.
+    from products.conversations.backend.services import mailgun_events  # noqa: PLC0415
+
+    return mailgun_events.mailgun_sender_is_active_here(sender_email)
+
+
 def sync_google_account_email(integration_id: int, team_id: int) -> None:
     from products.conversations.backend.services.gmail_sync import (  # noqa: PLC0415 -- avoids the Conversations and Customer Analytics facade cycle
         GmailSyncError,
