@@ -49,7 +49,7 @@ var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMI
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
-var hogQLKeywords = map[string]struct{}{
+var quotedHogQLKeywords = map[string]struct{}{
 	"ALL": {}, "AND": {}, "ANTI": {}, "ANY": {}, "ARRAY": {}, "AS": {}, "ASC": {}, "ASCENDING": {}, "ASOF": {},
 	"BETWEEN": {}, "BOTH": {}, "BY": {}, "CASE": {}, "CAST": {}, "CATCH": {}, "COHORT": {}, "COLLATE": {}, "COLUMNS": {},
 	"CROSS": {}, "CUBE": {}, "CURRENT": {}, "DATE": {}, "DAY": {}, "DESC": {}, "DESCENDING": {}, "DISTINCT": {},
@@ -63,7 +63,7 @@ var hogQLKeywords = map[string]struct{}{
 	"ORDER": {}, "OUTER": {}, "OVER": {}, "PARTITION": {}, "PIVOT": {}, "POSITIONAL": {}, "PRECEDING": {},
 	"PREWHERE": {}, "QUALIFY": {}, "QUARTER": {}, "RANGE": {}, "RECURSIVE": {}, "REPLACE": {}, "RETURN": {}, "RIGHT": {},
 	"ROLLUP": {}, "ROW": {}, "ROWS": {}, "SAMPLE": {}, "SELECT": {}, "SEMI": {}, "SETS": {}, "SETTINGS": {},
-	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {}, "TIMESTAMP": {},
+	"SECOND": {}, "STEP": {}, "SUBSTRING": {}, "THEN": {}, "THROW": {}, "TIES": {}, "TIME": {},
 	"TO": {}, "TOP": {}, "TOTALS": {}, "TRAILING": {}, "TRIM": {}, "TRUNCATE": {}, "TRY": {}, "TRY_CAST": {},
 	"UNBOUNDED": {}, "UNION": {}, "UNPIVOT": {}, "USING": {}, "VALUES": {}, "WEEK": {}, "WHEN": {},
 	"WHERE": {}, "WHILE": {}, "WINDOW": {}, "WITH": {}, "WITHIN": {}, "YEAR": {}, "YYYY": {}, "ZONE": {},
@@ -144,26 +144,7 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else {
-		aliases := map[string]bool{}
-		for alias := range bindings.SelectAliases(lowerPrefix) {
-			aliases[alias.Name] = true
-			suggestions = appendFields(suggestions, slices.Values([]catalog.Entry{alias}))
-		}
-		seen := map[analysis.Relation]bool{}
-		for _, relation := range bindings.All() {
-			if seen[relation] {
-				continue
-			}
-			seen[relation] = true
-			fields := func(yield func(catalog.Entry) bool) {
-				for field := range relation.Prefix(lowerPrefix) {
-					if !aliases[field.Name] && !yield(field) {
-						return
-					}
-				}
-			}
-			suggestions = appendFields(suggestions, fields)
-		}
+		suggestions = fieldSuggestions(bindings, lowerPrefix)
 		if document != nil && document.LimitError() != nil {
 			return Result{}, document.LimitError()
 		}
@@ -184,19 +165,23 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		}
 		left, right := strings.ToLower(suggestions[i].Label), strings.ToLower(suggestions[j].Label)
 		if left == right {
+			if suggestions[i].Label == suggestions[j].Label {
+				return suggestions[i].InsertText < suggestions[j].InsertText
+			}
 			return suggestions[i].Label < suggestions[j].Label
 		}
 		return left < right
 	})
-	for index := range suggestions {
-		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
-	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}
 	if offset > len(suggestions) {
 		offset = len(suggestions)
 	}
 	end := min(offset+PageSize, len(suggestions))
 	result.Suggestions = suggestions[offset:end]
+	for index := range result.Suggestions {
+		// Global ranks preserve client-side page order even when labels contain punctuation.
+		result.Suggestions[index].SortText = fmt.Sprintf("%020d", offset+index)
+	}
 	if end < len(suggestions) {
 		result.NextCursor = encodeCursor(end)
 	}
@@ -271,16 +256,6 @@ func encodeCursor(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
-func appendFields(out []Suggestion, fields iter.Seq[catalog.Entry]) []Suggestion {
-	for field := range fields {
-		if !supportedHogQLIdentifier(field.Name) {
-			continue
-		}
-		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type, InsertText: suggestionInsertText("field", field.Name)})
-	}
-	return out
-}
-
 func suggestionInsertText(kind, name string) string {
 	insertText := name
 	switch kind {
@@ -304,7 +279,7 @@ func supportedHogQLIdentifier(name string) bool {
 }
 
 func quoteHogQLFieldIdentifier(name string) string {
-	if _, keyword := hogQLKeywords[strings.ToUpper(name)]; keyword {
+	if _, keyword := quotedHogQLKeywords[strings.ToUpper(name)]; keyword {
 		return "`" + hogQLIdentifierEscaper.Replace(name) + "`"
 	}
 	return quoteHogQLIdentifier(name)
