@@ -1769,6 +1769,7 @@ describe('exec tool', () => {
             ['loops-retrieve', 'workflows-get'],
             ['loops-create', 'workflows-create'],
             ['loops-create-prepare', 'workflows-create'],
+            ['loops-create-execute', 'workflows-create'],
             ['loops-review', 'workflows-create'],
             ['loops-partial-update', 'workflows-patch-graph'],
             ['loops-destroy', 'workflows-archive'],
