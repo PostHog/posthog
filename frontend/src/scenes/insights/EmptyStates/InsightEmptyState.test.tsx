@@ -80,6 +80,7 @@ describe('EmptyStates', () => {
 
         it.each([
             { name: 'nothing extra when the query was quick', queryElapsedMs: 3_000, expectNote: false },
+            { name: 'nothing extra just below the slow threshold', queryElapsedMs: 14_500, expectNote: false },
             { name: 'how long the query ran when it crawled', queryElapsedMs: 42_000, expectNote: true },
         ])('shows $name', ({ queryElapsedMs, expectNote }) => {
             mountWithTeam({ ingested_event: true, is_demo: false })

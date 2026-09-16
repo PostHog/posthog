@@ -104,7 +104,7 @@ export function InsightEmptyState({
     // A query that crawled and then came back empty reads exactly like one that found nothing at all,
     // so people re-run the same query by hand to check. Say how long it ran and offer the re-run here.
     const seconds = queryElapsedMs != null ? Math.round(queryElapsedMs / 1000) : null
-    const slowSeconds = seconds != null && seconds >= SLOW_LOADING_TIME ? seconds : null
+    const slowSeconds = queryElapsedMs != null && queryElapsedMs >= SLOW_LOADING_TIME * 1000 ? seconds : null
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
