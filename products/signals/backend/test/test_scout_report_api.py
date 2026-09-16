@@ -28,6 +28,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
     MAX_REPORT_SIGNALS,
@@ -515,6 +516,15 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
+
+    @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
+    def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
+        # A DRF default renders as a default on the generated client, which sends an explicit `false`
+        # for a flag the caller omitted. The validator below rejects a field it does not declare, so a
+        # client deployed ahead of this endpoint would fail every edit, not only a supersede request.
+        serializer = EditReportRequestSerializer(data={"report_id": str(uuid4())})
+        assert serializer.is_valid(), serializer.errors
+        assert field not in serializer.validated_data
 
     def test_evidence_append_is_rejected_at_the_report_cap_before_the_judge(self) -> None:
         # Emit plus every append share one cap, and it is checked before the safety judge so a call

@@ -1603,7 +1603,6 @@ class EditReportRequestSerializer(serializers.Serializer):
     )
     corroboration_only = serializers.BooleanField(
         required=False,
-        default=False,
         help_text="Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.",
     )
     append_evidence = serializers.ListField(
@@ -1683,7 +1682,6 @@ class EditReportRequestSerializer(serializers.Serializer):
     )
     supersedes_implementation = serializers.BooleanField(
         required=False,
-        default=False,
         help_text=(
             "Set this only when your rewrite changes what the fix should be: a different root cause, "
             "a different file or layer, a materially wider or narrower scope. More evidence for the "

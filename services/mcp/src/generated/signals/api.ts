@@ -1572,7 +1572,6 @@ export const signalsScoutEditReportBodySummaryMax = 20000
 
 export const signalsScoutEditReportBodyAppendNoteMax = 10000
 
-export const signalsScoutEditReportBodyCorroborationOnlyDefault = false
 export const signalsScoutEditReportBodyAppendEvidenceItemDescriptionMax = 4000
 
 export const signalsScoutEditReportBodyAppendEvidenceMax = 50
@@ -1611,8 +1610,6 @@ export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEditReportBodySuggestedPromptsMax = 3
 
-export const signalsScoutEditReportBodySupersedesImplementationDefault = false
-
 export const SignalsScoutEditReportBody = () => zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -1637,7 +1634,7 @@ export const SignalsScoutEditReportBody = () => zod
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
         corroboration_only: zod
             .boolean()
-            .default(signalsScoutEditReportBodyCorroborationOnlyDefault)
+            .optional()
             .describe(
                 'Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log.'
             ),
@@ -1862,7 +1859,7 @@ export const SignalsScoutEditReportBody = () => zod
             ),
         supersedes_implementation: zod
             .boolean()
-            .default(signalsScoutEditReportBodySupersedesImplementationDefault)
+            .optional()
             .describe(
                 "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true closes that pull request and opens a new one, so a false positive throws away review someone may already have done. Only honored alongside a `title` or `summary` that actually changes, and only for the first few such rewrites."
             ),
