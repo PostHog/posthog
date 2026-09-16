@@ -397,8 +397,13 @@ SELECT
     -- time-to-outcome read needs the reason that came with the dismissal it is dating.
     -- The empty sentinel rides all the way to the end so a reason-less earliest dismissal reports
     -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
-    -- whenever no artefact accompanies the transition, and this column has to stay paired with
-    -- first_dismissed_server_at.
+    -- whenever no artefact accompanies the transition, and this column has to describe the earliest
+    -- dismissal itself.
+    --
+    -- Caveat until posthog#101565 lands: this reason is restricted to the latest transition's
+    -- tenant while first_dismissed_server_at above is not, so an earlier dismissal naming another
+    -- team can date that column while this one reads a later genuine dismissal. Treat the two as
+    -- separate reads, not as one event.
     nullIf(
         argMinIf(
             bucket_first_dismissal_reason,
