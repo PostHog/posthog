@@ -9,7 +9,8 @@ logger = structlog.get_logger(__name__)
 DEFAULT_LOGS_RETENTION_DAYS = 14
 # Custom retention periods are whole 30-day months, so ingestion and billing can treat each one as a tier.
 LOGS_RETENTION_MONTH_DAYS = 30
-LOGS_RETENTION_MAX_MONTHS = 120
+# 86 thirty-day months cover 7 calendar years, the same ceiling as events retention.
+LOGS_RETENTION_MAX_MONTHS = 86
 LOGS_RETENTION_MAX_DAYS = LOGS_RETENTION_MONTH_DAYS * LOGS_RETENTION_MAX_MONTHS
 LOGS_RETENTION_BASE_TIERS_DAYS = frozenset({DEFAULT_LOGS_RETENTION_DAYS, 30})
 LOGS_CUSTOM_RETENTION_FLAG = "logs-settings-custom-retention"

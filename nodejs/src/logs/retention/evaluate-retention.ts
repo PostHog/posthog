@@ -11,7 +11,7 @@ import { type FilterGroupNode, matchFilterGroup } from '../sampling/filter-group
  */
 export const DEFAULT_RETENTION_DAYS = 14
 export const RETENTION_MONTH_DAYS = 30
-export const MAX_RETENTION_DAYS = RETENTION_MONTH_DAYS * 120
+export const MAX_RETENTION_DAYS = RETENTION_MONTH_DAYS * 86
 
 export function isValidRetentionDays(days: number): boolean {
     if (!Number.isInteger(days)) {

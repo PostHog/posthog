@@ -54,7 +54,7 @@ describe('logs retention rules', () => {
     it('drops rows whose retention_days is not an allowed tier', () => {
         const ruleSet = compileRetentionRuleSet([
             serviceRule('a', 'api', 45),
-            serviceRule('b', 'api', 3630),
+            serviceRule('b', 'api', 2610),
             serviceRule('c', 'api', 360),
         ])
         expect(ruleSet.rules.map((r) => r.id)).toEqual(['c'])

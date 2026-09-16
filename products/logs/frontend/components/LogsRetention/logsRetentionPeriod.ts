@@ -1,7 +1,8 @@
 // Mirrors `logs_retention_days_error` in `posthog/models/team/logs_retention.py`.
 export const LOGS_RETENTION_DEFAULT_DAYS = 14
 export const LOGS_RETENTION_MONTH_DAYS = 30
-export const LOGS_RETENTION_MAX_MONTHS = 120
+// 86 thirty-day months cover 7 calendar years, the same ceiling as events retention.
+export const LOGS_RETENTION_MAX_MONTHS = 86
 export const LOGS_RETENTION_BASE_TIERS_DAYS: number[] = [14, 30]
 export const LOGS_RETENTION_PRESET_DAYS: number[] = [14, 30, 90, 360]
 

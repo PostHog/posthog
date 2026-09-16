@@ -2060,7 +2060,7 @@ def team_api_test_factory():
             assert "retention_days must be one of" in response.json()["detail"]
 
             with patch("posthoganalytics.feature_enabled", return_value=True):
-                for valid_days in [90, 360, 3600]:
+                for valid_days in [90, 360, 2580]:
                     response = self.client.patch(
                         "/api/environments/@current/",
                         {"logs_settings": {"retention_days": valid_days}},
@@ -2071,7 +2071,7 @@ def team_api_test_factory():
                     self.team.logs_settings = {}
                     self.team.save()
 
-                for invalid_days in [45, 3630, 0, -30]:
+                for invalid_days in [45, 2610, 0, -30]:
                     response = self.client.patch(
                         "/api/environments/@current/",
                         {"logs_settings": {"retention_days": invalid_days}},

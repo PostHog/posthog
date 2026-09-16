@@ -146,7 +146,7 @@ class TestLogsRetentionRulesAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("non_tier_value", {"retention_days": 45, "filter_group": VALID_FILTER_GROUP}),
-            ("above_maximum", {"retention_days": 3630, "filter_group": VALID_FILTER_GROUP}),
+            ("above_maximum", {"retention_days": 2610, "filter_group": VALID_FILTER_GROUP}),
             ("boolean_masquerading_as_int", {"retention_days": True, "filter_group": VALID_FILTER_GROUP}),
             ("missing_retention_days", {"filter_group": VALID_FILTER_GROUP}),
             ("missing_filter_group", {"retention_days": 14}),
