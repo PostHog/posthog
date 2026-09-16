@@ -110,3 +110,61 @@ impl<'a> Transaction<'a> for &'a FileEmitter {
         Ok(())
     }
 }
+
+/// Why a sink refused a chunk, in the terms a user can act on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SinkFailureReason {
+    Quota,
+    BadRequest,
+    ServerError,
+    RateLimited,
+    Unauthorized,
+    Transport,
+    Serialization,
+    Other,
+}
+
+impl SinkFailureReason {
+    /// Bounded label for metrics. This is a contract read by dashboards and alerts.
+    pub fn metric_label(self) -> &'static str {
+        match self {
+            Self::Quota => "quota",
+            Self::BadRequest => "bad_request",
+            Self::ServerError => "server_error",
+            Self::RateLimited => "rate_limited",
+            Self::Unauthorized => "unauthorized",
+            Self::Transport => "transport",
+            Self::Serialization => "serialization",
+            Self::Other => "other",
+        }
+    }
+
+    /// What the user sees on the paused job. `None` means the reason has no action the
+    /// user can take, so the caller keeps its generic message.
+    pub fn user_message(self) -> Option<&'static str> {
+        match self {
+            Self::Quota => Some(
+                "Your organization is over its product analytics event limit, so the events are being rejected. Raise the limit on the billing page, then resume this migration.",
+            ),
+            Self::RateLimited => Some(
+                "Events are arriving faster than we can accept them. Wait a few minutes, then resume this migration.",
+            ),
+            Self::Unauthorized => Some(
+                "We could not authenticate this migration with our own event API. Contact support, then resume this migration.",
+            ),
+            Self::BadRequest => Some(
+                "A batch of events was rejected because we could not read it, or because it was too large. Check the source data, then resume this migration.",
+            ),
+            Self::ServerError | Self::Transport | Self::Serialization | Self::Other => None,
+        }
+    }
+}
+
+/// A sink refusal that carries its classification. The job layer downcasts to it to count
+/// the pause under the reason the sink client saw.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct SinkFailure {
+    pub reason: SinkFailureReason,
+    pub message: String,
+}
