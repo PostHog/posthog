@@ -734,30 +734,54 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get()
         assert source.schemas.filter(should_sync=True).exists()
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials",
-        return_value=True,
+    @parameterized.expand(
+        [
+            (
+                "declared cursor",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials",
+                "Zendesk",
+                {"subdomain": "nibbles", "api_key": "token", "email_address": "user@example.com"},
+                "tickets",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "generated_timestamp",
+            ),
+            (
+                "no declared cursor",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.validate_kustomer_credentials",
+                "Kustomer",
+                {"org_name": "nibbles", "api_key": "token"},
+                "conversations",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+            ),
+        ]
     )
-    def test_create_external_data_source_defaults_sync_type_to_the_declared_cursor(self, _mock_validate):
-        # Without this default the table syncs nothing, because the caller cannot name a cursor.
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            data={
-                "source_type": "Zendesk",
-                "created_via": "web",
-                "payload": {
-                    "subdomain": "nibbles",
-                    "api_key": "token",
-                    "email_address": "user@example.com",
-                    "schemas": [{"name": "tickets", "should_sync": True}],
+    def test_create_external_data_source_defaults_sync_type_for_a_caller_that_names_none(
+        self,
+        _name,
+        validate_target,
+        source_type,
+        credentials,
+        table,
+        expected_sync_type,
+        expected_cursor,
+    ):
+        # Without a default the table lands with no sync method, which the product shows as
+        # "Not set up" and later refuses to enable.
+        with patch(validate_target, return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": source_type,
+                    "created_via": "web",
+                    "payload": {**credentials, "schemas": [{"name": table, "should_sync": True}]},
                 },
-            },
-        )
+            )
 
         assert response.status_code == 201, response.json()
-        schema = ExternalDataSchema.objects.get(source__pk=response.json()["id"], name="tickets")
-        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
-        assert schema.sync_type_config["incremental_field"] == "generated_timestamp"
+        schema = ExternalDataSchema.objects.get(source__pk=response.json()["id"], name=table)
+        assert schema.sync_type == expected_sync_type
+        assert schema.sync_type_config.get("incremental_field") == expected_cursor
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

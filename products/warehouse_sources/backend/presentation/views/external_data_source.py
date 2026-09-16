@@ -2819,14 +2819,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             source_schema = source_schemas_by_name.get(schema_name)
 
             # A client that never ran schema discovery cannot name a cursor field, and a table
-            # left without a sync method syncs nothing.
-            if sync_type is None and should_sync and source_schema is not None:
+            # left without a sync method syncs nothing. Only connectors that author their own
+            # endpoint catalog are defaulted: a SQL source's candidates are the user's own
+            # columns, where picking on their behalf can freeze the sync at its first import.
+            if sync_type is None and should_sync and source_schema is not None and source.declares_incremental_field:
                 declared_cursor = source.declared_incremental_field_for_schema(source_schema)
                 if declared_cursor is not None:
                     sync_type = "incremental"
                     requires_incremental_fields = True
                     incremental_field = declared_cursor["field"]
                     incremental_field_type = str(declared_cursor["field_type"])
+                else:
+                    # A table the connector gives no cursor still needs a method. Without one the
+                    # product shows it as "Not set up" and later refuses to enable it.
+                    sync_type = "full_refresh"
 
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
