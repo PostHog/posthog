@@ -1,5 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
@@ -65,7 +66,9 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
-    def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
+    def assertQueryMatchesSnapshot(
+        self, query: str, params: Optional[dict[str, Any]] = None, replace_all_numbers: bool = False
+    ) -> None:
         # Every precomputed case of a ("direct", False) / ("precomputed", True) pair reads the same
         # preaggregated tables, so one case per metric path carries that SQL and the rest repeat it
         # with different filters. Both cases always run; only the repeats lose their snapshot.
