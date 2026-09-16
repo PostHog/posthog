@@ -79,6 +79,28 @@ describe('errorTrackingIssueSceneLogic', () => {
         scopedLogic.unmount()
     })
 
+    // An outage fails every loader at once. A retry that only reloaded the issue left the page
+    // reporting zero occurrences, with no volume, spikes, fingerprints or linked reports.
+    it('reloads every scene loader when the scene data is requested again', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSceneData()
+        }).toDispatchActions([
+            'loadIssue',
+            'loadSummary',
+            'loadIssueFingerprints',
+            'loadSpikeEvents',
+            'loadLinkedReports',
+        ])
+    })
+
+    it('reloads the deep-linked event when the scene data is requested again', async () => {
+        logic.actions.setInitialEventTimestamp('2026-01-01T00:00:00Z')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSceneData()
+        }).toDispatchActions(['loadInitialEvent'])
+    })
+
     it('keeps the events query stable when the loaded fingerprints change', () => {
         logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
         const initialQuery = logic.values.eventsQuery

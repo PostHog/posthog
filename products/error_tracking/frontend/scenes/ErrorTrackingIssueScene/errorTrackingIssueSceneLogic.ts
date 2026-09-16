@@ -326,6 +326,9 @@ export interface errorTrackingIssueSceneLogicActions {
             value: true
         }
     }
+    loadSceneData: () => {
+        value: true
+    }
     loadSpikeEvents: () => any
     loadSpikeEventsFailure: (
         error: string,
@@ -677,6 +680,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     })),
 
     actions({
+        loadSceneData: true,
         loadIssue: true,
         loadSummary: true,
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
@@ -1028,6 +1032,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, values, actions }) => {
         return {
+            // The mount and the error banner's retry share this, so a retry after an outage
+            // restores the whole page rather than the issue alone.
+            loadSceneData: () => {
+                actions.loadIssue()
+                actions.loadSummary()
+                actions.loadIssueFingerprints()
+                actions.loadSpikeEvents()
+                actions.loadLinkedReports()
+                // On mount the timestamp is still null here and the subscription below starts the
+                // load. On a retry it is already set, so nothing else would ask for it again.
+                if (values.initialEventTimestamp) {
+                    actions.loadInitialEvent(values.initialEventTimestamp)
+                }
+            },
             setDateRange: () => {
                 actions.loadSummary()
                 actions.loadSpikeEvents()
@@ -1101,12 +1119,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             if (!isUUIDLike(props.id)) {
                 return
             }
-            actions.loadIssue()
+            actions.loadSceneData()
             actions.setInitialEventTimestamp(props.timestamp ?? null)
-            actions.loadSummary()
-            actions.loadIssueFingerprints()
-            actions.loadSpikeEvents()
-            actions.loadLinkedReports()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),

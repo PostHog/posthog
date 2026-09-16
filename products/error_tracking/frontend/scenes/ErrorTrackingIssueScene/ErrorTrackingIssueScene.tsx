@@ -78,7 +78,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         selectedEvent,
         mobileDetailOpen,
     } = useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen, loadIssue } =
+    const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen, loadSceneData } =
         useActions(errorTrackingIssueSceneLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
@@ -334,7 +334,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     className="w-full max-w-md"
                                     action={{
                                         children: 'Try again',
-                                        onClick: loadIssue,
+                                        onClick: loadSceneData,
                                         'data-attr': 'error-tracking-issue-load-retry',
                                     }}
                                 >
