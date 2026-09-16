@@ -56,6 +56,16 @@ describe('sessionRecordingSavedFiltersLogic', () => {
         expect(savedFiltersRequestCount).toBe(1)
     })
 
+    it('loads saved filters when the filters panel was expanded before the logic mounted', async () => {
+        playlistFiltersLogic.mount()
+        playlistFiltersLogic.actions.setIsFiltersExpanded(true)
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedFiltersRequestCount).toBe(1)
+    })
+
     it('redirects to the replay home URL when the saved filter loads on the replay scene', async () => {
         router.actions.push(urls.replay(ReplayTabs.Home), { savedFilterId: savedFilter.short_id })
 

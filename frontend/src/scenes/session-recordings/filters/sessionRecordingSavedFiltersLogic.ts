@@ -34,6 +34,7 @@ export interface sessionRecordingSavedFiltersLogicValues {
     appliedSavedFilter: SessionRecordingPlaylistType | null
     filters: Record<string, any> | SavedSessionRecordingPlaylistsFilters
     hasLoadedSavedFilters: boolean
+    isFiltersExpanded: boolean // playlistFiltersLogic
     loadSavedFiltersFailed: boolean
     paginationSavedFilters: PaginationManual
     pendingFilterApplication: SessionRecordingPlaylistType | null
@@ -169,6 +170,7 @@ export type sessionRecordingSavedFiltersLogicType = MakeLogicType<
 export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFiltersLogicType>([
     path(() => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic']),
     connect(() => ({
+        values: [playlistFiltersLogic, ['isFiltersExpanded']],
         actions: [
             sessionRecordingEventUsageLogic,
             ['reportRecordingPlaylistCreated'],
@@ -336,7 +338,10 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             },
         ],
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (values.isFiltersExpanded && !values.hasLoadedSavedFilters && !values.savedFiltersLoading) {
+            actions.loadSavedFilters()
+        }
         actions.checkForSavedFilterRedirect()
     }),
 ])
