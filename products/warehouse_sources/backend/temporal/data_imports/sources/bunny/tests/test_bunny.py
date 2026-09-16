@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -12,13 +12,19 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import (
     BUNNY_BASE_URL,
+    BUNNY_LOG_BASE_URL,
     BUNNY_STREAM_BASE_URL,
     PER_PAGE,
     BunnyResumeConfig,
     bunny_source,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import BUNNY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
+    BUNNY_ENDPOINTS,
+    ENDPOINTS,
+    LOG_RETENTION,
+    LOG_WINDOW_MARGIN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -62,6 +68,17 @@ def _raw_response(body: Any, *, status_code: int = 200) -> Response:
 def _stream_response(items: list[dict[str, Any]]) -> Response:
     """A Stream API list envelope, which is lower-cased and carries no ``HasMoreItems``."""
     return _raw_response({"items": items, "totalItems": len(items), "currentPage": 1, "itemsPerPage": PER_PAGE})
+
+
+def _log_response(entries: list[dict[str, Any]] | None, *, has_more: bool = False) -> Response:
+    """A Logging API page envelope, which carries its own ``pagination.hasMore`` flag."""
+    return _raw_response(
+        {
+            "data": entries,
+            "pagination": {"offset": 0, "limit": PER_PAGE, "returned": len(entries or []), "hasMore": has_more},
+            "query": {"pullZoneId": 1, "from": "2024-05-01T00:00:00Z", "to": "2024-05-02T00:00:00Z", "order": "asc"},
+        }
+    )
 
 
 def _utc(day: int) -> datetime:
@@ -273,11 +290,15 @@ class TestBunnySourceResponse:
             ("pull_zones", ["Id"], None),
             ("storage_zones", ["Id"], None),
             ("dns_zones", ["Id"], "DateCreated"),
+            ("dns_records", ["DnsZoneId", "Id"], None),
+            ("dns_zone_statistics", ["DnsZoneId", "Timestamp"], "Timestamp"),
+            ("pull_zone_logs", ["pullZoneId", "requestId"], "timestamp"),
             ("video_libraries", ["Id"], "DateCreated"),
             ("statistics", ["Timestamp"], "Timestamp"),
             ("storage_zone_statistics", ["StorageZoneId", "Timestamp"], "Timestamp"),
             ("storage_zone_egress", ["StorageZoneId", "Timestamp"], "Timestamp"),
             ("videos", ["videoLibraryId", "guid"], "dateUploaded"),
+            ("video_collections", ["videoLibraryId", "guid"], None),
             ("video_library_statistics", ["videoLibraryId", "timestamp"], "timestamp"),
         ]
     )
@@ -440,24 +461,32 @@ class TestStorageZoneFanout:
 
 
 class TestStreamFanout:
+    @parameterized.expand(
+        [
+            ("videos", "/library/7/videos", {"guid": "g1", "videoLibraryId": 7}),
+            ("video_collections", "/library/7/collections", {"guid": "c1", "videoLibraryId": 7, "name": "Launch"}),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_videos_use_the_library_key_against_the_stream_host(self, MockSession) -> None:
+    def test_lists_use_the_library_key_against_the_stream_host(
+        self, endpoint: str, expected_path: str, row: dict[str, Any], MockSession
+    ) -> None:
         session = MockSession.return_value
         sent = _wire(
             session,
             [
                 _response([{"Id": 7, "ReadOnlyApiKey": "lib-ro", "ApiKey": "lib-rw"}], has_more=False),
-                _stream_response([{"guid": "g1", "videoLibraryId": 7}]),
+                _stream_response([row]),
                 _stream_response([]),
             ],
         )
 
-        rows = _rows(_source(_make_manager(), endpoint="videos"))
+        rows = _rows(_source(_make_manager(), endpoint=endpoint))
 
-        assert rows == [{"guid": "g1", "videoLibraryId": 7}]
+        assert rows == [row]
         # The account key lists the libraries; the Stream host only accepts the library's own key.
         assert sent[0].auth.api_key == "bunny-key"
-        assert sent[1].url == f"{BUNNY_STREAM_BASE_URL}/library/7/videos"
+        assert sent[1].url == f"{BUNNY_STREAM_BASE_URL}{expected_path}"
         assert sent[1].auth.api_key == "lib-ro"
         assert sent[1].params == {"page": 1, "itemsPerPage": PER_PAGE, "orderBy": "date"}
         # The Stream envelope carries no "more items" flag, so the walk ends on an empty page.
@@ -511,3 +540,178 @@ class TestStreamFanout:
         assert sent[1].url == f"{BUNNY_STREAM_BASE_URL}/library/7/statistics"
         # The country breakdown is a different grain and stays out of this table.
         assert rows == [{"videoLibraryId": 7, "timestamp": _utc(1), "views": 4, "watchTime": 120}]
+
+
+class TestDnsZoneFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_records_are_listed_per_zone_and_carry_the_zone_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                _response([{"Id": 41}, {"Id": 42}], has_more=False),
+                _response([{"Id": 1, "Type": 0, "Name": "www"}], has_more=True),
+                _response([{"Id": 2, "Type": 3, "Name": "@"}], has_more=False),
+                _response([{"Id": 3, "Type": 0, "Name": "api"}], has_more=False),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="dns_records"))
+
+        assert [s.url for s in sent] == [
+            f"{BUNNY_BASE_URL}/dnszone",
+            f"{BUNNY_BASE_URL}/dnszone/41/records",
+            f"{BUNNY_BASE_URL}/dnszone/41/records",
+            f"{BUNNY_BASE_URL}/dnszone/42/records",
+        ]
+        # The second zone starts over at page 1 rather than continuing the first zone's walk.
+        assert [s.params["page"] for s in sent[1:]] == [1, 2, 1]
+        assert rows == [
+            {"DnsZoneId": 41, "Id": 1, "Type": 0, "Name": "www"},
+            {"DnsZoneId": 41, "Id": 2, "Type": 3, "Name": "@"},
+            {"DnsZoneId": 42, "Id": 3, "Type": 0, "Name": "api"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_statistics_pivot_onto_the_zone_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                _response([{"Id": 41}], has_more=False),
+                _raw_response(
+                    {
+                        "TotalQueriesServed": 9,
+                        "QueriesServedChart": {"2024-05-01T00:00:00": 9},
+                        "NormalQueriesServedChart": {"2024-05-01T00:00:00": 7},
+                        "SmartQueriesServedChart": {"2024-05-01T00:00:00": 2},
+                        "QueriesByTypeChart": {"A": 6, "TXT": 3},
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="dns_zone_statistics"))
+
+        assert sent[1].url == f"{BUNNY_BASE_URL}/dnszone/41/statistics"
+        # The query-type breakdown is keyed by record type, a different grain, so it stays out.
+        assert rows == [
+            {
+                "DnsZoneId": 41,
+                "Timestamp": _utc(1),
+                "QueriesServed": 9,
+                "NormalQueriesServed": 7,
+                "SmartQueriesServed": 2,
+            }
+        ]
+
+
+class TestPullZoneLogs:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_offsets_until_has_more_is_false(self, MockSession) -> None:
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                _response([{"Id": 3}, {"Id": 4}], has_more=False),
+                _log_response([{"requestId": "a", "statusCode": 200}], has_more=True),
+                _log_response([{"requestId": "b", "statusCode": 404}], has_more=False),
+                _log_response([{"requestId": "c", "statusCode": 200}], has_more=False),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
+
+        assert [s.url for s in sent[1:]] == [
+            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
+            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
+            f"{BUNNY_LOG_BASE_URL}/v2/pullzones/4/logs",
+        ]
+        assert sent[1].auth.api_key == "bunny-key"
+        # A page shorter than the limit must not end the walk (only `pagination.hasMore` does),
+        # and the second zone starts over at the first offset rather than continuing the first's.
+        assert [s.params["offset"] for s in sent[1:]] == [0, PER_PAGE, 0]
+        assert all(s.params["limit"] == PER_PAGE for s in sent[1:])
+        assert sent[1].params["order"] == "asc"
+        assert rows == [
+            {"pullZoneId": 3, "requestId": "a", "statusCode": 200},
+            {"pullZoneId": 3, "requestId": "b", "statusCode": 404},
+            {"pullZoneId": 4, "requestId": "c", "statusCode": 200},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_null_data_page_is_zero_rows_not_a_shape_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The API nulls `data` rather than returning an empty list when the window holds nothing.
+        _wire(session, [_response([{"Id": 3}], has_more=False), _log_response(None)])
+
+        assert _rows(_source(_make_manager(), endpoint="pull_zone_logs")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_the_decrypted_authorization_header_never_reaches_a_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"Id": 3}], has_more=False),
+                _log_response([{"requestId": "a", "authorizationHeader": "Bearer not-ours-to-keep", "path": "/x"}]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
+
+        assert rows == [{"pullZoneId": 3, "requestId": "a", "path": "/x"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_zone_with_logging_turned_off_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        # 404 means logging is off for that zone, so the remaining zones must still sync.
+        _wire(
+            session,
+            [
+                _response([{"Id": 3}, {"Id": 4}], has_more=False),
+                _raw_response({"error": "Logging is not enabled for this pull zone"}, status_code=404),
+                _log_response([{"requestId": "b"}]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
+
+        assert rows == [{"pullZoneId": 4, "requestId": "b"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_an_auth_failure_still_fails_the_table(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"Id": 3}], has_more=False), _raw_response({"error": "x"}, status_code=403)])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
+
+    @parameterized.expand(
+        [
+            # No watermark yet: seed the whole window bunny.net still retains.
+            ("first_run", None, LOG_RETENTION - LOG_WINDOW_MARGIN),
+            # A watermark inside the window is asked from as-is.
+            ("recent_watermark", timedelta(hours=6), timedelta(hours=6)),
+            # An older one is clamped, because the API rejects a window starting before retention.
+            ("stale_watermark", timedelta(days=30), LOG_RETENTION - LOG_WINDOW_MARGIN),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_asks_from_the_watermark_clamped_to_retention(
+        self, _name: str, watermark_age: timedelta | None, expected_age: timedelta, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        sent = _wire(session, [_response([{"Id": 3}], has_more=False), _log_response([])])
+
+        now = datetime.now(UTC)
+        _rows(
+            _source(
+                _make_manager(),
+                endpoint="pull_zone_logs",
+                last_value=None if watermark_age is None else now - watermark_age,
+            )
+        )
+
+        asked = datetime.strptime(sent[1].params["from"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        assert abs((now - expected_age) - asked) < timedelta(minutes=1)
