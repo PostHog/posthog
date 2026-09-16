@@ -1,6 +1,9 @@
 package textposition
 
-import "fmt"
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
 type Encoding string
 
@@ -23,6 +26,9 @@ func ToByteOffset(value string, offset int, encoding Encoding) (int, error) {
 	if encoding == UTF8 {
 		if offset > len(value) {
 			return len(value), nil
+		}
+		for offset > 0 && offset < len(value) && !utf8.RuneStart(value[offset]) {
+			offset--
 		}
 		return offset, nil
 	}

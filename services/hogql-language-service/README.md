@@ -35,8 +35,9 @@ underlying catalog tables in `tableNames`.
 Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
 diagnostic and ask the user to select fewer fields.
 
-Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
-distance. Dynamic properties use the same cached namespaces as autocomplete.
+Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
+typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
+autocomplete.
 
 ```bash
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
