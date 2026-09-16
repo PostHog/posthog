@@ -41,7 +41,7 @@ import {
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import { getDefaultQuery, insightHasResults, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -1111,13 +1111,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             return
         }
         const cached = props.cachedInsight
-        if (!cached || typeof cached !== 'object') {
-            return
-        }
-        const cr = cached as Record<string, unknown>
-        const hasRenderable =
-            (cr.result !== null && cr.result !== undefined) || (cr.results !== null && cr.results !== undefined)
-        if (hasRenderable) {
+        if (!cached || typeof cached !== 'object' || insightHasResults(cached)) {
             return
         }
         const iq = cached.query
