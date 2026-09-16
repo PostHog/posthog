@@ -1928,7 +1928,6 @@ export interface queryDatabaseLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
-                  dag_id?: string
                   folder_id?: string | null
                   types: string[][]
               })
@@ -1936,7 +1935,6 @@ export interface queryDatabaseLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }

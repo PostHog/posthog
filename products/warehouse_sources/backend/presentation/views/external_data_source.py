@@ -29,17 +29,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
-    SourceFieldFileUploadConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
@@ -118,6 +107,17 @@ from products.warehouse_sources.backend.facade.models import (
     latest_completed_job_prefetch,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
+)
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceConfigMapResponse,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
@@ -4905,6 +4905,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ),
             )
         ],
+        responses={200: SourceConfigMapResponse},
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):

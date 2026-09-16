@@ -963,6 +963,9 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -2586,14 +2589,14 @@
         },
         "AssistantDateRange": {
             "additionalProperties": false,
-            "description": "This filter only works with absolute dates.",
+            "description": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
             "properties": {
                 "date_from": {
                     "description": "ISO8601 date string.",
                     "type": "string"
                 },
                 "date_to": {
-                    "description": "ISO8601 date string.",
+                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
                     "type": ["string", "null"]
                 }
             },
@@ -6570,6 +6573,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6703,6 +6710,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6806,6 +6817,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -6930,6 +6945,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7045,6 +7064,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7151,6 +7174,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7250,6 +7277,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7364,6 +7395,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7466,6 +7501,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7565,6 +7604,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7682,6 +7725,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7797,6 +7844,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7911,6 +7962,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8048,6 +8103,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8192,6 +8251,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8300,6 +8363,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8415,6 +8482,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8523,6 +8594,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8629,6 +8704,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8758,6 +8837,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8881,6 +8964,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8980,6 +9067,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9081,6 +9172,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9197,6 +9292,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9343,6 +9442,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9506,6 +9609,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9617,6 +9724,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9714,6 +9825,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9834,6 +9949,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9928,6 +10047,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10032,6 +10155,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10138,6 +10265,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10237,6 +10368,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10338,6 +10473,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10437,6 +10576,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10538,6 +10681,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10637,6 +10784,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10738,6 +10889,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10837,6 +10992,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10938,6 +11097,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11037,6 +11200,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11138,6 +11305,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11238,6 +11409,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11337,6 +11512,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11443,6 +11622,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11542,6 +11725,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11644,6 +11831,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11743,6 +11934,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11867,6 +12062,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12004,6 +12203,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12136,6 +12339,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12263,6 +12470,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12373,6 +12584,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12480,6 +12695,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12561,6 +12780,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12662,6 +12885,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12758,6 +12985,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12866,6 +13097,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12966,6 +13201,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13079,6 +13318,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13195,6 +13438,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13335,6 +13582,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13447,6 +13698,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13561,6 +13816,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13661,6 +13920,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13749,6 +14012,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13828,6 +14095,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13930,6 +14201,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14009,6 +14284,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14117,6 +14396,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14223,6 +14506,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14337,6 +14624,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14435,6 +14726,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14544,6 +14839,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14660,6 +14959,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14771,6 +15074,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14871,6 +15178,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14970,6 +15281,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15080,6 +15395,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15196,6 +15515,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15310,6 +15633,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15436,6 +15763,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15543,6 +15874,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15660,6 +15995,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15771,6 +16110,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15896,6 +16239,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16008,6 +16355,10 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16109,6 +16460,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -17384,6 +17739,9 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],
@@ -19958,26 +20316,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSourceCategory": {
-            "enum": [
-                "Databases",
-                "File storage",
-                "Advertising",
-                "Marketing & email",
-                "CRM",
-                "Sales",
-                "Customer support",
-                "Payments & billing",
-                "Finance & accounting",
-                "Analytics",
-                "Engineering & monitoring",
-                "Productivity",
-                "HR & recruiting",
-                "Communication",
-                "E-commerce"
-            ],
-            "type": "string"
-        },
         "DataWarehouseSourceUsage": {
             "additionalProperties": false,
             "description": "A connector-synced data warehouse source referenced by a query.",
@@ -20647,7 +20985,7 @@
                     "type": ["string", "null"]
                 },
                 "date_to": {
-                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
                     "type": ["string", "null"]
                 },
                 "daysOfWeek": {
@@ -25987,1349 +26325,6 @@
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
-        "ExternalDataSourceType": {
-            "enum": [
-                "Ashby",
-                "Supabase",
-                "CustomerIO",
-                "Github",
-                "Stripe",
-                "Hubspot",
-                "Postgres",
-                "MySQL",
-                "MSSQL",
-                "Zendesk",
-                "Snowflake",
-                "Salesforce",
-                "Vitally",
-                "BigQuery",
-                "Chargebee",
-                "Clerk",
-                "RevenueCat",
-                "Polar",
-                "GoogleAds",
-                "GoogleSearchConsole",
-                "MetaAds",
-                "Klaviyo",
-                "Mailchimp",
-                "Braze",
-                "Mailjet",
-                "Redshift",
-                "GoogleSheets",
-                "MongoDB",
-                "TemporalIO",
-                "DoIt",
-                "LinkedinAds",
-                "RedditAds",
-                "TikTokAds",
-                "BingAds",
-                "Shopify",
-                "Attio",
-                "SnapchatAds",
-                "Linear",
-                "Intercom",
-                "Amplitude",
-                "Mixpanel",
-                "Jira",
-                "ActiveCampaign",
-                "Marketo",
-                "Adjust",
-                "AppsFlyer",
-                "Freshdesk",
-                "GoogleAnalytics",
-                "Pipedrive",
-                "SendGrid",
-                "Slack",
-                "PagerDuty",
-                "Asana",
-                "Notion",
-                "Airtable",
-                "Greenhouse",
-                "BambooHR",
-                "Lever",
-                "GitLab",
-                "Datadog",
-                "Sentry",
-                "Pendo",
-                "FullStory",
-                "AmazonAds",
-                "PinterestAds",
-                "AppleSearchAds",
-                "QuickBooks",
-                "Xero",
-                "NetSuite",
-                "WooCommerce",
-                "BigCommerce",
-                "PayPal",
-                "Square",
-                "Zoom",
-                "Trello",
-                "Monday",
-                "ClickUp",
-                "Confluence",
-                "Recurly",
-                "SalesLoft",
-                "Outreach",
-                "Gong",
-                "Calendly",
-                "Typeform",
-                "Iterable",
-                "ZohoCRM",
-                "Close",
-                "Oracle",
-                "DynamoDB",
-                "Elasticsearch",
-                "Kafka",
-                "LaunchDarkly",
-                "Braintree",
-                "Recharge",
-                "HelpScout",
-                "Gorgias",
-                "Instagram",
-                "YouTubeAnalytics",
-                "FacebookPages",
-                "TwitterAds",
-                "Workday",
-                "ServiceNow",
-                "Pardot",
-                "Copper",
-                "Front",
-                "ChartMogul",
-                "Zuora",
-                "Paddle",
-                "CircleCI",
-                "CockroachDB",
-                "Firebase",
-                "AzureBlob",
-                "GoogleDrive",
-                "OneDrive",
-                "SharePoint",
-                "Box",
-                "SFTP",
-                "MicrosoftTeams",
-                "Aircall",
-                "Webflow",
-                "Okta",
-                "Auth0",
-                "Productboard",
-                "Smartsheet",
-                "Wrike",
-                "Plaid",
-                "SurveyMonkey",
-                "Eventbrite",
-                "RingCentral",
-                "Twilio",
-                "Freshsales",
-                "Shortcut",
-                "ConvertKit",
-                "Drip",
-                "CampaignMonitor",
-                "MailerLite",
-                "Omnisend",
-                "Brevo",
-                "Postmark",
-                "Granola",
-                "BuildBetter",
-                "Convex",
-                "ClickHouse",
-                "Plain",
-                "Resend",
-                "PgAnalyze",
-                "WorkOS",
-                "AmazonS3",
-                "GoogleCloudStorage",
-                "Databricks",
-                "Dynamics365",
-                "SalesforceMarketingCloud",
-                "Db2",
-                "Heap",
-                "AdobeAnalytics",
-                "Matomo",
-                "Optimizely",
-                "Adyen",
-                "GoCardless",
-                "Mollie",
-                "CheckoutCom",
-                "Branch",
-                "Criteo",
-                "Outbrain",
-                "Taboola",
-                "AdRoll",
-                "DisplayVideo360",
-                "GoogleAdManager",
-                "CampaignManager360",
-                "SearchAds360",
-                "AdobeCommerce",
-                "AmazonSellingPartner",
-                "Ebay",
-                "Commercetools",
-                "LightspeedRetail",
-                "Shipmail",
-                "ShipStation",
-                "ConstantContact",
-                "Mailgun",
-                "Eloqua",
-                "Sailthru",
-                "Ortto",
-                "Attentive",
-                "Kustomer",
-                "Dixa",
-                "Gladly",
-                "Qualtrics",
-                "AzureDevOps",
-                "Rollbar",
-                "Opsgenie",
-                "IncidentIo",
-                "Pingdom",
-                "Cloudflare",
-                "CosmosDB",
-                "PlanetScaleMySQL",
-                "PlanetScalePostgres",
-                "SapHana",
-                "Rippling",
-                "HiBob",
-                "Personio",
-                "Deel",
-                "AdpWorkforceNow",
-                "Paylocity",
-                "Gusto",
-                "CultureAmp",
-                "Lattice",
-                "SageIntacct",
-                "FreshBooks",
-                "Expensify",
-                "Ramp",
-                "Brex",
-                "Coupa",
-                "SapConcur",
-                "Apollo",
-                "Crunchbase",
-                "ZoomInfo",
-                "Clari",
-                "Chorus",
-                "Coda",
-                "Guru",
-                "Dropbox",
-                "Docusign",
-                "PandaDoc",
-                "SapErp",
-                "SapSuccessFactors",
-                "OracleEbs",
-                "OracleFusion",
-                "AmazonSNS",
-                "AmazonEventBridge",
-                "AmazonSQS",
-                "AmazonKinesis",
-                "AmazonCloudWatch",
-                "OpenAIAds",
-                "OneHundredMs",
-                "SevenShifts",
-                "AcuityScheduling",
-                "AgileCRM",
-                "Aha",
-                "Airbyte",
-                "Akeneo",
-                "Algolia",
-                "AlpacaBrokerAPI",
-                "ApifyDataset",
-                "Appcues",
-                "Appfigures",
-                "Appfollow",
-                "Apptivo",
-                "AssemblyAI",
-                "Awin",
-                "AwsCloudTrail",
-                "AzureTableStorage",
-                "Babelforce",
-                "Basecamp",
-                "Beamer",
-                "BigMailer",
-                "Bluetally",
-                "BoldSign",
-                "BreezyHR",
-                "Bugsnag",
-                "Buildkite",
-                "Bunny",
-                "Buzzsprout",
-                "CalCom",
-                "CallRail",
-                "Campayn",
-                "Canny",
-                "CapsuleCRM",
-                "CaptainData",
-                "CartCom",
-                "CastorEDC",
-                "Chameleon",
-                "Chargedesk",
-                "Chargify",
-                "Chift",
-                "Churnkey",
-                "Cin7",
-                "CiscoMeraki",
-                "Clazar",
-                "Clockify",
-                "Clockodo",
-                "Cloudbeds",
-                "Coassemble",
-                "Codefresh",
-                "Concord",
-                "ConfigCat",
-                "Couchbase",
-                "Curve",
-                "Customerly",
-                "Datascope",
-                "Dbt",
-                "Demodesk",
-                "Deputy",
-                "DevinAI",
-                "Docuseal",
-                "Dolibarr",
-                "Dremio",
-                "DropboxSign",
-                "Dwolla",
-                "EConomic",
-                "Easypost",
-                "Easypromos",
-                "Elasticemail",
-                "EmailOctopus",
-                "EmploymentHero",
-                "Encharge",
-                "Eventee",
-                "Eventzilla",
-                "Everhour",
-                "EZOfficeInventory",
-                "Factorial",
-                "Fastbill",
-                "Fastly",
-                "Fauna",
-                "Feishu",
-                "Fillout",
-                "Finage",
-                "Firebolt",
-                "FireHydrant",
-                "Fleetio",
-                "Flexmail",
-                "Flexport",
-                "FloatApp",
-                "Flowlu",
-                "Formbricks",
-                "FreeAgent",
-                "Freightview",
-                "Freshcaller",
-                "Freshchat",
-                "Freshservice",
-                "Fulcrum",
-                "GainsightCs",
-                "GainsightPx",
-                "GitBook",
-                "Glassfrog",
-                "Goldcast",
-                "GoLogin",
-                "Grafana",
-                "GreytHr",
-                "Gridly",
-                "Harness",
-                "Height",
-                "Hellobaton",
-                "HighLevel",
-                "HoorayHR",
-                "Hubplanner",
-                "Humanitix",
-                "Huntr",
-                "Inflowinventory",
-                "InforNexus",
-                "Insightful",
-                "Insightly",
-                "Instantly",
-                "Instatus",
-                "Intruder",
-                "Invoiced",
-                "Invoiceninja",
-                "JamfPro",
-                "JobNimbus",
-                "Jotform",
-                "JudgeMeReviews",
-                "JustCall",
-                "JustSift",
-                "K6Cloud",
-                "Katana",
-                "Keka",
-                "Kisi",
-                "Kissmetrics",
-                "Klarna",
-                "Klaus",
-                "Lago",
-                "Leadfeeder",
-                "Lemlist",
-                "LessAnnoyingCRM",
-                "LinkedinPages",
-                "Linkrunner",
-                "Linnworks",
-                "Lob",
-                "Lokalise",
-                "Looker",
-                "Luma",
-                "MailerSend",
-                "Mailosaur",
-                "Mailtrap",
-                "Mantle",
-                "Mention",
-                "MercadoAds",
-                "Merge",
-                "Metabase",
-                "Metricool",
-                "MicrosoftDataverse",
-                "MicrosoftEntraId",
-                "MicrosoftLists",
-                "Miro",
-                "Missive",
-                "MixMax",
-                "Mode",
-                "Mux",
-                "MyHours",
-                "N8n",
-                "Navan",
-                "NebiusAI",
-                "Nexiopay",
-                "NinjaOneRMM",
-                "NoCRM",
-                "NorthpassLMS",
-                "Nutshell",
-                "Nylas",
-                "Oncehub",
-                "Onepagecrm",
-                "OneSignal",
-                "Onfleet",
-                "OpinionStage",
-                "OPUSWatch",
-                "Orb",
-                "Orbit",
-                "Oura",
-                "Oveit",
-                "PabblySubscriptionsBilling",
-                "Paperform",
-                "Papersign",
-                "Partnerize",
-                "PartnerStack",
-                "PayFit",
-                "Paystack",
-                "Pennylane",
-                "Perk",
-                "PersistIq",
-                "Persona",
-                "Phyllo",
-                "Picqer",
-                "Pipeliner",
-                "PivotalTracker",
-                "Piwik",
-                "Planhat",
-                "Plausible",
-                "Poplar",
-                "PrestaShop",
-                "Pretix",
-                "Primetric",
-                "Printavo",
-                "Printify",
-                "Productive",
-                "Pylon",
-                "Qonto",
-                "Qualaroo",
-                "Railz",
-                "RDStationMarketing",
-                "Recruitee",
-                "Reddit",
-                "ReferralHero",
-                "RentCast",
-                "Repairshopr",
-                "ReplyIo",
-                "RetailExpress",
-                "Retently",
-                "RevolutMerchant",
-                "RocketChat",
-                "Rocketlane",
-                "Rootly",
-                "Ruddr",
-                "SafetyCulture",
-                "SageHR",
-                "Salesflare",
-                "SAPFieldglass",
-                "SavvyCal",
-                "Secoda",
-                "Segment",
-                "Sendowl",
-                "SendPulse",
-                "Senseforce",
-                "Serpstat",
-                "Sharetribe",
-                "Shippo",
-                "ShopWired",
-                "Shortio",
-                "Shutterstock",
-                "SigmaComputing",
-                "SignNow",
-                "SimpleCast",
-                "Simplesat",
-                "Smaily",
-                "SmartEngage",
-                "Smartreach",
-                "Smartwaiver",
-                "SolarwindsServiceDesk",
-                "SonarCloud",
-                "SparkPost",
-                "SplitIo",
-                "SpotifyAds",
-                "SpotlerCRM",
-                "Squarespace",
-                "Statsig",
-                "Statuspage",
-                "Stigg",
-                "Strava",
-                "SurveySparrow",
-                "Survicate",
-                "Svix",
-                "Systeme",
-                "Tavus",
-                "Teamtailor",
-                "Teamwork",
-                "Tempo",
-                "Testrail",
-                "Thinkific",
-                "ThinkificCourses",
-                "ThriveLearning",
-                "Ticketmaster",
-                "TicketTailor",
-                "TickTick",
-                "Timely",
-                "Tinyemail",
-                "Todoist",
-                "Toggl",
-                "TrackPMS",
-                "Tremendous",
-                "TrustPilot",
-                "Twitter",
-                "TyntecSMS",
-                "Unleash",
-                "UpPromote",
-                "Uptick",
-                "Uservoice",
-                "Vantage",
-                "Veeqo",
-                "Vercel",
-                "VismaEconomic",
-                "VWO",
-                "Waiteraid",
-                "Wasabi",
-                "WhenIWork",
-                "Wordpress",
-                "Workable",
-                "Workflowmax",
-                "Workramp",
-                "Wufoo",
-                "Xsolla",
-                "YandexMetrica",
-                "Yotpo",
-                "Ynab",
-                "Younium",
-                "YouSign",
-                "YoutubeData",
-                "ZapierSupportedStorage",
-                "ZapSign",
-                "ZendeskSell",
-                "ZendeskSunshine",
-                "Zenefits",
-                "Zenloop",
-                "ZohoAnalytics",
-                "ZohoBigin",
-                "ZohoBilling",
-                "ZohoBooks",
-                "ZohoCampaign",
-                "ZohoDesk",
-                "ZohoExpense",
-                "ZohoInventory",
-                "ZohoInvoice",
-                "ZonkaFeedback",
-                "AlphaVantage",
-                "Aviationstack",
-                "Bitly",
-                "Blogger",
-                "Breezometer",
-                "CareQualityCommission",
-                "Cimis",
-                "CoinApi",
-                "CoinGecko",
-                "CoinMarketCap",
-                "DingConnect",
-                "Dockerhub",
-                "ExchangeRatesApi",
-                "FinancialModelling",
-                "Finnhub",
-                "Finnworlds",
-                "Giphy",
-                "Gmail",
-                "GNews",
-                "GoogleCalendar",
-                "GoogleClassroom",
-                "GoogleDirectory",
-                "GoogleForms",
-                "GooglePageSpeedInsights",
-                "GoogleTasks",
-                "GoogleWebfonts",
-                "GoogleWorkspaceAdminReports",
-                "HuggingFace",
-                "IlluminaBasespace",
-                "Imagga",
-                "Interzoid",
-                "IP2Whois",
-                "KYVE",
-                "Marketstack",
-                "Mendeley",
-                "Nasa",
-                "NewYorkTimes",
-                "NewsApi",
-                "NewsData",
-                "OpenDataDc",
-                "OpenExchangeRates",
-                "OpenAQ",
-                "OpenFDA",
-                "OpenWeather",
-                "Outlook",
-                "Perigon",
-                "Pexels",
-                "Pocket",
-                "Polygon",
-                "PyPI",
-                "Recreation",
-                "RKICovid",
-                "Rss",
-                "SimFin",
-                "StockData",
-                "Guardian",
-                "TMDb",
-                "TVMaze",
-                "TwelveData",
-                "Ubidots",
-                "USCensus",
-                "Watchmode",
-                "WikipediaPageviews",
-                "YahooFinance",
-                "Clarifai",
-                "Adapty",
-                "Braintrust",
-                "StreamElements",
-                "Streamlabs",
-                "Datorama",
-                "Ahrefs",
-                "Lightfield",
-                "Appstack",
-                "Razorpay",
-                "Neon",
-                "NewRelic",
-                "Custom",
-                "Tile38",
-                "Chatwoot",
-                "Sanity",
-                "Metronome",
-                "Jobber",
-                "Knock",
-                "Leexi",
-                "RB2B",
-                "Superwall",
-                "Liana",
-                "TawkTo",
-                "Hightouch",
-                "LemonSqueezy",
-                "Ikas",
-                "Talkwalker",
-                "NextdoorAds",
-                "AppLovin",
-                "Baserow",
-                "Plunk",
-                "Dub",
-                "AirOps",
-                "Podium",
-                "Loops",
-                "Redis",
-                "Mercury",
-                "Gojiberry",
-                "Teachable",
-                "PeecAI",
-                "Healthchecks",
-                "Impact",
-                "ImpactPartner",
-                "AikidoSecurity",
-                "Alguna",
-                "Anthropic",
-                "Appwrite",
-                "BlandAI",
-                "BrowseAI",
-                "BrowserUse",
-                "ChartHop",
-                "Cody",
-                "Cursor",
-                "Decagon",
-                "Deepgram",
-                "ElevenLabs",
-                "Harvey",
-                "Hyperspell",
-                "Langfuse",
-                "LingoDev",
-                "M3ter",
-                "Maxio",
-                "Metorial",
-                "OpenRouter",
-                "TogetherAI",
-                "Vapi",
-                "Vespa",
-                "Writesonic",
-                "Aiven",
-                "Aviator",
-                "Backblaze",
-                "Baseten",
-                "Browserbase",
-                "Cohere",
-                "DenoDeploy",
-                "DigitalOcean",
-                "E2B",
-                "Fintoc",
-                "Firecrawl",
-                "FireworksAI",
-                "FlyIo",
-                "Groq",
-                "GrowthBook",
-                "Gumloop",
-                "Hatchet",
-                "Helicone",
-                "Heroku",
-                "Hetzner",
-                "HeyGen",
-                "Infisical",
-                "Inngest",
-                "KapaAI",
-                "Kernel",
-                "Koyeb",
-                "LambdaLabs",
-                "LangSmith",
-                "Linode",
-                "LlamaCloud",
-                "Mem0",
-                "Metriport",
-                "Mintlify",
-                "MistralAI",
-                "Mono",
-                "Netlify",
-                "Northflank",
-                "OpenAI",
-                "Pinecone",
-                "PlatformSh",
-                "PromptingCompany",
-                "PromptWatch",
-                "Qdrant",
-                "Render",
-                "Replicate",
-                "RetellAI",
-                "Roark",
-                "RunPod",
-                "ScaleAI",
-                "Scaleway",
-                "SigNoz",
-                "Sim",
-                "Skyvern",
-                "Slash",
-                "Synthesia",
-                "Telli",
-                "TerraApi",
-                "TriggerDev",
-                "Turso",
-                "TwelveLabs",
-                "Twenty",
-                "Unstructured",
-                "Upstash",
-                "Vellum",
-                "Vultr",
-                "Windmill",
-                "Zep",
-                "Hex",
-                "Singular",
-                "Swonkie",
-                "Sumsub",
-                "GoogleChat",
-                "Kickscale",
-                "Zellify",
-                "RudderStack",
-                "DodoPayments",
-                "Salestrics",
-                "Doppler",
-                "Usersnap",
-                "Asknicely",
-                "Featurebase",
-                "Frill",
-                "Bettermode",
-                "Dynatrace",
-                "Honeycomb",
-                "SumoLogic",
-                "LogzIO",
-                "Coralogix",
-                "BetterStack",
-                "Raygun",
-                "Honeybadger",
-                "Airbrake",
-                "Appsignal",
-                "Appdynamics",
-                "Instana",
-                "SplunkObservabilityCloud",
-                "Uptimerobot",
-                "Statuscake",
-                "Tailscale",
-                "Flagsmith",
-                "Xmatters",
-                "Squadcast",
-                "Zenduty",
-                "Cronitor",
-                "Jenkins",
-                "Bitbucket",
-                "Gitea",
-                "Teamcity",
-                "TravisCI",
-                "Semaphore",
-                "CircleciInsights",
-                "OctopusDeploy",
-                "Sourcegraph",
-                "Bitrise",
-                "Gerrit",
-                "TerraformCloud",
-                "PulumiCloud",
-                "Spacelift",
-                "Railway",
-                "Argocd",
-                "PrefectCloud",
-                "DagsterCloud",
-                "Env0",
-                "Kubecost",
-                "Snyk",
-                "Semgrep",
-                "Veracode",
-                "Checkmarx",
-                "Gitguardian",
-                "QualysVmdr",
-                "Rapid7Insightvm",
-                "TenableVulnerabilityManagement",
-                "Sentinelone",
-                "Lacework",
-                "OrcaSecurity",
-                "Drata",
-                "Secureframe",
-                "CiscoDuo",
-                "Jumpcloud",
-                "OnePassword",
-                "Stytch",
-                "Sonarqube",
-                "Codecov",
-                "Coveralls",
-                "Codacy",
-                "Deepsource",
-                "Linearb",
-                "Jellyfish",
-                "Swarmia",
-                "Packagist",
-                "Nuget",
-                "CratesIO",
-                "SonatypeNexus",
-                "JfrogArtifactory",
-                "Snowplow",
-                "WeightsAndBiases",
-                "MonteCarlo",
-                "Metaplane",
-                "Datahub",
-                "ClickhouseCloud",
-                "ConfluentCloud",
-                "KongKonnect",
-                "Kandji",
-                "Automox",
-                "Autumn",
-                "GetStream",
-                "Octolens",
-                "Kajabi",
-                "Shopware",
-                "Dubsado",
-                "Campfire",
-                "Crisp",
-                "Kommo",
-                "GoogleMerchantCenter",
-                "Axiom",
-                "Plivo",
-                "DataForSEO",
-                "Sleekplan",
-                "AbTasty",
-                "Ably",
-                "AbnormalSecurity",
-                "Acast",
-                "Acculynx",
-                "Actionstep",
-                "Aftership",
-                "AhaIdeas",
-                "AkamaiReporting",
-                "Alation",
-                "Alegra",
-                "Allegro",
-                "AnodotCost",
-                "Anomalo",
-                "Apaleo",
-                "Apitally",
-                "AppStoreConnect",
-                "Appdirect",
-                "Appfolio",
-                "Arxiv",
-                "Asaas",
-                "Astronomer",
-                "Athenahealth",
-                "Atlan",
-                "AutodeskConstructionCloud",
-                "Avalara",
-                "AwsAthena",
-                "AwsBatch",
-                "AwsBudgets",
-                "AwsCloudformation",
-                "AwsComputeOptimizer",
-                "AwsConfig",
-                "AwsConnect",
-                "AwsCostAndUsageReport",
-                "AwsCostAnomalyDetection",
-                "AwsCostExplorer",
-                "AwsGlueDataCatalog",
-                "AwsGuardduty",
-                "AwsHealth",
-                "AwsIamAccessAnalyzer",
-                "AwsInspector",
-                "AwsMacie",
-                "AwsOrganizations",
-                "AwsRdsPerformanceInsights",
-                "AwsSagemaker",
-                "AwsSavingsPlans",
-                "AwsSecurityHub",
-                "AwsSes",
-                "AwsStepFunctions",
-                "AwsSupport",
-                "AwsSystemsManager",
-                "AwsTrustedAdvisor",
-                "AwsWaf",
-                "AwsXray",
-                "AzureActivityLog",
-                "AzureAdvisor",
-                "AzureApiManagement",
-                "AzureApplicationInsights",
-                "AzureCostManagement",
-                "AzureDataExplorer",
-                "AzureDataFactory",
-                "AzureLogAnalytics",
-                "AzureMonitorAlerts",
-                "AzureMonitorMetrics",
-                "AzureOpenaiUsage",
-                "AzurePolicyInsights",
-                "AzureReservations",
-                "AzureResourceGraph",
-                "AzureResourceHealth",
-                "AzureServiceHealth",
-                "AzureSynapse",
-                "BackMarket",
-                "Beehiiv",
-                "Bigeye",
-                "BillCom",
-                "Billomat",
-                "BingWebmasterTools",
-                "Bitwarden",
-                "BlackbaudRaisersEdgeNxt",
-                "BlackboardLearn",
-                "Bling",
-                "Bloomerang",
-                "Bluesky",
-                "BolRetailer",
-                "Boulevard",
-                "Buffer",
-                "Bugherd",
-                "Buildium",
-                "Buttondown",
-                "BuyMeACoffee",
-                "Calendarific",
-                "Calibre",
-                "CanvasLms",
-                "Captivate",
-                "Cashfree",
-                "CastAi",
-                "Catchpoint",
-                "CdcOpenData",
-                "Census",
-                "Checkly",
-                "CircleSo",
-                "Classy",
-                "Cleartax",
-                "Clever",
-                "Clevertap",
-                "Cliniko",
-                "Clio",
-                "Clip",
-                "Cloudability",
-                "Cloudsmith",
-                "Cloudzero",
-                "Clover",
-                "Codemagic",
-                "Codescene",
-                "Collibra",
-                "Companycam",
-                "Conekta",
-                "ContaAzul",
-                "Contentsquare",
-                "Cortex",
-                "Courier",
-                "Crossref",
-                "CrowdstrikeFalcon",
-                "CubeCloud",
-                "D2lBrightspace",
-                "Dayforce",
-                "Debugbear",
-                "Descope",
-                "Develocity",
-                "Dialpad",
-                "Discord",
-                "Discourse",
-                "Donorbox",
-                "Doorloop",
-                "Dovetail",
-                "Drchrono",
-                "Dynamics365BusinessCentral",
-                "EcbDataPortal",
-                "Emarsys",
-                "Embrace",
-                "Entsoe",
-                "Eppo",
-                "Etsy",
-                "Eurostat",
-                "Faire",
-                "FarosAi",
-                "Fieldpulse",
-                "Fieldwire",
-                "Filevine",
-                "Finout",
-                "Five9",
-                "FlexeraCloudCost",
-                "Flutterwave",
-                "Fortnox",
-                "Fourthwall",
-                "Fred",
-                "Frontegg",
-                "FusionAuth",
-                "G2",
-                "Gcore",
-                "GcpApigee",
-                "GcpArtifactRegistry",
-                "GcpBigtable",
-                "GcpChronicle",
-                "GcpCloudAssetInventory",
-                "GcpCloudBilling",
-                "GcpCloudBuild",
-                "GcpCloudDeploy",
-                "GcpCloudDns",
-                "GcpCloudFunctions",
-                "GcpCloudLogging",
-                "GcpCloudMonitoring",
-                "GcpCloudRun",
-                "GcpCloudSpanner",
-                "GcpCloudSql",
-                "GcpCloudTrace",
-                "GcpCloudWorkflows",
-                "GcpComputeEngine",
-                "GcpContainerAnalysis",
-                "GcpDataflow",
-                "GcpDataplex",
-                "GcpDataproc",
-                "GcpErrorReporting",
-                "GcpGke",
-                "GcpPubsub",
-                "GcpRecaptchaEnterprise",
-                "GcpRecommender",
-                "GcpSecurityCommandCenter",
-                "Gdelt",
-                "GenesysCloud",
-                "Getdx",
-                "Ghost",
-                "Givebutter",
-                "Gleif",
-                "GooglePlayConsole",
-                "Guesty",
-                "Gumroad",
-                "HarnessCcm",
-                "HarnessSei",
-                "Harvest",
-                "Healthie",
-                "Hitpay",
-                "Hivebrite",
-                "Holded",
-                "Hostaway",
-                "HousecallPro",
-                "Humanitec",
-                "ImfData",
-                "Imperva",
-                "InfluxdbCloud",
-                "Iyzico",
-                "Jobtread",
-                "Kameleoon",
-                "KauflandMarketplace",
-                "Kestra",
-                "Kick",
-                "Kinde",
-                "Kion",
-                "Knowbe4",
-                "Komodor",
-                "Labelbox",
-                "Lawmatics",
-                "Learnworlds",
-                "LexwareOffice",
-                "Lightdash",
-                "Lodgify",
-                "Logicmonitor",
-                "Logrocket",
-                "LoopReturns",
-                "Mastodon",
-                "Meetup",
-                "Memberful",
-                "MercadoPago",
-                "Meteostat",
-                "Mews",
-                "Mezmo",
-                "Microsoft365UsageReports",
-                "MicrosoftAdvertising",
-                "MicrosoftClarity",
-                "MicrosoftDefenderCloudApps",
-                "MicrosoftDefenderEndpoint",
-                "MicrosoftDefenderForCloud",
-                "MicrosoftIntune",
-                "MicrosoftPurview",
-                "MicrosoftPurviewAudit",
-                "MicrosoftSentinel",
-                "MicrosoftTeamsCallRecords",
-                "Midtrans",
-                "MightyNetworks",
-                "Mindbody",
-                "Mirakl",
-                "Moesif",
-                "Moneybird",
-                "Moodle",
-                "Motherduck",
-                "Mycase",
-                "NagerDate",
-                "NeonCrm",
-                "Nexhealth",
-                "NoaaCdo",
-                "Nobl9",
-                "Nolt",
-                "Nops",
-                "NpmRegistry",
-                "Oecd",
-                "Okendo",
-                "Omni",
-                "Onelogin",
-                "OpenDental",
-                "OpenMeteo",
-                "Openalex",
-                "Opencorporates",
-                "Openfec",
-                "OpnPayments",
-                "Opslevel",
-                "OttoMarket",
-                "Ownerrez",
-                "Pagbank",
-                "Patreon",
-                "Pax8",
-                "Paychex",
-                "Paymob",
-                "Paymongo",
-                "Phonepe",
-                "Pike13",
-                "Pingone",
-                "PinterestOrganic",
-                "PlanningCenter",
-                "PluralsightFlow",
-                "Podbean",
-                "Postscript",
-                "PowerBiAdmin",
-                "Practicepanther",
-                "Preset",
-                "Procore",
-                "Productiv",
-                "ProofpointTap",
-                "Propertyware",
-                "Pubnub",
-                "Quay",
-                "Raken",
-                "RedpandaCloud",
-                "RentManager",
-                "Reverb",
-                "RocketMatter",
-                "Rubygems",
-                "Scalr",
-                "SecEdgar",
-                "SelectStar",
-                "SemanticScholar",
-                "Semrush",
-                "ServiceFusion",
-                "Servicem8",
-                "Servicetitan",
-                "Servicetrade",
-                "Sevdesk",
-                "Similarweb",
-                "Simpro",
-                "Sinch",
-                "Singlestore",
-                "Site24x7",
-                "Sleuth",
-                "Smartlook",
-                "Smartrecruiters",
-                "Smokeball",
-                "SodaCloud",
-                "Speedcurve",
-                "SpotIo",
-                "Sprig",
-                "Sprinklr",
-                "SproutSocial",
-                "StackOverflowForTeams",
-                "Stockx",
-                "TackleIo",
-                "Talkdesk",
-                "TeamupFitness",
-                "Tebra",
-                "Telnyx",
-                "Ternary",
-                "Thoughtspot",
-                "Thousandeyes",
-                "Threads",
-                "TiktokShop",
-                "TinyErp",
-                "Tinybird",
-                "Tipalti",
-                "Toast",
-                "Torii",
-                "Transistor",
-                "TrunkIo",
-                "Trustradius",
-                "Twitch",
-                "TwoC2p",
-                "UkCompaniesHouse",
-                "UkOns",
-                "UnComtrade",
-                "UsBea",
-                "UsBls",
-                "UsEia",
-                "UsTreasuryFiscalData",
-                "Vanta",
-                "Vendr",
-                "Virtuous",
-                "Vonage",
-                "WalmartMarketplace",
-                "Waydev",
-                "Wayfair",
-                "WhatsappBusinessManagement",
-                "WhoGho",
-                "Whop",
-                "Wiz",
-                "Wompi",
-                "Workiz",
-                "WorldBank",
-                "Xendit",
-                "Yoco",
-                "ZalandoZdirect",
-                "Zluri",
-                "Zylo",
-                "Tally",
-                "Nuntly",
-                "Vturb",
-                "Meltwater",
-                "UserCom",
-                "Latitude",
-                "Workato",
-                "SideShift",
-                "DuckLake",
-                "Starburst",
-                "Trino",
-                "Easybill",
-                "Bexio",
-                "Umami",
-                "Manychat",
-                "Kickstarter",
-                "Typesense",
-                "FirstPromoter",
-                "Zero",
-                "Inth",
-                "BCMS",
-                "Convonite",
-                "Hookdeck",
-                "Billit",
-                "Moxie",
-                "TripleWhale",
-                "Directus",
-                "Clay",
-                "TradableBits",
-                "Swan",
-                "Hyros",
-                "Odoo",
-                "Airbridge",
-                "Snovio",
-                "Raisely",
-                "WindsorAi",
-                "Wix",
-                "Sevalla",
-                "Motion",
-                "Framer",
-                "Cloudinary",
-                "Uploadcare",
-                "WHMCS",
-                "MSG91",
-                "Depot",
-                "Schematic",
-                "Dokploy",
-                "RakutenAdvertising",
-                "Zitadel",
-                "DeelFlows",
-                "Hootsuite",
-                "WisprFlow",
-                "SamCart",
-                "IronSourceAds",
-                "MicrosoftExcel",
-                "Profound",
-                "Airwallex",
-                "Polymarket",
-                "Kalshi",
-                "Capterra",
-                "GooglePostmasterTools",
-                "Growi",
-                "Clarify",
-                "DatoCMS",
-                "WPSOffice",
-                "TeraBox",
-                "SimonData",
-                "CommissionJunction",
-                "Liveblocks",
-                "NationBuilder",
-                "Tana",
-                "Zenchef",
-                "Lovable",
-                "Anvil",
-                "Coolify",
-                "SocialPilot",
-                "RoktAds",
-                "Strato",
-                "Medusa",
-                "Membrain",
-                "RecallAI",
-                "Tenjin",
-                "Folk",
-                "Cybersource",
-                "GoogleAdSense",
-                "Sequenzy",
-                "Skio",
-                "Smartlead",
-                "Substack"
-            ],
-            "type": "string"
-        },
         "ExternalQueryError": {
             "additionalProperties": false,
             "properties": {
@@ -28857,6 +27852,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -37965,14 +36964,43 @@
                     },
                     "type": "array"
                 },
+                "legendCalcs": {
+                    "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsReducer"
+                    },
+                    "type": "array"
+                },
+                "nullMode": {
+                    "$ref": "#/definitions/MetricsNullMode",
+                    "default": "gap",
+                    "description": "How a null bucket renders on a time-series chart."
+                },
+                "reduce": {
+                    "$ref": "#/definitions/MetricsReducer",
+                    "default": "last",
+                    "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
+                    "deprecated": "Use `reduce`.",
                     "description": "`stat` display only: which summary the headline value shows."
+                },
+                "thresholds": {
+                    "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsThreshold"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "$ref": "#/definitions/MetricsDisplayType",
                     "default": "line"
+                },
+                "unit": {
+                    "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "$ref": "#/definitions/MetricsYAxisSettings"
@@ -37982,11 +37010,16 @@
         },
         "MetricsDisplayType": {
             "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
-            "enum": ["line", "area", "bar", "stat"],
+            "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsNullMode": {
+            "description": "How a null bucket renders on a time-series chart.",
+            "enum": ["gap", "zero", "connect"],
             "type": "string"
         },
         "MetricsOtelType": {
@@ -38118,7 +37151,8 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "description": "The bucket's aggregate; null when it isn't representable (a gap).",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["time", "value"],
@@ -38211,15 +37245,41 @@
                         "$ref": "#/definitions/MetricsQueryPoint"
                     },
                     "type": "array"
+                },
+                "unit": {
+                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "type": "string"
                 }
             },
             "required": ["labels", "points"],
             "type": "object"
         },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
         "MetricsStatSummary": {
+            "deprecated": "Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working.",
             "description": "Which summary the `stat` display's headline value shows.",
             "enum": ["latest", "average", "total"],
             "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsYAxisSettings": {
             "additionalProperties": false,
@@ -48841,6 +47901,108 @@
                 }
             ]
         },
+        "QueryScanAnalysis": {
+            "additionalProperties": false,
+            "description": "The stored analysis of one query, kept for 30 days by cache key and put on every response for that query.",
+            "properties": {
+                "assistant_prompt": {
+                    "description": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+                    "type": "string"
+                },
+                "findings": {
+                    "description": "Empty when the analysis found nothing to fix.",
+                    "items": {
+                        "$ref": "#/definitions/QueryScanWarning"
+                    },
+                    "type": "array"
+                },
+                "project_share": {
+                    "description": "How much of all the project's events the query read, 0 to 1.",
+                    "type": "number"
+                },
+                "range_share": {
+                    "description": "How much of the project's events in the query's date range the query read, 0 to 1.",
+                    "type": "number"
+                }
+            },
+            "required": ["findings"],
+            "type": "object"
+        },
+        "QueryScanFindingKind": {
+            "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
+            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "type": "string"
+        },
+        "QueryScanFindingReason": {
+            "description": "Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date range comes from `{filters}` and the insight left it open.",
+            "enum": ["in_or", "wrapped", "negated", "dynamic", "not_pruned", "filters"],
+            "type": "string"
+        },
+        "QueryScanResponse": {
+            "additionalProperties": false,
+            "description": "From `GET /query/scan/{cache_key}`: the analysis once the job has stored it. Empty while the job runs, 404 when nothing is stored.",
+            "properties": {
+                "analysis": {
+                    "$ref": "#/definitions/QueryScanAnalysis"
+                }
+            },
+            "type": "object"
+        },
+        "QueryScanSummary": {
+            "additionalProperties": false,
+            "description": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+            "properties": {
+                "analysis": {
+                    "$ref": "#/definitions/QueryScanAnalysis",
+                    "description": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested."
+                },
+                "analysis_requested": {
+                    "description": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+                    "type": "boolean"
+                },
+                "duration_ms": {
+                    "$ref": "#/definitions/integer",
+                    "description": "ClickHouse time for the last fresh run, summed over its ClickHouse queries."
+                },
+                "killed": {
+                    "description": "True when ClickHouse stopped the run instead of finishing it.",
+                    "type": "boolean"
+                },
+                "rows_read": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows ClickHouse read for the last fresh run, all tables included."
+                }
+            },
+            "required": ["rows_read", "duration_ms"],
+            "type": "object"
+        },
+        "QueryScanWarning": {
+            "additionalProperties": false,
+            "description": "One finding of a query's analysis.",
+            "properties": {
+                "evidence": {
+                    "description": "The one fact the finding rests on.",
+                    "type": "string"
+                },
+                "fix": {
+                    "description": "What \"Fix with AI\" and the assistant are told to do.",
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/QueryScanFindingKind"
+                },
+                "message": {
+                    "description": "Shown to the person: what happened and what to do.",
+                    "type": "string"
+                },
+                "reason": {
+                    "$ref": "#/definitions/QueryScanFindingReason",
+                    "description": "Only with `no_event_filter` and `no_start_date`."
+                }
+            },
+            "required": ["kind", "message", "fix"],
+            "type": "object"
+        },
         "QuerySchema": {
             "discriminator": {
                 "propertyName": "kind"
@@ -49165,6 +48327,10 @@
                 "bytes_read": {
                     "$ref": "#/definitions/integer"
                 },
+                "cache_key": {
+                    "description": "Cache key of the run that failed, so clients can ask for its query scan.",
+                    "type": "string"
+                },
                 "complete": {
                     "default": false,
                     "description": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
@@ -49221,6 +48387,9 @@
                 },
                 "query_progress": {
                     "$ref": "#/definitions/ClickhouseQueryProgress"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "results": {},
                 "start_time": {
@@ -51788,385 +50957,6 @@
             "enum": ["snapchat"],
             "type": "string"
         },
-        "SourceConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "caption": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {}
-                    ]
-                },
-                "category": {
-                    "$ref": "#/definitions/DataWarehouseSourceCategory",
-                    "description": "Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). See `dataWarehouseSourceCategories`."
-                },
-                "disabledReason": {
-                    "type": ["string", "null"]
-                },
-                "docsUrl": {
-                    "type": "string"
-                },
-                "existingSource": {
-                    "type": "boolean"
-                },
-                "featureFlag": {
-                    "type": "string"
-                },
-                "featured": {
-                    "default": false,
-                    "description": "Whether this source should be prominently displayed in onboarding flows",
-                    "type": "boolean"
-                },
-                "fields": {
-                    "items": {
-                        "$ref": "#/definitions/SourceFieldConfig"
-                    },
-                    "type": "array"
-                },
-                "iconClassName": {
-                    "type": "string"
-                },
-                "iconPath": {
-                    "type": "string"
-                },
-                "keywords": {
-                    "description": "Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → [\"ga4\", \"ga\"]. Matched alongside name/label/category.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "$ref": "#/definitions/ExternalDataSourceType"
-                },
-                "permissionsCaption": {
-                    "type": "string"
-                },
-                "releaseStatus": {
-                    "enum": ["alpha", "beta", "ga"],
-                    "type": "string"
-                },
-                "suggestedTables": {
-                    "default": [],
-                    "description": "Tables to suggest enabling, with optional tooltip explaining why",
-                    "items": {
-                        "$ref": "#/definitions/SuggestedTable"
-                    },
-                    "type": "array"
-                },
-                "supportsColumnSelection": {
-                    "default": false,
-                    "description": "Whether the source-creation wizard should expose the per-column projection picker. Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker for drivers that ignore `enabled_columns` at sync time.",
-                    "type": "boolean"
-                },
-                "unreleasedSource": {
-                    "type": "boolean"
-                },
-                "webhookFields": {
-                    "items": {
-                        "$ref": "#/definitions/SourceFieldConfig"
-                    },
-                    "type": "array"
-                },
-                "webhookManualOnly": {
-                    "description": "If true, the source does not support automatic webhook registration via API (e.g. Slack — the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration.",
-                    "type": "boolean"
-                },
-                "webhookSetupCaption": {
-                    "type": "string"
-                }
-            },
-            "required": ["name", "fields", "iconPath"],
-            "type": "object"
-        },
-        "SourceFieldConfig": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/SourceFieldInputConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldSwitchGroupConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldSelectConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldOauthConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldOauthAccountSelectConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldFileUploadConfig"
-                },
-                {
-                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
-                }
-            ]
-        },
-        "SourceFieldFileUploadConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "fileFormat": {
-                    "$ref": "#/definitions/SourceFieldFileUploadJsonFormatConfig"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "type": {
-                    "const": "file-upload",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "name", "label", "fileFormat", "required"],
-            "type": "object"
-        },
-        "SourceFieldFileUploadJsonFormatConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "format": {
-                    "const": ".json",
-                    "type": "string"
-                },
-                "keys": {
-                    "anyOf": [
-                        {
-                            "const": "*",
-                            "type": "string"
-                        },
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                }
-            },
-            "required": ["format", "keys"],
-            "type": "object"
-        },
-        "SourceFieldInputConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "caption": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "placeholder": {
-                    "type": "string"
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "secret": {
-                    "description": "Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field.",
-                    "type": "boolean"
-                },
-                "type": {
-                    "$ref": "#/definitions/SourceFieldInputConfigType"
-                }
-            },
-            "required": ["type", "name", "label", "required", "placeholder", "secret"],
-            "type": "object"
-        },
-        "SourceFieldInputConfigType": {
-            "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
-            "type": "string"
-        },
-        "SourceFieldOauthAccountSelectConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "caption": {
-                    "type": "string"
-                },
-                "hidden": {
-                    "description": "Keep the field in the config tree (so its value parses and survives job_inputs redaction) without rendering it in the source form. Used for legacy fields that a newer field supersedes.",
-                    "type": "boolean"
-                },
-                "integrationField": {
-                    "description": "Name of the OAuth integration id field this account selector reads from.",
-                    "type": "string"
-                },
-                "integrationKind": {
-                    "description": "Integration kind to validate and route the account fetch through.",
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "multiple": {
-                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "placeholder": {
-                    "type": "string"
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "type": {
-                    "const": "oauth-account-select",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "name", "label", "integrationField", "integrationKind"],
-            "type": "object"
-        },
-        "SourceFieldOauthConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "requiredScopes": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "oauth",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "name", "label", "required", "kind"],
-            "type": "object"
-        },
-        "SourceFieldSSHTunnelConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "ssh-tunnel",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "label", "name"],
-            "type": "object"
-        },
-        "SourceFieldSelectConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "caption": {
-                    "type": "string"
-                },
-                "converter": {
-                    "$ref": "#/definitions/SourceFieldSelectConfigConverter"
-                },
-                "defaultValue": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "multiple": {
-                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
-                    "type": "boolean"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "options": {
-                    "items": {
-                        "$ref": "#/definitions/SourceFieldSelectConfigOption"
-                    },
-                    "type": "array"
-                },
-                "required": {
-                    "type": "boolean"
-                },
-                "type": {
-                    "const": "select",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "name", "label", "required", "defaultValue", "options"],
-            "type": "object"
-        },
-        "SourceFieldSelectConfigConverter": {
-            "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
-            "type": "string"
-        },
-        "SourceFieldSelectConfigOption": {
-            "additionalProperties": false,
-            "properties": {
-                "fields": {
-                    "items": {
-                        "$ref": "#/definitions/SourceFieldConfig"
-                    },
-                    "type": "array"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
-                }
-            },
-            "required": ["label", "value"],
-            "type": "object"
-        },
-        "SourceFieldSwitchGroupConfig": {
-            "additionalProperties": false,
-            "properties": {
-                "caption": {
-                    "type": "string"
-                },
-                "default": {
-                    "type": ["string", "number", "boolean"]
-                },
-                "fields": {
-                    "items": {
-                        "$ref": "#/definitions/SourceFieldConfig"
-                    },
-                    "type": "array"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "switch-group",
-                    "type": "string"
-                }
-            },
-            "required": ["type", "name", "label", "default", "fields"],
-            "type": "object"
-        },
         "SourceMap": {
             "additionalProperties": false,
             "properties": {
@@ -52690,6 +51480,11 @@
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
         },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
+        },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,
             "description": "Maximum length, in characters, of an AI subscription prompt.",
@@ -52747,19 +51542,6 @@
                 }
             },
             "required": ["questions"],
-            "type": "object"
-        },
-        "SuggestedTable": {
-            "additionalProperties": false,
-            "properties": {
-                "table": {
-                    "type": "string"
-                },
-                "tooltip": {
-                    "type": ["string", "null"]
-                }
-            },
-            "required": ["table"],
             "type": "object"
         },
         "SurveyAnalysisQuestionGroup": {
@@ -53679,6 +52461,10 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -57599,6 +56385,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

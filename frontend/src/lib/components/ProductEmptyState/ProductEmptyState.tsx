@@ -6,8 +6,9 @@ import { IconBook, IconGear } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { type FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +19,8 @@ import type {
     ProductEmptyStateMode,
     ProductEmptyStatePrimaryAction,
     ProductEmptyStateText,
+    ProductEmptyStateTextByMode,
+    ProductEmptyStateTextOverride,
     ProductEmptyStateWizard,
 } from './types'
 
@@ -51,13 +54,45 @@ function resolveWizard(
     return 'slug' in wizard ? wizard : wizard[mode]
 }
 
+function mergeText(
+    base: ProductEmptyStateTextByMode,
+    override: ProductEmptyStateTextOverride
+): ProductEmptyStateTextByMode {
+    const merged: ProductEmptyStateTextByMode = {
+        ...base,
+        'needs-setup': { ...base['needs-setup'], ...override['needs-setup'] },
+    }
+    if (override['waiting-for-data']) {
+        merged['waiting-for-data'] = { ...base['waiting-for-data'], ...override['waiting-for-data'] }
+    }
+    return merged
+}
+
+/** Applies the overrides of every flag that is on, in declaration order, so later entries win. */
+function resolveConfig(config: ProductEmptyStateConfig, featureFlags: FeatureFlagsSet): ProductEmptyStateConfig {
+    const resolved: ProductEmptyStateConfig = { ...config }
+    for (const [flag, override] of Object.entries(config.featureFlagOverrides ?? {})) {
+        if (!override || !featureFlags[flag as FeatureFlagKey]) {
+            continue
+        }
+        const { text, ...rest } = override
+        Object.assign(resolved, rest)
+        if (text) {
+            resolved.text = mergeText(resolved.text, text)
+        }
+    }
+    return resolved
+}
+
 /**
  * The product setup empty state: pitch + install command on the left, an animated
  * preview of the product filled with example data on the right. Shown before
  * a product has been set up — gate it with `ProductEmptyStateGate` (or declare
  * `emptyState` on the scene's `SceneExport` and the app shell gates for you).
  */
-export function ProductEmptyState({ config, mode, preview = false }: ProductEmptyStateProps): JSX.Element {
+export function ProductEmptyState({ config: baseConfig, mode, preview = false }: ProductEmptyStateProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const config = resolveConfig(baseConfig, featureFlags)
     const wizard = resolveWizard(config.wizard, mode)
     const { wizardCommand, isCloudOrDev } = useWizardCommand(wizard?.slug, {
         pinProjectId: wizard?.pinProjectId,

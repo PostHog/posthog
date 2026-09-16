@@ -34,7 +34,14 @@ logger = get_write_only_logger()
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {
+        "trace_not_settled",
+        "TransientRepartitionError",
+        "EmbeddingServiceUnavailable",
+        "AIFeaturesCloudOnly",
+        "SandboxRateLimitedError",
+        "SandboxControlPlaneUnavailableError",
+    }
 )
 
 
