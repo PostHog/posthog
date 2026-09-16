@@ -3754,12 +3754,16 @@ class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
 
 SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 
+# `trigger` and `abort_action` are read-only on the workflow serializer, so publish drops a proposed
+# value for either. A suggestion that cannot ship is worse than one that is refused.
+PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
+
 WORKFLOW_PROPOSAL_CONTENT_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
     "description": (
-        "Only the content fields the proposal changes. Valid keys are the workflow's content fields: "
-        f"{', '.join(DRAFT_CONTENT_FIELDS)}. Each value has the same shape as on the workflow itself."
+        "Only the content fields the proposal changes. Valid keys: "
+        f"{', '.join(PROPOSAL_CONTENT_FIELDS)}. Each value has the same shape as on the workflow itself."
     ),
 }
 
@@ -4143,10 +4147,6 @@ def conflicting_step_ids(hog_flow: HogFlow, proposal: WorkflowProposal) -> list[
         and not (step_id not in base_actions and step_id not in live_actions)
     )
 
-
-# `trigger` and `abort_action` are read-only on the workflow serializer, so publish drops a proposed
-# value for either. A suggestion that cannot ship is worse than one that is refused.
-PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
 # Content fields that hold a list of objects. Their items reach the secret-stripping and graph
 # validation helpers, which read each item as a mapping, so anything else has to fail as a bad

@@ -1215,7 +1215,7 @@ export const WorkflowProposalSourceTypeEnumApi = {
 } as const
 
 /**
- * Only the content fields the proposal changes. Valid keys are the workflow's content fields: actions, edges, trigger, trigger_masking, conversion, exit_condition, email_sending_rate_limit, abort_action, variables. Each value has the same shape as on the workflow itself.
+ * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
  */
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
@@ -1230,7 +1230,7 @@ export interface WorkflowProposalApi {
     readonly title: string
     /** Why the producer thinks this change is worth making. */
     readonly rationale: string
-    /** Only the content fields the proposal changes. Valid keys are the workflow's content fields: actions, edges, trigger, trigger_masking, conversion, exit_condition, email_sending_rate_limit, abort_action, variables. Each value has the same shape as on the workflow itself. */
+    /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
     /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
@@ -1239,7 +1239,7 @@ export interface WorkflowProposalApi {
      * @nullable
      */
     readonly step_id: string | null
-    /** Live workflow version this was authored against. Approving compares the steps this changes against that version to tell whether somebody else already changed them. */
+    /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
     readonly base_version: number
     /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
     readonly is_stale: boolean
