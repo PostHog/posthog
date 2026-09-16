@@ -100,6 +100,18 @@ export const ExperimentRecordingsEmptyVariantHasNone: Story = {
 }
 
 /**
+ * Narrowed to one variant on a run too young to have recordings either way. The too-early banner
+ * carries no action, so the variant banner and its way back out have to win here.
+ */
+export const ExperimentRecordingsEmptyVariantHasNoneOnYoungRun: Story = {
+    decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('test-1'))
+    },
+}
+
+/**
  * Narrowed to the sessions the exposure happened in. The scope is offered only once the server
  * confirms this experiment can be asked for it, so the story answers that check first.
  */

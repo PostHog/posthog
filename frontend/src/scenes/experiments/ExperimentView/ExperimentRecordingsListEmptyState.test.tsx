@@ -224,6 +224,16 @@ const REASON_CASES: ReasonCase[] = [
         actions: ['experiment-recordings-empty-show-all-variants'],
     },
     {
+        // The too-early banner carries no action, so on a young run it leaves a viewer who narrowed
+        // to one variant nothing to click. The variant banner has to win here.
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 216,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+        copy: 'No recordings for the test variant',
+        actions: ['experiment-recordings-empty-show-all-variants'],
+    },
+    {
         reason: ExperimentReplayListEmptyReason.InSessionHasNone,
         experimentId: 211,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },

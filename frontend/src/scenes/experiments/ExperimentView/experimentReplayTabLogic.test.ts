@@ -286,6 +286,39 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experimentId: 125,
         experiment: { start_date: daysAgo(1), end_date: null },
     },
+    // The same young run, narrowed by the viewer. Waiting fixes none of the three, and the
+    // too-early banner offers no way out, so each has to name the narrowing rather than the age of
+    // the run.
+    {
+        reason: ExperimentReplayListEmptyReason.VariantHasNone,
+        experimentId: 149,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.InSessionHasNone,
+        experimentId: 150,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setExposureScope('in_session'),
+    },
+    {
+        reason: ExperimentReplayListEmptyReason.FiltersNarrowed,
+        experimentId: 151,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) =>
+            logic.actions.playlistFiltersChanged({
+                ...logic.values.recordingsFilters,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                        },
+                    ],
+                },
+            }),
+    },
     {
         reason: ExperimentReplayListEmptyReason.VariantHasNone,
         experimentId: 141,
@@ -894,9 +927,13 @@ describe('experimentReplayTabLogic', () => {
                 event === 'experiment recordings empty state action clicked' &&
                 (properties as any)?.experiment_id === 143
         )
-        expect(clicks.map(([, properties]) => (properties as any).empty_reason)).toEqual([
-            null,
-            ExperimentReplayListEmptyReason.TooEarly,
+        expect(clicks.map(([, properties]) => properties as any)).toMatchObject([
+            { action: 'show_hidden', empty_reason: null, days_since_start: 1 },
+            {
+                action: 'replay_settings',
+                empty_reason: ExperimentReplayListEmptyReason.TooEarly,
+                days_since_start: 1,
+            },
         ])
 
         empty.unmount()
@@ -933,6 +970,8 @@ describe('experimentReplayTabLogic', () => {
             duration_filter_operator: 'gt',
             duration_filter_count: 1,
             duration_filter_customized: false,
+            filters_customized: false,
+            hide_viewed_recordings: 'off',
             exposure_linkable: true,
             variant: 'test',
             exposure_scope: 'all_exposed',
