@@ -1,5 +1,11 @@
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { DISPLAY_TYPES_TO_CATEGORIES, NON_BREAKDOWN_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { isPropertyValueMath } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
+
+import type { BreakdownFilter, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter, hasMultiBreakdown } from '~/queries/utils'
+import { ChartDisplayCategory, ChartDisplayType, PropertyMathType } from '~/types'
+import type { AnyPropertyFilter } from '~/types'
 
 export type ChartDisplayIcon =
     | 'area'
@@ -39,10 +45,42 @@ export interface ChartDisplayOptionEligibility {
     breakdowns?: BreakdownFilter['breakdowns']
 }
 
+export interface ChartDisplayChangeWarning {
+    body: string
+    title: string
+}
+
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
 
 function isCountryProperty(value: unknown): boolean {
     return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
+}
+
+export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
+    return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
+}
+
+function worldMapBreakdownFilter(query: TrendsQuery): BreakdownFilter {
+    const math = query.series?.[0]?.math ?? ''
+    return {
+        breakdown: '$geoip_country_code',
+        breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math) ? 'person' : 'event',
+    }
+}
+
+// The query a display selection produces; previews derive from it and selecting a tile applies it.
+export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType): TrendsQuery {
+    const next: TrendsQuery = { ...query, trendsFilter: { ...query.trendsFilter, display } }
+    if (NON_BREAKDOWN_DISPLAY_TYPES.includes(display)) {
+        next.breakdownFilter = undefined
+    }
+    if (display === ChartDisplayType.BoxPlot) {
+        next.trendsFilter = { ...next.trendsFilter, formula: undefined, formulas: undefined, formulaNodes: [] }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        next.breakdownFilter = worldMapBreakdownFilter(query)
+    }
+    return next
 }
 
 export function getChartDisplayOptions({
@@ -198,4 +236,100 @@ export function getChartDisplayOptions({
             ],
         },
     ]
+}
+
+const DEFAULT_RECOMMENDATION_ORDER = [
+    ChartDisplayType.Metric,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.WorldMap,
+]
+
+function hasCountryContext(query: TrendsQuery): boolean {
+    const breakdownFilter = query.breakdownFilter
+    if (!hasMultiBreakdown(breakdownFilter) && isCountryProperty(breakdownFilter?.breakdown)) {
+        return true
+    }
+    const filters: AnyPropertyFilter[] = [
+        ...(convertPropertyGroupToProperties(query.properties) ?? []),
+        ...(query.series ?? []).flatMap((node) => node.properties ?? []),
+    ]
+    return filters.some((filter) => isCountryProperty(filter.key))
+}
+
+function isStatistical(query: TrendsQuery): boolean {
+    return (
+        (query.series ?? []).some((node) => isPropertyValueMath(node.math) && node.math !== PropertyMathType.Sum) ||
+        (query.trendsFilter?.smoothingIntervals ?? 1) > 1
+    )
+}
+
+function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDisplayType): ChartDisplayType[] {
+    const boosted: ChartDisplayType[] = []
+    if (query) {
+        if (hasCountryContext(query)) {
+            boosted.push(ChartDisplayType.WorldMap)
+        }
+        if (isStatistical(query)) {
+            boosted.push(ChartDisplayType.BoxPlot)
+        }
+    }
+    if (DISPLAY_TYPES_TO_CATEGORIES[currentDisplay] === ChartDisplayCategory.TotalValue) {
+        boosted.push(...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsBarValue)
+    }
+    return [...new Set([...boosted, ...DEFAULT_RECOMMENDATION_ORDER])]
+}
+
+export function getChartAlternatives(
+    options: ChartDisplayOptionGroup[] | null | undefined,
+    query: TrendsQuery | null
+): ChartDisplayOption[] {
+    const optionsByDisplay = new Map(
+        (options ?? []).flatMap((group) => group.options).map((option) => [option.display, option])
+    )
+    const currentDisplay = query?.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    const hasBreakdown = hasBreakdownFilter(query?.breakdownFilter)
+    return rankRecommendations(query, currentDisplay)
+        .filter((recommended) => !hasBreakdown || !NON_BREAKDOWN_DISPLAY_TYPES.includes(recommended))
+        .map((recommended) => optionsByDisplay.get(recommended))
+        .filter(
+            (option): option is ChartDisplayOption =>
+                !!option && option.display !== currentDisplay && !option.disabledReason
+        )
+        .slice(0, 4)
+}
+
+export function getChartDisplayChangeWarning(
+    display: ChartDisplayType,
+    query: TrendsQuery
+): ChartDisplayChangeWarning | null {
+    if (display === ChartDisplayType.BoxPlot && hasTrendsFormula(query.trendsFilter)) {
+        return {
+            title: 'This chart type removes the formula',
+            body: 'The box plot uses the numeric property values directly.',
+        }
+    }
+    if (display === ChartDisplayType.WorldMap) {
+        const current = query.breakdownFilter
+        const next = worldMapBreakdownFilter(query)
+        if (
+            hasMultiBreakdown(current) ||
+            current?.breakdown !== next.breakdown ||
+            current?.breakdown_type !== next.breakdown_type
+        ) {
+            return {
+                title: 'This chart type changes the breakdown to Country code',
+                body: `The map uses ${next.breakdown_type} properties for this metric.`,
+            }
+        }
+    }
+    return null
 }
