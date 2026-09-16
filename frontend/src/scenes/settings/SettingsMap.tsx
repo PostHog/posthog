@@ -1305,7 +1305,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
-                flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
             },
