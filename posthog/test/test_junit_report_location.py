@@ -71,11 +71,15 @@ def test_retry_diagnostics_survive_a_passing_final_attempt(
 
 @pytest.mark.parametrize("final_outcome", ["passed", "failed", "skipped"])
 @pytest.mark.parametrize("when", ["setup", "call", "teardown"])
+@pytest.mark.parametrize("report_duration", ["call", "total"])
 def test_retry_attempt_is_preserved_in_junit_xml(
-    tmp_path: Path, final_outcome: Literal["passed", "failed", "skipped"], when: Literal["setup", "call", "teardown"]
+    tmp_path: Path,
+    final_outcome: Literal["passed", "failed", "skipped"],
+    when: Literal["setup", "call", "teardown"],
+    report_duration: Literal["call", "total"],
 ) -> None:
     junit_path = tmp_path / "junit.xml"
-    xml = LogXML(junit_path, prefix=None)
+    xml = LogXML(junit_path, prefix=None, report_duration=report_duration)
     xml.pytest_sessionstart()
     plugin = _JUnitTimingsPlugin()
     session = cast(
@@ -148,9 +152,15 @@ def test_retry_attempt_is_preserved_in_junit_xml(
     assert len(suite.findall("testcase")) == 1
     testcase = suite.find("testcase")
     assert testcase is not None
+    if report_duration == "call":
+        expected_time = 0.1 if when == "setup" else 0.2
+    else:
+        expected_time = 0.31 if when == "teardown" else 0.21
+    assert float(testcase.get("time", "0")) == pytest.approx(expected_time)
     retry_tag = ("rerun" if final_outcome == "failed" else "flaky") + ("Failure" if when == "call" else "Error")
     retry = testcase.find(retry_tag)
     assert retry is not None
+    assert retry.get("time") == ("0.100" if report_duration == "call" and when != "call" else None)
     assert retry.get("message") == "first failure"
     assert retry.findtext("stackTrace") == "first failure"
     assert (testcase.find("failure") is not None) == (final_outcome == "failed")

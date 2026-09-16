@@ -560,6 +560,7 @@ class _JUnitTimingsPlugin:
         self._collection_finish: float | None = None
         self._first_test_call_start: float | None = None
         self._failed_attempts: dict[tuple[str, object | None], list[ET.Element]] = {}
+        self._discarded_junit_duration: dict[tuple[str, object | None], float] = {}
         self._final_failures: set[tuple[str, object | None]] = set()
         self._skipped: set[tuple[str, object | None]] = set()
         self._junit_xml: Any = None
@@ -590,13 +591,19 @@ class _JUnitTimingsPlugin:
             reprcrash = getattr(report.longrepr, "reprcrash", None)
             message = getattr(reprcrash, "message", None) or str(report.longrepr)
             tag = "flakyFailure" if report.when == "call" else "flakyError"
-            attempt = ET.Element(tag, message=bin_xml_escape(message), time=f"{report.duration:.3f}")
+            attempt = ET.Element(tag, message=bin_xml_escape(message))
+            if self._junit_xml is None or self._junit_xml.report_duration not in ("total", report.when):
+                attempt.set("time", f"{report.duration:.3f}")
             ET.SubElement(attempt, "stackTrace").text = bin_xml_escape(report.longreprtext)
             self._failed_attempts.setdefault(key, []).append(attempt)
             if report.when == "teardown" and self._junit_xml is not None:
                 # Pytest's JUnit hook finalizes teardown reruns as separate testcases.
                 reporter = self._junit_xml.node_reporters.get(key)
                 if reporter is not None:
+                    duration = reporter.duration
+                    if self._junit_xml.report_duration in ("total", "teardown"):
+                        duration += report.duration
+                    self._discarded_junit_duration[key] = self._discarded_junit_duration.get(key, 0.0) + duration
                     self._junit_xml.node_reporters_ordered.remove(reporter)
                     outcome = "skipped" if key in self._skipped else "passed"
                     self._junit_xml.stats[outcome] -= 1
@@ -608,6 +615,9 @@ class _JUnitTimingsPlugin:
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
         if report.when != "teardown" or str(report.outcome) == "rerun":
             return
+        discarded_duration = self._discarded_junit_duration.pop(key, 0.0)
+        if discarded_duration and self._junit_xml is not None:
+            self._junit_xml.node_reporter(report).duration += discarded_duration
         attempts = self._failed_attempts.pop(key, [])
         if attempts and self._junit_xml is not None:
             if key in self._final_failures:
