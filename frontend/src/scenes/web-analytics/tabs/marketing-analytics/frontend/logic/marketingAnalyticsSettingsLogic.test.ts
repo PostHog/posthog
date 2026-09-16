@@ -68,7 +68,12 @@ describe('marketing settings project changes', () => {
         )
             .toDispatchActions([
                 teamLogic.actionCreators.updateCurrentTeam({
-                    marketing_analytics_config: { overview_metrics: ['revenue', 'visitors'] },
+                    marketing_analytics_config: {
+                        overview_metrics: [
+                            MarketingAnalyticsOverviewMetric.Revenue,
+                            MarketingAnalyticsOverviewMetric.Visitors,
+                        ],
+                    },
                 }),
             ])
             .toFinishAllListeners()

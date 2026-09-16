@@ -541,8 +541,10 @@ export interface marketingAnalyticsLogicMeta {
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
             featureFlags: FeatureFlagsSet
         ) => MarketingAnalyticsDrillDownLevel
-        dashboardView: (_dashboardView: any) => MarketingDashboardView
-        dashboardBreakdown: (_dashboardBreakdown: any) => MarketingAnalyticsAttributionBreakdown
+        dashboardView: (_dashboardView: MarketingDashboardView) => MarketingDashboardView
+        dashboardBreakdown: (
+            _dashboardBreakdown: MarketingAnalyticsAttributionBreakdown
+        ) => MarketingAnalyticsAttributionBreakdown
         validSourcesMap: (sources_map: Record<string, SourceMap>) => {
             [x: string]: SourceMap
         } | null
