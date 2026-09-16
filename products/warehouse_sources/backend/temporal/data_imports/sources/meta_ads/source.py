@@ -134,6 +134,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
             ),
+            # Graph API code 100: "Missing perms" — the shorter, generic sibling of the message
+            # above for the same missing-permission condition on a specific field or endpoint.
+            "Missing perms": (
+                "Meta blocked this request because the connected account is missing a permission "
+                "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+                "all requested permissions."
+            ),
             # Graph API code 200: "Requires business_management permission to manage the object."
             # Distinct from the generic re-authorize message above — re-authorizing can never grant
             # this scope, since the Meta OAuth consent only requests `ads_read` (see
