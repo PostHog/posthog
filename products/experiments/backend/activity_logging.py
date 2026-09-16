@@ -1,11 +1,27 @@
 from typing import Any
 
-from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.web_experiment import WebExperiment
+
+# Kept in sync with DERIVED_RUNNING_TIME_KEYS in
+# frontend/src/scenes/experiments/activity-descriptions/experimentChangeDescription.tsx.
+DERIVED_RUNNING_TIME_KEYS = ("recommended_running_time", "recommended_sample_size")
+
+
+def _without_derived_running_time_keys(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: item for key, item in value.items() if key not in DERIVED_RUNNING_TIME_KEYS}
+
+
+def _is_derived_running_time_drift(change: Change) -> bool:
+    return change.field == "running_time_calculation" and _without_derived_running_time_keys(
+        change.before
+    ) == _without_derived_running_time_keys(change.after)
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)
@@ -36,6 +52,12 @@ def handle_experiment_change(
         # Web experiments don't use parameters (a product experiment field), but it can
         # get cleared to null during updates, producing a noisy diff
         changes = [change for change in changes if change.field != "parameters"]
+
+    # Opening the calculator re-saves the recomputed outputs, so they drift as exposure data
+    # changes. A change earns a log entry only when a calculator input was edited.
+    # log_activity drops an "updated" activity whose changes end up empty, so a pure-drift
+    # save produces no row at all.
+    changes = [change for change in changes if not _is_derived_running_time_drift(change)]
 
     log_activity(
         organization_id=after_update.team.organization_id,

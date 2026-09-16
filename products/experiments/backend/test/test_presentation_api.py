@@ -7237,6 +7237,61 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertIn("description", change_fields)
         self.assertNotIn("parameters", change_fields)
 
+    def test_running_time_calculation_output_drift_writes_no_activity_row(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Running time drift flag",
+            key="running-time-drift",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Running time drift",
+            feature_flag=feature_flag,
+            running_time_calculation={
+                "minimum_detectable_effect": 5,
+                "recommended_sample_size": 1000,
+                "recommended_running_time": 14,
+            },
+        )
+
+        drift_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_sample_size": 2000,
+                    "recommended_running_time": 28,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(drift_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").count(),
+            0,
+        )
+
+        input_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_sample_size": 500,
+                    "recommended_running_time": 7,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(input_response.status_code, status.HTTP_200_OK)
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("running_time_calculation", change_fields)
+
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
 
