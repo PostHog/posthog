@@ -84,7 +84,8 @@ const isItemActive = (item: TreeDataItem): boolean => {
     }
 
     const currentPath = removeProjectIdIfPresent(window.location.pathname)
-    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
+    // An href can carry a `#sceneSource` tag for analytics, which is not part of the path.
+    const itemHref = (typeof item.record.href === 'string' ? item.record.href : '').split('#')[0]
 
     if (currentPath === itemHref) {
         return true

@@ -3,6 +3,7 @@ import {
     insightShortIdForEntry,
     withInsightSceneSource,
     withSceneSource,
+    withoutSceneSource,
 } from './insightNavigation'
 
 describe('insightNavigation', () => {
@@ -27,6 +28,15 @@ describe('insightNavigation', () => {
         [undefined, null],
     ])('keeps %s out of analytics unless it is a source we defined', (value, expected) => {
         expect(asInsightSceneSource(value)).toEqual(expected)
+    })
+
+    // A copied link is shared, and the person who opens it did not come from the sharer's surface.
+    it.each([
+        ['/insights/abc123#sceneSource=starred', '/insights/abc123'],
+        ['/insights/abc123?dashboard=1#sceneSource=starred&q=abc', '/insights/abc123?dashboard=1#q=abc'],
+        ['/insights/abc123', '/insights/abc123'],
+    ])('takes the source back off %s', (url, expected) => {
+        expect(withoutSceneSource(url)).toEqual(expected)
     })
 
     it.each([

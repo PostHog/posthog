@@ -12,6 +12,14 @@ export function withSceneSource(url: string, sceneSource: InsightSceneSource): s
     return combineUrl(url, {}, { sceneSource }).url
 }
 
+/**
+ * The same url without its source tag, for a link a person can share. The recipient did not open it
+ * from the sharer's surface, so their view must not report that surface.
+ */
+export function withoutSceneSource(url: string): string {
+    return combineUrl(url, {}, { sceneSource: undefined }).url
+}
+
 /** Same as `withSceneSource`, for a file system entry. Links to anything but an insight are unchanged. */
 export function withInsightSceneSource(href: string, type: unknown, sceneSource: InsightSceneSource): string
 export function withInsightSceneSource(
