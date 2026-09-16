@@ -38,6 +38,10 @@ def bounded_memory_settings() -> HogQLGlobalSettings:
     example cohort subqueries): degrade to disk instead of a memory-limit error.
     """
     return HogQLGlobalSettings(
+        # A partial result is worse than an error here: the counts get extrapolated and the
+        # person pages get sent to, so a timed-out query must fail rather than come up short.
+        # Left unset it inherits the cluster profile, which may accept partial results.
+        timeout_overflow_mode="throw",
         optimize_aggregation_in_order=True,
         max_bytes_before_external_group_by=4 * 1024**3,
     )
@@ -46,9 +50,13 @@ def bounded_memory_settings() -> HogQLGlobalSettings:
 def count_settings(sample_modulus: Optional[int]) -> HogQLGlobalSettings:
     # A sampled count keeps the fast parallel hash aggregation: the sample already bounds
     # the hash table, and in-order aggregation only makes it slower. The exact runs need
-    # the streaming mode to stay memory-bounded on large teams.
+    # the streaming mode to stay memory-bounded on large teams. Both throw on timeout,
+    # because the sampled count multiplies whatever it read by the modulus.
     if sample_modulus is not None:
-        return HogQLGlobalSettings(max_bytes_before_external_group_by=4 * 1024**3)
+        return HogQLGlobalSettings(
+            timeout_overflow_mode="throw",
+            max_bytes_before_external_group_by=4 * 1024**3,
+        )
     return bounded_memory_settings()
 
 
