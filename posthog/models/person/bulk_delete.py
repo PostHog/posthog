@@ -43,18 +43,28 @@ def resolve_persons_for_deletion(
     team_id: int,
     uuids: builtins.list[str] | None,
     distinct_ids: builtins.list[str] | None,
+    *,
+    with_distinct_ids: bool = True,
 ) -> builtins.list[Person]:
-    """Materialize Persons matching either uuids or distinct_ids, via personhog."""
+    """Materialize Persons matching either uuids or distinct_ids, via personhog.
+
+    With ``with_distinct_ids`` the fetch of each person's distinct IDs is unbounded, which the
+    synchronous callers need because recording deletion wants the full set per person. The
+    queued path passes False and pages through them later, inside the task.
+    """
     from posthog.personhog_client.client import personhog_call
 
     if not uuids and not distinct_ids:
         return []
 
-    # Unbounded distinct_ids: downstream recording deletion needs the full set per person.
+    limit = None if with_distinct_ids else 0
+
     def _fetch() -> builtins.list[Person]:
         if uuids:
-            return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
-        return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
+            return _fetch_persons_by_uuids_via_personhog(team_id, uuids, distinct_id_limit=limit)
+        return _fetch_persons_by_distinct_ids_via_personhog(
+            team_id, cast(builtins.list[str], distinct_ids), distinct_id_limit=limit
+        )
 
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
 
@@ -103,49 +113,75 @@ def delete_persons_profile(
 
 # Page size for the keyset walk over a person's distinct IDs. Each page is one bounded RPC, so a
 # person with hundreds of thousands of distinct IDs no longer hits the personhog request timeout.
-ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
+QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
 
 
-def delete_persons_profile_by_uuids(
+def process_queued_person_deletion(
     team_id: int,
     person_uuids: builtins.list[str],
     *,
+    delete_profile: bool,
+    delete_recordings: bool,
     actor: User | None,
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
 ) -> PersonProfileDeletionResult:
-    """Background variant of ``delete_persons_profile`` that re-resolves persons by UUID.
+    """Run every distinct-ID-dependent deletion step for ``person_uuids`` from a background task.
 
-    Persons already removed (for example by an earlier attempt of the same task) resolve to
-    nothing and are skipped, so a retry only touches what is left. Distinct IDs are fetched
-    per person with keyset pagination and there is no unbounded fallback: a failed fetch is
-    reported as an error for that person so the caller can retry it.
+    Persons are re-resolved without distinct IDs, then each person's distinct IDs are paged
+    through with keyset pagination. There is no unbounded fallback: a failed page fetch marks
+    that person as an error and skips it in every later step, so the caller can retry it.
+    Persons that no longer exist (already deleted by an earlier attempt) resolve to nothing.
     """
     from posthog.personhog_client.client import personhog_call
 
     persons = personhog_call(
-        "resolve_persons_for_async_deletion",
+        "resolve_persons_for_queued_deletion",
         lambda: _fetch_persons_by_uuids_via_personhog(team_id, person_uuids, distinct_id_limit=0),
         caller_tag="persons/deletion-resolve",
     )
 
-    def _fetch_distinct_ids(person: Person) -> builtins.list[DistinctIdForPerson]:
+    def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
         return personhog_call(
-            "get_distinct_ids_for_deletion_paginated",
+            "get_distinct_ids_for_queued_deletion",
             lambda: _paginated_get_distinct_ids_for_person(
-                team_id, person.pk, page_size=ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE
+                team_id, person_id, page_size=QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE
             ),
             caller_tag="persons/deletion-distinct-ids",
         )
 
-    return _tombstone_and_delete_persons(
+    distinct_ids_by_person: dict[int, builtins.list[DistinctIdForPerson]] = {}
+    fetched: builtins.list[Person] = []
+    errors: builtins.list[uuid_lib.UUID] = []
+    for person in persons:
+        try:
+            distinct_ids_by_person[person.pk] = _fetch_distinct_ids(person.pk)
+        except Exception:
+            logger.exception("Failed to fetch distinct IDs for person deletion", person_uuid=str(person.uuid))
+            errors.append(person.uuid)
+            continue
+        person._distinct_ids = [d.id for d in distinct_ids_by_person[person.pk]]
+        fetched.append(person)
+
+    if delete_profile or delete_recordings:
+        queue_person_training_deletion(
+            team_id, [distinct_id for person in fetched for distinct_id in person.distinct_ids]
+        )
+    if delete_recordings:
+        queue_person_recording_deletion(team_id, fetched, actor=actor, queue_ai_training_deletion=False)
+
+    if not delete_profile:
+        return PersonProfileDeletionResult(deleted_count=0, errors=errors)
+
+    result = _tombstone_and_delete_persons(
         team_id,
-        persons,
-        _fetch_distinct_ids,
+        fetched,
+        lambda person: distinct_ids_by_person[person.pk],
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=organization_id,
     )
+    return PersonProfileDeletionResult(deleted_count=result.deleted_count, errors=[*errors, *result.errors])
 
 
 def _tombstone_and_delete_persons(
@@ -271,10 +307,7 @@ def _start_recording_workflows(
     async def start_all_workflows():
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
 
-        async def start_batch(batch: builtins.list[Person]) -> None:
-            distinct_ids = sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})
-            if not distinct_ids:
-                return
+        async def start_workflow(distinct_ids: builtins.list[str]) -> None:
             workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
             workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
             async with semaphore:
@@ -289,6 +322,14 @@ def _start_recording_workflows(
                     ),
                 )
 
-        await asyncio.gather(*(start_batch(batch) for batch in _chunk_persons(persons)))
+        # A single person can carry more distinct IDs than the per-workflow cap, so the batch's
+        # distinct IDs are split again here rather than trusting the person-level chunking alone.
+        starts = [
+            start_workflow(distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW])
+            for batch in _chunk_persons(persons)
+            for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
+            for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
+        ]
+        await asyncio.gather(*starts)
 
     asyncio.run(start_all_workflows())

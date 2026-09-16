@@ -8,7 +8,7 @@ from celery import shared_task
 
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.person import Person
-from posthog.models.person.bulk_delete import delete_persons_profile_by_uuids
+from posthog.models.person.bulk_delete import process_queued_person_deletion
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -27,23 +27,27 @@ def _chunks(items: list[str], size: int) -> Iterator[list[str]]:
         yield items[i : i + size]
 
 
-def queue_person_profile_deletion(
+def queue_person_deletion(
     team_id: int,
     persons: list[Person],
     *,
+    delete_profile: bool,
+    delete_recordings: bool,
     actor: User | None,
     request: HttpRequest | None,
     organization_id: uuid_lib.UUID | None,
 ) -> int:
-    """Enqueue background profile deletion for ``persons`` and return how many were queued."""
-    if not persons:
+    """Enqueue the distinct-ID-dependent deletion steps for ``persons``; returns how many were queued."""
+    if not persons or not (delete_profile or delete_recordings):
         return 0
     was_impersonated = is_impersonated(request)
     uuids = [str(person.uuid) for person in persons]
     for chunk in _chunks(uuids, PERSONS_PER_DELETION_TASK):
-        delete_persons_profile_async.delay(
+        delete_persons_async.delay(
             team_id=team_id,
             person_uuids=chunk,
+            delete_profile=delete_profile,
+            delete_recordings=delete_recordings,
             actor_id=actor.pk if actor is not None else None,
             organization_id=str(organization_id) if organization_id is not None else None,
             was_impersonated=was_impersonated,
@@ -60,29 +64,39 @@ def queue_person_profile_deletion(
     retry_jitter=True,
 )
 @skip_team_scope_audit
-def delete_persons_profile_async(
+def delete_persons_async(
     team_id: int,
     person_uuids: list[str],
+    delete_profile: bool,
+    delete_recordings: bool,
     actor_id: int | None,
     organization_id: str | None,
     was_impersonated: bool,
 ) -> None:
-    logger.info("delete_persons_profile_async started", team_id=team_id, person_count=len(person_uuids))
+    logger.info(
+        "delete_persons_async started",
+        team_id=team_id,
+        person_count=len(person_uuids),
+        delete_profile=delete_profile,
+        delete_recordings=delete_recordings,
+    )
     actor = User.objects.filter(pk=actor_id).first() if actor_id is not None else None
-    result = delete_persons_profile_by_uuids(
+    result = process_queued_person_deletion(
         team_id,
         person_uuids,
+        delete_profile=delete_profile,
+        delete_recordings=delete_recordings,
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
     )
     logger.info(
-        "delete_persons_profile_async finished",
+        "delete_persons_async finished",
         team_id=team_id,
         deleted_count=result.deleted_count,
         error_count=len(result.errors),
     )
     if result.errors:
         raise PersonDeletionIncomplete(
-            f"{len(result.errors)} of {len(person_uuids)} persons failed to delete for team {team_id}"
+            f"{len(result.errors)} of {len(person_uuids)} persons failed to process for team {team_id}"
         )

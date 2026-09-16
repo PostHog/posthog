@@ -74,7 +74,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
-from posthog.tasks.delete_persons import queue_person_profile_deletion
+from posthog.tasks.delete_persons import queue_person_deletion
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -896,6 +896,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
+        if settings.PERSON_BULK_DELETE_ASYNC:
+            return self._queue_bulk_delete_persons(
+                request,
+                distinct_ids=distinct_ids,
+                ids=ids,
+                delete_events=delete_events,
+                delete_recordings=delete_recordings,
+                keep_person=keep_person,
+            )
+
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
         if not keep_person or delete_recordings:
             queue_person_training_deletion(
@@ -904,17 +914,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         persons_deleted = 0
-        persons_queued = 0
         errors: builtins.list[dict[str, str]] = []
-        if not keep_person and settings.PERSON_BULK_DELETE_ASYNC:
-            persons_queued = queue_person_profile_deletion(
-                self.team_id,
-                persons,
-                actor=cast(User, request.user),
-                request=request,
-                organization_id=self.organization.id,
-            )
-        elif not keep_person:
+        if not keep_person:
             result = delete_persons_profile(
                 self.team_id,
                 persons,
@@ -936,10 +937,45 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
-            "persons_queued_for_deletion": persons_queued,
+            "persons_queued_for_deletion": 0,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,
+        }
+
+    def _queue_bulk_delete_persons(
+        self,
+        request: request.Request,
+        *,
+        distinct_ids: builtins.list[str] | None,
+        ids: builtins.list[str] | None,
+        delete_events: bool,
+        delete_recordings: bool,
+        keep_person: bool,
+    ) -> dict[str, Any]:
+        """Resolve persons without their distinct IDs and hand every distinct-ID-dependent step to Celery."""
+        actor = cast(User, request.user)
+        persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids, with_distinct_ids=False)
+        if distinct_ids and (not keep_person or delete_recordings):
+            queue_person_training_deletion(self.team_id, distinct_ids)
+        if delete_events:
+            queue_person_event_deletion(self.team_id, persons, actor=actor)
+        persons_queued = queue_person_deletion(
+            self.team_id,
+            persons,
+            delete_profile=not keep_person,
+            delete_recordings=delete_recordings,
+            actor=actor,
+            request=request,
+            organization_id=self.organization.id,
+        )
+        return {
+            "persons_found": len(persons),
+            "persons_deleted": 0,
+            "persons_queued_for_deletion": persons_queued if not keep_person else 0,
+            "events_queued_for_deletion": delete_events and len(persons) > 0,
+            "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
+            "deletion_errors": [],
         }
 
     @extend_schema(

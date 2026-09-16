@@ -416,12 +416,36 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert data["persons_queued_for_deletion"] == 2
         assert data["deletion_errors"] == []
 
+        # The request must not batch-fetch distinct IDs; only the task pages through them.
+        self._assert_personhog_not_called("get_distinct_ids_for_persons")
+        self._assert_personhog_called("get_distinct_ids_for_person")
         # Celery runs eagerly in tests, so the queued task has already deleted the persons.
         calls = self._assert_personhog_called("delete_persons")
         if calls:
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
         assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
         assert get_person_by_uuid(self.team.pk, str(p2.uuid)) is None
+
+    @override_settings(PERSON_BULK_DELETE_ASYNC=True)
+    @mock.patch("posthog.models.person.bulk_delete._start_recording_workflows")
+    def test_bulk_delete_async_keep_person_with_recordings(self, start_workflows):
+        p1 = self._seed_person(team=self.team, distinct_ids=["did-1", "did-2"])
+
+        resp = self.client.post(
+            "/api/person/bulk_delete/",
+            {"ids": [str(p1.uuid)], "keep_person": True, "delete_recordings": True},
+        )
+
+        assert resp.status_code == status.HTTP_202_ACCEPTED
+        data = resp.json()
+        assert data["persons_found"] == 1
+        assert data["persons_queued_for_deletion"] == 0
+        assert data["recordings_queued_for_deletion"] is True
+        self._assert_personhog_not_called("get_distinct_ids_for_persons")
+        [person] = start_workflows.call_args.args[1]
+        assert sorted(person.distinct_ids) == ["did-1", "did-2"]
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
+        self._assert_personhog_not_called("delete_persons")
 
     def test_bulk_delete_by_distinct_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])

@@ -11,7 +11,7 @@ from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
     _start_recording_workflows,
     delete_persons_profile,
-    delete_persons_profile_by_uuids,
+    process_queued_person_deletion,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
@@ -121,18 +121,20 @@ class DeletePersonsProfileTests(BaseTest):
         pg_delete.assert_called_once_with(self.team.pk, [p1])
 
 
-class DeletePersonsProfileByUuidsTests(BaseTest):
+class ProcessQueuedPersonDeletionTests(BaseTest):
     def test_walks_every_page_of_distinct_ids_and_logs_activity(self):
         p = create_person(team=self.team, distinct_ids=["a", "b", "c", "d", "e"], properties={})
         fake = get_active_fake()
         with (
-            patch("posthog.models.person.bulk_delete.ASYNC_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
+            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
             patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
         ):
-            result = delete_persons_profile_by_uuids(
+            result = process_queued_person_deletion(
                 self.team.pk,
                 [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
                 actor=self.user,
                 was_impersonated=True,
                 organization_id=self.organization.id,
@@ -153,9 +155,11 @@ class DeletePersonsProfileByUuidsTests(BaseTest):
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
             patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
         ):
-            result = delete_persons_profile_by_uuids(
+            result = process_queued_person_deletion(
                 self.team.pk,
                 [str(uuid4())],
+                delete_profile=True,
+                delete_recordings=False,
                 actor=self.user,
                 was_impersonated=False,
                 organization_id=self.organization.id,
@@ -175,15 +179,43 @@ class DeletePersonsProfileByUuidsTests(BaseTest):
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
             patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
         ):
-            result = delete_persons_profile_by_uuids(
+            result = process_queued_person_deletion(
                 self.team.pk,
                 [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
                 actor=self.user,
                 was_impersonated=False,
                 organization_id=self.organization.id,
             )
         assert result.deleted_count == 0
         assert result.errors == [p.uuid]
+        ch_delete.assert_not_called()
+        pg_delete.assert_not_called()
+
+    def test_recordings_only_pages_distinct_ids_into_workflows_without_deleting(self):
+        p = create_person(team=self.team, distinct_ids=["a", "b", "c"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
+            patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
+            patch("posthog.models.person.bulk_delete._start_recording_workflows") as start,
+            patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres") as pg_delete,
+        ):
+            result = process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=False,
+                delete_recordings=True,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert result.deleted_count == 0
+        assert result.errors == []
+        assert sorted(training.call_args.args[1]) == ["a", "b", "c"]
+        [person] = start.call_args.args[1]
+        assert sorted(person.distinct_ids) == ["a", "b", "c"]
         ch_delete.assert_not_called()
         pg_delete.assert_not_called()
 
@@ -238,8 +270,9 @@ class QueueRecordingDeletionTests(BaseTest):
     @parameterized.expand(
         [
             ("packs_until_distinct_id_cap", [2, 2, 2], 4, 2),
-            ("single_person_over_cap_stands_alone", [5, 1], 4, 2),
-            ("each_person_own_workflow_when_cap_tiny", [2, 2], 1, 2),
+            ("single_person_over_cap_is_split", [5, 1], 4, 3),
+            ("wide_person_splits_into_capped_workflows", [9], 4, 3),
+            ("every_distinct_id_own_workflow_when_cap_tiny", [2, 2], 1, 4),
         ]
     )
     def test_chunks_by_distinct_id_count(self, _name, distinct_id_counts, cap, expected_workflows):

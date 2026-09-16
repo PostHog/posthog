@@ -349,6 +349,10 @@ def _fetch_persons_by_distinct_ids_via_personhog(
     if not person_ids:
         return []
 
+    # As in the UUID variant, distinct_id_limit=0 skips the per-person distinct-id fetch entirely.
+    if distinct_id_limit == 0:
+        return [proto_person_to_model(r.person, distinct_ids=[]) for r in valid_results]
+
     distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
         team_id, person_ids, limit_per_person=distinct_id_limit
     )
