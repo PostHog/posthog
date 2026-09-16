@@ -42,7 +42,7 @@ function SelectTrigger({
                 'quill-select__trigger group/select-trigger flex items-center justify-between gap-3 whitespace-nowrap outline-none',
                 className
             )}
-            render={<Button variant="outline" left />}
+            render={<Button variant="outline" size={size} left />}
             {...props}
         >
             {children}
