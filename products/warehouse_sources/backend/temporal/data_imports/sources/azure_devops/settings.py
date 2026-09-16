@@ -10,17 +10,18 @@ AZURE_DEVOPS_RELEASE_BASE_URL = "https://vsrm.dev.azure.com"
 
 # Azure DevOps mixes pagination styles per endpoint, dispatched by name in
 # azure_devops.py:
-# - projects/builds/build_definitions/releases/release_deployments: continuationToken
-#   via the x-ms-continuationtoken header
+# - projects/builds/build_definitions/releases/release_deployments/pipelines:
+#   continuationToken via the x-ms-continuationtoken header
 # - pull_requests/commits/teams/team_members/test_runs: $top/$skip offset paging
 # - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
-# - repositories/pull request threads/reviewers/build timelines: single response per parent
+# - repositories/pull request threads/reviewers/work items/build timelines/pipeline runs/
+#   work item types/type states/classification nodes/team iterations: single response per parent
 @dataclass(frozen=True)
 class AzureDevOpsEndpointConfig:
     name: str
     # Path template under {base_url}/{organization}. `{project}`, `{repositoryId}`,
-    # `{pullRequestId}`, `{buildId}` and `{teamId}` are substituted during the
-    # fan-out that reaches the endpoint.
+    # `{pullRequestId}`, `{buildId}`, `{teamId}`, `{pipelineId}` and `{workItemType}`
+    # are substituted during the fan-out that reaches the endpoint.
     path: str
     base_url: str = AZURE_DEVOPS_BASE_URL
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
@@ -92,6 +93,21 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
             },
         ],
     ),
+    "pipelines": AzureDevOpsEndpointConfig(
+        name="pipelines",
+        path="/{project}/_apis/pipelines",
+        # Pipeline IDs restart per project.
+        primary_keys=["project_id", "id"],
+    ),
+    "pipeline_runs": AzureDevOpsEndpointConfig(
+        name="pipeline_runs",
+        path="/{project}/_apis/pipelines/{pipelineId}/runs",
+        # Run IDs restart per project.
+        primary_keys=["project_id", "id"],
+        partition_key="createdDate",
+        # The run listing takes no filter and no paging parameters — it answers with the
+        # pipeline's most recent runs — so there is no cursor to sync incrementally on.
+    ),
     "pull_requests": AzureDevOpsEndpointConfig(
         name="pull_requests",
         path="/{project}/_apis/git/pullrequests",
@@ -153,6 +169,13 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
         path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers",
         primary_keys=["repository_id", "pull_request_id", "id"],
     ),
+    "pull_request_work_items": AzureDevOpsEndpointConfig(
+        name="pull_request_work_items",
+        path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/workitems",
+        # The row is a link, not the work item itself: the same work item can be linked
+        # from pull requests in several repositories.
+        primary_keys=["repository_id", "pull_request_id", "id"],
+    ),
     "teams": AzureDevOpsEndpointConfig(
         name="teams",
         # The organization-wide GET /_apis/teams is preview-only, so teams are read
@@ -181,6 +204,32 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "work_item_types": AzureDevOpsEndpointConfig(
+        name="work_item_types",
+        path="/{project}/_apis/wit/workitemtypes",
+        # A type is defined by the project's process, so the same reference name
+        # describes a different type in another project.
+        primary_keys=["project_id", "referenceName"],
+    ),
+    "work_item_type_states": AzureDevOpsEndpointConfig(
+        name="work_item_type_states",
+        path="/{project}/_apis/wit/workitemtypes/{workItemType}/states",
+        # A state is named per type; only the state category is shared vocabulary.
+        primary_keys=["project_id", "work_item_type", "name"],
+    ),
+    "work_item_classification_nodes": AzureDevOpsEndpointConfig(
+        name="work_item_classification_nodes",
+        path="/{project}/_apis/wit/classificationnodes",
+        # Node IDs restart per project.
+        primary_keys=["project_id", "id"],
+    ),
+    "work_iterations": AzureDevOpsEndpointConfig(
+        name="work_iterations",
+        path="/{project}/{teamId}/_apis/work/teamsettings/iterations",
+        # Teams subscribe to iterations from the project's shared tree, so one iteration
+        # yields a row per team that uses it.
+        primary_keys=["team_id", "id"],
     ),
     "releases": AzureDevOpsEndpointConfig(
         name="releases",
