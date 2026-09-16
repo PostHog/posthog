@@ -61,6 +61,15 @@ class TestCampfireSource:
             self.source.validate_credentials(CampfireSourceConfig(api_key="k"), team_id=1, schema_name="contracts")
         mock.assert_called_once_with("k", path="/rr/api/v1/contracts")
 
+    def test_validate_credentials_probes_the_parent_of_a_fanout_schema(self) -> None:
+        # A fan-out child's path still holds its parent placeholder, so probing it verbatim would
+        # request a nonexistent contract.
+        with patch.object(source_module, "validate_campfire_credentials", return_value=True) as mock:
+            self.source.validate_credentials(
+                CampfireSourceConfig(api_key="k"), team_id=1, schema_name="contract_subscriptions"
+            )
+        mock.assert_called_once_with("k", path="/rr/api/v1/contracts")
+
     @parameterized.expand(
         [
             ("incremental", True, "2026-01-01"),

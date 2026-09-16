@@ -1,5 +1,6 @@
 ---
 name: signals-scout-general
+scout-display-name: General
 description: >
   Cross-product Signals scout. Looks for cross-product correlations and explores the surfaces
   the per-product specialist scouts don't cover.
