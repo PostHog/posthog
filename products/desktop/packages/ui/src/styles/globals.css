@@ -99,6 +99,20 @@
   animation: quill-section-loading-swoop 1.5s linear infinite;
 }
 
+/* No swoop when the user prefers reduced motion; keep a static filled track.
+ * The base rule above pins `transform: translateX(-100%)` (the animation's
+ * `from` position) so the bar stays hidden off-screen without the keyframe
+ * running — reset it here too, or disabling the animation makes the bar
+ * invisible instead of static. */
+@media (prefers-reduced-motion: reduce) {
+  .quill-section-loading--active::after {
+    width: 100%;
+    animation: none;
+    transform: translateX(0);
+    opacity: 0.6;
+  }
+}
+
 /* Transform only: animating `left`/`width` forced a layout on every frame. */
 @keyframes quill-section-loading-swoop {
   from {

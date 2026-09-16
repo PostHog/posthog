@@ -282,6 +282,7 @@ export function ReportTriageFocus({
           expanded={expanded}
           prShortcut={prShortcut}
           canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
+          removingReviewer={removingReviewer}
           actions={
             <ReportVerdictBanner
               // Remount on report change so an open PR popover or dismiss
