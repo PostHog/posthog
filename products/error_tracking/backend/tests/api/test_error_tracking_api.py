@@ -617,6 +617,29 @@ class TestErrorTracking(APIBaseTest):
         # The delivery workflow and the internal event share the notification id.
         assert notification["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
 
+    def test_issue_status_update_survives_a_broker_outage(self):
+        issue = self.create_issue()
+        self._enable_alerts()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        # The status committed before the enqueue ran, so the response reports success.
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+
     def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
         issue = self.create_issue()
 

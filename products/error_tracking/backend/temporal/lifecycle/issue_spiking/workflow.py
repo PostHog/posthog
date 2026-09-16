@@ -21,6 +21,15 @@ ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=10,
 )
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
+ALERT_DISPATCH_PATCH = "error-tracking-alert-dispatch-activity"
+# Unlimited attempts inside the window: the start is cheap and idempotent, and only a
+# Temporal outage longer than this loses the alert.
+ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=timedelta(seconds=5),
+    maximum_interval=timedelta(minutes=1),
+    maximum_attempts=0,
+)
+ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(hours=1)
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -72,14 +81,6 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
         }:
             raise ValueError(f"Unknown spike persistence status: {persistence.status}")
 
-        # Before the internal event: a publication failure that exhausts its retries
-        # must not also drop the alert. Starts are idempotent on the notification id.
-        await workflow.execute_activity(
-            "dispatch_issue_spiking_alert_activity",
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
         await workflow.execute_activity(
             "emit_issue_spiking_internal_event_activity",
             inputs,
@@ -92,4 +93,16 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
             start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
+        # Patched: executions in flight when this activity shipped replay the old sequence.
+        if workflow.patched(ALERT_DISPATCH_PATCH):
+            # Last, so a rejected start can never suppress the side effects above; its
+            # own open-ended retry covers a Temporal outage. Starts are idempotent on the
+            # notification id.
+            await workflow.execute_activity(
+                "dispatch_issue_spiking_alert_activity",
+                inputs,
+                schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ALERT_DISPATCH_RETRY_POLICY,
+            )
         return IssueSpikingWorkflowResult(persisted=True, notified=True)

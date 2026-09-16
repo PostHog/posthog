@@ -207,12 +207,21 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
 
         for start in range(0, len(events), ALERT_DISPATCH_BATCH_SIZE):
             chunk = events[start : start + ALERT_DISPATCH_BATCH_SIZE]
-            dispatch_error_tracking_alert_deliveries.delay(
-                team_id=team_id,
-                notifications=[dataclasses.asdict(pending.alert_inputs) for pending in chunk],
-            )
+            try:
+                dispatch_error_tracking_alert_deliveries.delay(
+                    team_id=team_id,
+                    notifications=[dataclasses.asdict(pending.alert_inputs) for pending in chunk],
+                )
+            except Exception:
+                # The mutation has committed; a broker outage must not turn it into an error.
+                logger.exception(
+                    "error_tracking_alert_dispatch_enqueue_failed",
+                    team_id=team_id,
+                    notification_ids=[pending.alert_inputs.notification_id for pending in chunk],
+                )
 
-    transaction.on_commit(_produce)
+    # robust: a failure here must not stop the mutation's other post-commit hooks.
+    transaction.on_commit(_produce, robust=True)
 
 
 def produce_issue_lifecycle_event_on_commit(

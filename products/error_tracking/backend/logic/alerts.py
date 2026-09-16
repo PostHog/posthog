@@ -3,7 +3,7 @@
 from typing import Any, Optional
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -96,10 +96,13 @@ def create_alert(
     _reject_duplicate_destinations(destinations)
     for destination in destinations:
         _validate_destination(team_id, destination)
-    if ErrorTrackingAlert.objects.for_team(team_id, canonical=True).count() >= MAX_ALERTS_PER_TEAM:
-        raise AlertValidationError(f"A project can have at most {MAX_ALERTS_PER_TEAM} alerts.")
 
     with transaction.atomic():
+        # Serializes concurrent creates for the team so the cap holds; the lock ends with the transaction.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"error_tracking_alerts:{team_id}"])
+        if ErrorTrackingAlert.objects.for_team(team_id, canonical=True).count() >= MAX_ALERTS_PER_TEAM:
+            raise AlertValidationError(f"A project can have at most {MAX_ALERTS_PER_TEAM} alerts.")
         alert = ErrorTrackingAlert.objects.for_team(team_id, canonical=True).create(
             team_id=team_id,
             name=name,
