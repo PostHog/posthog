@@ -324,6 +324,11 @@ export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
  */
 export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
 
+/**
+ * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+ */
+export type AutoresearchModelApiMetrics = { [key: string]: unknown }
+
 export interface AutoresearchModelApi {
     /** Unique UUID of this model version. */
     readonly id: string
@@ -357,7 +362,7 @@ export interface AutoresearchModelApi {
      */
     calibration_error?: number | null
     /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
-    metrics?: unknown
+    metrics?: AutoresearchModelApiMetrics
     /**
      * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
      * @nullable
@@ -428,6 +433,11 @@ export const ZendeskImportJobStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+ */
+export type AutoresearchRunApiMetrics = { [key: string]: unknown }
+
 export interface AutoresearchRunApi {
     /** Unique UUID of this run. */
     readonly id: string
@@ -458,7 +468,7 @@ export interface AutoresearchRunApi {
      */
     rows_scored?: number | null
     /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
-    metrics: unknown
+    metrics: AutoresearchRunApiMetrics
     /** Error message if the run failed. */
     error?: string
     /**

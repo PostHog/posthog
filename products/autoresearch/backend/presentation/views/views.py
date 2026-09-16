@@ -337,6 +337,8 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
     scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchModelSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
@@ -369,6 +371,8 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, vie
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
     scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
@@ -404,6 +408,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
     scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only

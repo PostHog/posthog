@@ -11258,6 +11258,11 @@ export namespace Schemas {
     export type AutoresearchModelModelExplanation = { [key: string]: unknown };
 
     /**
+     * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
+     */
+    export type AutoresearchModelMetrics = { [key: string]: unknown };
+
+    /**
      * * `champion` - Champion
      * * `challenger` - Challenger
      * * `archived` - Archived
@@ -11304,7 +11309,7 @@ export namespace Schemas {
          */
       calibration_error?: number | null;
       /** Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts. */
-      metrics?: unknown;
+      metrics?: AutoresearchModelMetrics;
       /**
          * Training run that produced this model. Read that run's artifact bundle to reuse the champion's train.py and features.sql as a starting point. Null for legacy models.
          * @nullable
@@ -11562,6 +11567,11 @@ export namespace Schemas {
     }
 
     /**
+     * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+     */
+    export type AutoresearchRunMetrics = { [key: string]: unknown };
+
+    /**
      * * `inference` - Inference
      * * `validation` - Validation
      */
@@ -11619,7 +11629,7 @@ export namespace Schemas {
          */
       rows_scored?: number | null;
       /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
-      metrics: unknown;
+      metrics: AutoresearchRunMetrics;
       /** Error message if the run failed. */
       error?: string;
       /**

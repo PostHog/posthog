@@ -297,6 +297,17 @@ class ModelExplanationField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": True,
+        "description": "A metrics bundle keyed by metric name. Empty until the producing run records anything.",
+    }
+)
+class MetricsBundleField(serializers.JSONField):
+    pass
+
+
 # ── Core serializers ------------------------------------------------------
 
 
@@ -666,7 +677,7 @@ class AutoresearchModelSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05.",
     )
-    metrics = serializers.JSONField(
+    metrics = MetricsBundleField(
         required=False,
         help_text="Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.",
     )
@@ -900,9 +911,7 @@ class AutoresearchRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Number of users scored in this inference run.",
     )
-    metrics = serializers.JSONField(
-        help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc."
-    )
+    metrics = MetricsBundleField(help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc.")
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
     started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
     completed_at = serializers.DateTimeField(
