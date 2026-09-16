@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     persist_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
+    seed_desc_sort_incremental_value,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     update_incremental_field_values,
@@ -305,6 +306,15 @@ class PipelineV3(Generic[ResumableData]):
             )
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
+
+            self._last_incremental_field_value = await seed_desc_sort_incremental_value(
+                self._resource,
+                self._schema,
+                self._job.workflow_run_id,
+                should_resume,
+                self._logger,
+                log_prefix="V3 Pipeline: ",
+            )
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,

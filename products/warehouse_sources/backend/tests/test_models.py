@@ -1181,6 +1181,29 @@ class TestStagedIncrementalCursor:
         assert result is True
         assert schema.sync_type_config["incremental_field_earliest_value"] == 5
 
+    @parameterized.expand(
+        [
+            ("live_slot_of_a_later_attempt", {"run_uuid": "wf-1-a2", "last_value": 7}, [], 7),
+            (
+                "highest_across_live_and_parked_attempts",
+                {"run_uuid": "wf-1-a3", "earliest_value": 1},
+                [{"run_uuid": "wf-1-a1", "last_value": 42}, {"run_uuid": "wf-1-a2", "last_value": 9}],
+                42,
+            ),
+            ("another_run_is_ignored", {"run_uuid": "wf-2-a1", "last_value": 42}, [], None),
+            (
+                "a_run_id_that_merely_shares_a_prefix_is_ignored",
+                {"run_uuid": "wf-10-a1", "last_value": 42},
+                [{"run_uuid": "wf-1-a1", "last_value": 3}],
+                3,
+            ),
+            ("earliest_only_is_not_a_high_water_mark", {"run_uuid": "wf-1-a1", "earliest_value": 5}, [], None),
+        ]
+    )
+    def test_staged_last_value_for_run(self, _name: str, live: dict, parked: list[dict], expected: Any) -> None:
+        schema = self._make_schema(incremental_staged=live, incremental_staged_pending=parked)
+        assert schema.staged_incremental_last_value_for_run("wf-1") == expected
+
     def test_promote_rejects_wrong_run_uuid(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
         with patch.object(schema, "save"):

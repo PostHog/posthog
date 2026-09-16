@@ -645,7 +645,8 @@ async def update_incremental_field_values(
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
-        if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
+        last_advanced = (last_incremental_field_value is None) or (last_value > last_incremental_field_value)
+        if last_advanced:
             last_incremental_field_value = last_value
 
         if resource.sort_mode == "asc":
@@ -661,22 +662,55 @@ async def update_incremental_field_values(
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
-
-            if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
+            earliest_advanced = (
+                earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value
+            )
+            if earliest_advanced:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                if staging_run_uuid is not None:
+
+            if staging_run_uuid is not None:
+                # The high-water mark is staged with every checkpoint so a resumed attempt can inherit it
+                # (see seed_desc_sort_incremental_value). Staging is not promotion: the watermark still
+                # lands only when the run's final batch is durable.
+                if last_advanced or earliest_advanced:
                     await database_sync_to_async_pool(schema.stage_incremental_field_value)(
-                        staging_run_uuid, None, earliest_value
+                        staging_run_uuid,
+                        last_incremental_field_value,
+                        earliest_value if earliest_advanced else None,
                     )
-                else:
-                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                        earliest_value, type="earliest"
-                    )
+            elif earliest_advanced:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                    earliest_value, type="earliest"
+                )
 
     return IncrementalFieldValues(
         last_value=last_incremental_field_value, earliest_value=earliest_incremental_field_value
     )
+
+
+async def seed_desc_sort_incremental_value(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    workflow_run_id: str | None,
+    should_resume: bool,
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+) -> Any:
+    """Return the high-water mark an earlier attempt of this run staged, for a resumed desc extract.
+
+    A resumed attempt continues from the previous attempt's checkpoint, so every row it reads is older
+    than the rows that attempt already yielded. Without the seed the run would finish with the resume
+    point as its watermark, and the next run would re-read everything newer than it.
+    """
+    if not should_resume or resource.sort_mode != "desc" or workflow_run_id is None:
+        return None
+
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    seed = await database_sync_to_async_pool(schema.staged_incremental_last_value_for_run)(workflow_run_id)
+    if seed is not None:
+        await logger.adebug(f"{log_prefix}Resumed desc extract inherits incremental_field_last_value {seed}")
+    return seed
 
 
 async def update_row_tracking_after_batch(
