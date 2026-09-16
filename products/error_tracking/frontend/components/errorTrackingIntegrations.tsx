@@ -1,4 +1,6 @@
-import { ICONS } from 'lib/integrations/utils'
+import clsx from 'clsx'
+
+import { DARK_MODE_INVERT_ICON_KINDS, ICONS } from 'lib/integrations/utils'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
@@ -20,5 +22,11 @@ export const PROVIDER_LABELS: Record<ErrorTrackingIntegrationKind, string> = {
 }
 
 export const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
-    return <img src={ICONS[kind]} className="w-5 h-5 rounded-sm" />
+    return (
+        <img
+            src={ICONS[kind]}
+            alt=""
+            className={clsx('w-5 h-5 rounded-sm', DARK_MODE_INVERT_ICON_KINDS.has(kind) && 'dark:invert')}
+        />
+    )
 }
