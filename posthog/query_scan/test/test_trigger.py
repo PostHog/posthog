@@ -206,7 +206,7 @@ class TestQueryScanTrigger(SimpleTestCase):
     def test_the_payload_carries_the_event_filter_classification(self) -> None:
         # The job folds this verdict into the plan, so a payload that stopped carrying it would
         # drop the tree's reason for why the filter could not prune.
-        result = self._trigger()
+        result = self._trigger(trigger="killed", killed=True, error_type="ClickHouseQueryTimeOut")
 
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]

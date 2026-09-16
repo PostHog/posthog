@@ -19,7 +19,15 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
         self.stored: dict[str, Any] = {}
         redis = mock.Mock()
         redis.get.side_effect = lambda key: self.stored.get(key)
-        redis.set.side_effect = lambda key, value, ex=None, nx=False: self.stored.__setitem__(key, value)
+
+        def set_unless_claimed(key: str, value: str, ex: int | None = None, nx: bool = False) -> bool | None:
+            # Redis answers a conditional write that lost with None and any other write with True.
+            if nx and key in self.stored:
+                return None
+            self.stored[key] = value
+            return True
+
+        redis.set.side_effect = set_unless_claimed
         patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis)
         patcher.start()
         self.addCleanup(patcher.stop)

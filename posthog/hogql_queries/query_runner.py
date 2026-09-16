@@ -2089,16 +2089,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except Exception:
             return False
 
+    def _scan_replay_visible(self, failure: QueryFailureRecord, user: Optional[User]) -> bool:
+        """Whether a replay may carry the first failure's scan pointer. The reader gate is the fresh
+        path's. The flag is read again because the pointer was stored under the flag of the first
+        failure, and the error body renders it as scan UI, so a flag since turned off or moved to
+        log_only must hide it the way it hides a fresh summary."""
+        if failure.query_scan is None or not is_analyzable_principal(user):
+            return False
+        flag = get_query_scan_flag(self.team)
+        return flag is not None and flag.mode == QueryScanMode.SHOW
+
     def _raise_if_failure_fresh_for(
         self, failure: Optional[QueryFailureRecord], budget: Budget, user: Optional[User]
     ) -> None:
         """The one breaker rule: a failure outcome that is fresh for the given execution budget
         substitutes for the execution it would forbid. The replay carries the first failure's
-        pointer to its stored analysis, for the same readers the first failure had."""
+        pointer to its stored analysis, for the same readers the first failure had, under the
+        flag as it is now."""
         if failure is None or not failure.forbids(budget):
             return
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
-        raise build_failure_exception(failure, with_scan=is_analyzable_principal(user))
+        raise build_failure_exception(failure, with_scan=self._scan_replay_visible(failure, user))
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.

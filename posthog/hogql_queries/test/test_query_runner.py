@@ -2049,6 +2049,54 @@ class TestQueryFailureCaching(BaseTest):
             assert mock_calculate.call_count == 1
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
 
+    @parameterized.expand(
+        [
+            ("the flag still shows", _QUERY_SCAN_FLAG_SHOW, True, True),
+            ("the flag moved to log_only", _QUERY_SCAN_FLAG_LOG_ONLY, True, False),
+            ("the flag is off", None, True, False),
+            ("a shared link viewer replays it", _QUERY_SCAN_FLAG_SHOW, False, False),
+        ]
+    )
+    def test_a_replayed_failure_carries_the_scan_pointer_under_the_flag_as_it_is_now(
+        self, _name, flag_at_replay, real_user, expect_pointer
+    ):
+        # The pointer was stored under the flag of the first failure. The error body renders it as
+        # scan UI, so a flag since turned off must hide it the way it hides a fresh summary.
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+
+        def calculate_until_clickhouse_gives_up(_self):
+            record(rows_read=90, duration_ms=4000.0)
+            raise _per_query_memory_error()
+
+        redis_client = mock.Mock()
+        redis_client.get.return_value = json.dumps({"pending": True})
+        with (
+            mock.patch("posthoganalytics.feature_enabled", side_effect=_failure_caching_flag),
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch.object(
+                runner_class, "_calculate", autospec=True, side_effect=calculate_until_clickhouse_gives_up
+            ),
+        ):
+            with (
+                mock.patch(
+                    "posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW
+                ),
+                self.assertRaises(ClickHouseQueryMemoryLimitExceeded),
+            ):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            with (
+                mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag_at_replay),
+                self.assertRaises(ClickHouseQueryMemoryLimitExceeded) as replayed,
+            ):
+                runner.run(
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    user=self.user if real_user else _shared_link_user(self.team),
+                )
+
+        assert getattr(replayed.exception, "served_from_query_failure_cache", False)
+        assert (getattr(replayed.exception, "query_scan", None) is not None) is expect_pointer
+
     def test_forced_blocking_run_respects_open_breaker(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
