@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
     FANOUT_PARENT_ROWS_CONSUMED,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import RequestPacer
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
@@ -80,7 +81,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     InvoiceListWithAllLines,
     RateLimitCallback,
-    _RequestPacer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
@@ -687,10 +687,10 @@ class _FakeInvoicePage:
 
 
 class TestRequestPacer:
-    def _pacer(self, per_second: float = 10.0) -> tuple[_RequestPacer, dict[str, float], list[float]]:
+    def _pacer(self, per_second: float = 10.0) -> tuple[RequestPacer, dict[str, float], list[float]]:
         clock = {"now": 0.0}
         sleeps: list[float] = []
-        return _RequestPacer(per_second, clock=lambda: clock["now"], sleep=sleeps.append), clock, sleeps
+        return RequestPacer(per_second, clock=lambda: clock["now"], sleep=sleeps.append), clock, sleeps
 
     def test_spaces_request_starts_at_the_base_rate(self):
         pacer, _clock, sleeps = self._pacer()
@@ -720,7 +720,7 @@ class TestRequestPacer:
             if len(sleeps) == 1:
                 pacer.throttled(retry_after=5)
 
-        pacer = _RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleep)
+        pacer = RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleep)
         pacer.wait_turn()
         pacer.wait_turn()
 

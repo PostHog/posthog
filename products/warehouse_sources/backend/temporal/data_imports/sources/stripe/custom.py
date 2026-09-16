@@ -1,4 +1,3 @@
-import time
 import threading
 import contextvars
 from collections.abc import Callable, Iterator
@@ -9,14 +8,14 @@ import stripe as stripe_lib
 from stripe import Invoice, InvoiceLineItem, InvoiceService, ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import RequestPacer
+
 # Stripe's test-mode read limit is 25 requests/s and the live-mode limit is 100. Five workers stay
 # under both, and the page fetch is the longer leg of an iteration, so more would not shorten a sweep.
 LINE_FETCH_CONCURRENCY = 5
 # Fast responses could still let five workers exceed the test-mode limit, so request starts are paced
 # independently of the worker count. The limit is per account, shared with every other caller.
 LINE_REQUESTS_PER_SECOND = 20.0
-# How long a 429 keeps the pool at a reduced rate when Stripe sends no Retry-After.
-RATE_LIMIT_HOLD_SECONDS = 30.0
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
@@ -24,67 +23,6 @@ _T = TypeVar("_T")
 # Receives the Retry-After seconds from a 429, or None when Stripe sent none.
 RateLimitCallback = Callable[[Optional[float]], None]
 ClientFactory = Callable[[RateLimitCallback], StripeClient]
-
-
-class _RequestPacer:
-    """Spaces request starts across threads and slows the whole pool after a rate limit.
-
-    Every worker calls wait_turn() before a request, so the pool never starts more than
-    `per_second` requests in any second. A 429 halves the rate for the hold window and, when
-    Stripe sends Retry-After, holds every worker until it passes, including workers already
-    waiting for a slot. Each quiet window after that doubles the rate back until the base rate
-    is restored.
-    """
-
-    def __init__(
-        self,
-        per_second: float,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
-        self._base_interval = 1.0 / per_second
-        self._interval = self._base_interval
-        self._clock = clock
-        self._sleep = sleep
-        self._lock = threading.Lock()
-        self._next_start = 0.0
-        self._hold_until = 0.0
-        self._recover_at: Optional[float] = None
-
-    def wait_turn(self) -> None:
-        start = self._reserve_slot()
-        while True:
-            delay = start - self._clock()
-            if delay > 0:
-                self._sleep(delay)
-            with self._lock:
-                if self._hold_until <= start:
-                    return
-            # A throttle arrived during the sleep and its hold covers this slot: take a later one.
-            start = self._reserve_slot()
-
-    def _reserve_slot(self) -> float:
-        with self._lock:
-            now = self._clock()
-            if self._recover_at is not None and now >= self._recover_at:
-                self._interval = max(self._interval / 2, self._base_interval)
-                self._recover_at = None if self._interval == self._base_interval else now + RATE_LIMIT_HOLD_SECONDS
-            start = max(now, self._next_start)
-            self._next_start = start + self._interval
-            return start
-
-    def throttled(self, retry_after: Optional[float]) -> None:
-        with self._lock:
-            now = self._clock()
-            if now < self._hold_until:
-                # Requests already in flight when the first 429 landed report the same throttle.
-                return
-            hold = retry_after if retry_after is not None and retry_after > 0 else RATE_LIMIT_HOLD_SECONDS
-            self._interval = min(self._interval * 2, self._base_interval * 16)
-            if retry_after is not None and retry_after > 0:
-                self._hold_until = now + retry_after
-                self._next_start = max(self._next_start, self._hold_until)
-            self._recover_at = now + hold
 
 
 def _submit(pool: ThreadPoolExecutor, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> Future[_T]:
@@ -121,7 +59,7 @@ class InvoiceListWithAllLines:
         self.logger = logger
         self._client_factory = client_factory
         self._concurrency = concurrency
-        self._pacer = _RequestPacer(requests_per_second)
+        self._pacer = RequestPacer(requests_per_second)
         self._thread_clients = threading.local()
 
     def auto_paging_iter(self) -> Iterator[Invoice]:
