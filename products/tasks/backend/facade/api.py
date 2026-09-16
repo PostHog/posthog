@@ -210,6 +210,7 @@ __all__ = [
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
+    "claim_and_fail_stranded_cloud_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
     "ensure_personal_channel_id",
@@ -1773,6 +1774,38 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     claimed = TaskRun.objects.filter(
         id=run_id,
         status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_failed(error, error_type=error_type)
+        resume_workflow_step_for_run(run)
+    return True
+
+
+def claim_and_fail_stranded_cloud_run(
+    run_id: str | UUID, error: str, error_type: str | None = None, *, expected_updated_at: datetime
+) -> bool:
+    """Reap a cloud run a watchdog judged stranded in ``IN_PROGRESS``. Returns whether this
+    caller won the claim.
+
+    Narrower than ``claim_and_fail_stale_run`` on purpose: the conditional update also pins the
+    row to the snapshot that was judged. The watchdog describes a whole batch of workflows
+    before it claims any of them, so seconds pass between one run's liveness verdict and its
+    claim. A resume inside that gap re-queues the same run under the same workflow id, and the
+    wider predicate would then hand the dead workflow's verdict to the live replacement.
+    Terminal statuses are final, so that row would stay ``FAILED`` while its agent kept working.
+
+    ``updated_at`` is the version column: every path that re-queues or terminalizes a run saves
+    it, so a row that moved since the scan matches nothing and the claim is lost instead.
+    Intentionally cross-team (janitor sweep).
+    """
+    claimed = TaskRun.objects.filter(
+        id=run_id,
+        status=TaskRun.Status.IN_PROGRESS,
+        environment=TaskRun.Environment.CLOUD,
+        updated_at=expected_updated_at,
     ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
     if not claimed:
         return False

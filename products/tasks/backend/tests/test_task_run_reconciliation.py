@@ -85,6 +85,36 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
 
     @parameterized.expand(
         [
+            # The resume re-queued the run and its replacement workflow has not started yet.
+            ("resumed", TaskRun.Status.QUEUED),
+            # The replacement workflow already wrote its own IN_PROGRESS, so only the row
+            # version separates it from the run that was judged.
+            ("resumed_and_restarted", TaskRun.Status.IN_PROGRESS),
+        ]
+    )
+    def test_run_that_moved_between_describe_and_claim_is_left_alone(self, _name, status_after_resume):
+        run = self.create_run(age=STALE_AFTER + timedelta(minutes=1))
+
+        def resume_the_run_then_report_gone(workflow_ids):
+            # `gone` is the right verdict for the workflow that was described: it closed, which
+            # is what let the user resume at all. A resume reuses the same workflow id, so that
+            # verdict must not reach the live replacement.
+            TaskRun.objects.filter(id=run.id).update(status=status_after_resume, updated_at=django_timezone.now())
+            return dict.fromkeys(workflow_ids, "gone")
+
+        with patch(
+            "products.tasks.backend.temporal.client.describe_task_run_workflow_liveness",
+            side_effect=resume_the_run_then_report_gone,
+        ):
+            outcomes = reconcile_stale_in_progress_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(outcomes.get("claim_lost"), 1)
+        self.assertEqual(run.status, status_after_resume)
+        self.assertIsNone(run.completed_at)
+
+    @parameterized.expand(
+        [
             # Inside the staleness window the workflow may simply be mid-model-call.
             ("recently_updated", TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, timedelta(minutes=5)),
             # A local run is driven by the desktop and has no cloud workflow to describe.

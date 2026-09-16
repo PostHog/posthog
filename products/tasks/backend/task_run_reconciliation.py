@@ -73,7 +73,7 @@ def reconcile_stale_in_progress_task_runs(
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
     from products.tasks.backend.facade.api import (
-        claim_and_fail_stale_run,  # noqa: PLC0415 — keeps the heavy facade off the celery import path
+        claim_and_fail_stranded_cloud_run,  # noqa: PLC0415 — keeps the heavy facade off the celery import path
     )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keeps temporalio off the celery import path
         describe_task_run_workflow_liveness,
@@ -106,11 +106,14 @@ def reconcile_stale_in_progress_task_runs(
                 # `unknown` means Temporal could not answer and the row keeps its benefit of the doubt.
                 record("workflow_running" if liveness == "running" else "workflow_unknown")
                 continue
-            # Compare-and-set, so a terminal status landing between the describe and here wins.
-            # `claim_and_fail_stale_run` also releases any workflow step blocked on this run.
-            record(
-                "reaped" if claim_and_fail_stale_run(run.id, REAP_MESSAGE, error_type=REAP_ERROR_TYPE) else "claim_lost"
+            # Compare-and-set against the row as it was scanned, so anything that landed
+            # between the describe and here wins over this verdict — a terminal status the
+            # workflow wrote on its way out, or a resume that re-queued the run under the same
+            # workflow id. The claim also releases any workflow step blocked on this run.
+            claimed = claim_and_fail_stranded_cloud_run(
+                run.id, REAP_MESSAGE, error_type=REAP_ERROR_TYPE, expected_updated_at=run.updated_at
             )
+            record("reaped" if claimed else "claim_lost")
         except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
             record("error")
             capture_exception(exc)
