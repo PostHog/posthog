@@ -54528,6 +54528,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `widget` - Widget
+     * * `email` - Email
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams
+     * * `github` - GitHub
+     * * `zendesk` - Zendesk
+     * * `posthog` - PostHog
+     */
+    export type MessageSourceEnum = typeof MessageSourceEnum[keyof typeof MessageSourceEnum];
+
+
+    export const MessageSourceEnum = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      Zendesk: 'zendesk',
+      Posthog: 'posthog',
+    } as const;
+
+    /**
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
      * * `COMPLAINT` - Complaint
@@ -62438,6 +62460,16 @@ export namespace Schemas {
       readonly is_private: boolean;
       /** True when the complete inbound email body can be retrieved. */
       readonly has_full_email_content: boolean;
+      /** Where the message was written: the external channel it arrived from (widget, email, slack, teams, github), a Zendesk import, or posthog for replies, notes and AI messages created in PostHog. Can differ from the ticket's channel. Null when the origin wasn't recorded.
+       *
+       * * `widget` - Widget
+       * * `email` - Email
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams
+       * * `github` - GitHub
+       * * `zendesk` - Zendesk
+       * * `posthog` - PostHog */
+      readonly source: MessageSourceEnum | null;
       /** Edit count. 0 means never edited. */
       readonly version: number;
       readonly created_at: string;

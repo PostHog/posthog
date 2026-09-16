@@ -232,25 +232,25 @@ class TestTicketAPI(APIBaseTest):
 
     def test_retrieve_ticket_includes_anonymous_traits(self, mock_on_commit):
         """Test that retrieve includes anonymous_traits."""
-        self.ticket.anonymous_traits = {"name": "John Doe", "email": "john@example.com"}
+        self.ticket.anonymous_traits = {"name": "Ticket Requester", "email": "requester@example.com"}
         self.ticket.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("anonymous_traits", response.json())
-        self.assertEqual(response.json()["anonymous_traits"]["name"], "John Doe")
-        self.assertEqual(response.json()["anonymous_traits"]["email"], "john@example.com")
+        self.assertEqual(response.json()["anonymous_traits"]["name"], "Ticket Requester")
+        self.assertEqual(response.json()["anonymous_traits"]["email"], "requester@example.com")
 
     def test_list_tickets_includes_anonymous_traits(self, mock_on_commit):
         """Test that list includes anonymous_traits."""
-        self.ticket.anonymous_traits = {"name": "Jane Doe", "company": "ACME"}
+        self.ticket.anonymous_traits = {"name": "Ticket Requester", "company": "ACME"}
         self.ticket.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertIn("anonymous_traits", response.json()["results"][0])
-        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["name"], "Jane Doe")
+        self.assertEqual(response.json()["results"][0]["anonymous_traits"]["name"], "Ticket Requester")
         self.assertEqual(response.json()["results"][0]["anonymous_traits"]["company"], "ACME")
 
     def test_update_sla_due_at(self, mock_on_commit):
@@ -692,8 +692,8 @@ class TestTicketAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
-            ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
+            ("anonymous_name", {"anonymous_traits": {"name": "Searchable Requester"}}, "searchable"),
+            ("anonymous_email", {"anonymous_traits": {"email": "searchable@example.com"}}, "searchable@example"),
             ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
         ]
     )
@@ -1862,26 +1862,26 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team,
             distinct_ids=["some-other-id"],
-            properties={"email": "alice@example.com"},
+            properties={"email": "customer@example.com"},
             immediate=True,
         )
-        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+        self._create_email_ticket(email_from="customer@example.com", distinct_id="customer@example.com")
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
 
         assert response.status_code == status.HTTP_200_OK
         person_data = response.json()["results"][0]["person"]
         assert person_data is not None
-        assert person_data["properties"]["email"] == "alice@example.com"
+        assert person_data["properties"]["email"] == "customer@example.com"
 
     def test_email_fallback_not_triggered_when_distinct_id_matches(self, mock_on_commit):
         person = _create_person(
             team=self.team,
-            distinct_ids=["alice@example.com"],
-            properties={"email": "alice@example.com"},
+            distinct_ids=["customer@example.com"],
+            properties={"email": "customer@example.com"},
             immediate=True,
         )
-        self._create_email_ticket(email_from="alice@example.com", distinct_id="alice@example.com")
+        self._create_email_ticket(email_from="customer@example.com", distinct_id="customer@example.com")
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
 
@@ -2035,28 +2035,28 @@ class TestTicketEmailFilter(APIBaseTest):
         return {r["ticket_number"] for r in response.json()["results"]}
 
     def test_filter_by_email_matches_email_from_case_insensitively(self, mock_on_commit):
-        match = self._create_ticket(distinct_id="did-1", email_from="Alice@Example.com")
-        self._create_ticket(distinct_id="did-2", email_from="bob@example.com")
+        match = self._create_ticket(distinct_id="did-1", email_from="Customer@Example.com")
+        self._create_ticket(distinct_id="did-2", email_from="second-requester@example.com")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=alice@example.com")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=customer@example.com")
 
         assert response.status_code == status.HTTP_200_OK
         assert self._numbers(response) == {match.ticket_number}
 
     def test_filter_by_distinct_ids_or_emails_returns_union(self, mock_on_commit):
         by_did = self._create_ticket(distinct_id="did-1", email_from="unrelated@example.com")
-        by_email = self._create_ticket(distinct_id="did-2", email_from="alice@example.com")
-        self._create_ticket(distinct_id="did-3", email_from="bob@example.com")
+        by_email = self._create_ticket(distinct_id="did-2", email_from="customer@example.com")
+        self._create_ticket(distinct_id="did-3", email_from="second-requester@example.com")
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/?distinct_ids=did-1&emails=alice@example.com"
+            f"/api/projects/{self.team.id}/conversations/tickets/?distinct_ids=did-1&emails=customer@example.com"
         )
 
         assert response.status_code == status.HTTP_200_OK
         assert self._numbers(response) == {by_did.ticket_number, by_email.ticket_number}
 
     def test_filter_by_email_no_match_returns_empty(self, mock_on_commit):
-        self._create_ticket(distinct_id="did-1", email_from="alice@example.com")
+        self._create_ticket(distinct_id="did-1", email_from="customer@example.com")
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?emails=nobody@example.com")
 
@@ -2381,7 +2381,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             widget_session_id="test-session",
             distinct_id="user-1",
             status=Status.OPEN,
-            anonymous_traits={"name": "Alice", "email": "alice@example.com"},
+            anonymous_traits={"name": "Customer Contact", "email": "customer@example.com"},
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/messages/"
 
@@ -2411,7 +2411,7 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert len(body) == 3
         assert body[0]["content"] == "Hello from customer"
         assert body[0]["author_type"] == "customer"
-        assert body[0]["author_name"] == "Alice"
+        assert body[0]["author_name"] == "Customer Contact"
         assert body[0]["is_private"] is False
         assert body[1]["content"] == "Hi there!"
         assert body[1]["author_type"] == "support"
@@ -2480,6 +2480,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_email",
             "is_private",
             "has_full_email_content",
+            "source",
             "created_at",
             "version",
         }
@@ -2499,8 +2500,8 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert len(response.json()["results"]) == 1
 
     def test_messages_support_author_uses_full_name(self, mock_on_commit):
-        self.user.first_name = "Jane"
-        self.user.last_name = "Doe"
+        self.user.first_name = "Support"
+        self.user.last_name = "Engineer"
         self.user.save()
         Comment.objects.create(
             team=self.team,
@@ -2513,7 +2514,7 @@ class TestTicketMessagesAPI(APIBaseTest):
 
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"][0]["author_name"] == "Jane Doe"
+        assert response.json()["results"][0]["author_name"] == "Support Engineer"
 
     def test_messages_author_email_only_for_posthog_users(self, mock_on_commit):
         base = timezone.now()
@@ -2543,46 +2544,58 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", {}, "Bob"),
-            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
+            (
+                "customer_with_name",
+                {"name": "Customer Contact", "email": "second-requester@example.com"},
+                "customer",
+                {},
+                "Customer Contact",
+            ),
+            (
+                "customer_email_fallback",
+                {"email": "second-requester@example.com"},
+                "customer",
+                {},
+                "second-requester@example.com",
+            ),
             ("customer_default", {}, "customer", {}, "Customer"),
             ("ai_author", {}, "AI", {}, "PostHog Assistant"),
             ("support_without_user", {}, "support", {}, "Support"),
             # Per-comment author overrides the ticket requester (thread replies from other participants)
             (
                 "teams_thread_reply_author",
-                {"name": "Mark"},
+                {"name": "Ticket Requester"},
                 "customer",
-                {"teams_author_name": "Chris"},
-                "Chris",
+                {"teams_author_name": "Thread Replier"},
+                "Thread Replier",
             ),
             (
                 "slack_thread_reply_author",
-                {"name": "Mark"},
+                {"name": "Ticket Requester"},
                 "customer",
-                {"slack_author_name": "Chris"},
-                "Chris",
+                {"slack_author_name": "Thread Replier"},
+                "Thread Replier",
             ),
             (
                 "github_comment_author",
-                {"name": "Mark"},
+                {"name": "Ticket Requester"},
                 "customer",
-                {"from_github": True, "github_login": "chris"},
-                "chris",
+                {"from_github": True, "github_login": "thread-replier"},
+                "thread-replier",
             ),
             (
                 "zendesk_import_author",
-                {"name": "Mark"},
+                {"name": "Ticket Requester"},
                 "customer",
-                {"author_name": "Chris"},
-                "Chris",
+                {"author_name": "Thread Replier"},
+                "Thread Replier",
             ),
             (
                 "context_author_on_support_comment",
                 {},
                 "support",
-                {"teams_author_name": "Chris"},
-                "Chris",
+                {"teams_author_name": "Thread Replier"},
+                "Thread Replier",
             ),
         ]
     )
@@ -2602,6 +2615,38 @@ class TestTicketMessagesAPI(APIBaseTest):
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["author_name"] == expected_name
+
+    @parameterized.expand(
+        [
+            ("slack_customer", {"author_type": "customer", "from_slack": True}, False, "slack"),
+            # A team member replying in the Slack thread is linked to their PostHog user,
+            # but the message still came from Slack.
+            ("slack_team_member", {"author_type": "support", "from_slack": True}, True, "slack"),
+            ("teams", {"author_type": "customer", "from_teams": True}, False, "teams"),
+            ("github", {"author_type": "customer", "from_github": True}, False, "github"),
+            ("email", {"author_type": "customer", "from_email": True}, False, "email"),
+            ("zendesk_import", {"author_type": "customer", "from_zendesk": True}, False, "zendesk"),
+            ("widget", {"author_type": "customer", "distinct_id": "user-1"}, False, "widget"),
+            ("posthog_reply", {"author_type": "support", "is_private": False}, True, "posthog"),
+            ("posthog_note", {"author_type": "support", "is_private": True}, True, "posthog"),
+            ("ai", {"author_type": "AI", "is_private": True}, False, "posthog"),
+            ("string_flag_ignored", {"author_type": "customer", "from_slack": "true"}, False, None),
+            ("unknown", {"author_type": "customer"}, False, None),
+        ]
+    )
+    def test_messages_source(self, mock_on_commit, _name, item_context, by_user, expected):
+        Comment.objects.create(
+            team=self.team,
+            created_by=self.user if by_user else None,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="msg",
+            item_context=item_context,
+        )
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["source"] == expected
 
     @parameterized.expand(
         [
