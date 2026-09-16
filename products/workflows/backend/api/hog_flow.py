@@ -166,8 +166,8 @@ from products.workflows.backend.services.audience_v2 import (
     use_audience_query_v2,
 )
 from products.workflows.backend.services.batch_audience import (
-    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
+    audience_page_size,
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
@@ -5923,7 +5923,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     {
                         "users_affected": users_affected,
                         "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                        "has_more": len(users_affected) == audience_page_size(group_type_index),
                     }
                 ).data
             )
