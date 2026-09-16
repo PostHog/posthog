@@ -404,9 +404,16 @@ class Command(BaseCommand):
                     linked_flag = rewritten
                 else:
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
-                    # Matched on the stored reference as well as the index, so a group added,
-                    # removed or reordered since the scan cannot shift a rewrite onto its neighbour.
-                    if ref is None or ref.stored_flag != finding.stored_flag or ref.key == current_key:
+                    # Matched on the group id and the stored reference as well as the index, so a
+                    # group added, removed or reordered since the scan cannot shift a rewrite onto
+                    # its neighbour, even one holding a byte-identical reference. Neither field
+                    # stands alone: a group can store no id, and two can hold the same reference.
+                    if (
+                        ref is None
+                        or ref.group_id != finding.group_id
+                        or ref.stored_flag != finding.stored_flag
+                        or ref.key == current_key
+                    ):
                         written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
                     renames[ref.group_index] = current_key
