@@ -51,6 +51,8 @@ type AllowedExperimentFields = Pick<
     | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
+    | 'archived'
+    | 'description'
 > & {
     deleted: boolean
 }
