@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -29,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     NORTHPASS_ENDPOINTS,
+    QUIZ_LOG_EMPTY_MESSAGE,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -49,7 +48,7 @@ class NorthpassLMSSource(ResumableSource[NorthpassLMSSourceConfig, NorthpassResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NORTHPASS_LMS,
+            name=ExternalDataSourceType.NORTHPASSLMS,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Northpass LMS",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -89,6 +88,9 @@ You can create an API key in your Northpass admin panel under **Apps → API Acc
             # sibling tables when Northpass gates an endpoint on an account plan (#87959). The
             # message points the operator at the sibling-table check instead of blaming the key.
             "403 Client Error: Forbidden for url: https://api.northpass.com": "Northpass refused access to the endpoint behind this table. If your other Northpass tables are syncing, the API key works and your Northpass plan likely does not include this endpoint. Ask Northpass support to enable it, then re-enable the sync. If every table is failing, check the key's permissions in your Northpass admin panel, then reconnect.",
+            # The quiz tables are built from the sent-webhooks log. A log with no quiz-completed
+            # event yields nothing on every run, and retrying cannot add a message to it.
+            QUIZ_LOG_EMPTY_MESSAGE: "Your Northpass sent-webhooks log holds no quiz-completed events, and the quiz_attempts and quiz_attempt_answers tables are built from that log. Subscribe a webhook endpoint to quiz-completed events in your Northpass admin panel, wait for a quiz completion, then re-enable the sync. The log keeps three months of messages.",
         }
 
     def get_schemas(

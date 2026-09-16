@@ -79,6 +79,7 @@
         "!apps/code/src/main/index.ts",
         "!apps/code/src/main/window.ts",
         "!apps/code/src/main/quick-ask.ts",
+        "!apps/code/src/main/quick-ask-trpc.test.ts",
         "!apps/code/src/main/quick-ask-capture.ts",
         "!apps/code/src/main/external-links.ts",
         "!apps/code/src/main/menu.ts",

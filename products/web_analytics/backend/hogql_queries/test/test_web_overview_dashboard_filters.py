@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 from posthog.schema import DashboardFilter, DateRange, EventPropertyFilter, WebOverviewQuery
@@ -42,7 +42,7 @@ class TestWebOverviewDashboardFilters(ClickhouseTestMixin, APIBaseTest):
 
     def test_dashboard_filter_with_existing_properties_executes(self):
         s1 = str(uuid7("2023-12-10"))
-        with freeze_time("2023-12-10"):
+        with time_machine.travel("2023-12-10", tick=False):
             _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={})
         _create_event(
             team=self.team,
@@ -61,7 +61,7 @@ class TestWebOverviewDashboardFilters(ClickhouseTestMixin, APIBaseTest):
             DashboardFilter(properties=[EventPropertyFilter(key="$browser", value="Chrome", operator="exact")])
         )
 
-        with freeze_time("2023-12-15"):
+        with time_machine.travel("2023-12-15", tick=False):
             response = runner.calculate()
 
         assert response.results is not None

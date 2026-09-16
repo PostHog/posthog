@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, _create_event, _create_person
 
 from posthog.schema import (
@@ -29,7 +29,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def setUp(self):
         super().setUp()
 
-        with freeze_time("2023-02-01"):
+        with time_machine.travel("2023-02-01", tick=False):
             _create_person(
                 distinct_ids=["some_id"],
                 team_id=self.team.pk,

@@ -50,6 +50,7 @@ import type {
     CustomPropertyValueApi,
     CustomPropertyValueSuggestionsResponseApi,
     CustomPropertyValueWriteApi,
+    CustomerAnalyticsExternalAccountRetrieveParams,
     CustomerAnalyticsExternalAccountsRetrieveParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
@@ -65,6 +66,7 @@ import type {
     EventStreamApi,
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
+    ExternalAccountApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -132,6 +134,38 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getCustomerAnalyticsExternalAccountRetrieveUrl = (
+    params: CustomerAnalyticsExternalAccountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/customer_analytics/external/account?${stringifiedParams}`
+        : `/api/customer_analytics/external/account`
+}
+
+/**
+ * Fetch one account by external ID with its properties, tags, active relationship assignments and custom property values. Accepts the team secret API token or a project secret API key with the `account:read` scope.
+ * @summary Get an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountRetrieve = async (
+    params: CustomerAnalyticsExternalAccountRetrieveParams,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
     params?: CustomerAnalyticsExternalAccountsRetrieveParams

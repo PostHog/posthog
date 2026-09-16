@@ -1,10 +1,10 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
@@ -57,7 +57,7 @@ export function stamphogRepoConfigActivityDescriber(
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const repository = <strong>{logItem.detail.name || 'a repository'}</strong>
 
     if (logItem.activity === 'created') {

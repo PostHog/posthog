@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -14,14 +14,14 @@ from posthog.tasks.alerts.investigation_notifications import (
     run_investigation_notification_safety_net,
 )
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.product_analytics.backend.facade.models import Insight
 
 NOW = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestInvestigationNotificationSafetyNet(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

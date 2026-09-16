@@ -194,7 +194,7 @@ class TestScreenshotSettings(APIBaseTest):
     @parameterized.expand([("attacker.example", False), ("www.example.com", True)])
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests.post")
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot.delay")
     def test_editor_renders_only_send_credentials_to_admin_approved_hosts(
         self, hostname: str, approved: bool, enqueue: MagicMock, render: MagicMock, resolve: MagicMock

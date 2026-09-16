@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -71,12 +72,31 @@ import {
     SignalReportStatus,
 } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
+import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+export type PrChecksError = {
+    message: string
+    remediationUrl: string | null
+}
+
+const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+
+function prChecksErrorFrom(error: unknown): PrChecksError {
+    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+        const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
+        return {
+            message: error.message,
+            remediationUrl: typeof remediationUrl === 'string' ? remediationUrl : null,
+        }
+    }
+    return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+}
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
@@ -142,6 +162,20 @@ export function implementationRunInFlight(reportTasks: ReportTaskEntry[] | null)
             entry.purpose === 'implementation' &&
             !TERMINAL_RUN_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)
     )
+}
+
+/**
+ * Whether any linked run is still moving, which is what the View task button waits on.
+ *
+ * A task with no run yet does not count: the button only opens a task that already has a run, so a
+ * task that never gets one would hold the poll open for nothing. That is the opposite of the Create
+ * PR gate above, where the task itself claims the slot before its run exists.
+ */
+export function openableRunInFlight(reportTasks: ReportTaskEntry[] | null): boolean {
+    return (reportTasks ?? []).some((entry) => {
+        const status = entry.task.latest_run?.status
+        return !!status && !TERMINAL_RUN_STATUSES.includes(status)
+    })
 }
 
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
@@ -255,6 +289,7 @@ export interface inboxReportDetailLogicValues {
     displayReviewers: EnrichedReviewer[] | null
     draftThread: DraftThread | null
     editingCommentId: string | null
+    evidenceExpanded: boolean
     expandedTaskIds: string[]
     feedbackNoteDraft: string
     feedbackNoteOpen: boolean
@@ -275,7 +310,7 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
-    prChecksError: string | null
+    prChecksError: PrChecksError | null
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
@@ -293,8 +328,11 @@ export interface inboxReportDetailLogicValues {
     reportSignals: SignalNode[] | null
     reportSignalsLoading: boolean
     reportSummary: string | null
+    reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    selectedPullRequest: ReportPullRequest
+    selectedPullRequestUrl: string | null
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
     shouldPollReportTasks: boolean
@@ -306,7 +344,13 @@ export interface inboxReportDetailLogicActions {
     createPrSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    discussReportSuccess: () => {
+        value: true
+    } // inboxTaskKickoffLogic
     closeDraftThread: () => {
+        value: true
+    }
+    collapseEvidence: () => {
         value: true
     }
     deleteReviewComment: (commentId: string) => {
@@ -318,6 +362,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         body: string
         commentId: string
+    }
+    expandEvidence: () => {
+        value: true
     }
     loadAvailableReviewers: ({ query }?: { query?: string }) => {
         query?: string
@@ -348,7 +395,7 @@ export interface inboxReportDetailLogicActions {
             query?: string
         }
     }
-    loadPrChecks: () => any
+    loadPrChecks: (_: void) => void
     loadPrChecksFailure: (
         error: string,
         errorObject?: any
@@ -358,12 +405,12 @@ export interface inboxReportDetailLogicActions {
     }
     loadPrChecksSuccess: (
         prChecks: readonly PullRequestCheckApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         prChecks: readonly PullRequestCheckApi[] | null
-        payload?: any
+        payload?: void
     }
-    loadPrComments: () => any
+    loadPrComments: (_: void) => void
     loadPrCommentsFailure: (
         error: string,
         errorObject?: any
@@ -373,10 +420,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadPrCommentsSuccess: (
         prComments: readonly PullRequestCommentApi[] | null,
-        payload?: any
+        payload?: void
     ) => {
         prComments: readonly PullRequestCommentApi[] | null
-        payload?: any
+        payload?: void
     }
     loadReportArtefacts: () => any
     loadReportArtefactsFailure: (
@@ -477,6 +524,9 @@ export interface inboxReportDetailLogicActions {
     searchAvailableReviewers: (query: string) => {
         query: string
     }
+    selectPullRequest: (url: string) => {
+        url: string
+    }
     setDetailTab: (tab: ReportDetailTab) => {
         tab: ReportDetailTab
     }
@@ -528,6 +578,7 @@ export interface inboxReportDetailLogicMeta {
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
         shouldPollReportTasks: (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null) => boolean
+        selectedPullRequest: (report: SignalReport | null, selectedPullRequestUrl: string | null) => ReportPullRequest
         hasImplementationPr: (report: SignalReport | null) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
@@ -555,6 +606,7 @@ export interface inboxReportDetailLogicMeta {
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
+        reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
             selectedTaskId: string | null,
@@ -584,10 +636,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Personal GitHub connection state gates the inline comment composer (comments post as the user).
         values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
         // Starting a PR task writes to the artefact log, which is where the Create PR gate reads from.
-        actions: [inboxTaskKickoffLogic, ['createPrSuccess']],
+        actions: [inboxTaskKickoffLogic, ['createPrSuccess', 'discussReportSuccess']],
     })),
 
     actions({
+        expandEvidence: true,
+        collapseEvidence: true,
         // Open a not-yet-posted comment thread on a diff line (one draft at a time).
         openDraftThread: (draft: DraftThread) => ({ draft }),
         closeDraftThread: true,
@@ -609,6 +663,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         toggleReviewCommentReaction: (commentId: string, content: string) => ({ commentId, content }),
         // Which comment is being edited inline (null = none).
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
+        selectPullRequest: (url: string) => ({ url }),
         setReport: (report: SignalReport | null) => ({ report }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -755,12 +810,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prChecks: [
             null as readonly PullRequestCheckApi[] | null,
             {
-                loadPrChecks: async () => {
+                loadPrChecks: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
                     }
-                    const response = await signalsReportPrChecks(String(teamId), props.reportId)
+                    const pr = values.selectedPullRequest
+                    const response = await signalsReportPrChecks(String(teamId), props.reportId, {
+                        pull_request_id: pr.id ?? undefined,
+                    }).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
+                    })
+                    breakpoint()
+                    if (values.selectedPullRequest.url !== pr.url) {
+                        return null
+                    }
                     return response.checks
                 },
             },
@@ -769,12 +834,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         prComments: [
             null as readonly PullRequestCommentApi[] | null,
             {
-                loadPrComments: async () => {
+                loadPrComments: async (_: void, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
                     }
-                    const response = await signalsReportPrComments(String(teamId), props.reportId)
+                    const pr = values.selectedPullRequest
+                    const response = await signalsReportPrComments(String(teamId), props.reportId, {
+                        pull_request_id: pr.id ?? undefined,
+                    }).catch((error: unknown) => {
+                        breakpoint()
+                        throw error
+                    })
+                    breakpoint()
+                    if (values.selectedPullRequest.url !== pr.url) {
+                        return null
+                    }
                     return response.comments
                 },
             },
@@ -782,6 +857,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     })),
 
     reducers({
+        selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
+        evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         report: [
             null as SignalReport | null,
             {
@@ -887,10 +964,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Cleared only on success (not on load start), so the section keeps showing the error while
         // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
-            null as string | null,
+            null as PrChecksError | null,
             {
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+                loadPrChecksFailure: (_, { errorObject }) => prChecksErrorFrom(errorObject),
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
@@ -965,15 +1042,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // hands the Create PR slot back. Without this clause the action stays disabled on a ready report
         // until the pane is reopened, and the server's 429 cannot correct it because the failure runs the
         // other way: the press is refused in the UI that the server would now accept.
+        // Discussion and research runs hold it open too so their status in the Runs section settles
+        // without requiring the reader to reopen the report.
         shouldPollReportTasks: [
             (s) => [s.isReportActive, s.reportTasks],
             (isReportActive: boolean, reportTasks: ReportTaskEntry[] | null): boolean =>
-                isReportActive || implementationRunInFlight(reportTasks),
+                isReportActive || implementationRunInFlight(reportTasks) || openableRunInFlight(reportTasks),
         ],
         // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
+        selectedPullRequest: [
+            (s) => [s.report, s.selectedPullRequestUrl],
+            (report: SignalReport | null, url: string | null): ReportPullRequest =>
+                reportPullRequests(report).find((pr) => pr.url === url) ?? primaryReportPullRequest(report),
+        ],
         hasImplementationPr: [
             (s) => [s.report],
-            (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
+            (report: SignalReport | null): boolean => reportPullRequests(report).length > 0,
         ],
         // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
         // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
@@ -1187,6 +1271,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })[0]
             },
         ],
+        reportTaskToOpen: [
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null => {
+                const activeImplementation = (reportTasks ?? [])
+                    .filter(
+                        (entry) =>
+                            entry.purpose === 'implementation' &&
+                            entry.task.latest_run &&
+                            !TERMINAL_RUN_STATUSES.includes(entry.task.latest_run.status)
+                    )
+                    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0]
+                if (activeImplementation) {
+                    return activeImplementation
+                }
+                return (
+                    reportTasks?.find((entry) => entry.purpose === 'implementation' && getTaskPrUrl(entry.task)) ?? null
+                )
+            },
+        ],
         // The linked task the viewer renders: the explicit selection if it still exists, else `primaryTask`.
         selectedTask: [
             (s) => [s.reportTasks, s.selectedTaskId, s.primaryTask],
@@ -1203,6 +1306,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             // Reviewing the diff is the deepest engagement a report gets short of acting on it.
             if (tab === 'files' && values.report) {
                 captureInboxReportAction({ report: values.report, actionType: 'view_diff', surface: 'detail_pane' })
+            }
+        },
+        expandEvidence: () => {
+            // The two-card default is a guess. This is the only signal for how often a reader wants
+            // the rest of the evidence, so it carries how much there was to reach for.
+            if (values.report) {
+                captureInboxReportAction({
+                    report: values.report,
+                    actionType: 'show_more',
+                    surface: 'detail_pane',
+                    extra: { section: 'evidence', signal_count: values.reportSignals?.length ?? 0 },
+                })
             }
         },
         rateReport: ({ sentiment }) => {
@@ -1278,6 +1393,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // the request. On success the optimistic entry is replaced by the real comment; on failure it's
         // flagged `pending: 'failed'` (kept visible so the text isn't lost) and a toast explains why.
         postReviewComment: async ({ payload }) => {
+            const requestPrUrl = values.selectedPullRequest.url
             const teamId = teamLogic.values.currentTeamId
             const tempId = `optimistic-${payload.key}-${values.prComments?.length ?? 0}-${payload.body.length}`
             const login = values.currentUserGithubLogin
@@ -1299,25 +1415,36 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 commit_id: null,
                 reactions: [],
             }
-            actions.loadPrCommentsSuccess([...(values.prComments ?? []), optimistic])
+            if (values.selectedPullRequest.url === requestPrUrl) {
+                actions.loadPrCommentsSuccess([...(values.prComments ?? []), optimistic])
+            }
             actions.closeDraftThread()
             try {
-                const response = await signalsReportPrReviewCommentsCreate(String(teamId), props.reportId, {
-                    body: payload.body,
-                    in_reply_to: payload.inReplyTo ?? null,
-                    path: payload.path ?? null,
-                    line: payload.line ?? null,
-                    side: payload.side ?? null,
-                })
-                actions.loadPrCommentsSuccess(
-                    (values.prComments ?? []).map((c) => (c.id === tempId ? response.comment : c))
+                const response = await signalsReportPrReviewCommentsCreate(
+                    String(teamId),
+                    props.reportId,
+                    {
+                        body: payload.body,
+                        in_reply_to: payload.inReplyTo ?? null,
+                        path: payload.path ?? null,
+                        line: payload.line ?? null,
+                        side: payload.side ?? null,
+                    },
+                    { pull_request_id: values.selectedPullRequest.id ?? undefined }
                 )
-            } catch (error: any) {
-                actions.loadPrCommentsSuccess(
-                    (values.prComments ?? []).map((c) =>
-                        c.id === tempId ? { ...(c as ClientPullRequestComment), pending: 'failed' } : c
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        (values.prComments ?? []).map((c) => (c.id === tempId ? response.comment : c))
                     )
-                )
+                }
+            } catch (error: any) {
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        (values.prComments ?? []).map((c) =>
+                            c.id === tempId ? { ...(c as ClientPullRequestComment), pending: 'failed' } : c
+                        )
+                    )
+                }
                 lemonToast.error(reviewCommentError(error, "Couldn't post the comment to GitHub"))
             } finally {
                 actions.postReviewCommentFinished()
@@ -1326,46 +1453,66 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Edit one of the user's own review comments. Optimistically swaps the body in; a failure puts
         // back only that comment's body.
         editReviewComment: async ({ commentId, body }) => {
+            const requestPrUrl = values.selectedPullRequest.url
             const teamId = teamLogic.values.currentTeamId
             const previous = (values.prComments ?? []).find((c) => c.id === commentId)
             actions.setEditingCommentId(null)
             if (!teamId || !previous) {
                 return
             }
-            actions.loadPrCommentsSuccess(
-                patchComment(values.prComments, commentId, (c) => ({ ...c, body, pending: 'sending' }))
-            )
-            try {
-                const response = await signalsReportPrReviewCommentUpdate(String(teamId), props.reportId, commentId, {
-                    body,
-                })
-                actions.loadPrCommentsSuccess(patchComment(values.prComments, commentId, () => response.comment))
-            } catch (error: any) {
+            if (values.selectedPullRequest.url === requestPrUrl) {
                 actions.loadPrCommentsSuccess(
-                    patchComment(values.prComments, commentId, (c) => ({
-                        ...c,
-                        body: previous.body,
-                        pending: undefined,
-                    }))
+                    patchComment(values.prComments, commentId, (c) => ({ ...c, body, pending: 'sending' }))
                 )
+            }
+            try {
+                const response = await signalsReportPrReviewCommentUpdate(
+                    String(teamId),
+                    props.reportId,
+                    commentId,
+                    {
+                        body,
+                    },
+                    { pull_request_id: values.selectedPullRequest.id ?? undefined }
+                )
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(patchComment(values.prComments, commentId, () => response.comment))
+                }
+            } catch (error: any) {
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            body: previous.body,
+                            pending: undefined,
+                        }))
+                    )
+                }
                 lemonToast.error(reviewCommentError(error, "Couldn't save the edit"))
             }
         },
         // Delete one of the user's own review comments. Optimistically removes it; a failure slots it
         // back at its old index in the list as it stands now.
         deleteReviewComment: async ({ commentId }) => {
+            const requestPrUrl = values.selectedPullRequest.url
             const teamId = teamLogic.values.currentTeamId
             const index = (values.prComments ?? []).findIndex((c) => c.id === commentId)
             if (!teamId || index === -1) {
                 return
             }
             const removed = (values.prComments ?? [])[index]
-            actions.loadPrCommentsSuccess((values.prComments ?? []).filter((c) => c.id !== commentId))
+            if (values.selectedPullRequest.url === requestPrUrl) {
+                actions.loadPrCommentsSuccess((values.prComments ?? []).filter((c) => c.id !== commentId))
+            }
             try {
-                await signalsReportPrReviewCommentDestroy(String(teamId), props.reportId, commentId)
+                await signalsReportPrReviewCommentDestroy(String(teamId), props.reportId, commentId, {
+                    pull_request_id: values.selectedPullRequest.id ?? undefined,
+                })
             } catch (error: any) {
                 const current = (values.prComments ?? []).filter((c) => c.id !== commentId)
-                actions.loadPrCommentsSuccess([...current.slice(0, index), removed, ...current.slice(index)])
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess([...current.slice(0, index), removed, ...current.slice(index)])
+                }
                 lemonToast.error(reviewCommentError(error, "Couldn't delete the comment"))
             }
         },
@@ -1373,6 +1520,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // reaction, then confirms with the server (add returns the real reaction id). A failure puts back
         // only that one reaction, so a reaction toggled concurrently on the same comment isn't clobbered.
         toggleReviewCommentReaction: async ({ commentId, content }) => {
+            const requestPrUrl = values.selectedPullRequest.url
             const teamId = teamLogic.values.currentTeamId
             const login = values.currentUserGithubLogin
             if (!teamId || !login) {
@@ -1382,26 +1530,31 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const mine = comment?.reactions?.find((r) => r.content === content && r.user_login === login)
 
             if (mine) {
-                actions.loadPrCommentsSuccess(
-                    patchComment(values.prComments, commentId, (c) => ({
-                        ...c,
-                        reactions: (c.reactions ?? []).filter((r) => r.id !== mine.id),
-                    }))
-                )
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            reactions: (c.reactions ?? []).filter((r) => r.id !== mine.id),
+                        }))
+                    )
+                }
                 try {
                     await signalsReportPrReviewCommentReactionDestroy(
                         String(teamId),
                         props.reportId,
                         commentId,
-                        mine.id
+                        mine.id,
+                        { pull_request_id: values.selectedPullRequest.id ?? undefined }
                     )
                 } catch (error: any) {
-                    actions.loadPrCommentsSuccess(
-                        patchComment(values.prComments, commentId, (c) => ({
-                            ...c,
-                            reactions: [...(c.reactions ?? []).filter((r) => r.id !== mine.id), mine],
-                        }))
-                    )
+                    if (values.selectedPullRequest.url === requestPrUrl) {
+                        actions.loadPrCommentsSuccess(
+                            patchComment(values.prComments, commentId, (c) => ({
+                                ...c,
+                                reactions: [...(c.reactions ?? []).filter((r) => r.id !== mine.id), mine],
+                            }))
+                        )
+                    }
                     lemonToast.error(reviewCommentError(error, "Couldn't remove the reaction"))
                 }
                 return
@@ -1409,32 +1562,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
 
             const tempId = `optimistic-rx-${commentId}-${content}`
             const optimisticReaction: PullRequestCommentReactionApi = { id: tempId, content, user_login: login }
-            actions.loadPrCommentsSuccess(
-                patchComment(values.prComments, commentId, (c) => ({
-                    ...c,
-                    reactions: [...(c.reactions ?? []), optimisticReaction],
-                }))
-            )
+            if (values.selectedPullRequest.url === requestPrUrl) {
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: [...(c.reactions ?? []), optimisticReaction],
+                    }))
+                )
+            }
             try {
                 const response = await signalsReportPrReviewCommentReactionsCreate(
                     String(teamId),
                     props.reportId,
                     commentId,
-                    { content: content as any }
+                    { content: content as any },
+                    { pull_request_id: values.selectedPullRequest.id ?? undefined }
                 )
-                actions.loadPrCommentsSuccess(
-                    patchComment(values.prComments, commentId, (c) => ({
-                        ...c,
-                        reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
-                    }))
-                )
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
+                        }))
+                    )
+                }
             } catch (error: any) {
-                actions.loadPrCommentsSuccess(
-                    patchComment(values.prComments, commentId, (c) => ({
-                        ...c,
-                        reactions: (c.reactions ?? []).filter((r) => r.id !== tempId),
-                    }))
-                )
+                if (values.selectedPullRequest.url === requestPrUrl) {
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            reactions: (c.reactions ?? []).filter((r) => r.id !== tempId),
+                        }))
+                    )
+                }
                 lemonToast.error(reviewCommentError(error, "Couldn't add the reaction"))
             }
         },
@@ -1455,12 +1615,27 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         createPrSuccess: () => {
             actions.loadReportArtefacts()
         },
+        discussReportSuccess: () => {
+            actions.loadReportArtefacts()
+        },
+        selectPullRequest: () => {
+            actions.loadPrChecksSuccess(null)
+            actions.loadPrCommentsSuccess(null)
+            actions.closeDraftThread()
+            actions.setEditingCommentId(null)
+            actions.loadPrChecks()
+            actions.loadPrComments()
+        },
         setReport: () => {
             // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
             // A failed load leaves the value null, so gate on the error too: without it every prop
             // churn from the shell's list poll would re-fetch (and re-fail) a PR GitHub can't serve.
+            if (values.hasImplementationPr && values.selectedPullRequestUrl !== values.selectedPullRequest.url) {
+                actions.selectPullRequest(values.selectedPullRequest.url)
+                return
+            }
             if (values.hasImplementationPr) {
                 if (values.prChecks === null && !values.prChecksLoading && values.prChecksError === null) {
                     actions.loadPrChecks()

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -318,7 +318,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
 
-    @freeze_time("2023-01-01T00:00:00Z")
+    @time_machine.travel("2023-01-01T00:00:00Z", tick=False)
     @patch(
         "posthog.session_recordings.session_recording_api.list_blocks",
         side_effect=Exception(
@@ -362,7 +362,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             ]
         }
 
-    @freeze_time("2023-01-01T00:00:00Z")
+    @time_machine.travel("2023-01-01T00:00:00Z", tick=False)
     @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
     @patch(
         "posthog.session_recordings.session_recording_api.list_blocks",
@@ -410,7 +410,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         """
         )
 
-    @freeze_time("2023-01-01T00:00:00Z")
+    @time_machine.travel("2023-01-01T00:00:00Z", tick=False)
     @patch("posthog.session_recordings.session_recording_api.recording_s3_client.recording_s3_client")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",

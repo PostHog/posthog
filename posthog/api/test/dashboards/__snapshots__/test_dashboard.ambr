@@ -1760,6 +1760,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2447,6 +2448,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2480,6 +2482,7 @@
          "posthog_alertconfiguration"."snoozed_until",
          "posthog_alertconfiguration"."skip_weekend",
          "posthog_alertconfiguration"."schedule_restriction",
+         "posthog_alertconfiguration"."schedule_start_time",
          "posthog_alertconfiguration"."investigation_agent_enabled",
          "posthog_alertconfiguration"."investigation_gates_notifications",
          "posthog_alertconfiguration"."investigation_inconclusive_action",
@@ -4061,6 +4064,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -7428,6 +7432,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -8111,6 +8116,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -8144,6 +8150,7 @@
          "posthog_alertconfiguration"."snoozed_until",
          "posthog_alertconfiguration"."skip_weekend",
          "posthog_alertconfiguration"."schedule_restriction",
+         "posthog_alertconfiguration"."schedule_start_time",
          "posthog_alertconfiguration"."investigation_agent_enabled",
          "posthog_alertconfiguration"."investigation_gates_notifications",
          "posthog_alertconfiguration"."investigation_inconclusive_action",
@@ -12893,6 +12900,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -16339,6 +16347,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"

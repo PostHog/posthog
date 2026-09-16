@@ -47,16 +47,19 @@ def _page(items: list[dict[str, Any]], current: Optional[int], pages: Optional[i
     return resp
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+def _wire(session: mock.MagicMock, responses: list[Response], urls: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """Wire a mock session and capture each request's params AT SEND TIME.
 
     ``request.params`` is one dict the paginator mutates in place across pages, so snapshot a copy
-    when each request is prepared rather than inspecting the final state.
+    when each request is prepared rather than inspecting the final state. Pass ``urls`` to collect
+    each request's URL alongside them.
     """
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
+        if urls is not None:
+            urls.append(request.url)
         param_snapshots.append(dict(request.params or {}))
         return mock.MagicMock()
 
@@ -128,6 +131,11 @@ class TestBuildParams:
         params = _build_params(BABELFORCE_ENDPOINTS["agents"], from_timestamp=1700000000, to_timestamp=1700000100)
         assert "dateCreated.start" not in params
         assert "dateCreated.end" not in params
+
+    def test_unpaginated_endpoint_omits_the_page_size(self):
+        # The outbound and event endpoints document no paging params; sending `max` could cap a
+        # response that otherwise carries the whole collection.
+        assert _build_params(BABELFORCE_ENDPOINTS["outbound_campaigns"], None, None) == {}
 
     def test_no_watermark_omits_start(self):
         params = _build_params(BABELFORCE_ENDPOINTS["calls"], from_timestamp=None, to_timestamp=1700000100)
@@ -308,7 +316,7 @@ class TestBabelforceSourceResponse:
         )
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         # Reporting order is undocumented, so the watermark must only finalize on completion.
         assert response.sort_mode == "desc"
         if config.partition_key:
@@ -321,3 +329,118 @@ class TestBabelforceSourceResponse:
     @pytest.mark.parametrize("config", [c for c in BABELFORCE_ENDPOINTS.values() if c.partition_key])
     def test_partition_keys_are_stable_creation_fields(self, config):
         assert config.partition_key == "dateCreated"
+
+
+# Each fan-out child, the path its parent id resolves into, and the field that id is injected as.
+FANOUT_CASES = [
+    ("conversation_events", "/conversations/p1/events", "conversationId"),
+    ("outbound_leads", "/outbound/lists/p1/leads", "listId"),
+    ("outbound_campaign_statistics", "/outbound/campaigns/p1/statistics", "campaignId"),
+]
+
+
+class TestFanout:
+    @pytest.mark.parametrize("endpoint, child_path, parent_key", FANOUT_CASES)
+    @mock.patch(SESSION_PATCH)
+    def test_child_rows_carry_the_parent_key(self, mock_session, endpoint, child_path, parent_key):
+        # Child rows are keyed by their parent, so the injected field has to be the one the
+        # primary key names - otherwise rows from different parents collide on merge.
+        session = mock_session.return_value
+        urls: list[str] = []
+        _wire(session, [_page([{"id": "p1"}], current=1, pages=1), _page([{"probe": "row"}], current=1, pages=1)], urls)
+
+        rows = _rows(
+            babelforce_source(
+                "services", "id", "token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert urls[1].endswith(child_path)
+        assert rows == [{"probe": "row", parent_key: "p1"}]
+        assert parent_key in BABELFORCE_ENDPOINTS[endpoint].primary_keys
+
+    @mock.patch(SESSION_PATCH)
+    def test_unpaginated_fan_out_reads_one_page_without_paging_params(self, mock_session):
+        # Both pages advertise more to come. The outbound endpoints document no `pagination`
+        # object and take no `page`/`max` params, so neither is sent and neither is followed.
+        session = mock_session.return_value
+        params = _wire(session, [_page([{"id": "l1"}], current=1, pages=3), _page([{"id": "d1"}], current=1, pages=3)])
+
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "outbound_leads",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+        )
+
+        assert params == [{}, {}]
+        assert session.send.call_count == 2
+        assert [row["id"] for row in rows] == ["d1"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_fan_out_checkpoints_each_parent(self, mock_session):
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "c1"}, {"id": "c2"}], current=1, pages=1),
+                _page([{"id": "e1"}], current=1, pages=1),
+                _page([{"id": "e2"}], current=1, pages=1),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "conversation_events",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert [row["id"] for row in rows] == ["e1", "e2"]
+        assert manager.save_state.call_args.args[0].fanout["completed"] == [
+            "/conversations/c1/events",
+            "/conversations/c2/events",
+        ]
+
+    @mock.patch(SESSION_PATCH)
+    def test_fan_out_resume_skips_completed_parents(self, mock_session):
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "c1"}, {"id": "c2"}], current=1, pages=1),
+                _page([{"id": "e2"}], current=1, pages=1),
+            ],
+        )
+
+        manager = _make_manager(
+            BabelforceResumeConfig(
+                fanout={"completed": ["/conversations/c1/events"], "current": None, "child_state": None}
+            )
+        )
+        rows = _rows(
+            babelforce_source(
+                "services",
+                "id",
+                "token",
+                "conversation_events",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+            )
+        )
+
+        # The parent list is re-read, but only the unfinished conversation is fetched again.
+        assert [row["id"] for row in rows] == ["e2"]
+        assert session.send.call_count == 2

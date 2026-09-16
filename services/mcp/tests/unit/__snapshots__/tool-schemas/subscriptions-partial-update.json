@@ -108,6 +108,22 @@
         "delivery_config": {
             "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
             "properties": {
+                "include_feedback": {
+                    "description": "AI prompt subscriptions only: include report feedback links. Defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "include_images": {
+                    "description": "AI prompt subscriptions only: include generated chart images. Defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "include_manage_link": {
+                    "description": "AI prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted.",
+                    "type": "boolean"
+                },
+                "include_posthog_hint": {
+                    "description": "AI prompt subscriptions only: include PostHog product guidance. Slack only. Email and Microsoft Teams reports do not include it. Defaults to true when omitted.",
+                    "type": "boolean"
+                },
                 "post_all_insights_in_main_message": {
                     "default": false,
                     "description": "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false.",

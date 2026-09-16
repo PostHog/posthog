@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MixpanelSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.mixpanel import (
+    EXPORT_TRUNCATED_ERROR,
     MixpanelResumeConfig,
     mixpanel_source,
     validate_credentials as validate_mixpanel_credentials,
@@ -59,7 +58,7 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MIXPANEL,
+            name=ExternalDataSourceType.MIXPANEL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mixpanel",
             caption="""Connect your Mixpanel project to pull events, user profiles, cohorts and annotations into the PostHog Data warehouse.
@@ -182,8 +181,9 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
     def get_retryable_errors(self) -> set[str]:
         # A 429 (rate limit) or 5xx is retried internally honoring Retry-After; if those retries
         # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
-        # activity without surfacing it as tracked exception noise.
-        return {"Mixpanel API error (retryable)"}
+        # activity without surfacing it as tracked exception noise. An export Mixpanel aborts
+        # mid-body reaches us on the same contract, after `_stream_export_day` re-fetches the day.
+        return {"Mixpanel API error (retryable)", EXPORT_TRUNCATED_ERROR}
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MixpanelResumeConfig]:
         return ResumableSourceManager[MixpanelResumeConfig](inputs, MixpanelResumeConfig)

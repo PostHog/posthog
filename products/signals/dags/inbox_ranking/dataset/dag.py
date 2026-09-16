@@ -48,7 +48,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
+from products.signals.backend.report_embeddings import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_PRODUCT,
+    EMBEDDING_RENDERING_TITLE_SUMMARY,
+)
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -92,7 +96,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 5
+FEATURE_SCHEMA_VERSION = 6
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -212,9 +216,13 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("create_pr_click_count", pa.int32()),
     ("first_create_pr_clicked_at", _TIMESTAMP),
     ("discuss_count", pa.int32()),
+    ("first_discussed_at", _TIMESTAMP),
     ("snooze_count", pa.int32()),
+    ("first_snooze_clicked_at", _TIMESTAMP),
     ("feedback_positive_count", pa.int32()),
+    ("first_positive_feedback_at", _TIMESTAMP),
     ("feedback_negative_count", pa.int32()),
+    ("first_negative_feedback_at", _TIMESTAMP),
     ("first_feedback_at", _TIMESTAMP),
     ("latest_feedback_sentiment", pa.string()),
     ("first_resolved_at", _TIMESTAMP),
@@ -224,7 +232,9 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("first_dismissal_reason", pa.string()),
     ("wrong_dismissal_count", pa.int32()),
+    ("first_wrong_dismissed_at", _TIMESTAMP),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),
@@ -233,6 +243,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("pr_merged_count", pa.int32()),
     ("first_pr_merged_at", _TIMESTAMP),
     ("pr_closed_count", pa.int32()),
+    ("first_pr_closed_at", _TIMESTAMP),
     ("refund_count", pa.int32()),
     ("first_refunded_at", _TIMESTAMP),
     ("refund_reason", pa.string()),
@@ -502,7 +513,9 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
             {
                 "product": EMBEDDING_PRODUCT,
                 "document_type": EMBEDDING_DOCUMENT_TYPE,
-                "rendering": EMBEDDING_RENDERING,
+                # One rendering per snapshot. The title-only rendering is emitted too, and gets its
+                # own snapshot when the model is ready to compare the two.
+                "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
                 "snapshot_end": snapshot_end.replace(tzinfo=None),
             },
             settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
@@ -542,7 +555,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
             "report_team_id": team_ids,
             "embedding_small": embeddings,
             "embedding_inserted_at": inserted_ats,
-            "embedding_rendering": [EMBEDDING_RENDERING] * row_count,
+            "embedding_rendering": [EMBEDDING_RENDERING_TITLE_SUMMARY] * row_count,
             "is_tombstone": tombstone_flags,
         },
         schema=EMBEDDINGS_SCHEMA,

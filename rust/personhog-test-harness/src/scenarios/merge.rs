@@ -438,6 +438,7 @@ pub async fn run_merges(
 /// time to re-drive it. An op that never settles is a violation.
 pub async fn settle_unresolved(
     pool: &PgPool,
+    person_table: &str,
     state: &PersonState,
     unresolved: Vec<UnresolvedMerge>,
     deadline: Duration,
@@ -452,10 +453,12 @@ pub async fn settle_unresolved(
     let mut violations = Vec::new();
     let mut pending = unresolved;
     let started = Instant::now();
+    let (lifecycle_op, _) = crate::seed::lifecycle_tables_for(person_table);
+    let op_query = format!("SELECT step, outcome FROM {lifecycle_op} WHERE op_id = $1");
     loop {
         let mut still_pending = Vec::new();
         for merge in pending {
-            let row = sqlx::query("SELECT step, outcome FROM lifecycle_op WHERE op_id = $1")
+            let row = sqlx::query(&op_query)
                 .bind(merge.op_id)
                 .fetch_optional(pool)
                 .await

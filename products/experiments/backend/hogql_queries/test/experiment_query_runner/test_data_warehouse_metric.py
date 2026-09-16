@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -112,7 +112,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -179,7 +179,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -246,7 +246,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-31"):
+        with time_machine.travel("2023-01-31", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -530,7 +530,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             self.assertEqual(test_result.number_of_samples, filter_expected["test_absolute_exposure"])
 
         else:
-            with freeze_time("2023-01-07"):
+            with time_machine.travel("2023-01-07", tick=False):
                 result = query_runner.calculate()
 
             assert result.variant_results is not None
@@ -565,7 +565,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -653,7 +653,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
-        with freeze_time("2023-01-10"):
+        with time_machine.travel("2023-01-10", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -759,7 +759,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -833,7 +833,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -955,7 +955,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
-        with freeze_time("2023-01-10"):
+        with time_machine.travel("2023-01-10", tick=False):
             result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1102,7 +1102,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with freeze_time(end_date):
+        with time_machine.travel(end_date, tick=False):
             result = query_runner.calculate()
 
         # Verify that precomputation was NOT used

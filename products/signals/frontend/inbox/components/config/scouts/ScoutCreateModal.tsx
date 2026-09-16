@@ -11,7 +11,6 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,7 +18,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutCreateResponseApi,
 } from 'products/signals/frontend/generated/api.schemas'
-import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
+import { SKILL_DESCRIPTION_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -30,14 +29,15 @@ import {
 import {
     getScoutScheduleMode,
     getScoutScheduleOptions,
+    MAX_SCOUT_DISPLAY_NAME_LENGTH,
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SCOUT_WEEKDAY_OPTIONS,
     SCOUT_WEEKLY_ON_SCHEDULE_MODE,
-    SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
 
@@ -57,7 +57,6 @@ export function ScoutCreateModal({
     onCreated,
     onEnabled,
 }: ScoutCreateModalProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated, onEnabled }
@@ -105,8 +104,11 @@ export function ScoutCreateModal({
     // form has errors, so a name typo would otherwise surface only as the button's tooltip. Show the
     // name error in the help slot as soon as the field has been left, until the form shows it itself.
     const touchedNameError =
-        scoutCreateFormTouches.name && !showScoutCreateFormErrors ? scoutCreateFormValidationErrors.name : undefined
+        scoutCreateFormTouches.display_name && !showScoutCreateFormErrors
+            ? scoutCreateFormValidationErrors.display_name
+            : undefined
     const firstError = [
+        scoutCreateFormValidationErrors.display_name,
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
         scoutCreateFormValidationErrors.body,
@@ -153,42 +155,23 @@ export function ScoutCreateModal({
             >
                 <div className="flex flex-col gap-4">
                     <LemonField
-                        name="name"
+                        name="display_name"
                         label="Name"
                         help={
-                            !redesign ? (
-                                <>
-                                    Scout names start with{' '}
-                                    <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
-                                </>
-                            ) : touchedNameError ? (
+                            touchedNameError ? (
                                 <span className="text-danger">{touchedNameError}</span>
                             ) : (
-                                'Lowercase letters, numbers, and hyphens.'
+                                'What this scout is called. You can change it later.'
                             )
                         }
                     >
-                        {redesign ? (
-                            <LemonInput
-                                autoFocus={!turningOn}
-                                disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                                // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
-                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
-                                prefix={
-                                    <span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>
-                                }
-                                placeholder="checkout-failures"
-                                data-attr="scout-create-name"
-                            />
-                        ) : (
-                            <LemonInput
-                                autoFocus={!turningOn}
-                                disabledReason={turningOn ? 'This scout already has its name' : undefined}
-                                maxLength={64}
-                                placeholder="signals-scout-checkout-failures"
-                                data-attr="scout-create-name"
-                            />
-                        )}
+                        <LemonInput
+                            autoFocus={!turningOn}
+                            disabledReason={turningOn ? 'This scout already has its name' : undefined}
+                            maxLength={MAX_SCOUT_DISPLAY_NAME_LENGTH}
+                            placeholder="Checkout failures"
+                            data-attr="scout-create-name"
+                        />
                     </LemonField>
 
                     <LemonField
@@ -253,6 +236,16 @@ export function ScoutCreateModal({
                         {({ value, onChange }) => (
                             <ScoutMcpServersPicker
                                 selectedServerIds={value ?? []}
+                                onChange={onChange}
+                                disabledReason={busyReason}
+                            />
+                        )}
+                    </LemonField>
+
+                    <LemonField name="config.repositories">
+                        {({ value, onChange }) => (
+                            <ScoutRepositoriesPicker
+                                selectedRepositories={value ?? []}
                                 onChange={onChange}
                                 disabledReason={busyReason}
                             />

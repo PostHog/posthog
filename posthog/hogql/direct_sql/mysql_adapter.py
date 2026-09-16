@@ -150,6 +150,11 @@ class MySQLAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
+        from products.warehouse_sources.backend.facade.source_management import (
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        )
+
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
         statement_timeout_seconds = max(
@@ -163,7 +168,9 @@ class MySQLAdapter:
 
         try:
             with request.timings.measure("mysql_execute"):
-                with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
+                with mysql_implementation.connect(
+                    source_config, read_timeout=statement_timeout_seconds, team_id=request.team.pk
+                ) as connection:
                     with connection.cursor() as cursor:
                         try:
                             # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
@@ -177,7 +184,13 @@ class MySQLAdapter:
                         )
                         results = cursor.fetchall()
                         description = cursor.description or []
-        except (pymysql.MySQLError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            pymysql.MySQLError,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            HostNotAllowedError,
+            TemporaryHostResolutionError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=mysql_error_to_message(error))
