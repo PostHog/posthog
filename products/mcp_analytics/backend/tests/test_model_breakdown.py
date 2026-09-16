@@ -38,7 +38,7 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
             distinct_id="d2",
             properties={"$mcp_llm_model": "gpt-5.6-sol", "$mcp_llm_model_source": "self_reported"},
         )
-        self._emit(distinct_id="d3", properties={"$mcp_llm_model": "claude-sonnet-5"})
+        self._emit(distinct_id="d3", properties={"$mcp_llm_model": "claude-sonnet-5", "$mcp_is_error": True})
         self._emit(distinct_id="d4", properties={})
         self._emit(distinct_id="d5", properties={"$mcp_llm_model": "  "})
         self._emit(
@@ -53,6 +53,8 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert rows["claude-sonnet-5"].total_calls == 1
         assert rows["Unknown"].total_calls == 3
         assert sum(row.total_calls for row in rows.values()) == 6
+        assert (rows["claude-sonnet-5"].errors, rows["claude-sonnet-5"].error_rate_pct) == (1, 100.0)
+        assert (rows["gpt-5.6-sol"].errors, rows["gpt-5.6-sol"].error_rate_pct) == (0, 0.0)
 
     def test_collapses_long_tail_into_other_without_losing_calls(self) -> None:
         expected_total = 0
@@ -115,4 +117,6 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
             query=MCPModelBreakdownQuery(includeAllModels=True, limit=0, offset=100), team=self.team
         ).calculate()
         assert not last_page.hasMore
-        assert last_page.results == [MCPModelBreakdownItem(model="model-100", total_calls=1)]
+        assert last_page.results == [
+            MCPModelBreakdownItem(model="model-100", total_calls=1, errors=0, error_rate_pct=0.0)
+        ]

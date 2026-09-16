@@ -5942,6 +5942,8 @@ class MCPModelBreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error_rate_pct: float
+    errors: int
     model: str
     total_calls: int
 
