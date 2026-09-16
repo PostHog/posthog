@@ -283,15 +283,12 @@ class _DateWindow:
     start: date
     end: date
 
+    @property
+    def days(self) -> int:
+        return (self.end - self.start).days + 1
+
     def as_filter(self) -> dict[str, str]:
         return {"start_date": self.start.isoformat(), "end_date": self.end.isoformat()}
-
-    def halves(self) -> tuple["_DateWindow", "_DateWindow"]:
-        midpoint = self.start + timedelta(days=(self.end - self.start).days // 2)
-        return (
-            _DateWindow(start=self.start, end=midpoint),
-            _DateWindow(start=midpoint + timedelta(days=1), end=self.end),
-        )
 
 
 def _date_windows(start: date, end: date, max_days: int) -> Iterator[_DateWindow]:
@@ -352,7 +349,7 @@ class _UnifiedFanOut:
                 extra={"account_id": account_id, "day": window.start.isoformat()},
             )
             return
-        for half in window.halves():
+        for half in _date_windows(window.start, window.end, max_days=(window.days + 1) // 2):
             yield from self.pages(account_id, half)
 
 
