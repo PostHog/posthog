@@ -1,6 +1,7 @@
+from parameterized import parameterized
 from redis.exceptions import NoPermissionError
 
-from posthog.redbeat_preflight import find_denials, report
+from posthog.redbeat_preflight import Denial, find_denials, report
 
 KEY_PREFIX = "redbeat:"
 STATICS_KEY = "redbeat::statics"
@@ -98,6 +99,18 @@ class TestRedbeatPreflight:
         assert [denial.commands for denial in denials] == [("smembers",)]
         assert "no permissions to run the 'smembers' command" in message
         assert "ACL SETUSER posthog +smembers ~redbeat:*" in message
+
+    @parameterized.expand(
+        [
+            ("redis://:pw@redis:6379/", "default"),
+            ("redis://redis:6379/", "default"),
+            ("redis://us%40er:pw@redis:6379/", "us@er"),
+        ]
+    )
+    def test_the_hint_names_the_user_the_connection_authenticates_as(self, url: str, expected_user: str):
+        message = report(url, KEY_PREFIX, [Denial(commands=("smembers",), reason="denied")])
+
+        assert f"ACL SETUSER {expected_user} +smembers ~redbeat:*" in message
 
     def test_a_refused_command_does_not_stop_the_remaining_probes(self):
         client = FakeRedis(denied={"smembers", "eval"})

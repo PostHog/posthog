@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from redis.exceptions import NoPermissionError, RedisError
@@ -125,7 +125,11 @@ def find_denials(client: Any, statics_key: str, key_prefix: str, lock_key: str |
 
 
 def _acl_hint(url: str, key_prefix: str, denials: list[Denial]) -> str:
-    user = urlsplit(url).username or "<user>"
+    # A URL with no username authenticates as Redis's default ACL user, and redis-py decodes a
+    # percent-encoded username before it authenticates. ACL SETUSER on any other name creates a
+    # new user instead of granting the command, so the hint must name the user beat connects as.
+    username = urlsplit(url).username
+    user = unquote(username) if username else "default"
     grants = " ".join(f"+{command}" for denial in denials for command in denial.commands)
     return f"ACL SETUSER {user} {grants} ~{key_prefix}*"
 
