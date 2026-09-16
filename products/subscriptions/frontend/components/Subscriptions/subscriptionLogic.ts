@@ -846,6 +846,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 cache.prefillBaseline = { ...cache.prefillBaseline, integration_id: integrationId }
                 return
             }
+            if (values.subscriptionChanged) {
+                actions.setSubscriptionValue('integration_id', integrationId)
+                return
+            }
             actions.resetSubscription({ ...values.subscription, integration_id: integrationId })
         },
         loadSummaryQuotaSuccess: ({ summaryQuota }) => {

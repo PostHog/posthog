@@ -920,6 +920,32 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.title).toBe('Renamed')
     })
 
+    it('keeps pending edits dirty when a default integration arrives late', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'slack',
+                    target_value: 'C123|#general',
+                    integration_id: null,
+                }),
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.setSubscriptionValue('title', 'Renamed while connections load')
+        expect(existingLogic.values.subscriptionChanged).toBe(true)
+
+        existingLogic.actions.applyDefaultIntegration(7)
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.subscription).toMatchObject({
+            title: 'Renamed while connections load',
+            integration_id: 7,
+        })
+        expect(existingLogic.values.subscriptionChanged).toBe(true)
+    })
+
     it('asks for a URL again once the Teams webhook is being replaced', async () => {
         useMocks({
             get: {
