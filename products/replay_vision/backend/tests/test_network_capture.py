@@ -3,7 +3,11 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.replay_vision.backend.temporal.network_capture import MAX_REQUESTS_PER_SESSION, parse_network_payload
+from products.replay_vision.backend.temporal.network_capture import (
+    MAX_REQUESTS_PER_SESSION,
+    NetworkCollector,
+    parse_network_payload,
+)
 
 
 def _line(*events: dict[str, Any], window_id: str = "w1") -> str:
@@ -82,6 +86,41 @@ class TestParseNetworkPayload:
             ]
         )
         assert [request.status for request in payload.requests] == [503, 503]
+
+    @parameterized.expand(
+        [
+            ("name only", {"name": "https://app.test/a"}, "https://app.test/a"),
+            ("url only", {"url": "https://app.test/b"}, "https://app.test/b"),
+            ("name wins over url", {"url": "https://app.test/b", "name": "https://app.test/a"}, "https://app.test/a"),
+        ]
+    )
+    def test_accepts_the_url_key_wrapped_fetch_uses(self, _label: str, fields: dict[str, Any], expected: str) -> None:
+        # Wrapped fetch and xhr report `url` rather than `name`. Dropping those loses exactly the failed
+        # requests the tool exists to surface, and the recording still looks like it captured nothing.
+        payload = parse_network_payload([_line(_rrweb_event(1000, {"status": 500, **fields}))])
+        assert [request.url for request in payload.requests] == [expected]
+
+    def test_strips_credentials_from_the_authority(self) -> None:
+        # A URL can carry `user:token@` before the host, which a netloc-preserving rebuild keeps.
+        payload = parse_network_payload(
+            [_line(_rrweb_event(1000, {"name": "https://someone:sekret@app.test/api/x", "status": 500}))]
+        )
+        assert payload.requests[0].url == "https://app.test/api/x"
+        assert "sekret" not in payload.requests[0].model_dump_json()
+
+    def test_strips_the_query_from_a_url_too_malformed_to_split(self) -> None:
+        # A URL too broken to parse is still client-supplied text that can carry a token.
+        malformed = "http://[bad/api?token=sekret"
+        payload = parse_network_payload([_line(_rrweb_event(1000, {"name": malformed, "status": 500}))])
+        assert "sekret" not in payload.requests[0].url
+
+    def test_records_a_partial_read_when_asked(self) -> None:
+        # A block that failed to fetch makes "nothing failed" unprovable, so the payload has to say so.
+        collector = NetworkCollector()
+        collector.feed([_line(_rrweb_event(1000, {"name": "https://app.test/ok", "status": 200, "duration": 5}))])
+        assert collector.finish().captured
+        assert not collector.finish().partial
+        assert collector.finish(partial=True).partial
 
     def test_drops_query_string_headers_and_bodies(self) -> None:
         # These carry tokens and other people's personal data. They must never reach the model or the

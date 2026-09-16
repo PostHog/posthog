@@ -10,11 +10,12 @@ from __future__ import annotations
 import bisect
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from google.genai import types
 
 from products.replay_vision.backend.temporal.network_capture import NetworkRequest, SessionNetworkPayload
+from products.replay_vision.backend.temporal.tool_args import parse_seconds
 from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 GET_NETWORK_TOOL_NAME = "get_network_around"
@@ -28,17 +29,35 @@ _MAX_REQUESTS_RETURNED = 20
 class NetworkIndex:
     """Captured requests resolved once to video-second offsets, so each lookup is a bisect.
 
-    `offsets` is ascending and parallel to `requests`. An index with no requests means the tool is not
-    offered for this scan at all, so the lookup paths below never have to describe that case.
+    `offsets` is ascending and parallel to `requests`. This object is the single source of truth for
+    whether a scan offers the network tool: the same instance decides the tool list and the preamble
+    wording, so the prompt can never promise a tool the conversation does not carry.
     """
 
     offsets: list[int]
     requests: list[dict[str, Any]]
+    captured: bool = False
     truncated: bool = False
+    partial: bool = False
 
     def has_requests(self) -> bool:
         """Whether this recording has anything a lookup could return, which decides if the tool is offered."""
         return bool(self.offsets)
+
+    def state(self) -> Literal["available", "clean", "none"]:
+        """How the preamble describes network data for this scan.
+
+        `clean` and `none` both withhold the tool but are not the same evidence. `clean` says the SDK
+        captured requests and none failed, which lets a scanner rule a network cause out. `none` says
+        nothing was captured, so silence means nothing either way.
+        """
+        if self.has_requests():
+            return "available"
+        # A truncated or partial read cannot show that nothing failed: the requests it did not reach are
+        # unknown, so the honest answer is no evidence rather than evidence of absence.
+        if self.captured and not self.truncated and not self.partial:
+            return "clean"
+        return "none"
 
 
 def build_network_index(
@@ -54,7 +73,10 @@ def build_network_index(
     if payload is None or session_start is None:
         return NetworkIndex(offsets=[], requests=[])
 
-    start_ms = int(session_start.timestamp() * 1000)
+    # ClickHouse hands back naive datetimes. Reading one as UTC here is correct only because Django
+    # forces the process timezone to UTC at startup, so state the assumption locally instead.
+    anchor = session_start if session_start.tzinfo is not None else session_start.replace(tzinfo=dt.UTC)
+    start_ms = int(anchor.timestamp() * 1000)
     entries: list[tuple[int, dict[str, Any]]] = []
     for request in payload.requests:
         session_ms = max(0, request.timestamp_ms - start_ms)
@@ -65,7 +87,9 @@ def build_network_index(
     return NetworkIndex(
         offsets=[offset for offset, _ in entries],
         requests=[request for _, request in entries],
+        captured=payload.captured,
         truncated=payload.truncated,
+        partial=payload.partial,
     )
 
 
@@ -97,7 +121,9 @@ def get_network_around(index: NetworkIndex, vid_t: int, window_s: int = _DEFAULT
         window.sort(key=lambda request: request["vid_t"])
 
     result: dict[str, Any] = {"requests": window}
-    if not window:
+    if index.truncated or index.partial:
+        result["note"] = "Some of this session's requests could not be read, so this window may be incomplete."
+    elif not window:
         result["note"] = "No failed or slow requests in this window. Requests that succeeded quickly are not recorded."
     return result
 
@@ -134,25 +160,13 @@ def network_tool() -> types.Tool:
 
 def dispatch_network_tool(function_call: Any, index: NetworkIndex) -> dict[str, Any]:
     """Execute a model `get_network_around` call against the prebuilt index."""
+    if getattr(function_call, "name", None) != GET_NETWORK_TOOL_NAME:
+        return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
     args = dict(getattr(function_call, "args", None) or {})
-    vid_t = _parse_seconds(args.get("vid_t"))
+    vid_t = parse_seconds(args.get("vid_t"))
     if vid_t is None:
         return {"error": "vid_t must be a number of seconds from the start of the video"}
-    window_s = _parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
+    window_s = parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
     if window_s is None:
         window_s = _DEFAULT_WINDOW_S
     return get_network_around(index, vid_t, window_s)
-
-
-def _parse_seconds(value: Any) -> int | None:
-    """Coerce a model-sent tool argument to whole seconds; `None` when it isn't numeric."""
-    try:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, int | float):
-            return int(value)
-        if isinstance(value, str):
-            return int(float(value.strip()))
-    except (ValueError, OverflowError):
-        return None
-    return None

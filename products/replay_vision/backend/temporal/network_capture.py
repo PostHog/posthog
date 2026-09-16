@@ -10,6 +10,7 @@ participates in an import cycle with the `scanners` package.
 
 from __future__ import annotations
 
+import re
 import json
 from collections.abc import Iterable, Iterator
 from typing import Any
@@ -37,6 +38,9 @@ _INDEXED_FIELDS: dict[str, str] = {
 _NAMED_FIELDS: dict[str, str] = {
     "entryType": "entry_type",
     "name": "name",
+    # Wrapped fetch and xhr report the URL as `url`, not `name`. The frontend carries the same fallback
+    # (`mapRRWebNetworkRequest`), so recordings in the wild use it and a request without it is dropped.
+    "url": "name",
     "initiatorType": "initiator_type",
     "method": "method",
     "duration": "duration",
@@ -55,6 +59,9 @@ SLOW_REQUEST_MS = 1000
 MAX_REQUESTS_PER_SESSION = 500
 
 _MAX_URL_LENGTH = 200
+
+# `method` and `initiator` come from the page and ride on every kept request.
+_MAX_FIELD_LENGTH = 40
 
 
 class NetworkRequest(BaseModel, frozen=True):
@@ -81,6 +88,46 @@ class SessionNetworkPayload(BaseModel, frozen=True):
     # "nothing failed": with capture off an empty result is no evidence either way.
     captured: bool = False
     truncated: bool = False
+    # True when a block could not be read, which makes the absence of failures unprovable.
+    partial: bool = False
+
+
+class NetworkCollector:
+    """Accumulates the requests worth keeping as blocks arrive.
+
+    Incremental so the caller can drop each block's lines once fed, and can stop fetching once `full`.
+    Holding every block's lines to parse them in one pass made peak memory track the whole decompressed
+    session, which the block count alone does not bound.
+    """
+
+    def __init__(self) -> None:
+        self._captured = False
+        self._kept: list[NetworkRequest] = []
+        self._truncated = False
+
+    @property
+    def full(self) -> bool:
+        return self._truncated
+
+    def feed(self, lines: Iterable[str]) -> None:
+        """Decode one block's snapshot lines, keeping the requests a scanner can act on."""
+        if self._truncated:
+            return
+        for raw_request, timestamp_ms in _iter_captured_requests(lines):
+            self._captured = True
+            request = _normalize(raw_request, timestamp_ms)
+            if request is None or not _is_interesting(request):
+                continue
+            if len(self._kept) >= MAX_REQUESTS_PER_SESSION:
+                self._truncated = True
+                return
+            self._kept.append(request)
+
+    def finish(self, *, partial: bool = False) -> SessionNetworkPayload:
+        self._kept.sort(key=lambda request: request.timestamp_ms)
+        return SessionNetworkPayload(
+            requests=self._kept, captured=self._captured, truncated=self._truncated, partial=partial
+        )
 
 
 def parse_network_payload(lines: Iterable[str]) -> SessionNetworkPayload:
@@ -89,22 +136,9 @@ def parse_network_payload(lines: Iterable[str]) -> SessionNetworkPayload:
     Each line is one JSON object, `{"window_id": ..., "data": [event, ...]}`. Lines that don't parse are
     skipped rather than raised on: a single corrupt block must not lose a scan the rest of the session.
     """
-    captured = False
-    kept: list[NetworkRequest] = []
-    truncated = False
-
-    for raw_request, timestamp_ms in _iter_captured_requests(lines):
-        captured = True
-        request = _normalize(raw_request, timestamp_ms)
-        if request is None or not _is_interesting(request):
-            continue
-        if len(kept) >= MAX_REQUESTS_PER_SESSION:
-            truncated = True
-            break
-        kept.append(request)
-
-    kept.sort(key=lambda request: request.timestamp_ms)
-    return SessionNetworkPayload(requests=kept, captured=captured, truncated=truncated)
+    collector = NetworkCollector()
+    collector.feed(lines)
+    return collector.finish()
 
 
 def _iter_captured_requests(lines: Iterable[str]) -> Iterator[tuple[dict[str, Any], int]]:
@@ -140,18 +174,20 @@ def _iter_event_requests(event: Any) -> Iterator[tuple[dict[str, Any], int]]:
         return
     timestamp_ms = int(timestamp)
 
+    if not isinstance(payload, dict):
+        return
+    requests: list[Any]
     if plugin == POSTHOG_NETWORK_PLUGIN:
-        if isinstance(payload, dict):
-            yield payload, timestamp_ms
+        requests = [payload]
     elif plugin == RRWEB_NETWORK_PLUGIN:
-        if not isinstance(payload, dict):
-            return
-        requests = payload.get("requests")
-        if not isinstance(requests, list):
-            return
-        for request in requests:
-            if isinstance(request, dict):
-                yield request, timestamp_ms
+        raw_requests = payload.get("requests")
+        requests = raw_requests if isinstance(raw_requests, list) else []
+    else:
+        return
+
+    for request in requests:
+        if isinstance(request, dict):
+            yield request, timestamp_ms
 
 
 def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
@@ -168,6 +204,8 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
             fields[field] = value
     if _PREFERRED_STATUS_FIELD in raw:
         fields["response_status"] = raw[_PREFERRED_STATUS_FIELD]
+    if isinstance(raw.get("name"), str):
+        fields["name"] = raw["name"]
 
     url = fields.get("name")
     if not isinstance(url, str) or not url.strip():
@@ -194,8 +232,13 @@ def _clean_url(url: str) -> str:
     try:
         split = urlsplit(url)
     except ValueError:
-        return url[:_MAX_URL_LENGTH]
-    cleaned = urlunsplit((split.scheme, split.netloc, split.path, "", ""))
+        # Still cut at the first `?` or `#`: a URL too malformed to split is client-supplied text that
+        # can carry a token just as readily as a well-formed one.
+        return re.split(r"[?#]", url, maxsplit=1)[0][:_MAX_URL_LENGTH]
+    # `netloc` carries any `user:password@` prefix, so rebuild the authority from the host and port.
+    host = split.hostname or ""
+    authority = f"{host}:{split.port}" if split.port else host
+    cleaned = urlunsplit((split.scheme, authority, split.path, "", ""))
     if len(cleaned) > _MAX_URL_LENGTH:
         return cleaned[:_MAX_URL_LENGTH] + "…"
     return cleaned
@@ -222,7 +265,8 @@ def _as_int(value: Any) -> int | None:
 
 
 def _as_str(value: Any) -> str | None:
+    """Coerce to a bounded string. These come from the page, so length is not ours to trust."""
     if not isinstance(value, str):
         return None
     value = value.strip()
-    return value or None
+    return value[:_MAX_FIELD_LENGTH] if value else None

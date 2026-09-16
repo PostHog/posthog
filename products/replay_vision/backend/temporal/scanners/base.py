@@ -232,7 +232,7 @@ class BaseScanner(BaseModel, frozen=True):
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
-        network_state: str = "none",
+        network_state: Literal["available", "clean", "none"] = "none",
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep

@@ -11,7 +11,7 @@ from posthog.session_recordings.recordings.recording_api_client import recording
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, list_blocks_async
 
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload, parse_network_payload
+from products.replay_vision.backend.temporal.network_capture import NetworkCollector, SessionNetworkPayload
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_redis_state_client,
@@ -39,14 +39,13 @@ async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> N
     without it. So every failure path stores an empty payload instead of raising, which also stops a
     retry loop from re-reading a large recording.
     """
-    redis_client, redis_key = get_redis_state_client(
-        label=StateActivitiesEnum.SESSION_NETWORK,
-        state_id=str(inputs.observation_id),
-    )
-    if await redis_client.exists(redis_key):
-        return
-
     try:
+        redis_client, redis_key = get_redis_state_client(
+            label=StateActivitiesEnum.SESSION_NETWORK,
+            state_id=str(inputs.observation_id),
+        )
+        if await redis_client.exists(redis_key):
+            return
         payload = await _load_payload(inputs.team_id, inputs.session_id)
     except Exception:
         logger.warning(
@@ -55,9 +54,19 @@ async def fetch_session_network_activity(inputs: FetchSessionNetworkInputs) -> N
             team_id=inputs.team_id,
             exc_info=True,
         )
-        payload = SessionNetworkPayload()
+        return
 
-    await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
+    try:
+        await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
+    except Exception:
+        # Raising here would retry, and on the last attempt fail the scan. A missing key reads as
+        # "no network data", which the scan already handles.
+        logger.warning(
+            "replay_vision.fetch_network.store_failed",
+            session_id=inputs.session_id,
+            team_id=inputs.team_id,
+            exc_info=True,
+        )
 
 
 async def _load_payload(team_id: int, session_id: str) -> SessionNetworkPayload:
@@ -74,8 +83,7 @@ async def _load_payload(team_id: int, session_id: str) -> SessionNetworkPayload:
         )
         return SessionNetworkPayload()
 
-    lines = await _fetch_lines(blocks, session_id=session_id, team_id=team_id)
-    return parse_network_payload(lines)
+    return await _collect(blocks, session_id=session_id, team_id=team_id)
 
 
 def _build_recording(team_id: int, session_id: str) -> SessionRecording:
@@ -83,37 +91,48 @@ def _build_recording(team_id: int, session_id: str) -> SessionRecording:
     return SessionRecording(session_id=session_id, team_id=team_id)
 
 
-async def _fetch_lines(blocks: list[RecordingBlock], *, session_id: str, team_id: int) -> list[str]:
-    """Fetch every block decompressed and return their JSONL lines in block order.
+async def _collect(blocks: list[RecordingBlock], *, session_id: str, team_id: int) -> SessionNetworkPayload:
+    """Fetch the blocks a batch at a time and decode each batch before fetching the next.
+
+    Peak memory stays at one batch rather than the whole decompressed session, whose size the block
+    count does not bound. Fetching stops early once enough requests are kept.
 
     The recording API decrypts transparently, so an encrypted session needs no handling here. A block
     that fails to fetch contributes nothing rather than losing the whole session.
     """
-    semaphore = asyncio.Semaphore(_BLOCK_CONCURRENCY)
+    collector = NetworkCollector()
+    partial = False
 
     async with recording_api_client() as client:
 
-        async def fetch(block: RecordingBlock) -> list[str]:
-            async with semaphore:
-                try:
-                    content = await client.fetch_block(
-                        block.key,
-                        block.start_byte,
-                        block.end_byte,
-                        session_id,
-                        team_id,
-                        decompress=True,
-                    )
-                except Exception:
-                    logger.warning(
-                        "replay_vision.fetch_network.block_failed",
-                        session_id=session_id,
-                        team_id=team_id,
-                        exc_info=True,
-                    )
-                    return []
+        async def fetch(block: RecordingBlock) -> list[str] | None:
+            try:
+                content = await client.fetch_block(
+                    block.key,
+                    block.start_byte,
+                    block.end_byte,
+                    session_id,
+                    team_id,
+                    decompress=True,
+                )
+            except Exception:
+                logger.warning(
+                    "replay_vision.fetch_network.block_failed",
+                    session_id=session_id,
+                    team_id=team_id,
+                    exc_info=True,
+                )
+                return None
             return content.decode("utf-8", errors="replace").splitlines()
 
-        results = await asyncio.gather(*(fetch(block) for block in blocks))
+        for start in range(0, len(blocks), _BLOCK_CONCURRENCY):
+            batch = blocks[start : start + _BLOCK_CONCURRENCY]
+            for block_lines in await asyncio.gather(*(fetch(block) for block in batch)):
+                if block_lines is None:
+                    partial = True
+                    continue
+                collector.feed(block_lines)
+            if collector.full:
+                break
 
-    return [line for block_lines in results for line in block_lines]
+    return collector.finish(partial=partial)

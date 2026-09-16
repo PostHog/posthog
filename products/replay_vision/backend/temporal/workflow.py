@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -429,25 +429,24 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
-        tasks: list[Any] = [fetch_task, asset_task]
         if wf.patched("replay-vision-session-network-2026-09"):
             # Rides alongside the other two so the extra recording-block read costs no wall-clock. The
             # activity never raises, so the scan proceeds without network data on any failure.
-            tasks.append(
-                wf.execute_activity(
-                    fetch_session_network_activity,
-                    FetchSessionNetworkInputs(
-                        observation_id=observation_id,
-                        team_id=inputs.team_id,
-                        session_id=inputs.session_id,
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    schedule_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=_FETCH_RETRY,
-                )
+            network_task = wf.execute_activity(
+                fetch_session_network_activity,
+                FetchSessionNetworkInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_FETCH_RETRY,
             )
-        results = await asyncio.gather(*tasks)
-        return cast(EnsureSessionAssetOutput, results[1])
+            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, network_task)
+        else:
+            _, asset_result = await asyncio.gather(fetch_task, asset_task)
+        return asset_result
 
     async def _run_rasterize_child(self, inputs: ApplyScannerInputs, asset_id: int) -> None:
         try:

@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 
 from parameterized import parameterized
@@ -113,7 +115,7 @@ class TestPreamble:
         ]
     )
     def test_preamble_describes_the_network_tool_only_when_it_is_offered(
-        self, network_state: str, describes_tool: bool, describes_clean: bool
+        self, network_state: Literal["available", "clean", "none"], describes_tool: bool, describes_clean: bool
     ) -> None:
         # The tool is withheld when the recording has no requests to return, so a preamble that still
         # described it would send the model after a tool that is not there.
