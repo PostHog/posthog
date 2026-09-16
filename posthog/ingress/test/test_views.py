@@ -15,7 +15,7 @@ import structlog.testing
 from parameterized import parameterized
 from requests import RequestException
 from rest_framework.request import Request as DRFRequest
-from rest_framework.throttling import BaseThrottle
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -79,6 +79,10 @@ class _ThrottledGitHubProvider(GitHubProvider):
     throttle_class = _StubThrottle
 
 
+class _ScopedThrottleGitHubProvider(GitHubProvider):
+    throttle_class = ScopedRateThrottle
+
+
 class _FormBodyGitHubProvider(GitHubProvider):
     # Stands in for a provider that posts a form rather than JSON, the way Slack's interactivity
     # payloads and Mailgun's events do.
@@ -140,6 +144,15 @@ class TestWebhookView(SimpleTestCase):
         # The cap is worth having only if it lands before the signing key is read.
         secret.assert_not_called()
         self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_scoped_throttle_is_refused_when_the_view_is_built(self) -> None:
+        with self.assertRaises(TypeError) as raised:
+            build_webhook_view(_ScopedThrottleGitHubProvider("posthog"))
+
+        # A scoped throttle finds no scope here and permits everything, so the endpoint would
+        # look capped and answer 202 to every request.
+        self.assertIn("github/posthog", str(raised.exception))
+        self.assertIn("ScopedRateThrottle", str(raised.exception))
 
     def test_a_throttle_that_allows_the_request_changes_nothing(self) -> None:
         body = json.dumps({"action": "opened"}).encode()

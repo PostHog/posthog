@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 from rest_framework.request import Request as DRFRequest
+from rest_framework.throttling import ScopedRateThrottle
 
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
@@ -50,6 +51,15 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
     The response is a transport receipt. The method, the throttle, verification and the payload
     decide the status; consumers never do, and their return values are ignored.
     """
+    # Refused at build rather than per request, because the failure is silent at request time:
+    # a ScopedRateThrottle reads its rate from the view's `throttle_scope`, finds none here, and
+    # permits every request. An endpoint that looks capped and is not is worse than no cap.
+    if provider.throttle_class is not None and issubclass(provider.throttle_class, ScopedRateThrottle):
+        raise TypeError(
+            f"Provider {provider.provider}/{provider.app} sets a ScopedRateThrottle. "
+            "A scoped throttle reads its scope off a view, and this webhook view has none, "
+            "so it would permit every request. Use a fixed-rate throttle from posthog.rate_limit."
+        )
 
     @csrf_exempt
     def webhook_view(request: HttpRequest) -> HttpResponse:

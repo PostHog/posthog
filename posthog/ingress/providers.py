@@ -54,7 +54,8 @@ class WebhookProvider(ABC):
     # A DRF throttle the view runs in front of verification, for a public endpoint whose
     # verification is expensive: Teams signs with a JWT, so the first thing an unsigned request
     # costs is a signing-key lookup. `None` runs no throttle, which is right for an endpoint
-    # whose verification is a local HMAC.
+    # whose verification is a local HMAC. It must be a fixed-rate throttle: `build_webhook_view`
+    # refuses a `ScopedRateThrottle`, whose scope lives on a view this one does not have.
     throttle_class: type[BaseThrottle] | None = None
     # Answered instead of the receipt when the forward to the owning region fails, so a provider
     # that redelivers on a non-2xx tries again (Slack does, GitHub does not). `None` keeps the
