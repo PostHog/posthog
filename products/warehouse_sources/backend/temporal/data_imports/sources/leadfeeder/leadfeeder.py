@@ -17,11 +17,14 @@ dispatches between them on the resolved API-version pin:
   "work in progress") and warrant live verification before the source leaves alpha.
 """
 
+import logging
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -49,6 +52,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     LEADFEEDER_ENDPOINTS,
     LeadfeederEndpointConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 LEADFEEDER_BASE_URL = "https://api.leadfeeder.com"
 PAGE_SIZE = 100  # JSON:API page[size] max is 100 (default 10)
@@ -179,6 +184,16 @@ def _base_params() -> dict[str, Any]:
 
 # --- Unified Dealfront API (X-Api-Key on /v1/*) --------------------------------------------------
 
+# The unified API serves no row past offset 10,000: it answers `page[num]` beyond that with HTTP 416
+# and `code=offset_exceeded`, which the REST client does not retry, so the exception ends the whole
+# import. Cap pagination at the last page that stays inside the limit, and split the date window
+# instead of paging past it.
+UNIFIED_OFFSET_LIMIT = 10_000
+UNIFIED_MAX_PAGES = UNIFIED_OFFSET_LIMIT // PAGE_SIZE
+# Window a single fan-out request covers. Short enough that an ordinary account stays well inside the
+# offset limit, long enough that a 365-day first sync costs a dozen requests per account.
+UNIFIED_WINDOW_DAYS = 30
+
 
 def _unified_headers(api_key: str) -> dict[str, str]:
     return {"X-Api-Key": api_key, "Accept": "application/json", "User-Agent": "PostHog"}
@@ -186,7 +201,7 @@ def _unified_headers(api_key: str) -> dict[str, str]:
 
 def _unified_base_params() -> dict[str, Any]:
     # The unified API paginates by page number under `page[num]`; the paginator advances page[num]
-    # and stops at the last page reported in `meta.page_count`.
+    # and stops at the last page reported in `meta.page_count`, or at UNIFIED_MAX_PAGES.
     return {"page[size]": PAGE_SIZE}
 
 
@@ -203,7 +218,9 @@ def _unified_client_config(api_key: str) -> ClientConfig:
             "location": "header",
         },
         "headers": {"Accept": "application/json", "User-Agent": "PostHog"},
-        "paginator": PageNumberPaginator(base_page=1, page_param="page[num]", total_path="meta.page_count"),
+        "paginator": PageNumberPaginator(
+            base_page=1, page_param="page[num]", total_path="meta.page_count", maximum_page=UNIFIED_MAX_PAGES
+        ),
         "allowed_hosts": [],
         "allow_redirects": False,
     }
@@ -259,6 +276,86 @@ def _unified_account_ids(client: ClientConfig, team_id: int, job_id: str) -> Ite
                 yield str(account_id)
 
 
+@frozen
+class _DateWindow:
+    """An inclusive start/end day pair for one fan-out request."""
+
+    start: date
+    end: date
+
+    def as_filter(self) -> dict[str, str]:
+        return {"start_date": self.start.isoformat(), "end_date": self.end.isoformat()}
+
+    def halves(self) -> tuple["_DateWindow", "_DateWindow"]:
+        midpoint = self.start + timedelta(days=(self.end - self.start).days // 2)
+        return (
+            _DateWindow(start=self.start, end=midpoint),
+            _DateWindow(start=midpoint + timedelta(days=1), end=self.end),
+        )
+
+
+def _date_windows(start: date, end: date, max_days: int) -> Iterator[_DateWindow]:
+    window_start = start
+    while window_start <= end:
+        window_end = min(window_start + timedelta(days=max_days - 1), end)
+        yield _DateWindow(start=window_start, end=window_end)
+        window_start = window_end + timedelta(days=1)
+
+
+@frozen
+class _UnifiedFanOut:
+    """Reads one unified fan-out endpoint for one account, a date window at a time."""
+
+    client: ClientConfig
+    endpoint: str
+    config: LeadfeederEndpointConfig
+    team_id: int
+    job_id: str
+
+    def _child_endpoint(self, account_id: str, window: _DateWindow) -> Endpoint:
+        params: dict[str, Any] = {**_unified_base_params(), "account_id": account_id}
+        child: Endpoint = {"path": self.config.unified_path, "params": params, "data_selector": "data"}
+        if self.config.unified_method == "POST":
+            # Web visits are a POST search whose date window lives in the body, not the query string.
+            child["method"] = "POST"
+            child["json"] = window.as_filter()
+        else:
+            params.update(window.as_filter())
+        return child
+
+    def pages(self, account_id: str, window: _DateWindow) -> Iterator[list[dict[str, Any]]]:
+        """Yield every page of one window, halving the window when the offset limit truncates it.
+
+        The paginator stops at UNIFIED_MAX_PAGES rather than letting the vendor answer 416, so a
+        window that holds more rows than the offset limit comes back short. Halving and re-reading
+        recovers the rest; the overlap is exact primary-key duplicates that merge dedupes.
+        """
+        rows = 0
+        for page in _unified_single_resource(
+            self.client,
+            self.endpoint,
+            self._child_endpoint(account_id, window),
+            self.team_id,
+            self.job_id,
+            partial(_flatten_item, account_id=account_id),
+        ):
+            rows += len(page)
+            yield page
+
+        if rows < UNIFIED_OFFSET_LIMIT:
+            return
+        if window.start == window.end:
+            logger.warning(
+                "Leadfeeder %s pagination stopped at the vendor's %s-row offset limit; a single day holds more rows than one request can read",
+                self.endpoint,
+                UNIFIED_OFFSET_LIMIT,
+                extra={"account_id": account_id, "day": window.start.isoformat()},
+            )
+            return
+        for half in window.halves():
+            yield from self.pages(account_id, half)
+
+
 def _unified_leadfeeder_source(
     api_key: str,
     endpoint: str,
@@ -299,31 +396,18 @@ def _unified_leadfeeder_source(
     # so iterate accounts explicitly and sync each account's window with the id baked in. The date
     # range is computed from the incremental watermark (if any) or the configured start date;
     # re-reading the floored day is self-healing since merge dedupes on the primary key.
-    start = (
+    start = date.fromisoformat(
         _to_date_str(db_incremental_field_last_value)
         if db_incremental_field_last_value is not None
         else _default_start_date(start_date_config)
     )
-    end = datetime.now(UTC).date().isoformat()
+    end = datetime.now(UTC).date()
+    fan_out = _UnifiedFanOut(client=client, endpoint=endpoint, config=config, team_id=team_id, job_id=job_id)
 
     def _fanned() -> Iterator[list[dict[str, Any]]]:
         for account_id in _unified_account_ids(client, team_id, job_id):
-            child_params: dict[str, Any] = {**_unified_base_params(), "account_id": account_id}
-            child_endpoint: Endpoint = {
-                "path": config.unified_path,
-                "params": child_params,
-                "data_selector": "data",
-            }
-            if config.unified_method == "POST":
-                # Web visits are a POST search whose date window lives in the body, not the query string.
-                child_endpoint["method"] = "POST"
-                child_endpoint["json"] = {"start_date": start, "end_date": end}
-            else:
-                child_params["start_date"] = start
-                child_params["end_date"] = end
-            yield from _unified_single_resource(
-                client, endpoint, child_endpoint, team_id, job_id, partial(_flatten_item, account_id=account_id)
-            )
+            for window in _date_windows(start, end, UNIFIED_WINDOW_DAYS):
+                yield from fan_out.pages(account_id, window)
 
     # Partition only on a field confirmed present in the unified schema (visits' `started_at`). The
     # visitor-companies rows carry no confirmed top-level date, so leads sync unpartitioned here.
