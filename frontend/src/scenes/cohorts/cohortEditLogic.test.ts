@@ -215,8 +215,12 @@ describe('cohortEditLogic', () => {
         }
         const criteriaGroupKeys = (): (string | undefined)[] =>
             logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
+        const setPageHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
 
-        it('merges the readiness without discarding unsaved criteria, and keeps watching', async () => {
+        it('merges the readiness without discarding unsaved criteria', async () => {
             // The build runs for tens of minutes, so every poll lands on a form the user may be
             // part-way through editing. Merging the whole cohort back would throw those edits away,
             // and re-keying the criteria groups would remount the fields they are typing in.
@@ -295,9 +299,55 @@ describe('cohortEditLogic', () => {
                 served = readyRealtime
                 await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
                 expect(detailFetches).toBe(afterMount + 2)
+                // The flag picker rows and the condition link read readiness off the shared model,
+                // so without this push they keep showing the cohort as unprepared all session.
+                expect(cohortsModel.values.cohortsById[mockCohort.id]?.realtime).toEqual(readyRealtime)
 
                 await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS * 4)
                 expect(detailFetches).toBe(afterMount + 2)
+
+                // Stopping means disposing, not just declining to re-arm. The disposables manager
+                // re-runs every registered setup when the tab comes back, so a poll left on it
+                // refetches the cohort 15 seconds after each return to a page that is long done.
+                setPageHidden(true)
+                setPageHidden(false)
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+            } finally {
+                jest.useRealTimers()
+                delete (document as any).hidden
+            }
+        })
+
+        it('keeps watching across the gap between the queued build and its run row', async () => {
+            // The debounce key expires exactly when the run-creation task fires, and the run row
+            // lands a moment later. A poll in between answers `needs_attention` for a build that is
+            // fine, so stopping there would leave the page on "Unavailable" until a reload.
+            let served: CohortRealtimeReadinessApi = buildingRealtime
+            let detailFetches = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/': () => {
+                        detailFetches += 1
+                        return [200, { ...mockCohort, realtime: served }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            const afterMount = detailFetches
+
+            jest.useFakeTimers()
+            try {
+                logic.actions.armRealtimeReadinessPoll()
+
+                served = { state: 'needs_attention', ready_at: null, build: null }
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 1)
+
+                served = readyRealtime
+                await jest.advanceTimersByTimeAsync(REALTIME_POLL_INTERVAL_MS)
+                expect(detailFetches).toBe(afterMount + 2)
+                expect(logic.values.cohort.realtime).toEqual(readyRealtime)
             } finally {
                 jest.useRealTimers()
             }

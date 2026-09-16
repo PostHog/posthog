@@ -93,6 +93,17 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                     </div>
                 ),
             }
+        case 'person_properties':
+            return {
+                label: <span>Available</span>,
+                tooltip: (
+                    <div>
+                        Feature flags can target this cohort. They read its person properties as they evaluate, so
+                        membership is always current. The member count and the people listed on this page still update
+                        once a day.
+                    </div>
+                ),
+            }
         default:
             // Static cohorts, and any state this bundle predates: nothing to say.
             return null
@@ -131,6 +142,7 @@ export function CohortRealtimeStatus({
                     percent={percent}
                     className="max-w-80"
                     role="progressbar"
+                    aria-label="Cohort preparation progress"
                     aria-valuenow={percent}
                     aria-valuemin={0}
                     aria-valuemax={100}

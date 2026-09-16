@@ -80,6 +80,7 @@ export function TaxonomicPropertyFilter({
     excludedOperators,
     selectingKeyOnly,
     hideBehavioralCohorts,
+    showCohortFlagTargeting,
     addFilterDocLink,
     editable = true,
     operatorAllowlist,
@@ -183,6 +184,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
@@ -269,7 +271,7 @@ export function TaxonomicPropertyFilter({
         filter?.type === 'cohort' ? (
             <span className="flex items-center gap-2 min-w-0">
                 <span className="truncate">{cohortLabel}</span>
-                <CohortRealtimeTag realtime={cohort?.realtime} />
+                {showCohortFlagTargeting && <CohortRealtimeTag realtime={cohort?.realtime} />}
             </span>
         ) : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_') ? (
             filter.label || `Group ${filter?.value}`
@@ -354,6 +356,7 @@ export function TaxonomicPropertyFilter({
             propertyAllowList={propertyAllowList}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            showCohortFlagTargeting={showCohortFlagTargeting}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts

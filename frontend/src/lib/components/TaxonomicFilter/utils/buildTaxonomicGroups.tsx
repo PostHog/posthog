@@ -169,6 +169,8 @@ export interface BuildTaxonomicGroupsContext {
     personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting: boolean
     endpointFilters: Record<string, any> | undefined
     hogQLExpressionComponentProps: {
         globals?: Record<string, any>
@@ -196,6 +198,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
+        showCohortFlagTargeting,
         endpointFilters,
         hogQLExpressionComponentProps,
         featureFlags,
@@ -785,7 +788,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
-            getTag: (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -807,7 +812,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
-            getTag: (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: () => `All Users`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />

@@ -74,6 +74,13 @@ const realtimeCohorts: CohortType[] = [
         ready_at: null,
         build: null,
     }),
+    // Person properties alone: flags read those as they evaluate, so this row carries no tag and
+    // the page still answers the question. A bare row means one thing, and this is that one thing.
+    withRealtime(createCohort(8, 'Signed up this month', 1200, false), {
+        state: 'person_properties',
+        ready_at: null,
+        build: null,
+    }),
 ]
 
 const cohortApiMocks = {
@@ -173,6 +180,11 @@ export const CohortEditRealtimeNotAvailable: Story = {
 export const CohortEditRealtimeDaily: Story = {
     parameters: { pageUrl: urls.cohort(7) },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/7/': realtimeCohorts[3], ...cohortApiMocks } })],
+}
+
+export const CohortEditPersonProperties: Story = {
+    parameters: { pageUrl: urls.cohort(8) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/8/': realtimeCohorts[4], ...cohortApiMocks } })],
 }
 
 export const CohortEditStatic: Story = {

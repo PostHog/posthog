@@ -389,6 +389,7 @@ export function FeatureFlagReleaseConditions({
                                 }
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                showCohortFlagTargeting
                             />
                         </div>
                     )}

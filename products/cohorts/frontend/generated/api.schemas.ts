@@ -304,6 +304,7 @@ export interface CohortConditionTypeFlagsApi {
 
 /**
  * * `static` - Static
+ * * `person_properties` - Person properties
  * * `daily` - Daily
  * * `building` - Building
  * * `rebuilding` - Rebuilding
@@ -314,6 +315,7 @@ export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[key
 
 export const CohortRealtimeStateEnumApi = {
     Static: 'static',
+    PersonProperties: 'person_properties',
     Daily: 'daily',
     Building: 'building',
     Rebuilding: 'rebuilding',
@@ -355,9 +357,10 @@ export interface CohortHistoryBuildApi {
 }
 
 export interface CohortRealtimeReadinessApi {
-    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `static`: it is a fixed list of people.
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
      * * `static` - Static
+     * * `person_properties` - Person properties
      * * `daily` - Daily
      * * `building` - Building
      * * `rebuilding` - Rebuilding
@@ -431,7 +434,7 @@ export interface CohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type: CohortConditionTypeFlagsApi | null
-    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
     readonly realtime: CohortRealtimeReadinessApi | null
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -500,7 +503,7 @@ export interface PatchedCohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type?: CohortConditionTypeFlagsApi | null
-    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
     readonly realtime?: CohortRealtimeReadinessApi | null
     readonly experiment_set?: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */

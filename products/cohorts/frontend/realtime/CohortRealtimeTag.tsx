@@ -12,8 +12,9 @@ type TagContent = { label: string; icon?: JSX.Element; explanation: string }
 // a bare row means one thing: flags can target this cohort. Every realtime label leads with the
 // word, so a row is never read as the daily calculation being unfinished (a bare "Preparing" beside
 // a finished calculation reads as the whole cohort not being ready). Only the ready state keeps the
-// bolt, which stands for flags seeing changes at once. `static` gets no tag: flags can target it
-// and it has nothing else to say. The cohort page carries the state in full.
+// bolt, which stands for flags seeing changes at once. `static` and `person_properties` get no tag:
+// flags can target both and neither has anything else to say. The cohort page carries the state in
+// full, including for those two.
 const TAG_BY_STATE: Partial<Record<CohortRealtimeStateEnumApi, TagContent>> = {
     ready: {
         label: 'Realtime',

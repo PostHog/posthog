@@ -66,6 +66,7 @@ describe('mcpProperties', () => {
             personMetadataPropertyDefinitions: [],
             maxContextOptions: [],
             hideBehavioralCohorts: false,
+            showCohortFlagTargeting: false,
             endpointFilters: undefined,
             hogQLExpressionComponentProps: { showBreakdownLabelHint: false },
             featureFlags: {},

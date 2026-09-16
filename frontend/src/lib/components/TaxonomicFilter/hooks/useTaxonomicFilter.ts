@@ -85,6 +85,8 @@ export interface UseTaxonomicFilterOptions {
     propertyAllowList?: AllowedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
     hogQLExpressionShowBreakdownLabelHint?: boolean
@@ -289,6 +291,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         propertyAllowList,
         maxContextOptions,
         hideBehavioralCohorts,
+        showCohortFlagTargeting,
         endpointFilters,
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,
@@ -324,6 +327,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         selectedProperties,
         maxContextOptions,
         hideBehavioralCohorts,
+        showCohortFlagTargeting,
         endpointFilters,
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,

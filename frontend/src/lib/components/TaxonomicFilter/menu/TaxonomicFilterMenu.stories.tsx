@@ -489,7 +489,12 @@ export const RecentsBareKeyExpansion: Story = {
 function CohortRowsContainer(): JSX.Element {
     useMountedLogic(actionsModel)
     return (
-        <TaxonomicFilterHeadless.Root bindRootProps={false} taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}>
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}
+            // The opt-in a feature flag's release conditions set; no other picker tags cohorts.
+            showCohortFlagTargeting
+        >
             <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
                 <MenuFilterCombobox
                     drillTo={TaxonomicFilterGroupType.Cohorts}

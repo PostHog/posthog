@@ -759,7 +759,8 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its "
         "criteria are not supported in realtime, so its membership only comes from the once-a-day "
-        "calculation. `static`: it is a fixed list of people.",
+        "calculation. `person_properties`: it matches on person properties, which flags read "
+        "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
     ready_at = serializers.DateTimeField(
         allow_null=True,
@@ -884,10 +885,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     @extend_schema_field(
         CohortRealtimeReadinessSerializer(
             allow_null=True,
-            help_text="Whether feature flags can target this cohort in realtime, and the progress of "
-            "the build that gets it there. Null outside the realtime cohort flag targeting rollout, on "
-            "projects the realtime pipeline does not cover, and for cohorts without event-based "
-            "criteria, which feature flags could always target.",
+            help_text="Whether feature flags can target this cohort, and the progress of the build "
+            "that gets it there. Null outside the realtime cohort flag targeting rollout, on projects "
+            "the realtime pipeline does not cover, and for cohorts that match on neither events nor "
+            "person properties, which nothing in the flag API decides on.",
         )
     )
     def get_realtime(self, cohort: Cohort) -> Optional[dict[str, Any]]:
@@ -1316,16 +1317,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         return raw
 
     def _team_for_warehouse_access_check(self) -> Optional[Team]:
-        # Resolve the team from whichever context shape the caller provided so the check can't be
-        # skipped: experiments pass "team", feature flag copy passes "team_id", the viewset passes
-        # the get_team lambda. Prefer an already-materialized object over the lambda, which can
-        # issue a query on cold cache.
-        team = self.context.get("team")
-        if team is None and self.context.get("get_team"):
-            team = self.context["get_team"]()
-        if team is None and self.context.get("team_id"):
-            team = Team.objects.filter(pk=self.context["team_id"]).first()
-        return team
+        # Resolved from whichever context shape the caller provided, so the check can't be skipped.
+        return _team_from_serializer_context(self.context)
 
     def _validate_warehouse_access(self, attrs: dict) -> None:
         """Background execution runs the cohort without warehouse access control (the definition

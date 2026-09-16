@@ -73,6 +73,8 @@ export interface PropertyFilterInternalProps {
     excludedOperators?: ExcludedOperators
     selectingKeyOnly?: SelectingKeyOnly
     hideBehavioralCohorts?: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting?: boolean
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>

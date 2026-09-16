@@ -39,6 +39,8 @@ BEHAVIORAL_LEAF: dict = {
 
 PERSON_LEAF: dict = {"type": "person", "key": "email", "value": ["a@example.com"], "operator": "exact"}
 
+COHORT_LEAF: dict = {"type": "cohort", "key": "id", "value": 1}
+
 
 def filters(*leaves: dict) -> dict:
     return {"properties": {"type": "AND", "values": list(leaves)}}
@@ -367,12 +369,31 @@ class TestRealtimeReadiness(BaseTest):
         [
             ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, CohortRealtimeState.STATIC),
             ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, CohortRealtimeState.DAILY),
-            # Flags never gate a person-only cohort on a backfill, so it must not read as unavailable.
-            ("person_only", {"filters": filters(PERSON_LEAF)}, None),
+            # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
+            # membership on, and the flag API does not gate on a cohort reference either.
+            ("cohort_reference_only", {"filters": filters(COHORT_LEAF)}, None),
         ]
     )
     def test_cohorts_outside_the_realtime_path(self, _name: str, kwargs: dict, expected: str | None) -> None:
         assert self._state(self._cohort(**kwargs)) == expected
+
+    def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
+        # Flags read person properties off the person as they evaluate, so this cohort is
+        # targetable whatever the pipeline did, and it must not read as unavailable. A stamp left
+        # by an earlier definition must not date a readiness this state does not claim.
+        cohort = self._cohort(filters=filters(PERSON_LEAF), last_backfill_person_properties_at=timezone.now())
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert readiness.state == CohortRealtimeState.PERSON_PROPERTIES
+        assert readiness.ready_at is None
+        assert readiness.build is None
+
+    def test_a_legacy_cohort_keeping_its_event_condition_in_groups_reads_as_daily(self) -> None:
+        # These carry no `filters` at all, so walking that alone leaves them with no state, which
+        # a list row reads as "feature flags can target this". Saving a flag against one fails.
+        cohort = self._cohort(filters={}, groups=[{"action_id": 3, "days": 7}], cohort_type=CohortType.BEHAVIORAL)
+
+        assert self._state(cohort) == CohortRealtimeState.DAILY
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
     def test_team_without_the_pipeline_has_no_realtime_state(self) -> None:

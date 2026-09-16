@@ -5,9 +5,10 @@ different question, and none of them is the answer a person wants ("can a featur
 cohort right now"). This module collapses them into one state plus, while the cohort is being
 prepared, that build's progress.
 
-Only cohorts with event-based criteria get a state. Feature flags could always target the rest, and
-the flag API never checks them against the backfill stamps, so a person-only cohort with no stamp
-would read as not targetable when it is.
+Only a cohort whose criteria decide the answer gets a state: one with event-based criteria, which
+a backfill has to prepare before flags can read it, and one that matches on person properties,
+which flags read straight off the person and can therefore always target. A cohort with neither
+gets no state, so nothing claims an answer the flag API does not enforce.
 
 Every state comes from a row that exists, and from one per backfill kind the cohort needs. A kind
 whose backfill was refused, lost, or never triggered has no run and no queued task, so the cohort
@@ -18,7 +19,7 @@ filters changing is not evidence that anything is rebuilding.
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeGuard
 from uuid import UUID
 
 from django.db import models
@@ -47,6 +48,7 @@ logger = structlog.get_logger(__name__)
 
 class CohortRealtimeState(models.TextChoices):
     STATIC = "static", "Static"
+    PERSON_PROPERTIES = "person_properties", "Person properties"
     DAILY = "daily", "Daily"
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
@@ -78,6 +80,11 @@ _PHASE_RANK: dict[str, int] = {
 }
 
 
+def _has_phase(run: CohortBackfillRun | None) -> TypeGuard[CohortBackfillRun]:
+    """Whether a live run is far enough along to describe a build phase."""
+    return run is not None and run.status in _PHASE_BY_RUN_STATUS
+
+
 @frozen
 class CohortHistoryBuild:
     """The run building one cohort's history, as much of it as a reader needs."""
@@ -96,10 +103,35 @@ class CohortRealtimeReadiness:
     build: CohortHistoryBuild | None
 
 
+def _has_event_criteria(cohort: Cohort) -> bool:
+    """Whether the cohort matches on events, counting the ones that store that in ``groups``.
+
+    ``_has_filter_type`` walks the ``filters`` JSON alone, and a legacy cohort keeps its condition
+    in the deprecated ``groups`` field instead, where ``Cohort.properties`` is what turns an
+    ``action_id`` or ``event_id`` entry into a behavioral property. The flag API refuses a cohort
+    on either signal, so both have to reach this module as well, or such a cohort would read as one
+    flags can target and then be refused on save. ``groups`` is only parsed when ``filters`` is
+    empty, which is the one case ``Cohort.properties`` reads it at all, so a modern cohort pays
+    nothing for the second test.
+    """
+    if cohort._has_filter_type("behavioral"):
+        return True
+    return not cohort.filters and any(prop.type == "behavioral" for prop in cohort.properties.flat)
+
+
+def _has_person_criteria(cohort: Cohort) -> bool:
+    """Whether the cohort matches on person properties, which feature flags read directly."""
+    return cohort._has_filter_type("person") or cohort._has_filter_type("person_metadata")
+
+
 def _settled_state(cohort: Cohort) -> str | None:
     """The state a cohort has without consulting a run row, or None when a run decides it."""
     if cohort.is_static:
         return CohortRealtimeState.STATIC
+    if not _has_event_criteria(cohort):
+        # Flags evaluate person properties off the person record as they run, so they can target
+        # this cohort whatever the pipeline is doing. Only an event-based leaf waits on a backfill.
+        return CohortRealtimeState.PERSON_PROPERTIES
     if cohort.cohort_type != CohortType.REALTIME:
         return CohortRealtimeState.DAILY
     if cohort.is_flag_compatible:
@@ -259,7 +291,7 @@ def _cohort_progress(
     progress: list[_KindProgress] = []
     for kind in sorted(required_kinds):
         run = live_runs.get(kind)
-        if run is not None and run.status in _PHASE_BY_RUN_STATUS:
+        if _has_phase(run):
             progress.append(_KindProgress(phase=_PHASE_BY_RUN_STATUS[run.status], trigger=run.trigger_kind, run=run))
             continue
         trigger = queued.get((cohort_id, kind))
@@ -278,7 +310,13 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
         if settled is None:
             pending.append(cohort)
         else:
-            readiness[cohort.id] = CohortRealtimeReadiness(state=settled, ready_at=cohort.realtime_ready_at, build=None)
+            readiness[cohort.id] = CohortRealtimeReadiness(
+                # Only a prepared realtime cohort has a moment it became targetable. A person
+                # property cohort always was, and it can carry a stamp from an earlier definition.
+                state=settled,
+                ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
+                build=None,
+            )
 
     if not pending:
         return readiness
@@ -297,11 +335,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     # phase, and a kind with no live run at all may still have a task waiting out its countdown.
     # Asking about nothing else keeps a page whose builds are all running free of a round trip.
     unresolved = {
-        cohort.id: {
-            kind
-            for kind in required_kinds[cohort.id]
-            if live_runs[cohort.id].get(kind) is None or live_runs[cohort.id][kind].status not in _PHASE_BY_RUN_STATUS
-        }
+        cohort.id: {kind for kind in required_kinds[cohort.id] if not _has_phase(live_runs[cohort.id].get(kind))}
         for cohort in pending
     }
     queued = _queued_triggers([(cohort.id, kind) for cohort in pending for kind in sorted(unresolved[cohort.id])])
@@ -322,16 +356,18 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
 
     # A cohort is only as far along as its least advanced kind, and that is the only run a reader
     # is shown, so it is the only one whose chunks are tallied.
-    deciding = {
+    slowest_by_cohort = {
         cohort_id: min(progress, key=lambda item: _PHASE_RANK[item.phase])
         for cohort_id, progress in progress_by_cohort.items()
     }
-    chunks_by_run = _chunk_tallies(team_id, [item.run.id for item in deciding.values() if item.run is not None])
+    chunks_by_run = _chunk_tallies(
+        team_id, [item.run.id for item in slowest_by_cohort.values() if item.run is not None]
+    )
 
-    for cohort_id, deciding_kind in deciding.items():
-        chunks = chunks_by_run.get(deciding_kind.run.id) if deciding_kind.run is not None else None
+    for cohort_id, slowest in slowest_by_cohort.items():
+        chunks = chunks_by_run.get(slowest.run.id) if slowest.run is not None else None
         timestamps = (
-            deciding_kind.run.updated_at if deciding_kind.run is not None else None,
+            slowest.run.updated_at if slowest.run is not None else None,
             chunks["chunks_updated_at"] if chunks else None,
         )
         readiness[cohort_id] = CohortRealtimeReadiness(
@@ -339,17 +375,20 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
                 CohortRealtimeState.REBUILDING
                 # Any required kind's build being an edit makes the whole thing a rebuild: both
                 # kinds are asked for together, and the edit is the one with a consequence for flags.
-                if any(kind.trigger == CohortBackfillTrigger.COHORT_EDITED for kind in progress_by_cohort[cohort_id])
+                if any(
+                    progress.trigger == CohortBackfillTrigger.COHORT_EDITED
+                    for progress in progress_by_cohort[cohort_id]
+                )
                 else CohortRealtimeState.BUILDING
             ),
             ready_at=None,
             build=CohortHistoryBuild(
-                phase=deciding_kind.phase,
+                phase=slowest.phase,
                 # Chunks are the scan's own unit of work, so they measure no other phase: a
                 # reconciling run has confirmed all of them, and a bar at 100% under "checking"
                 # would read as a build that has finished and stalled.
                 percent_complete=(
-                    _percent_complete(chunks) if deciding_kind.phase == CohortHistoryBuildPhase.SCANNING else None
+                    _percent_complete(chunks) if slowest.phase == CohortHistoryBuildPhase.SCANNING else None
                 ),
                 updated_at=max((stamp for stamp in timestamps if stamp is not None), default=None),
             ),
@@ -359,16 +398,19 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
 
 
 def has_realtime_state(cohort: Cohort) -> bool:
-    """Whether the realtime trait can change anything about this cohort.
+    """Whether this cohort can have a flag targeting state at all.
 
-    False for cohorts on a team that does not run the pipeline, because their flags can never read
-    realtime membership; and for cohorts with no event-based criteria, because flags could always
-    target those and the flag API does not gate them on a backfill. Neither has a realtime story to
-    tell, so neither pays for the run lookups, or the rollout flag evaluation, that telling it costs.
+    False on a team that does not run the pipeline, because its flags can never read realtime
+    membership, and for a cohort whose criteria are neither event-based nor person properties: a
+    cohort reference alone leaves the realtime evaluator no leaf to key membership on, and nothing
+    in the flag API turns on it either. Neither has anything to say, so neither pays for the run
+    lookups, or the rollout flag evaluation, that saying it costs.
 
-    In-memory only: the allowlist is a parsed setting and the filter types come off the cohort row.
+    In-memory only: the allowlist is a parsed setting and the criteria come off the cohort row.
     """
-    return cohort.pk is not None and is_realtime_cohort_team(cohort.team_id) and cohort._has_filter_type("behavioral")
+    if cohort.pk is None or not is_realtime_cohort_team(cohort.team_id):
+        return False
+    return _has_event_criteria(cohort) or _has_person_criteria(cohort)
 
 
 def resolve_realtime_readiness(cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:

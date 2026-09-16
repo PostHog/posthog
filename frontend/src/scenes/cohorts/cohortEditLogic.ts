@@ -1176,6 +1176,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             } else if (values.cohort.realtime?.state === 'needs_attention' && cache.readinessGracePolls > 0) {
                 cache.readinessGracePolls -= 1
             } else {
+                // Disposing rather than just returning. The manager re-runs a registered setup
+                // every time the tab comes back, so a poll left on it would refetch the cohort
+                // 15 seconds after each return to a page whose build finished long ago.
+                cache.disposables.dispose('realtimeReadinessPoll')
                 return
             }
             cache.disposables.add(() => {

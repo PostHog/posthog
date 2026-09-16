@@ -152,6 +152,13 @@ export interface TaxonomicFilterProps {
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
     metadataSource?: AnyDataNode
     hideBehavioralCohorts?: boolean
+    /**
+     * Mark every cohort row with what feature flags can do with it. Set it only where that is the
+     * question the picker is asking, which today is a feature flag's release conditions. The same
+     * cohort groups back every other picker in the app, and a row reading "No flag targeting" in an
+     * insight breakdown describes nothing the reader is choosing.
+     */
+    showCohortFlagTargeting?: boolean
     showNumericalPropsOnly?: boolean
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     maxContextOptions?: MaxContextTaxonomicFilterOption[]

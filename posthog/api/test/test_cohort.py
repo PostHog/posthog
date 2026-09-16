@@ -34,6 +34,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
+from posthog.redis import get_client as get_redis_client
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -45,8 +46,9 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
+from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -2095,6 +2097,45 @@ email@example.org,
             listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
         self.assertIsNone(detail["realtime"])
         self.assertIsNone(listed["realtime"])
+
+    @patch("posthog.api.cohort.is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_realtime_readiness_is_resolved_once_for_a_whole_list_page(self, patch_capture, mock_flag_enabled):
+        # `CohortListSerializer` is the only thing that makes this per page rather than per row, and
+        # dropping it changes no JSON: `get_realtime` falls back to resolving the row on its own. The
+        # flag picker's cohort typeahead hits this endpoint on every keystroke.
+        mock_flag_enabled.return_value = True
+        behavioral_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {"type": "behavioral", "key": "$pageview", "event_type": "events", "value": "performed_event"}
+                ],
+            }
+        }
+        # Two cohorts mid-build, or per row and per page are the same number. A debounce key is the
+        # cheapest way to put a cohort in that state, with no backfill run to set up.
+        for index in range(2):
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name=f"realtime cohort {index}",
+                cohort_type=CohortType.REALTIME,
+                filters=behavioral_filters,
+            )
+            get_redis_client().set(
+                cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL),
+                CohortBackfillTrigger.COHORT_CREATED,
+                ex=300,
+            )
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            with capture_db_queries() as ctx:
+                response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+
+        self.assertEqual([row["realtime"]["state"] for row in response["results"]], ["building", "building"])
+        # Counting the queries that touch the participation table, not substrings of one joined
+        # string: Django qualifies every selected column with the table name.
+        self.assertEqual(sum("cohort_backfill_run_cohorts" in query["sql"] for query in ctx.captured_queries), 1)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):

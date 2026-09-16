@@ -717,6 +717,9 @@ export const CohortsWithRealtimeStates: Story = {
     args: {
         taxonomicFilterLogicKey: 'cohorts-realtime',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+        // The opt-in a feature flag's release conditions set. Without it the rows carry no tag,
+        // which is what every other cohort picker in the app renders.
+        showCohortFlagTargeting: true,
     },
     decorators: [
         mswDecorator({
@@ -760,7 +763,7 @@ export const CohortsWithRealtimeStates: Story = {
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
         docs: {
             description: {
-                story: 'Cohort rows carry their realtime trait, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
+                story: 'Cohort rows carry their realtime state, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
             },
         },
     },
