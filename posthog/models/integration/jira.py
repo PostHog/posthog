@@ -237,7 +237,7 @@ class JiraIntegration:
                 seen_keys.add(key)
                 results.append(
                     {
-                        "id": str(issue.get("id", "")),
+                        "id": key,
                         "title": issue.get("summaryText") or issue.get("summary") or key,
                         "url": f"{site_url}/browse/{key}" if site_url else "",
                         # Matches the shape JiraIntegration.create_issue stores.

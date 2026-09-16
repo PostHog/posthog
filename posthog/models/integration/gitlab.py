@@ -1,5 +1,6 @@
 """GitLab integration."""
 
+import re
 from typing import Any
 
 import requests
@@ -138,7 +139,10 @@ class GitLabIntegration:
 
         # A blank query lists the project's recent issues instead of filtering.
         params: dict[str, str | int] = {"per_page": limit, "order_by": "updated_at"}
-        if query.strip():
+        issue_id_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_id_match:
+            params["iids[]"] = int(issue_id_match.group(1))
+        elif query.strip():
             params["search"] = query
             params["in"] = "title"
         response = requests.get(
@@ -155,6 +159,23 @@ class GitLabIntegration:
         issues = response.json()
         if not isinstance(issues, list):
             return []
+
+        if issue_id_match and not issues:
+            params = {"per_page": limit, "order_by": "updated_at", "search": query, "in": "title"}
+            response = requests.get(
+                url,
+                headers={"PRIVATE-TOKEN": access_token},
+                params=params,
+                allow_redirects=False,
+                timeout=10,
+            )
+            if response.status_code != 200:
+                raise GitLabIntegrationError(
+                    f"GitLabIntegration: failed to search issues: {response.text[:300]}",
+                )
+            issues = response.json()
+            if not isinstance(issues, list):
+                return []
 
         results: list[dict[str, Any]] = []
         for issue in issues:

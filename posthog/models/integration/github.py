@@ -426,6 +426,31 @@ class GitHubIntegration(GitHubIntegrationBase):
         # the org, matching what create_issue persists.
         repository_name = repo_path.split("/", 1)[1]
 
+        issue_number_match = re.fullmatch(r"#?([1-9][0-9]{0,9})", query.strip())
+        if issue_number_match:
+            issue_number = int(issue_number_match.group(1))
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/issues/{issue_number}",
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            )
+            if response.status_code not in {200, 404}:
+                raise GitHubIntegrationError(
+                    f"GitHubIntegration: failed to retrieve issue {repo_path}#{issue_number}: {response.text[:300]}",
+                    status_code=response.status_code,
+                )
+            if response.status_code == 200:
+                issue = response.json()
+                if not issue.get("pull_request"):
+                    return [
+                        {
+                            "id": str(issue_number),
+                            "title": issue.get("title") or f"#{issue_number}",
+                            "url": issue.get("html_url") or "",
+                            "external_context": {"repository": repository_name, "number": issue_number},
+                        }
+                    ]
+
         # Quote the user's text so search syntax in it (qualifiers like repo:, operators like OR)
         # is matched literally instead of rewriting the query, which would fill the result page
         # with foreign matches and hide valid ones.

@@ -59,6 +59,8 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             display_name=integration.display_name,
         ),
         external_url=external_references.build_external_issue_url(reference),
+        external_id=external_references.external_issue_id(reference),
+        title=external_references.external_issue_title(reference),
     )
 
 

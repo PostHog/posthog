@@ -22371,6 +22371,9 @@
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
+                "external_id": {
+                    "type": "string"
+                },
                 "external_url": {
                     "type": "string"
                 },
@@ -22379,9 +22382,12 @@
                 },
                 "integration": {
                     "$ref": "#/definitions/ErrorTrackingExternalReferenceIntegration"
+                },
+                "title": {
+                    "type": "string"
                 }
             },
-            "required": ["id", "external_url", "integration"],
+            "required": ["id", "external_url", "external_id", "title", "integration"],
             "type": "object"
         },
         "ErrorTrackingExternalReferenceIntegration": {

@@ -108,7 +108,7 @@ function VirtualizedOptionRow<T = string>({
                     : undefined
             }
         >
-            <span className="whitespace-nowrap ph-no-capture truncate">
+            <span className="whitespace-nowrap ph-no-capture truncate grow min-w-0">
                 {!option.__isInput && !option.__isCustomValue
                     ? (option.labelComponent ?? option.label)
                     : getInputLabel(option)}
@@ -1001,7 +1001,7 @@ export function LemonInputSelect<T = string>({
                                                 : undefined
                                         }
                                     >
-                                        <span className="whitespace-nowrap ph-no-capture truncate">
+                                        <span className="whitespace-nowrap ph-no-capture truncate grow min-w-0">
                                             {
                                                 !option.__isInput && !option.__isCustomValue
                                                     ? (option.labelComponent ?? option.label) // Regular option

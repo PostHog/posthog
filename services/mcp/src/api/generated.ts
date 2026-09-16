@@ -7154,9 +7154,11 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingExternalReference {
+      external_id: string;
       external_url: string;
       id: string;
       integration: ErrorTrackingExternalReferenceIntegration;
+      title: string;
     }
 
     export interface FirstEvent {
@@ -33571,6 +33573,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
       /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
@@ -33580,7 +33586,7 @@ export namespace Schemas {
     }
 
     /**
-     * Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+     * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
      */
     export type ErrorTrackingExternalReferenceLinkExternalContext = { [key: string]: unknown };
 
@@ -33589,7 +33595,7 @@ export namespace Schemas {
       integration_id: number;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
-      /** Identifier of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+      /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
       external_context: ErrorTrackingExternalReferenceLinkExternalContext;
     }
 
@@ -33603,6 +33609,10 @@ export namespace Schemas {
       readonly integration: ErrorTrackingExternalReferenceIntegrationResult;
       /** URL of the linked external issue in the provider's system. */
       readonly external_url: string;
+      /** Provider-native identifier of the linked issue. */
+      readonly external_id: string;
+      /** Title of the linked issue. */
+      readonly title: string;
     }
 
     export interface ErrorTrackingFingerprint {
@@ -101072,7 +101082,7 @@ export namespace Schemas {
      */
     repository?: string;
     /**
-     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
      */
     search?: string;
     };

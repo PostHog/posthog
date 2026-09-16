@@ -61,6 +61,8 @@ class ErrorTrackingExternalReference:
     id: UUID
     integration: ErrorTrackingExternalReferenceIntegration
     external_url: str
+    external_id: str
+    title: str
 
 
 @dataclass(frozen=True)

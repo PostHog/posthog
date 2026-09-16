@@ -119,8 +119,17 @@ export const ExternalReferences = (): JSX.Element | null => {
                     }}
                 >
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
-                        <IntegrationIcon kind={reference.integration.kind} />
-                        {reference.integration.display_name}
+                        <div className="flex items-center gap-2 min-w-0 w-full">
+                            <IntegrationIcon kind={reference.integration.kind} />
+                            {reference.title && (
+                                <span className="truncate min-w-0 flex-1 text-left">{reference.title}</span>
+                            )}
+                            {reference.external_id && (
+                                <span className="text-sm text-muted flex-shrink-0 ml-auto">
+                                    {reference.external_id}
+                                </span>
+                            )}
+                        </div>
                     </ButtonPrimitive>
                 </Link>
             ))}
@@ -392,7 +401,7 @@ function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: 
         },
         onSubmit: ({ externalIssue }) => {
             if (externalIssue) {
-                onSubmit(integration.id, externalIssue.external_context)
+                onSubmit(integration.id, { ...externalIssue.external_context, title: externalIssue.title })
             }
         },
     })
@@ -420,12 +429,17 @@ function ExistingIssueSelect({
     const selectedKey = value ? optionKey(value) : null
     const options = results.map((result) => ({
         key: optionKey(result),
-        label: result.title,
+        label: `${result.title} ${formatExternalIssueId(result.id, kind)}`,
+        labelComponent: externalIssueOptionLabel(result, kind),
     }))
     // A results refresh must not visually drop a valid selection, so the selected
     // issue stays in the options even when the fresh results no longer include it.
     if (value && selectedKey && !options.some((option) => option.key === selectedKey)) {
-        options.push({ key: selectedKey, label: value.title })
+        options.push({
+            key: selectedKey,
+            label: `${value.title} ${formatExternalIssueId(value.id, kind)}`,
+            labelComponent: externalIssueOptionLabel(value, kind),
+        })
     }
 
     return (
@@ -474,6 +488,22 @@ function ExistingIssueSelect({
             />
         </div>
     )
+}
+
+function externalIssueOptionLabel(
+    issue: ErrorTrackingExternalIssueResultApi,
+    kind: ErrorTrackingIntegrationKind
+): JSX.Element {
+    return (
+        <span className="flex items-center justify-between gap-2 min-w-0 w-full">
+            <span className="truncate">{issue.title}</span>
+            <span className="text-muted flex-shrink-0">{formatExternalIssueId(issue.id, kind)}</span>
+        </span>
+    )
+}
+
+function formatExternalIssueId(id: string, kind: ErrorTrackingIntegrationKind): string {
+    return (kind === 'github' || kind === 'gitlab') && !id.startsWith('#') ? `#${id}` : id
 }
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {
