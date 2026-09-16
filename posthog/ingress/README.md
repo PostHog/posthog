@@ -181,6 +181,8 @@ A lookup that raises is logged, captured, counted as `failed` and treated as `UN
 What crosses is the raw signed body, except for a provider that signs the form rather than the body.
 Reading that form consumes the request stream and leaves no raw bytes, so the forward rebuilds the fields and the files and drops the original `Content-Type`, which names the boundary of a body that is gone.
 
+The forward runs under the provider's `forward_timeout_seconds`, which defaults to 3 and which a provider whose deliveries carry uploaded files raises, because the forward rebuilds and re-sends every part.
+
 A failed forward keeps the receipt by default.
 A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `retry_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
 The same attribute answers a delivery whose consumers did not accept it, under outcome `retry_requested`; see ["Ingress does not let a consumer decide the response"](#non-goals).

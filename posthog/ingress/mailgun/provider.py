@@ -53,6 +53,9 @@ def _files_in_request(request: HttpRequest) -> dict[str, UploadedFile]:
 
 class MailgunProvider(WebhookProvider):
     provider = "mailgun"
+    # A route delivery carries the whole mail message, including up to MAX_FILES attachments, and
+    # the forward rebuilds and re-sends every part. Three seconds is not enough for that.
+    forward_timeout_seconds = 10.0
 
     def __init__(self, app: str, *, signing_key_getter: Callable[[], str | None]) -> None:
         event_type = _APP_EVENT_TYPES.get(app)

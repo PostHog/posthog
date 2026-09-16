@@ -59,6 +59,11 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     retry_status = 502
 
 
+class _SlowForwardGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose deliveries carry uploaded files, which Mailgun's do.
+    forward_timeout_seconds = 10.0
+
+
 class _ClaimsGitHubProvider(GitHubProvider):
     # Stands in for a scheme that checks a signed token, which names the sender before the body
     # is parsed. The claims land in the delivery's context so the test can read them back.
@@ -461,6 +466,25 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.assertEqual(response.status_code, status)
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
         self.assertEqual(self.handler.call_count, dispatched)
+
+    @parameterized.expand(
+        [
+            ("the package default", GitHubProvider, 3.0),
+            ("a provider whose deliveries carry files", _SlowForwardGitHubProvider, 10.0),
+        ]
+    )
+    def test_the_forward_runs_under_the_providers_own_timeout(
+        self, _name: str, provider_class: type[GitHubProvider], expected_timeout: float
+    ) -> None:
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler, answer=DeliveryOwnership.ELSEWHERE)],
+            provider=provider_class("posthog"),
+        )
+
+        with patch("posthog.regions.PRIMARY_REGION_DOMAIN", "testserver"):
+            view(self._github_request())
+
+        self.assertEqual(self.requests.call_args.kwargs["timeout"], expected_timeout)
 
     def test_the_secondary_region_reports_an_unowned_delivery_rather_than_forwarding_it_back(self) -> None:
         view = self._view(

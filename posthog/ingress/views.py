@@ -123,7 +123,12 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         if elsewhere:
             if is_primary_region(request):
                 # Once for the request, not once per delivery: what is replayed is the signed body.
-                forwarded = forward_to_secondary_region(request, provider=provider.provider, app=provider.app)
+                forwarded = forward_to_secondary_region(
+                    request,
+                    provider=provider.provider,
+                    app=provider.app,
+                    timeout=provider.forward_timeout_seconds,
+                )
                 if not forwarded and provider.retry_status is not None:
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
                     return HttpResponse(status=provider.retry_status)
