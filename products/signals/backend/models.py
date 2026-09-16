@@ -1,3 +1,4 @@
+import uuid
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
@@ -35,6 +37,7 @@ from products.signals.backend.artefact_schemas import (
     task_run_identifier_for_legacy_relationship,
 )
 from products.signals.backend.enums import SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -1078,6 +1081,7 @@ class SignalReportArtefact(UUIDModel):
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
+        CHECK_RESULT = "check_result"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -1113,6 +1117,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.WORK_CLAIM,
             ArtefactType.WORK_RELEASE,
             ArtefactType.PULL_REQUEST,
+            ArtefactType.CHECK_RESULT,
         }
     )
 
@@ -1176,6 +1181,39 @@ class SignalReportArtefact(UUIDModel):
             models.Index(fields=["pull_request", "report"], name="signals_artefact_pr_report_idx"),
             models.Index(fields=["claim"], name="signals_artefact_claim_idx"),
         ]
+
+    @classmethod
+    def counts_by_report(cls, report_ids: list[str]) -> dict[str, int]:
+        """How many artefacts each report has, in one grouped query over the page.
+
+        The inbox list renders this count for every row it returns. A correlated subquery makes
+        Postgres count a report's artefacts before the page limit applies, so the whole team's
+        reports get counted to render 25. Reports with no artefacts are omitted.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+        )
+        return {str(row["report_id"]): row["artefact_count"] for row in rows}
+
+    @classmethod
+    def live_channel_ids_by_report(cls, report_ids: list[str]) -> dict[str, uuid.UUID]:
+        """The space each report is assigned to, in one query over the page.
+
+        The assignment is the newest `channel_assignment` artefact. A report whose newest
+        assignment points at a deleted space counts as unassigned, and is omitted like a report
+        that was never assigned.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.objects.filter(report_id__in=report_ids, type=cls.ArtefactType.CHANNEL_ASSIGNMENT)
+            .order_by("report_id", "-created_at")
+            .distinct("report_id")
+            .values_list("report_id", "channel_id", "channel__deleted")
+        )
+        return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
 
     @classmethod
     def _create(
@@ -1636,6 +1674,106 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
                 )
         except IntegrityError:
             row.update(**updates)
+
+
+class SignalReportCheck(UUIDModel):
+    """A forward-looking claim attached to a report: at time T, evaluate this and record the verdict.
+
+    A report and its artefacts are backward-looking — every row says what was already observed.
+    This row is the other direction: it holds an expectation plus the time to test it, so a fix that
+    quietly did not hold is caught by the coordinator rather than by a person remembering to look.
+
+    Scheduling is deliberately coarse. The coordinator's tick is the only clock, soak windows are
+    days, and the check carries its own `next_run_at` rather than deriving one from a merged pull
+    request — plenty of fixes land with no pull request to date the window from.
+
+    Terminal statuses are final. A check that passed, failed, errored out, expired, or was cancelled
+    is never rescheduled; the author writes a new check instead, so a result artefact always refers
+    to a row whose state explains it.
+    """
+
+    class Kind(models.TextChoices):
+        # One bounded query, one comparison, no sandbox. `agent` follows once the scout dispatch
+        # path can carry a check.
+        METRIC_THRESHOLD = "metric_threshold"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        PASSED = "passed"
+        FAILED = "failed"
+        ERRORED = "errored"
+        EXPIRED = "expired"
+        CANCELLED = "cancelled"
+
+    class Outcome(models.TextChoices):
+        PASSED = "passed"
+        FAILED = "failed"
+        ERRORED = "errored"
+
+    # Environment-scoped, not project-scoped. `SignalReport` stores the environment's own team, and a
+    # check has to sit on the same team as its report or the report's reads never find it and its
+    # result artefacts land on a team the report does not have. So no `RootTeamMixin` (its save()
+    # canonicalizes the team to the parent), and `EnvironmentScopedManager` filters by the literal id
+    # callers pass through `objects.for_team(team_id)`.
+    objects = EnvironmentScopedManager()
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="checks")
+    title = models.CharField(max_length=MAX_CHECK_TITLE_LENGTH)
+    rationale = models.TextField(blank=True, default="")
+    kind = models.CharField(max_length=30, choices=Kind)
+    # Validated against the kind's pydantic model at every write (see `report_checks.parse_check_config`).
+    config = models.JSONField(default=dict, db_default={})
+
+    next_run_at = models.DateTimeField()
+    # Null means one-shot. A recurring check re-arms at this interval until it runs out of runs or
+    # reaches its expiry.
+    run_interval_minutes = models.PositiveIntegerField(null=True, blank=True)
+    runs_remaining = models.PositiveIntegerField(default=1)
+    expires_at = models.DateTimeField()
+
+    status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
+    consecutive_errors = models.PositiveIntegerField(default=0)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
+
+    # Attribution, same columns and meaning as the artefact log's.
+    actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
+    actor_agent = models.CharField(max_length=200, null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    task = models.ForeignKey(
+        "tasks.Task", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal report check"
+        verbose_name_plural = "Signal report checks"
+        default_manager_name = "all_teams"
+        indexes = [
+            # The coordinator's due scan is the only fleet-wide read: `status = active AND
+            # next_run_at <= now()` ordered by `next_run_at`. Partial, so the index holds only the
+            # rows still waiting rather than every check ever written.
+            models.Index(
+                fields=["next_run_at"],
+                condition=models.Q(status="active"),
+                name="signals_check_due_idx",
+            ),
+            # The per-report read behind the detail view and the report list's summary.
+            models.Index(fields=["report", "status"], name="signals_check_report_idx"),
+        ]
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status != self.Status.ACTIVE
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────

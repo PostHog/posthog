@@ -43,7 +43,7 @@ One access rule covers everything here: scout rows live on the project's **canon
 - **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
-  Also check `emit_eligibility` on `posthog:scout-project-profile-get`: when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
+  Also check `summary.emit_eligibility` on `posthog:scout-project-profile-get` (pass `summary_only=true` when the gate is all you need): when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
   (For read callers the profile is a cached snapshot built by scout runs, so a 404 means no fresh profile exists — not ineligibility; fall back to checking the `signals_scout` source config via `posthog:inbox-source-configs-list` and treat eligibility as unknown rather than blocking on the profile.)
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.

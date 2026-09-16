@@ -66,9 +66,12 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:
 - `campaigns.list`
 - `campaigns.data_series`
+- `campaigns.details`
 - `canvas.list`
 - `canvas.data_series`
+- `canvas.details`
 - `segments.list`
+- `segments.data_series`
 - `events.list`
 - `events.data_series`
 - `kpi.dau.data_series`

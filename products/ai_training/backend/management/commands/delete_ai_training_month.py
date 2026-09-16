@@ -1,22 +1,22 @@
 from argparse import ArgumentParser
 from typing import Any
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from products.ai_training.backend.config import key_table_name
 from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 from products.ai_training.backend.privacy.store import AITrainingPrivacyStore
 
 
 class Command(BaseCommand):
-    help = "Permanently block an ML session month and remove its session and image keys."
+    help = "Permanently remove the session and image keys of an ML session month."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("session_month", help="UTC session start month, in YYYY-MM format")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        if not settings.AI_RESEARCH_REPLAY_PRIVACY_TABLE:
-            raise CommandError("AI_RESEARCH_REPLAY_PRIVACY_TABLE is not configured")
+        if not key_table_name():
+            raise CommandError("AI_RESEARCH_REPLAY_KEY_TABLE is not configured")
         try:
             count = AITrainingPrivacyStore.from_settings().delete_month(options["session_month"])
         except ValueError as error:

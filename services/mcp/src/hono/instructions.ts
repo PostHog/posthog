@@ -13,6 +13,7 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
@@ -89,6 +90,7 @@ export class InstructionsBuilder {
             title: 'Execute PostHog command',
             description: this.buildExecToolDescription(state),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
+            annotations: { ...EXEC_TOOL_ANNOTATIONS },
         }
     }
 

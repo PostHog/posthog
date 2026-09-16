@@ -20,7 +20,8 @@ Races resolve per key, never failing the rest of a batch: a concurrent create co
 ## Layout
 
 - `src/service/` — gRPC surface; `mod.rs` is dispatch-only, each RPC family has its own module (`get_or_create.rs`)
-- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary pool only; identity reads must never be stale)
+- `src/storage/` — `IdentityStorage` trait + Postgres implementation (primary only; identity reads must never be stale)
+- `src/pools.rs` — the two primary pools, split by how long a statement holds its connection: fast (resolution, op bookkeeping) and heavy (stub creation, attach, saga transactions, GC), sized by `MAX_PG_CONNECTIONS` and `HEAVY_MAX_PG_CONNECTIONS`
 - `src/leader.rs` — `PropertyWriter` trait + router-backed implementation
 - `src/lifecycle/` — the lifecycle engine: merge and delete sagas, sweeper, GC
 - Shared person primitives (row type, storage errors, uuidv5 scheme) live in `personhog-common::persons`
