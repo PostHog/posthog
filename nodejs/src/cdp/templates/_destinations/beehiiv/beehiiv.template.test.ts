@@ -160,18 +160,21 @@ describe('beehiiv template', () => {
         })
     })
 
-    it('leaves an active subscriber alone when reactivation is enabled', async () => {
-        const lookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})
-        const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
-            status: 200,
-            body: { data: { id: 'sub_123', email: EMAIL, status: 'active' } },
-        })
+    it.each(['active', 'validating', 'invalid'])(
+        'goes straight to the update for a %s subscriber when reactivation is enabled',
+        async (status) => {
+            const lookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})
+            const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+                status: 200,
+                body: { data: { id: 'sub_123', email: EMAIL, status } },
+            })
 
-        expect(updateRequest.invocation.queueParameters).toMatchObject({
-            url: SUBSCRIPTION_URL,
-            method: 'PUT',
-        })
-    })
+            expect(updateRequest.invocation.queueParameters).toMatchObject({
+                url: SUBSCRIPTION_URL,
+                method: 'PUT',
+            })
+        }
+    )
 
     it('asks the create endpoint to reactivate a missing subscriber when enabled', async () => {
         const missingLookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})

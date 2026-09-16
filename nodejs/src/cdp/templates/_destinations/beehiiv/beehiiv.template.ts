@@ -72,8 +72,9 @@ if (getRes.status >= 400) {
 }
 
 // beehiiv ignores 'unsubscribe' on the update endpoint. Only a create call with
-// reactivate_existing brings an unsubscribed subscriber back.
-if (inputs.reactivateExisting and getRes.body.data.status != 'active') {
+// reactivate_existing brings an unsubscribed subscriber back. Other non-active
+// statuses (validating, invalid) must not go through here.
+if (inputs.reactivateExisting and getRes.body.data.status == 'inactive') {
     let reactivateRes := fetch(f'https://api.beehiiv.com/v2/publications/{inputs.publicationId}/subscriptions', {
         'method': 'POST',
         'headers': headers,
