@@ -1,4 +1,14 @@
+from io import StringIO
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
+
+from _pytest._io import TerminalWriter
+from _pytest.terminal import TerminalReporter
 from parameterized import parameterized
+
+from posthog.conftest import _JUnitTimingsPlugin
 
 from products.engineering_analytics.backend.logic.job_logs.thinning import ThinningConfig, thin_log, thin_log_lines
 
@@ -9,6 +19,28 @@ class TestThinLog:
     def test_returns_small_log_unchanged(self):
         text = "\n".join(f"step {i}" for i in range(_CAP))
         assert thin_log(text) == text
+
+    def test_keeps_exception_at_end_of_long_recovered_traceback(self) -> None:
+        failure = "ValueError: example fixture is unavailable"
+        report = pytest.TestReport(
+            nodeid="test_example.py::test_retry",
+            location=("test_example.py", 1, "test_retry"),
+            keywords={},
+            outcome="failed",
+            longrepr="\n".join([f"fixture frame {i}" for i in range(100)] + [failure]),
+            when="setup",
+        )
+        output = StringIO()
+        writer = TerminalWriter(output)
+        reporter = SimpleNamespace(stats={"rerun": [report]}, hasopt=lambda _: True, write_sep=writer.sep, _tw=writer)
+        _JUnitTimingsPlugin().pytest_terminal_summary(cast(TerminalReporter, reporter))
+        noise = "\n".join(f"job output {i}" for i in range(1000))
+
+        thinned = thin_log(f"{noise}\n{output.getvalue()}\n{noise}")
+
+        assert failure in thinned
+        assert "RERUN test_example.py::test_retry (setup)" in thinned
+        assert "job output 500" not in thinned
 
     @parameterized.expand(
         [

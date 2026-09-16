@@ -595,6 +595,8 @@ class _JUnitTimingsPlugin:
         for report in terminalreporter.stats.get("rerun", []):
             terminalreporter.write_sep("_", f"RERUN {report.nodeid} ({report.when})")
             report.toterminal(terminalreporter._tw)
+            # Anchor the final exception within the log-thinning context window.
+            terminalreporter.write_sep("_", f"RERUN END {report.nodeid} ({report.when})")
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:
