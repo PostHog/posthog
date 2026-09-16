@@ -8,11 +8,14 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
+from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
+from posthog.ingress.dispatch.forward import forward_to_secondary_region
 from posthog.ingress.dispatch.loading import get_dispatcher
 from posthog.ingress.observability.metrics import observe_delivery
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.verify.schemes import VerificationOutcome
+from posthog.regions import is_primary_region
 
 logger = structlog.get_logger(__name__)
 
@@ -57,10 +60,36 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             return handshake
 
         dispatcher = get_dispatcher()
+        deliveries = provider.deliveries(request, payload)
         # One budget for the whole request, not one per delivery: PandaDoc turns a batched body
-        # into many deliveries, and a budget each would hold the request open for the sum.
+        # into many deliveries, and a budget each would hold the request open for the sum. It
+        # starts before the ownership lookups, which read the database and forward on the same
+        # request path.
         budget = DeliveryBudget(delivery_budget_seconds())
-        for delivery in provider.deliveries(request, payload):
+
+        elsewhere: dict[str, None] = {}
+        for delivery in deliveries:
+            ownership, consumers = dispatcher.ownership_of(delivery)
+            if ownership is DeliveryOwnership.ELSEWHERE:
+                elsewhere.update(dict.fromkeys(consumers))
+        if elsewhere:
+            if is_primary_region(request):
+                # Once for the request, not once per delivery: what is replayed is the signed body.
+                forwarded = forward_to_secondary_region(request, provider=provider.provider, app=provider.app)
+                if not forwarded and provider.forward_failure_status is not None:
+                    observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
+                    return HttpResponse(status=provider.forward_failure_status)
+            else:
+                # A local miss on the secondary region is that consumer's unresolved routing, not
+                # proof that no region owns the delivery.
+                logger.warning(
+                    "ingress_delivery_unowned_here",
+                    provider=provider.provider,
+                    app=provider.app,
+                    consumers=list(elsewhere),
+                )
+
+        for delivery in deliveries:
             dispatcher.dispatch(delivery, budget=budget)
 
         observe_delivery(provider=provider.provider, app=provider.app, outcome="accepted")
