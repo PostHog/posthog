@@ -289,17 +289,10 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 "cannot be stored as a markdown notebook",
             ),
             (
-                "rich_text_over_the_cell_limit",
-                {
-                    "type": "doc",
-                    "content": [
-                        {
-                            "type": "ph-query",
-                            "attrs": {"nodeId": f"q{i}", "query": {"kind": "SavedInsightNode", "shortId": "abc"}},
-                        }
-                        for i in range(51)
-                    ],
-                },
+                "markdown_over_the_cell_limit",
+                build_markdown_notebook_content(
+                    "\n\n".join(f'<SQLV2 nodeId="s{i}" code="select 1" />' for i in range(51))
+                ),
                 "limit of 50 cells",
             ),
         ]
