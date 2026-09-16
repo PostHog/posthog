@@ -3,9 +3,9 @@
 Every read the ranking model has today is offline. The holdout grades the recipe, the unseen read
 grades the model on reports it never saw, and neither one compares the model against the list
 people actually get, which is still a fixed sort. This module builds that comparison from data
-already flowing: one `Inbox reports impressed` event is one ranked list, the unseen scores say how
-the model would have ordered it, and the opens and actions that follow the impression say which
-rows were worth the top of the list.
+already flowing: an `Inbox reports impressed` event carries a set of rows at the ranks the list
+served them, the unseen scores say how the model would have ordered them, and the opens and
+actions that follow the impression say which rows were worth the top.
 
 Three orders are graded on each list, on exactly the same rows:
 
@@ -21,6 +21,16 @@ report the heuristic put first had more chance to be opened than one it put twen
 either order thinks of it. That flatters the heuristic line and no re-ranking of logged clicks can
 remove it. `positive_served_rank_mean` reports how concentrated the outcomes were at the top of
 the served list, so the size of the effect is visible next to the numbers it distorts.
+
+**A graded list is a slice of a served list, not the whole one.** The client sends only the rows
+a render newly showed, so a second page arrives as its own event, and the merged flat list sends
+one event per state section with the ranks taken over the merged list. The events of one render
+share no id, so nothing reassembles them. Rows that competed at adjacent ranks can therefore sit
+in different slices and never be compared, and `MIN_LIST_SIZE`, the drop of a list with no
+outcome, and the NDCG cutoffs all apply per slice. That narrows the field around every positive
+and lifts all three orders together. Within a slice the relative order is still the served one,
+because the orders sort on `served_rank`. Closing this needs an id on the event that names the
+render, which is a producer change.
 
 **The graded outcome is a list-scoped proxy for the head it is named after, not that head's own
 label.** Relevance here is "the person who saw this list engaged with this row inside the

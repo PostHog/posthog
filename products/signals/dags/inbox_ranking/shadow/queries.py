@@ -2,8 +2,11 @@
 
 Both queries read the dogfood project's client telemetry, the same stream the label assets read,
 and both are bounded by explicit event-time windows so a partition is reproducible for any past
-day. The impression query is the ranking unit: one `Inbox reports impressed` event is one list a
-person saw, in the order the list served it.
+day. The impression query is the ranking unit, and one `Inbox reports impressed` event is a
+fragment of one: the client sends only the rows a render newly showed, and the merged flat list
+sends one event per state section with ranks taken over the merged list. So a graded list is a
+slice of the list the person saw, at the ranks it served, and nothing here reassembles the slices
+of one render — they carry no shared id. See `shadow/metrics.py` for what that costs.
 """
 
 import datetime
@@ -24,8 +27,10 @@ ACTION_TYPES = ("create_pr", "discuss")
 
 _ACTION_TYPES_SQL = ", ".join(f"'{action_type}'" for action_type in ACTION_TYPES)
 
-# One row per (impression event, report). `impression_id` is the event's own uuid, which makes the
-# served list the grouping key: every report in one event was ranked against the others in it.
+# One row per (impression event, report). `impression_id` is the event's own uuid, so the grouping
+# key is the event, which is a slice of a render rather than the whole list — the module docstring
+# has the producer contract. `served_rank` is the row's rank in the list as rendered, so within a
+# slice the relative order is the served one.
 #
 # The GROUP BY is a delivery guard, not an aggregate: analytics capture is at-least-once, so the
 # same event can land twice and would then put a report into its own list twice. `rank` is read
