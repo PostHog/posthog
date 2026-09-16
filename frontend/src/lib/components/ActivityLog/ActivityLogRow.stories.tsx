@@ -104,6 +104,10 @@ export const LegacyDescription: Story = {
     args: {
         logItem: {
             name: 'Mia Chen',
+            // Rows built by humanize() always carry the actor's email; without one the
+            // avatar renders the unknown-lettermark placeholder, which the test runner
+            // reads as a stuck loader.
+            email: 'mia@example.com',
             description: (
                 <>
                     <strong>Mia Chen</strong> enabled <strong>onboarding-checklist</strong>

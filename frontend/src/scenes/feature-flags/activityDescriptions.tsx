@@ -12,7 +12,10 @@ import {
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import {
+    describeListChanges,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
@@ -461,58 +464,8 @@ const featureFlagActionsMapping: Record<
             ],
         }
     },
-    tags: function onTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
-
-        const changes: Description[] = []
-        if (addedTags.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedTags.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
-    evaluation_contexts: function onEvaluationContexts(change) {
-        const contextsBefore = (change?.before as string[]) || []
-        const contextsAfter = (change?.after as string[]) || []
-        const addedContexts = contextsAfter.filter((c) => contextsBefore.indexOf(c) === -1)
-        const removedContexts = contextsBefore.filter((c) => contextsAfter.indexOf(c) === -1)
-
-        const changes: Description[] = []
-        if (addedContexts.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={addedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedContexts.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedContexts.length, 'evaluation context', 'evaluation contexts', false)}{' '}
-                    <ObjectTags tags={removedContexts} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
+    tags: describeTagChanges,
+    evaluation_contexts: (change) => describeListChanges(change, 'evaluation context', 'evaluation contexts'),
     // fields that are excluded on the backend
     id: excludedFieldHandler,
     created_at: excludedFieldHandler,

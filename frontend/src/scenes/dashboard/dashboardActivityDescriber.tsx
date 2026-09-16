@@ -18,6 +18,10 @@ import {
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    describeDescriptionChange,
+    describeTagChanges,
+} from 'lib/components/ActivityLog/activityDescriptions/changeDescriptions'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     BreakdownSummary,
@@ -25,9 +29,7 @@ import {
     PropertiesSummary,
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { isKeyOf } from 'lib/utils/guards'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
@@ -83,42 +85,12 @@ const dashboardActionsMapping: Record<
     },
     description: function onDescription(change, _, asNotification) {
         return {
-            description: [
-                <>
-                    changed the description {asNotification && ' of the dashboard '}to{' '}
-                    <strong>"{change?.after as string}"</strong>
-                </>,
-            ],
+            description: describeDescriptionChange(change, asNotification, 'dashboard'),
             summary: [change?.after ? 'updated the description' : 'removed the description'],
             preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
-    tags: function onTags(change) {
-        const tagsBefore = change?.before as string[]
-        const tagsAfter = change?.after as string[]
-        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
-        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
-
-        const changes: Description[] = []
-        if (addedTags.length) {
-            changes.push(
-                <>
-                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-        if (removedTags.length) {
-            changes.push(
-                <>
-                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
-                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
-                </>
-            )
-        }
-
-        return { description: changes }
-    },
+    tags: describeTagChanges,
     pinned: function onPinned(change, logItem, asNotification) {
         const isFavoriteAfter = detectBoolean(change?.after)
         return {
