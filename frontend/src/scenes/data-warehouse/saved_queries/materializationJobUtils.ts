@@ -77,16 +77,19 @@ interface FullRefreshReasonCopy {
 
 /** Short label and explanation for a run that rebuilt the whole table, keyed by the reason the
  * backend stored on the job. An unrecognized reason is shown as stored, so a reason added later
- * still says something. */
+ * still says something.
+ *
+ * Each explanation describes only the run it belongs to. The backend stamps the reason when it
+ * plans the run, so the same copy also has to hold for a run that is still going, for one that
+ * failed without recording a watermark, and for one that ran before the view's current settings. */
 const FULL_REFRESH_REASONS: Record<string, FullRefreshReasonCopy> = {
     'first run': {
         label: 'First run',
-        explanation: 'This was the first run, so there were no rows to add to. The next run adds only new rows.',
+        explanation: 'This was the first run, so there were no rows to add to.',
     },
     'definition changed': {
         label: 'Definition changed',
-        explanation:
-            'The query or the incremental keys changed, so the stored rows no longer match them. The next run adds only new rows.',
+        explanation: 'The query or the incremental keys changed, so the stored rows no longer matched them.',
     },
     'no usable watermark': {
         label: 'No watermark',
@@ -99,11 +102,11 @@ const FULL_REFRESH_REASONS: Record<string, FullRefreshReasonCopy> = {
     },
     'not configured for incremental materialization': {
         label: 'Not configured',
-        explanation: 'Incremental updates are off for this view. Turn them on to add only new rows.',
+        explanation: 'Incremental updates were off for this view when this run started.',
     },
     'incremental materialization is not enabled': {
         label: 'Not available',
-        explanation: 'Incremental updates are not available for this project yet.',
+        explanation: 'Incremental updates were not available for this project when this run started.',
     },
 }
 
