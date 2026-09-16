@@ -7468,6 +7468,14 @@ snapshots:
         hash: v1.k794b7964.22840c30d80b9e1a3bd41d5a31af2ab81a54d9f90fb82d540fb9494b44cda050.oC_UUgUXZVqKMZ6LuInaQADAzqeWAvw2dZ8T5eENhIQ
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
         hash: v1.k794b7964.e5d678194a8e191fdf4f8a92cd7328f1e3cb162a81d3c4d05ef608f3c61537da.ZshlecoDn8CpsaVHaONi7UiXq8r-Xi4zJSWKeg7nAP0
+    scenes-app-data-warehouse-settings-schemas--no-table-yet--dark:
+        hash: v1.k794b7964.31c33071a87f314625d384d8b1a005afdcb2d0089700eb8c7801f4ee5ad028bc.AMQWFzw6L4i1ZglvtV2mvu7xE9cg1zO3wWCAT0hwt4w
+    scenes-app-data-warehouse-settings-schemas--no-table-yet--light:
+        hash: v1.k794b7964.44c5e96dc3e28590b4db87c4e2441a9eb641f0002a8b58d21ced817aa816ee36.oNI_V7c3Mo6ooOgKD7nym6dQepLlDcOTqnJrp8SBS6A
+    scenes-app-data-warehouse-settings-schemas--no-table-yet-app-store-connect--dark:
+        hash: v1.k794b7964.31c33071a87f314625d384d8b1a005afdcb2d0089700eb8c7801f4ee5ad028bc.QtnX_BaLIH2XkhC2bzUMBuT-EAFOZnfOTLtIVD37yz4
+    scenes-app-data-warehouse-settings-schemas--no-table-yet-app-store-connect--light:
+        hash: v1.k794b7964.44c5e96dc3e28590b4db87c4e2441a9eb641f0002a8b58d21ced817aa816ee36.RTYDtYRoy3HaLQxF6BCKTtTqW5EpI5EgFxqiAH0BoOY
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--dark:
         hash: v1.k794b7964.4d87a8398ed4a62e9e18ef60f2e907fc8f1585d178833c8eacc34eb5b49cd7cf.jIj6nVJk8Wp1LwkjVO3t4AsK_U0iWUqtUVC6HzXz12g
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--light:
