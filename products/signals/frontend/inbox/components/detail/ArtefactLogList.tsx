@@ -451,13 +451,17 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
             ) : null
         }
         case 'implementation_decision': {
-            const supersede = (content as ImplementationDecisionContent).supersede
+            const { supersede, blocked_reason } = content as ImplementationDecisionContent
             if (typeof supersede !== 'boolean') {
                 return null
             }
             return (
                 <LemonTag size="small" type={supersede ? 'warning' : 'muted'}>
-                    {supersede ? 'Replacement recommended' : 'Still the right fix'}
+                    {blocked_reason === 'revision_limit'
+                        ? 'Replacement limit reached'
+                        : supersede
+                          ? 'Replacement recommended'
+                          : 'Still the right fix'}
                 </LemonTag>
             )
         }

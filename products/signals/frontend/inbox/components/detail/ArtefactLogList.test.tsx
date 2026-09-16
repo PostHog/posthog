@@ -21,13 +21,16 @@ describe('ArtefactLogList', () => {
     })
 
     it.each([
-        ['a replacement recommendation', true, 'Replacement recommended'],
-        ['a kept PR', false, 'Still the right fix'],
-    ])('shows the decision and its reason for %s', (_name, supersede, expectedTag) => {
+        ['a replacement recommendation', true, undefined, 'Replacement recommended'],
+        ['a kept PR', false, undefined, 'Still the right fix'],
+        ['a capped request', false, 'revision_limit', 'Replacement limit reached'],
+    ])('shows the decision and its reason for %s', (_name, supersede, blocked_reason, expectedTag) => {
         render(
             <ArtefactLogList
                 reportId="report-1"
-                artefacts={[makeArtefact({ supersede, reason: 'The root cause moved to the ingestion path.' })]}
+                artefacts={[
+                    makeArtefact({ supersede, blocked_reason, reason: 'The root cause moved to the ingestion path.' }),
+                ]}
             />
         )
 

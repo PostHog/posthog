@@ -2115,6 +2115,7 @@ export interface SignalReportStateRequestApi {
  * * `pull_request` - Pull Request
  * * `check_result` - Check Result
  * * `implementation_decision` - Implementation Decision
+ * * `implementation_dispatch` - Implementation Dispatch
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
  */
@@ -2144,6 +2145,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     PullRequest: 'pull_request',
     CheckResult: 'check_result',
     ImplementationDecision: 'implementation_decision',
+    ImplementationDispatch: 'implementation_dispatch',
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
 } as const
@@ -4531,7 +4533,7 @@ export interface EditReportRequestApi {
      * @items.maxLength 200
      */
     suggested_prompts?: string[] | null
-    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true closes that pull request and opens a new one, so a false positive throws away review someone may already have done. Only honored alongside a `title` or `summary` that actually changes, and only for the first few such rewrites. */
+    /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
     supersedes_implementation?: boolean
 }
 

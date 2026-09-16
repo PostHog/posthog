@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime
-from typing import TypedDict, TypeVar
+from typing import Literal, TypedDict, TypeVar
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from django.utils.text import slugify
 
 import structlog
@@ -23,7 +24,7 @@ from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ImplementationReplacement
+from products.signals.backend.artefact_schemas import ImplementationDispatch, ImplementationReplacement
 from products.signals.backend.billing import (
     BillingExemptionError,
     mark_report_billing_exempt,
@@ -103,6 +104,12 @@ class SupersedeDecision:
 
 
 NO_SUPERSEDE = SupersedeDecision(allowed=False)
+
+
+@frozen
+class AutostartOutcome:
+    status: Literal["started", "blocked", "cancelled", "queued"]
+    reason: str = ""
 
 
 @frozen
@@ -472,7 +479,9 @@ def _has_unimplemented_work(report: SignalReport) -> bool:
     return 0 < revisions <= MAX_SCOUT_CONTENT_REVISIONS and revisions > (report.implemented_at_revision_count or 0)
 
 
-def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | None) -> SupersedeDecision:
+def _resolve_supersede(
+    report: SignalReport, decision: ImplementationDecision | None, *, retry_verification: bool = False
+) -> SupersedeDecision:
     if decision is None or not decision_is_current(report, decision) or not targets_still_eligible(report, decision):
         return NO_SUPERSEDE
     artefact = (
@@ -490,6 +499,8 @@ def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | 
         # reach the settle-point activity and use its retries instead of reading as "not eligible".
         raise
     except Exception:
+        if retry_verification:
+            raise
         logger.exception("signals_supersede_verification_failed", report_id=str(report.id))
         return NO_SUPERSEDE
     return SupersedeDecision(
@@ -515,6 +526,7 @@ def _create_implementation_task_if_absent(
     steering: ReportSteering = NO_STEERING,
     free_trial_enabled: bool | None = None,
     supersede: SupersedeDecision = NO_SUPERSEDE,
+    dispatch: ImplementationDispatch | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -551,13 +563,41 @@ def _create_implementation_task_if_absent(
             return False
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
+        if dispatch is not None:
+            latest = (
+                SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id=report_id, type="implementation_dispatch"
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            progress = ImplementationDispatch.model_validate_json(latest.content) if latest else None
+            if (
+                progress is None
+                or progress.decision_id != dispatch.decision_id
+                or progress.worker_token != dispatch.worker_token
+                or progress.status != "processing"
+                or progress.lease_until is None
+                or progress.lease_until <= timezone.now()
+                or supersede.decision_id != str(dispatch.decision_id)
+            ):
+                raise ReportChangedDuringAutostart("Replacement dispatch lease changed")
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         if supersede.allowed:
+            current_decision_id = (
+                SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id=report_id, type="implementation_decision"
+                )
+                .order_by("-created_at", "-id")
+                .values_list("id", flat=True)
+                .first()
+            )
             if (
                 not supersede.decision
                 or not supersede.decision_id
                 or not decision_is_current(report, supersede.decision)
                 or not targets_still_eligible(report, supersede.decision)
+                or str(current_decision_id) != supersede.decision_id
             ):
                 return False
             if any(
@@ -662,7 +702,7 @@ def _create_implementation_task_if_absent(
 
 
 def _live_skill_owner_identities(
-    team: Team, report_id: str, reviewers_content: list[ReviewerContent]
+    team: Team, report_id: str, reviewers_content: list[ReviewerContent], source_skill: str | None = None
 ) -> ReviewerIdentitySet:
     """GitHub logins (lowercased) of the *current* owners of every scout that touched the report.
 
@@ -682,6 +722,8 @@ def _live_skill_owner_identities(
     commits atomically with the pick it guards, and covers the entries that actually stand for
     selection even when a tally write was lost."""
     skill_names = set(resolve_touching_scout_skills(team.id, report_id))
+    if source_skill:
+        skill_names.add(source_skill)
     skill_names |= {str(r["source_skill"]) for r in reviewers_content if r.get("source_skill")}
     owner_uuids: set[str] = set()
     for skill_name in skill_names:
@@ -876,7 +918,8 @@ async def maybe_autostart_implementation_task(
     repository_autostart_eligible: bool = True,
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
-) -> None:
+    dispatch: ImplementationDispatch | None = None,
+) -> AutostartOutcome:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
     ``triggering_user_id`` is set when a *user edit* of the report's `suggested_reviewers` re-ran
@@ -929,17 +972,20 @@ async def maybe_autostart_implementation_task(
     report = await SignalReport.objects.filter(id=report_id, team_id=team_id).afirst()
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
-        return
+        return AutostartOutcome(status="cancelled", reason="Report no longer exists")
     expected_content = ImplementationReportContent.from_report(report)
     if title != expected_content.title or summary != expected_content.summary:
         if remaining_retries:
-            await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1
+            return await maybe_autostart_from_report_artefacts(
+                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
             )
-        return
+        raise ReportChangedDuringAutostart("Report kept changing during autostart")
     supersede = await database_sync_to_async(_resolve_supersede, thread_sensitive=False)(
-        report, implementation_decision
+        report, implementation_decision, retry_verification=dispatch is not None
     )
+
+    if dispatch is not None and supersede.decision_id != str(dispatch.decision_id):
+        return AutostartOutcome(status="cancelled", reason="Replacement decision is no longer eligible")
 
     skip_reason: str | None = None
     if task_exists and not supersede.allowed:
@@ -952,7 +998,7 @@ async def maybe_autostart_implementation_task(
         skip_reason = "no priority assessment"
     if skip_reason is not None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
-        return
+        return AutostartOutcome(status="blocked", reason=skip_reason)
 
     assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
 
@@ -967,7 +1013,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="autostart disabled for team",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="Autostart is disabled")
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
 
     # Quota gate: the implementation task is the step that leads to the billable PR, so a team
@@ -985,7 +1031,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="org over self-driving credits quota",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
@@ -999,7 +1045,7 @@ async def maybe_autostart_implementation_task(
         # `_live_skill_owner_identities`). Skipped when no reviewer is up for selection.
         live_owner_identities = (
             await database_sync_to_async(_live_skill_owner_identities, thread_sensitive=False)(
-                team, report_id, reviewers_content
+                team, report_id, reviewers_content, dispatch.source_skill if dispatch else None
             )
             if reviewers_content
             else ReviewerIdentitySet.empty()
@@ -1023,7 +1069,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="No eligible autostart runner")
 
     # Free trial gate: a trial org gets reports, not pull requests, so no implementation task on
     # any path. The report stays ready and gets its PR after the trial, on the next re-evaluation
@@ -1038,7 +1084,7 @@ async def maybe_autostart_implementation_task(
             team_id=team_id,
             reason="org on self-driving free trial",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
 
@@ -1074,17 +1120,20 @@ async def maybe_autostart_implementation_task(
             # report row lock.
             free_trial_enabled=on_free_trial,
             supersede=supersede,
+            dispatch=dispatch,
         )
     except ReportChangedDuringAutostart:
         if remaining_retries:
-            await maybe_autostart_from_report_artefacts(
-                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1
+            return await maybe_autostart_from_report_artefacts(
+                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1, dispatch=dispatch
             )
-        return
+        raise ReportChangedDuringAutostart("Report kept changing during autostart")
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
-        return
+        return AutostartOutcome(status="cancelled", reason="Another start or report change won the race")
+
+    return AutostartOutcome(status="started")
 
 
 async def _latest_artefact_as(
@@ -1150,7 +1199,9 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
     return reviewers, editor_user_id
 
 
-async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str, remaining_retries: int = 2) -> None:
+async def maybe_autostart_from_report_artefacts(
+    *, team_id: int, report_id: str, remaining_retries: int = 2, dispatch: ImplementationDispatch | None = None
+) -> AutostartOutcome:
     """Re-evaluate auto-start from a report's *current* artefacts.
 
     Called when reviewers change after the report was created (e.g. a human edits them via the
@@ -1162,6 +1213,14 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
     When the latest reviewers artefact was user-edited, the task runs as that editing user (not a
     named colleague) — see `_latest_reviewers_content` and `triggering_user_id`.
     """
+    if dispatch is None:
+        from products.signals.backend.implementation_dispatch import (
+            ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle
+        )
+
+        if await database_sync_to_async(ImplementationDispatcher().trigger, thread_sensitive=False)(team_id, report_id):
+            return AutostartOutcome(status="queued")
+
     report = (
         await SignalReport.objects.filter(id=report_id, team_id=team_id)
         .only("title", "summary", "last_run_at")
@@ -1174,7 +1233,7 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
             team_id=team_id,
             reason="report missing or not yet summarized",
         )
-        return
+        return AutostartOutcome(status="cancelled", reason="Report is missing or has no summary")
 
     actionability = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
@@ -1186,7 +1245,7 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
             team_id=team_id,
             reason="no actionability artefact",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="No actionability assessment")
     repo_selection = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
     )
@@ -1198,7 +1257,7 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
             team_id=team_id,
             reason="no repository selected",
         )
-        return
+        return AutostartOutcome(status="blocked", reason="No repository selected")
     priority = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
@@ -1220,7 +1279,7 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
     # via `triggering_user_id` below.
     reviewers_content, editor_user_id = await _latest_reviewers_content(report_id)
 
-    await maybe_autostart_implementation_task(
+    return await maybe_autostart_implementation_task(
         team_id=team_id,
         report_id=report_id,
         repository=repository,
@@ -1235,4 +1294,5 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str,
         repository_autostart_eligible=repo_selection.autostart_eligible,
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
+        dispatch=dispatch,
     )

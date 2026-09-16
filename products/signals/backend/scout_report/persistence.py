@@ -30,7 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from django.db import IntegrityError, transaction
 from django.db.models import F
@@ -48,6 +48,7 @@ from products.signals.backend.artefact_schemas import (
     TASK_RUN_TYPE_SCOUT,
     ActionabilityAssessment,
     ImplementationDecision,
+    ImplementationDispatch,
     NoteArtefact,
     PriorityAssessment,
     SafetyJudgment,
@@ -638,6 +639,9 @@ def record_implementation_decision(
     """
     fields = " and ".join(sorted(set(updated_fields) & {"title", "summary"})) or "content"
     who = author or "A scout"
+    blocked_reason: Literal["revision_limit"] | None = (
+        "revision_limit" if supersede_requested and not supersede else None
+    )
     if supersede:
         reason = (
             f"{who} rewrote the report's {fields}. "
@@ -666,7 +670,7 @@ def record_implementation_decision(
         raise InvalidScoutReportError(
             "The report's content is not settled yet. Retry the edit once the report is ready."
         )
-    SignalReportArtefact.append_status(
+    decision = SignalReportArtefact.append_status(
         team_id=team_id,
         report_id=report_id,
         content=ImplementationDecision(
@@ -676,9 +680,17 @@ def record_implementation_decision(
             research_run_count=report.run_count,
             research_started_at=report.last_run_at,
             content_revision_count=report.content_revision_count or 0,
+            blocked_reason=blocked_reason,
         ),
         attribution=attribution,
     )
+    if supersede:
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=ImplementationDispatch(decision_id=decision.id, source_skill=author),
+            attribution=ArtefactAttribution.system(),
+        )
 
 
 def append_report_evidence(

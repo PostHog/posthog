@@ -241,7 +241,8 @@ def test_live_owner_logins_span_every_scout_that_touched_the_report(organization
 
 
 @pytest.mark.django_db
-def test_live_owner_logins_survive_a_lost_edit_tally(organization, team):
+@pytest.mark.parametrize("source", ["reviewer", "dispatch"])
+def test_live_owner_logins_survive_a_lost_edit_tally(organization, team, source):
     # The run tallies are best-effort writes that swallow failures, so a scout whose tally write was
     # lost leaves no `edited_report_ids` trace — the entry's own `source_skill` stamp (committed
     # atomically with the pick) must still bring that scout's current owners into the exclusion.
@@ -253,8 +254,11 @@ def test_live_owner_logins_survive_a_lost_edit_tally(organization, team):
     with team_scope(team.id, canonical=True):
         LLMSkillOwner.objects.create(team=team, skill_name="signals-scout-tallyless", user=owner)
 
-    reviewers = [_reviewer("tallylessowner", source_skill="signals-scout-tallyless")]
-    assert _live_skill_owner_identities(team, str(report.id), reviewers).github_logins == frozenset({"tallylessowner"})
+    reviewers = [_reviewer("tallylessowner", source_skill="signals-scout-tallyless" if source == "reviewer" else None)]
+    identities = _live_skill_owner_identities(
+        team, str(report.id), reviewers, source_skill="signals-scout-tallyless" if source == "dispatch" else None
+    )
+    assert identities.github_logins == frozenset({"tallylessowner"})
 
 
 @pytest.mark.parametrize(

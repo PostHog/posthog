@@ -268,7 +268,7 @@ Rules of good behavior:
 
 A report that autostarted has an open draft PR built from the summary as it read at the time.
 When your rewrite changes what the fix should be, set `supersedes_implementation: true` alongside the `title` / `summary` you are changing.
-That closes the open PR and opens a new one built from your new summary, with the closed one referenced from its description.
+This records a replacement decision for a ready report. Autostart checks policy and eligibility before starting a replacement from your new summary. Technical failures retry automatically; a policy block waits for a new edit or research trigger. The existing PR stays open until the replacement succeeds with a verified open PR.
 
 Set it only when the fix itself changed: a different root cause, a different file or layer, a materially wider or narrower scope.
 More evidence for the same fix is not a reason — the open PR already implements it, and replacing it throws away review someone may already have done.
@@ -277,7 +277,7 @@ An `append_note` is the right move there instead.
 Two things bound it, and the response tells you which one applied:
 
 - It is only honored alongside a rewrite that actually changed the title or summary. Restating the text the report already holds is not a revision, and neither is a note or a reviewer change. `is_content_revision` in the response says whether yours counted.
-- A report earns at most four such replacements. `content_revision_count` is the running total; past four your rewrite still lands, it just stops opening pull requests. `supersedes_implementation` in the response is `true` only when the decision was recorded.
+- Only the first four content revisions can request replacements. `content_revision_count` counts every title or summary rewrite, including ones that did not request replacement. Past four your rewrite still lands, but it cannot request a replacement. `supersedes_implementation` in the response is `true` only when the decision was recorded.
 
 ### Re-confirming a report you already filed
 

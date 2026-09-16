@@ -105,6 +105,7 @@ export interface SummaryChangeContent {
 
 export interface ImplementationDecisionContent {
     supersede?: boolean
+    blocked_reason?: 'revision_limit' | null
     reason?: string
     targets?: { pr_url: string }[]
 }
@@ -130,8 +131,9 @@ export interface ImplementationHandoverContent {
 export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
     return artefacts.filter(
         (artefact) =>
-            artefact.type !== 'implementation_handover' ||
-            (artefact.content as ImplementationHandoverContent).status !== 'processing'
+            artefact.type !== 'implementation_dispatch' &&
+            (artefact.type !== 'implementation_handover' ||
+                (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )
 }
 

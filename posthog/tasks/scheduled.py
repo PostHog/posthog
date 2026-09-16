@@ -114,6 +114,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -397,6 +398,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_implementation_dispatches.s(),
+        name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25

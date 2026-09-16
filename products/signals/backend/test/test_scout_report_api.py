@@ -723,21 +723,31 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
+        before = SignalReport.objects.get(id=report_id)
         with (
             _safe_judge(),
             patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch("products.signals.backend.scout_harness.tools.report.emit_appended_report_evidence") as emit,
             patch(REVISION_COUNT_PATH, side_effect=OperationalError("connection lost")),
         ):
             response = self.client.post(
                 self._edit_url(str(run.id)),
-                data={"report_id": report_id, "append_note": "still there", "corroboration_only": True},
+                data={
+                    "report_id": report_id,
+                    "append_note": "still there",
+                    "corroboration_only": True,
+                    "append_evidence": [{"description": "The retry failed again", "source_id": "retry-2"}],
+                },
                 format="json",
             )
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not SignalReportArtefact.objects.filter(
             report_id=report_id, type="note", content__contains="still there"
         ).exists()
-        assert SignalReport.objects.get(id=report_id).corroboration_count is None
+        after = SignalReport.objects.get(id=report_id)
+        assert after.corroboration_count == before.corroboration_count
+        assert after.signal_count == before.signal_count
+        emit.assert_not_called()
 
     @parameterized.expand(
         [
@@ -788,6 +798,14 @@ class TestScoutReportAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json()["is_content_revision"] is True
             recorded.append((response.json()["supersedes_implementation"], autostart.await_count))
+            if response.json()["supersedes_implementation"]:
+                decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+                dispatch = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DISPATCH)
+                assert decision is not None and dispatch is not None
+                progress = json.loads(dispatch.content)
+                assert progress["decision_id"] == str(decision.id)
+                assert progress["status"] == "pending"
+                assert progress["source_skill"] == run.skill_name
 
         assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
         report = SignalReport.objects.get(id=report_id)
@@ -803,6 +821,7 @@ class TestScoutReportAPI(APIBaseTest):
         # must not read back as the scout judging the open pull request still right.
         assert "asked to replace the open pull request" in refused["reason"]
         assert "without changing what the fix should be" not in refused["reason"]
+        assert refused["blocked_reason"] == "revision_limit"
 
     def test_a_rewrite_that_claims_nothing_retracts_the_last_supersede_decision(self) -> None:
         # Same hazard from the other side: a scout supersedes once, then rewrites again saying

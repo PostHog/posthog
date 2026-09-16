@@ -510,11 +510,11 @@ This run updates reports that already exist; it can't author new ones. Find the 
 # ignores this section can't overrun them; the section is here so it knows what its call did.
 _REVISING_A_REPORT = """# Revising a report that already has a pull request
 
-A report that autostarted has an open draft pull request built from the summary as it read at the time. When your rewrite changes **what the fix should be** (a different root cause, a different file or layer, a materially wider or narrower scope), pass `supersedes_implementation: true` on the same `scout-edit-report` call. That closes the open pull request and opens a new one built from your new summary, with the closed one referenced from its description.
+A report that autostarted has an open draft pull request built from the summary as it read at the time. When your rewrite changes **what the fix should be** (a different root cause, a different file or layer, a materially wider or narrower scope), pass `supersedes_implementation: true` on the same `scout-edit-report` call. This records a replacement decision for a ready report. Autostart checks the current policy and eligibility before starting a replacement from your new summary. Technical failures retry automatically; a policy block waits for a new edit or research trigger. The existing pull request stays open until the replacement succeeds with a verified open pull request.
 
 - **More evidence for the same fix is not a reason to set it.** The open pull request already implements that fix, and replacing it throws away review someone may already have done. Use `append_note` there instead.
 - **It rides on a real rewrite.** It is ignored unless the same call actually changed the `title` or `summary`. Restating text the report already holds, appending a note, and setting reviewers all count for nothing; the response's `is_content_revision` tells you whether yours counted.
-- **A report earns at most four replacements.** Past that your rewrite still lands, it just stops opening pull requests. The response's `supersedes_implementation` is true only when the decision was recorded.
+- **Only the first four content revisions can request replacements.** Every title or summary rewrite counts, including one that did not request a replacement. Past that your rewrite still lands, but it cannot request a replacement. The response's `supersedes_implementation` is true only when the decision was recorded.
 
 # Re-confirming a report still holds
 

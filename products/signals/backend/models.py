@@ -1108,6 +1108,7 @@ class SignalReportArtefact(UUIDModel):
         PULL_REQUEST = "pull_request"
         CHECK_RESULT = "check_result"
         IMPLEMENTATION_DECISION = "implementation_decision"
+        IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
 
@@ -1131,6 +1132,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.SUGGESTED_REVIEWERS,
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
+            ArtefactType.IMPLEMENTATION_DISPATCH,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -1211,6 +1213,11 @@ class SignalReportArtefact(UUIDModel):
             models.Index(fields=["channel"], name="signals_sig_channel_idx"),
             models.Index(fields=["pull_request", "report"], name="signals_artefact_pr_report_idx"),
             models.Index(fields=["claim"], name="signals_artefact_claim_idx"),
+            models.Index(
+                fields=["id"],
+                condition=models.Q(type="implementation_decision"),
+                name="signals_dispatch_sweep_idx",
+            ),
         ]
 
     @classmethod

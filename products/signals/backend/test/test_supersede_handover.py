@@ -15,6 +15,7 @@ from parameterized import parameterized
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ImplementationDecision,
+    ImplementationDispatch,
     ImplementationHandover,
     ImplementationReplacement,
 )
@@ -141,7 +142,9 @@ class TestSupersedeHandover(BaseTest):
         )
         return decision
 
-    def start_replacement(self, decision: ImplementationDecision | None = None) -> SignalReportArtefact:
+    def start_replacement(
+        self, decision: ImplementationDecision | None = None, dispatch: ImplementationDispatch | None = None
+    ) -> SignalReportArtefact:
         decision = decision or self.decision()
         supersede = _resolve_supersede(self.report, decision)
         assert supersede.allowed
@@ -177,11 +180,44 @@ class TestSupersedeHandover(BaseTest):
                     repository="example/repo",
                     base_branch=None,
                     supersede=supersede,
+                    dispatch=dispatch,
                 )
                 for _ in range(2)
             ]
             assert outcomes == [True, False]
         return SignalReportArtefact.objects.get(report=self.report, type="implementation_replacement")
+
+    @parameterized.expand([("expired",), ("replaced",), ("current",)])
+    def test_dispatch_lease_fences_task_creation(self, lease: str) -> None:
+        decision = self.decision()
+        row = SignalReportArtefact.objects.get(report=self.report, type="implementation_decision")
+        reservation = ImplementationDispatch(
+            decision_id=row.id,
+            status="processing",
+            worker_token=uuid4(),
+            lease_until=timezone.now() + timedelta(seconds=300),
+        )
+        stored = reservation.model_copy()
+        if lease == "expired":
+            stored.lease_until = timezone.now() - timedelta(seconds=1)
+        elif lease == "replaced":
+            stored.worker_token = uuid4()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=stored,
+            attribution=ArtefactAttribution.system(),
+        )
+        if lease == "current":
+            replacement = self.start_replacement(decision, reservation)
+            assert ImplementationReplacement.model_validate_json(replacement.content).decision_id == row.id
+        else:
+            with self.assertRaises(ReportChangedDuringAutostart):
+                self.start_replacement(decision, reservation)
+            assert not SignalReportArtefact.objects.filter(
+                report=self.report, type="implementation_replacement"
+            ).exists()
+        self.github.close_pull_request.assert_not_called()
 
     def complete(self, replacement: SignalReportArtefact) -> TaskRun:
         content = ImplementationReplacement.model_validate_json(replacement.content)

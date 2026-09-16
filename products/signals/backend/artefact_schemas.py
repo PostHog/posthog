@@ -619,6 +619,7 @@ class ImplementationDecision(BaseModel):
     research_run_count: int | None = None
     research_started_at: datetime | None = None
     content_revision_count: int = 0
+    blocked_reason: Literal["revision_limit"] | None = None
 
     @field_validator("reason")
     @classmethod
@@ -632,6 +633,17 @@ class ImplementationReplacement(BaseModel):
     decision_id: UUID
     decision: ImplementationDecision
     run_id: UUID
+
+
+class ImplementationDispatch(BaseModel):
+    decision_id: UUID
+    source_skill: str | None = None
+    status: Literal["pending", "processing", "retrying", "blocked", "started", "cancelled"] = "pending"
+    attempt: int = 0
+    next_retry_at: datetime | None = None
+    worker_token: UUID | None = None
+    lease_until: datetime | None = None
+    reason: str = ""
 
 
 class ImplementationHandover(BaseModel):
@@ -745,6 +757,7 @@ StatusArtefactContent = (
     | SuggestedReviewers
     | ChannelAssignment
     | ImplementationDecision
+    | ImplementationDispatch
 )
 LogArtefactContent = (
     CodeReference
@@ -789,6 +802,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
     "implementation_decision": ImplementationDecision,
+    "implementation_dispatch": ImplementationDispatch,
     "implementation_replacement": ImplementationReplacement,
     "implementation_handover": ImplementationHandover,
 }
@@ -821,6 +835,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "pull_request",
         "check_result",
         "implementation_decision",
+        "implementation_dispatch",
         "implementation_replacement",
         "implementation_handover",
     }

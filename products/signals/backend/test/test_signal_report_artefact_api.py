@@ -1454,6 +1454,11 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
                 {"replacement_id": str(uuid.UUID(int=1)), "status": "completed"},
                 {"replacement_id": str(uuid.UUID(int=2)), "status": "failed"},
             ),
+            (
+                "implementation_dispatch",
+                {"decision_id": str(uuid.UUID(int=1)), "status": "pending"},
+                {"decision_id": str(uuid.UUID(int=2)), "status": "started"},
+            ),
         ]
     )
     def test_implementation_lifecycle_artefacts_cannot_be_forged_or_removed(

@@ -76,6 +76,22 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const ReplacementLifecycle: Story = {}
+export const RevisionLimit: Story = {
+    args: {
+        artefacts: [
+            {
+                id: 'capped-decision',
+                type: 'implementation_decision',
+                created_at: '2026-09-14T10:00:00Z',
+                content: {
+                    supersede: false,
+                    blocked_reason: 'revision_limit',
+                    reason: 'The rewrite was saved, but the content revision limit prevents another replacement.',
+                },
+            },
+        ],
+    },
+}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
