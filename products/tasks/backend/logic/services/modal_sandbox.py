@@ -1227,7 +1227,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     return False
                 time.sleep(1)
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, sb.object_id, "mount_probe")
+            _raise_if_proxy_failure(e, sb.object_id, "mount_probe")
             logger.warning(f"Post-mount probe errored for sandbox {sb.object_id}: {e}")
             return False
         if returncode != 0:
