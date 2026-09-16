@@ -18,7 +18,6 @@ export function DataQualityGateToggle(): JSX.Element | null {
 
     return (
         <LemonSwitch
-            bordered
             checked={gateConfig.gate_materialization_on_checks}
             onChange={setGateEnabled}
             loading={gateSaving}

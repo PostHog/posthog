@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -16,6 +16,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
@@ -36,13 +37,18 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     TtlSchedule,
 )
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    _VOLUME_FLOOR_LOCAL_CACHE,
     OOM_PIN_TTL_SECONDS,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
     STALE_WHILE_REVALIDATE_SECONDS,
     TEAM_SHAPE_SET_TTL_SECONDS,
+    VOLUME_FLOOR_READY_KEY,
+    VOLUME_FLOOR_TEAMS_KEY,
+    BelowVolumeFloor,
     DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
@@ -55,10 +61,12 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     handle_stale_served,
     host_filter_expr,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
     is_team_oom_pinned,
     lazy_precompute_ineligible_reason,
     log_eligibility_outcome,
     pin_team_oom,
+    publish_volume_floor_teams,
     try_reserve_precompute_shape,
     web_ensure_precomputed,
 )
@@ -336,6 +344,16 @@ class TestCacheKeyVariesWithRolloutState(BaseTest):
             key_disabled = self._cache_key()
         assert key_enabled != key_disabled
 
+    def test_crossing_the_volume_floor_changes_cache_key(self) -> None:
+        # A team crossing below the floor switches to the live path; the key must
+        # change so a precompute-produced response is not served until it stales.
+        with mock.patch(f"{self._RUNNER_MOD}.is_precompute_enabled_for_team", return_value=True):
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=True):
+                key_above = self._cache_key()
+            with mock.patch(f"{self._RUNNER_MOD}.is_team_above_volume_floor", return_value=False):
+                key_below = self._cache_key()
+        assert key_above != key_below
+
 
 class TestHostFilterExpr(BaseTest):
     def test_empty_properties_is_true_constant(self) -> None:
@@ -611,6 +629,34 @@ class TestTeamOomPin(BaseTest):
 
 
 class TestWebEnsurePrecomputed(BaseTest):
+    @parameterized.expand(
+        [
+            ("off", False, None),
+            ("on", True, "webAnalyticsEagerBaselineWarming"),
+            ("revalidation", True, REVALIDATION_TRIGGER),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_classification_context_matches_insert_modifiers(
+        self, _name: str, enabled: bool, trigger: str | None, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=enabled),
+        )
+        insert_modifiers = HogQLQueryModifiers(cookielessTrafficIsRegular=not enabled, sessionIdPushdown=True)
+        with tags_context(trigger=trigger):
+            web_ensure_precomputed(team=self.team, runner=runner, modifiers=insert_modifiers)
+        kwargs = mock_ensure.call_args.kwargs
+        assert kwargs["modifiers"].cookielessTrafficIsRegular is enabled
+        assert kwargs["modifiers"].sessionIdPushdown is True
+        assert insert_modifiers.cookielessTrafficIsRegular is not enabled
+        assert kwargs.get("cache_key_context") == (
+            {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
+        )
+
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))
         super().tearDown()
@@ -784,7 +830,7 @@ class TestWebEnsurePrecomputed(BaseTest):
         reset_query_tags()
         self.team.timezone = tz
         with (
-            freeze_time("2026-08-20T12:00:00Z"),
+            time_machine.travel("2026-08-20T12:00:00Z", tick=False),
             tags_context(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value),
         ):
             web_ensure_precomputed(team=self.team, ttl_seconds={"0d": 4 * 3600, "default": 3600}, table=None)
@@ -792,6 +838,124 @@ class TestWebEnsurePrecomputed(BaseTest):
         for window_start in expired_window_starts:
             assert schedule.get_ttl(window_start) == 1
         assert schedule.get_ttl(fresh_window_start) == 3600
+
+
+class TestVolumeFloor(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+    def tearDown(self):
+        client = redis.get_client()
+        client.delete(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_READY_KEY, f"{VOLUME_FLOOR_TEAMS_KEY}:staging")
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        super().tearDown()
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_fail_open_until_published_then_enforces_membership(self):
+        assert is_team_above_volume_floor(self.team.pk) is True  # unpublished: fail open
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is False
+        assert is_team_above_volume_floor(self.team.pk + 1) is True
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+
+        # Republish replaces the whole set: the previous member drops out.
+        publish_volume_floor_teams([self.team.pk])
+        assert is_team_above_volume_floor(self.team.pk) is True
+        assert is_team_above_volume_floor(self.team.pk + 1) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_hysteresis_keeps_existing_members_above_exit_floor(self):
+        member = self.team.pk + 1
+        newcomer = self.team.pk + 2
+        publish_volume_floor_teams([member])
+        # Next pass: member fell under the entry floor but stays above the exit
+        # floor; newcomer is between the floors and was never a member.
+        publish_volume_floor_teams([], above_exit_floor=[member, newcomer])
+        assert is_team_above_volume_floor(member) is True
+        assert is_team_above_volume_floor(newcomer) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_env_enrolled_teams_bypass_the_floor(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_empty_publish_enforces_below_floor_for_everyone(self):
+        publish_volume_floor_teams([self.team.pk])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # No team above the floor is a valid verdict, not an error: the set is
+        # dropped, the sentinel stays, and every non-enrolled team reads below
+        # floor instead of the publish raising mid-pipeline.
+        publish_volume_floor_teams([])
+        assert is_team_above_volume_floor(self.team.pk) is False
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_lost_teams_set_fails_open_despite_sentinel(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+        # Eviction or TTL drift can lose the set while the sentinel survives;
+        # that must read as "state lost, fail open", not fleet-wide below-floor.
+        redis.get_client().delete(VOLUME_FLOOR_TEAMS_KEY)
+        assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=0)
+    def test_zero_floor_disables_the_check(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        assert is_team_above_volume_floor(self.team.pk) is True
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_gate_rejects_below_floor_team_including_background(self):
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            with self.assertRaises(BelowVolumeFloor):
+                check_common_eligibility(
+                    team=self.team,
+                    use_web_analytics_precompute=None,
+                    conversion_goal=None,
+                    sampling=None,
+                    modifiers=runner.modifiers,
+                    properties=[],
+                    resolve_date_range=lambda: (None, None),
+                )
+            # The floor must hold for warming replays too — building buckets
+            # for a below-floor team is the waste the floor exists to stop.
+            with tags_context(trigger="webAnalyticsStaleRevalidation", feature=Feature.CACHE_WARMUP):
+                with self.assertRaises(BelowVolumeFloor):
+                    check_common_eligibility(
+                        team=self.team,
+                        use_web_analytics_precompute=None,
+                        conversion_goal=None,
+                        sampling=None,
+                        modifiers=runner.modifiers,
+                        properties=[],
+                        resolve_date_range=lambda: (None, None),
+                    )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS=100_000)
+    def test_overview_stats_trends_gate_rejects_below_floor_team(self):
+        # Overview, stats, and trends reach the gate through `can_use_lazy_precompute`
+        # / `check_common_eligible`, not `check_common_eligibility`. Without the floor
+        # check there, a below-floor team keeps serving those primary tiles from
+        # precompute. The flag is forced on so the floor is the only rejection reason.
+        publish_volume_floor_teams([self.team.pk + 1])
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[]), team=self.team
+        )
+        with mock.patch(
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.is_precompute_enabled_for_team",
+            return_value=True,
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
@@ -906,6 +1070,7 @@ class TestServeLiveWarmBehind(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 
@@ -985,6 +1150,7 @@ class TestPrecomputeShapeCapWiring(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 

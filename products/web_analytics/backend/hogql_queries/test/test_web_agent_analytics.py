@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
 from posthog.schema import (
@@ -77,7 +77,7 @@ class TestWebAgentAnalyticsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             intentKey=intent_key,
             limit=limit,
         )
-        with freeze_time("2026-08-20T18:00:00Z"):
+        with time_machine.travel("2026-08-20T18:00:00Z", tick=False):
             return WebAgentAnalyticsQueryRunner(team=self.team, query=query).calculate()
 
     @staticmethod

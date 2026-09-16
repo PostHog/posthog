@@ -638,7 +638,9 @@
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
          "posthog_experiment"."flag_cleanup_task_id",
-         "posthog_experiment"."repository"
+         "posthog_experiment"."repository",
+         "posthog_experiment"."feature_flag_rule_id",
+         "posthog_experiment"."feature_flag_rule_snapshot"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")
@@ -681,7 +683,9 @@
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
          "posthog_experiment"."flag_cleanup_task_id",
-         "posthog_experiment"."repository"
+         "posthog_experiment"."repository",
+         "posthog_experiment"."feature_flag_rule_id",
+         "posthog_experiment"."feature_flag_rule_snapshot"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")
@@ -949,8 +953,11 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_team"
-  WHERE ("posthog_team"."project_id" = 99999
-         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
+  WHERE (("posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": "copied-flag-key"}}]}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": {"key": "copied-flag-key"}}}]}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": {"id": 99999}}}]}'::jsonb)
+         AND "posthog_team"."project_id" = 99999)
   LIMIT 1
   '''
 # ---
@@ -1034,7 +1041,8 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.5
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id"
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -1902,7 +1910,8 @@
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.5
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id"
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''

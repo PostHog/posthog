@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -23,7 +25,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -187,11 +188,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
-    def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
+    def history_lookback_for_schema(
+        self, schema_name: str, config: ConfigType | None = None
+    ) -> datetime.timedelta | None:
         """How far back a first sync of one schema reaches, or None for no bound.
 
         Override when tables of one source need different bounds, for example a daily and an hourly
-        rollup of the same data, where the hourly table holds 24 rows for every daily row.
+        rollup of the same data, where the hourly table holds 24 rows for every daily row. `config`
+        is the source's parsed config, for a source whose depth the user picks at setup; it is None
+        when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
 
@@ -224,7 +229,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         Returns `dict[str, str | None]`:
             key = a partial error message to match on
-            value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+            value = a friendly error message to show to users. `None` keeps the raised error message,
+                which is what a source wants when that message carries detail no fixed string could
         """
 
         return {}
@@ -449,6 +455,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         redirect the row's injected token. Default: no row-backed credentials."""
         return False
 
+    def get_server_metadata(self, config: ConfigType, team_id: int) -> dict[str, Any]:
+        """Version facts probed from the upstream server, which the schema-discovery pass merges
+        onto the source's ``connection_metadata``. Distinct from ``get_connection_metadata``, which
+        the API calls for direct-query sources only and which returns that mode's connection
+        config, so a source that implements one does not implement the other by accident. The keys
+        vary per source, so the shape is a dict and not a fixed contract. No-op by default."""
+        return {}
+
     def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
         """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
         return None
@@ -504,7 +518,7 @@ class WebhookDeletionResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -514,6 +528,11 @@ class ExternalWebhookInfo:
     status: str | None = None
     description: str | None = None
     created_at: str | None = None
+    # The vendor API version the endpoint delivers at, for the providers that pin one per
+    # endpoint. None means the provider has no such concept or the endpoint carries no pin, in
+    # which case the provider renders payloads at the account default and the shape can drift
+    # away from the version this source reads.
+    api_version: str | None = None
     error: str | None = None
 
 

@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import AsyncMock
 
@@ -68,7 +68,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJobWorkflow,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -125,6 +128,7 @@ from products.warehouse_sources.backend.types import (
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSchemaSyncType,
+    IncrementalSyncBlockedReason,
 )
 
 BUCKET_NAME = "test-pipeline"
@@ -1076,7 +1080,7 @@ async def test_postgres_binary_primary_key_synced_as_hex(team, postgres_config, 
 @pytest.mark.asyncio
 async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe_client, minio_client):
     datetime_now = datetime.now(tz=ZoneInfo("UTC"))
-    with freeze_time(datetime_now):
+    with time_machine.travel(datetime_now, tick=False):
         workflow_id, inputs = await _run(
             team=team,
             schema_name="BalanceTransaction",
@@ -1258,7 +1262,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_billing_limits(team, stripe_customer, mock_stripe_client):
-    with freeze_time("2024-01-01T12:00:00Z"):
+    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
             connection_id=uuid.uuid4(),
@@ -1305,7 +1309,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_failure(team, stripe_customer, mock_stripe_client):
-    with freeze_time("2024-01-01T12:00:00Z"):
+    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
             connection_id=uuid.uuid4(),
@@ -1407,7 +1411,7 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer, m
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error(team, zendesk_brands):
-    with freeze_time("2024-01-01T12:00:00Z"):
+    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
             connection_id=uuid.uuid4(),
@@ -1463,7 +1467,7 @@ async def test_non_retryable_error(team, zendesk_brands):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error_with_special_characters(team, stripe_customer, mock_stripe_client):
-    with freeze_time("2024-01-01T12:00:00Z"):
+    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
             connection_id=uuid.uuid4(),
@@ -3219,6 +3223,7 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         disable_error_message=job.latest_error,
         disable_exclude_workflow_id=mock.ANY,
     )
+    assert schema.incremental_sync_blocked == IncrementalSyncBlockedReason.DUPLICATE_PRIMARY_KEY
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3365,15 +3370,20 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             ignore_assertions=True,
         )
 
-    # assert that the running job was completed successfully and that the new workflow was triggered
     mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
 
-    run: ExternalDataJob | None = await get_latest_run_if_exists(
-        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
-    )
+    run: ExternalDataJob | None = await sync_to_async(
+        ExternalDataJob.objects.filter(team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id)
+        .order_by("-created_at")
+        .first
+    )()
 
     assert run is not None
-    assert run.status == ExternalDataJobStatus.COMPLETED
+    if _current_pipeline_mode == "v3":
+        assert run.status == ExternalDataJobStatus.FAILED
+        assert run.latest_error == WORKER_RESTART_ERROR_MESSAGE
+    else:
+        assert run.status == ExternalDataJobStatus.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3467,7 +3477,7 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.billing.billing_manager.http_session.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
 
         # A previous job that reached the billing limit
@@ -3715,7 +3725,7 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 @pytest.mark.asyncio
 async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_stripe_client, minio_client):
     datetime_1 = datetime.now()
-    with freeze_time(datetime_1):
+    with time_machine.travel(datetime_1, tick=False):
         workflow_id, inputs = await _run(
             team=team,
             schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -3733,7 +3743,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Sync a second time 5 minutes later
     datetime_2 = datetime_1 + timedelta(minutes=5)
-    with freeze_time(datetime_2):
+    with time_machine.travel(datetime_2, tick=False):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3751,7 +3761,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Sync a third time 3 minutes later (still under 10 mins since the first sync)
     datetime_3 = datetime_2 + timedelta(minutes=3)
-    with freeze_time(datetime_3):
+    with time_machine.travel(datetime_3, tick=False):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3774,7 +3784,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
 
     # Sync a fourth time 5 minutes later (now over 10 mins since the first sync)
     datetime_4 = datetime_3 + timedelta(minutes=5)
-    with freeze_time(datetime_4):
+    with time_machine.travel(datetime_4, tick=False):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
         await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
@@ -3803,7 +3813,7 @@ async def test_timestamped_query_folder(team, stripe_balance_transaction, mock_s
     # Sync a fifth time 1 min later but with a reduced query file delete buffer
     datetime_5 = datetime_4 + timedelta(minutes=1)
     with (
-        freeze_time(datetime_5),
+        time_machine.travel(datetime_5, tick=False),
         mock.patch("products.warehouse_sources.backend.temporal.data_imports.util.S3_DELETE_TIME_BUFFER", 1),
     ):
         await _execute_run(workflow_id, inputs, stripe_balance_transaction["data"])
@@ -3986,7 +3996,7 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
     # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
     # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
     # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
-    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    # short-circuit; the prod caps (20 / 3) are just larger values of the same mechanism.
     resumable_retry_cap = 3
     non_retryable_attempts = 2
 

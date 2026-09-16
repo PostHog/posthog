@@ -14,7 +14,8 @@ class DataModelingJobStatus(models.TextChoices):
 
 class DataModelingJobEngine(models.TextChoices):
     CLICKHOUSE = "clickhouse", "ClickHouse"
-    DUCKGRES = "duckgres", "Duckgres"
+    LEGACY_DUCKGRES = "duckgres", "Duckgres"
+    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
 class DataModelingJobRunMode(models.TextChoices):
@@ -39,6 +40,18 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
     parent_workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    # Distinct from `created_by`, which copies the saved query's author onto every run of it. Null
+    # on a scheduled run and on one the product started for its own reasons, so a value here means
+    # a person is waiting on this result.
+    manually_triggered_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        # posthog_user is read on nearly every request, and a real constraint would lock it.
+        db_constraint=False,
+    )
     last_run_at = models.DateTimeField(default=timezone.now)
     rows_expected = models.IntegerField(null=True, blank=True, help_text="Total rows expected to be materialized")
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
@@ -48,4 +61,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         indexes = [
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
+            # serves the per-saved-query lookup of the latest job of one engine, which the
+            # materialized view health check and failure digest do for every live view
+            models.Index(fields=["saved_query", "engine", "-last_run_at"], name="datamodelingjob_sq_engine_run"),
         ]

@@ -1,7 +1,7 @@
 import json
 import datetime
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
@@ -435,7 +435,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         other_team = Team.objects.create(organization=self.organization)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
@@ -443,7 +443,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 ref=str(dashboard_recent_id),
             )
 
-        with freeze_time("2024-02-01T12:00:00Z"):
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
             FileSystemViewLog.objects.create(
                 team=other_team,
                 user=self.user,
@@ -457,6 +457,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert results_by_id[dashboard_recent_id]["last_viewed_at"] is not None
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
+
+    def test_list_pinned_dashboards_orders_by_last_viewed_at(self):
+        recently_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed", "pinned": True})
+        earlier_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Earlier viewed", "pinned": True})
+        unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed", "pinned": True})
+        self.dashboard_api.create_dashboard({"name": "Unpinned"})
+
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="dashboard", ref=str(earlier_viewed_id)
+            )
+        with time_machine.travel("2024-02-01T12:00:00Z", tick=False):
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="dashboard", ref=str(recently_viewed_id)
+            )
+
+        response = self.dashboard_api.list_dashboards(
+            parent="environment", query_params={"pinned": "true", "exclude_generated": "true"}
+        )
+
+        assert [dashboard["id"] for dashboard in response["results"]] == [
+            recently_viewed_id,
+            earlier_viewed_id,
+            unseen_id,
+        ]
 
     def test_list_includes_folder_from_filesystem(self):
         filed_id, _ = self.dashboard_api.create_dashboard(
@@ -657,8 +682,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_tile_spacing_is_saved_and_duplicated(self, _mock_enabled: MagicMock):
+    def test_dashboard_tile_spacing_is_saved_and_duplicated(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"grid_spacing": "relaxed"})
@@ -674,32 +698,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    @patch("products.dashboards.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
-    def test_dashboard_customization_evaluates_flag_against_posthog_project(
-        self, mock_feature_enabled: MagicMock
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-
-        _, updated = self.dashboard_api.update_dashboard(
-            dashboard_id,
-            {"grid_spacing": "condensed", "layout_compaction": "horizontal"},
-        )
-
-        self.assertEqual(
-            updated["customization"],
-            {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
-        )
-        # The flag must resolve through posthoganalytics (our project), not the customer team token.
-        self.assertIn(
-            "dashboard-customization",
-            [flag_call.args[0] for flag_call in mock_feature_enabled.call_args_list],
-        )
-
     @parameterized.expand([("horizontal",), ("stable",)])
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_layout_compaction_is_saved_and_duplicated(
-        self, layout_compaction: str, _mock_enabled: MagicMock
-    ) -> None:
+    def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
@@ -710,10 +710,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_layout_compaction_reports_every_mode_change(
-        self, _mock_enabled: MagicMock, mock_report_user_action: MagicMock
-    ) -> None:
+    def test_dashboard_layout_compaction_reports_every_mode_change(self, mock_report_user_action: MagicMock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
@@ -743,8 +740,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         )
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_tile_spacing_recovers_from_malformed_customization(self, _mock_enabled: MagicMock):
+    def test_dashboard_tile_spacing_recovers_from_malformed_customization(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", customization=[])
 
         retrieved = self.dashboard_api.get_dashboard(dashboard.id)
@@ -753,32 +749,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, updated = self.dashboard_api.update_dashboard(dashboard.id, {"grid_spacing": "condensed"})
         self.assertEqual(updated["customization"], {"tile_spacing": "condensed"})
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
-    def test_dashboard_tile_spacing_requires_feature_flag(self, _mock_enabled: MagicMock):
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-
-        _, response = self.dashboard_api.update_dashboard(
-            dashboard_id,
-            {"grid_spacing": "relaxed"},
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(response["attr"], "grid_spacing")
-        self.assertEqual(response["detail"], "Tile density isn't available.")
-
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
-    def test_dashboard_layout_compaction_requires_feature_flag(self, _mock_enabled: MagicMock) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-
-        _, response = self.dashboard_api.update_dashboard(
-            dashboard_id,
-            {"layout_compaction": "horizontal"},
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(response["attr"], "layout_compaction")
-        self.assertEqual(response["detail"], "Tile movement settings aren't available.")
-
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_tile_spacing_requires_a_known_preset(self, _mock_enabled: MagicMock):
+    def test_dashboard_tile_spacing_requires_a_known_preset(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
@@ -788,8 +759,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "grid_spacing")
 
-    @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_layout_compaction_requires_a_known_mode(self, _mock_enabled: MagicMock) -> None:
+    def test_dashboard_layout_compaction_requires_a_known_mode(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
@@ -1113,7 +1083,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
                 filters=Filter(data=filter_dict).to_dict(),
@@ -1122,7 +1092,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
-        with freeze_time("2020-01-20T13:00:01Z"):
+        with time_machine.travel("2020-01-20T13:00:01Z", tick=False):
             response = self.dashboard_api.get_dashboard(dashboard.pk)
 
         self.assertEqual(response["tiles"][0]["insight"]["result"], None)
@@ -1131,7 +1101,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_refresh_cache(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
 
-        with freeze_time("2020-01-04T13:00:01Z"):
+        with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
                 query=browser_filtered_pageview_query(),
@@ -1153,7 +1123,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
         DashboardTile.objects.create(dashboard=dashboard, insight=item_trends)
 
-        with freeze_time("2020-01-20T13:00:01Z"):
+        with time_machine.travel("2020-01-20T13:00:01Z", tick=False):
             response_data = self.dashboard_api.get_dashboard(dashboard.pk, query_params={"refresh": True})
 
             self.assertEqual(response_data["tiles"][0]["is_cached"], False)
@@ -2468,18 +2438,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
 
-    def test_invalid_properties(self):
-        properties = "invalid_json"
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/trend/?properties={properties}")
-
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertDictEqual(
-            response.json(),
-            self.validation_error_response("Properties are unparsable!", "invalid_input"),
-            response.content,
-        )
-
     def test_insights_with_no_insight_set(self):
         # We were saving some insights on the default dashboard with no insight
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
@@ -3111,6 +3069,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     },
                     "resolved_date_range": ANY,
                     "query_status": None,
+                    "query_scan": None,
                     "result": None,
                     "saved": True,
                     "short_id": ANY,

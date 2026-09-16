@@ -1,7 +1,7 @@
 """LLM summarization of merged PRs for the daily digest.
 
-Boring by design: ask a cheap model to drop the PRs that changed nothing a reader can observe, and
-give the few that survive one plain sentence each. Any failure falls back to a deterministic list
+Boring by design: ask a model to drop the PRs that changed nothing a reader can observe, and give
+the few that survive one plain sentence each. Any failure falls back to a deterministic list
 using each PR's title as its sentence, so a flaky model never loses a digest.
 
 Two rules run before either call, both about a merge this team owns only part of, and both decided
@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 
 from .audiences import REPO_AUDIENCE_PREFIX, team_slug_from_handle
 
@@ -43,11 +43,18 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Cheap, fast model — the digest is a summarization job, not deep reasoning.
-_DIGEST_MODEL = "claude-haiku-4-5"
+# Neither call sees the diff or the PR body, so the job is to keep every condition the reviewed
+# text states, such as a flag or a change that does nothing until later work ships, and to add
+# nothing it does not state. A smaller model drops those conditions and invents consequences, and a
+# reader acts on the line it posts. Both calls run once per audience per weekday, so the price
+# difference is small.
+_DIGEST_MODEL = "claude-sonnet-5"
 _SOURCE_PRODUCT = "stamphog_digest"
-# The Messages shape requires an output ceiling; the selection answer is a short JSON list.
-_DIGEST_MAX_TOKENS = 4096
+# The ceiling covers the model's thinking as well as the answer, so it sits far above the size of
+# the short JSON list itself. It stays under the SDK's limit for a non-streaming request.
+_DIGEST_MAX_TOKENS = 16000
+_SELECTION_EFFORT = "medium"
+_HEADLINE_EFFORT = "low"
 
 # Bounds on the headline call alone. That call is optional: the selection call's lines are already
 # the digest, and losing the headline costs the channel its lead sentence and nothing else. It also
@@ -58,11 +65,11 @@ _DIGEST_MAX_TOKENS = 4096
 # The client carries the SDK's own default instead, ten minutes with retries. That is the right
 # ceiling for the selection call, which the digest cannot do without, and far too patient for this
 # one. One retry rather than none, because losing a morning's headline to a single blip is worse
-# than waiting another half minute for it.
-_HEADLINE_TIMEOUT_SECONDS = 30.0
+# than waiting one more timeout for it. The timeout leaves room for the model to think first.
+_HEADLINE_TIMEOUT_SECONDS = 60.0
 _HEADLINE_MAX_RETRIES = 1
-# One to three sentences; the gateway sizes its admission hold from max_tokens.
-_HEADLINE_MAX_TOKENS = 512
+# One to three sentences plus thinking; the gateway sizes its admission hold from max_tokens.
+_HEADLINE_MAX_TOKENS = 4096
 
 # A payload rail, never an editorial rule. Slack rejects a message past 50 blocks and the thread
 # spends one on its lead line, so this sits well under that with room for a block someone adds
@@ -126,6 +133,20 @@ _STYLE_RULES = (
     "- No noun stack longer than three words. Break it up with a preposition.",
     '- Keep the articles. Write "the scanner", not "scanner".',
     "- Prefer a plain verb to an -ing form.",
+)
+
+# Shared by both prompts. A thread line that drops a flag reads as shipped just as much as a headline
+# does, and either one can invent a consequence the reviewed text never stated.
+_FACT_RULES = (
+    "WHAT A SENTENCE MAY CLAIM",
+    "- Say so when a change is behind a flag, off by default, limited to staff, or does nothing",
+    "  until later work ships. A reader who acts on a sentence that reads as shipped, when nothing",
+    "  is live yet, was told the opposite of what is true. Carry the condition into the sentence",
+    "  rather than dropping it for brevity.",
+    "- Claim only what the input below states. Do not add a consequence, a risk, a bug the change",
+    "  fixes, or advice to the reader that the input does not state. A change that keeps behavior",
+    "  the same fixes nothing. When the input gives an effect and no consequence, write the effect",
+    "  alone.",
 )
 
 # Link-shaped text in the channel lead, in the forms Slack renders as something to click: an
@@ -375,7 +396,8 @@ def _build_selection_prompt(
         "- It repairs something that was broken. See the override above.",
         "- It handles one more error, retry, timeout, status code, or edge case in one integration.",
         "  This is the most common merge this team makes, and almost none of it is worth a morning.",
-        "- It adds, scaffolds, or promotes something nobody can use yet.",
+        "- It adds, scaffolds, or promotes something nobody can use yet: a column nothing writes, a",
+        "  provider nothing calls, a command nobody has run, or an endpoint that stays off.",
         "- It only changes how the code is written: refactors, renames, tests, dependency bumps,",
         "  formatting, comments, dead code, config with no runtime effect.",
         "- It polishes one screen or one flow and nothing outside it can tell.",
@@ -456,14 +478,16 @@ def _build_selection_prompt(
         "  a keep rule, put it after the main effect in the same sentence, or leave it out.",
         '  Good: "Search reads the new index, and a page returns 100 results instead of 25."',
         '  Bad: "A page of search results returns 100 rows instead of 25."',
-        "- Do not restate the title in other words. When the title already gives the effect, give the",
-        "  consequence the title leaves out.",
+        "- Do not restate the title in other words. When the title already gives the effect, add the",
+        "  consequence or the condition the reviewed summary states, if it states one.",
         "- Name what a reader recognizes: the feature, the screen, the endpoint. Not the module,",
         "  class, or flag name.",
         "- Leave out the PR number, the author, and the repository. The sentence is a link to the PR,\n"
         "  which carries all three.",
         "- Leave out counts and measurements unless the input states them.",
         '- Do not open with "This PR", "Adds", "Fixes", or a commit type prefix such as "fix(app):".',
+        "",
+        *_FACT_RULES,
         "",
         *_STYLE_RULES,
         "",
@@ -520,7 +544,10 @@ def _build_selection_prompt(
 
 
 def _build_headline_prompt(
-    picked: list[DigestPRSummary], sources: dict[tuple[str, int], PullRequest], team_slug: str
+    picked: list[DigestPRSummary],
+    sources: dict[tuple[str, int], PullRequest],
+    team_slug: str,
+    partly_owned: frozenset[tuple[str, int]],
 ) -> str:
     """The second call: one paragraph over the changes the first call kept, and nothing else.
 
@@ -529,10 +556,15 @@ def _build_headline_prompt(
     single-call version carried that as a prompt rule and shipped two headlines naming changes with
     no line under them, both accurate and both unlinkable.
 
-    The picked PRs keep their title and reviewed summary here rather than only the line written for
-    them, because the headline is often where the reason for a change belongs and a twenty-word
-    thread entry does not always carry it. Withholding the unpicked merges is the whole constraint;
+    The picked PRs keep their reviewed summary here rather than only the line written for them,
+    because the headline is often where the reason for a change belongs and a twenty-word thread
+    entry does not always carry it. Withholding the unpicked merges is the whole constraint;
     thinning the picked ones would only cost the headline the context that makes it worth posting.
+
+    The title is the one exception. It describes the whole pull request, so for a merge in
+    ``partly_owned`` it is the other team's news, and a headline built on it tells this team about
+    a change its own line does not describe. Those merges carry only this team's reviewed text and
+    line, keyed by (repository, number) like ``sources``.
     """
     lines = [
         "You write the one line a team sees in its channel about the merged pull requests below.",
@@ -551,9 +583,6 @@ def _build_headline_prompt(
         "  you name reaches the reader with no link under it and no way to check it.",
         "- One to three sentences that run on from each other as a single paragraph. It is read the",
         "  way a person reads a message from a colleague, not scanned the way a list is.",
-        "- Say so when a change is behind a flag, off by default, or limited to staff. A reader who",
-        "  acts on a line that reads as shipped, when nothing is live yet, was told the opposite of",
-        "  what is true. Carry the condition into the sentence rather than dropping it for brevity.",
         "- No links, no URLs, no PR numbers, no repository names, and no author names. The thread",
         "  carries the link for every change, so a reader who wants the diff is one click from it.",
         "- No bullets, no numbered points, no line breaks, and no headings. Plain sentences only.",
@@ -562,7 +591,11 @@ def _build_headline_prompt(
         "- Always write the paragraph. Everything below already cleared the bar for the thread, so",
         "  there is something here worth a line in the channel.",
         "- When there is one change below, do not restate its line. The reader has that sentence in",
-        "  the thread under yours. Say why it matters to them, and what they would do about it.",
+        "  the thread under yours. Add the reason it matters or the condition it carries, taken from",
+        "  the input below. When the input gives neither, describe the same change from the reader's",
+        "  side, and invent nothing.",
+        "",
+        *_FACT_RULES,
         "",
         *_STYLE_RULES,
         "",
@@ -577,8 +610,11 @@ def _build_headline_prompt(
         "Changes:",
     ]
     for pr in picked:
-        lines.append(f"- <title>{_fenced(pr.title)}</title>")
-        source = sources.get((pr.repository, pr.pr_number))
+        key = (pr.repository, pr.pr_number)
+        lines.append("- change")
+        if key not in partly_owned:
+            lines.append(f"  <title>{_fenced(pr.title)}</title>")
+        source = sources.get(key)
         reviewed = _reviewed_for_prompt(source.summary_line, team_slug) if source is not None else ""
         if reviewed:
             lines.append(f"  <reviewed_summary>{_fenced(reviewed)}</reviewed_summary>")
@@ -760,12 +796,14 @@ class _AudienceMerges:
 
     ``partial_indexes`` names the positions the team owns only part of, for the scope check. They
     are read off the same walk that decided which positions survive, because the prompt hands the
-    model those positions as its indexes.
+    model those positions as its indexes. ``partial_keys`` names the same merges by (repository,
+    number), which is how the headline step finds them among the picked changes.
     """
 
     prs: list[PullRequest]
     audiences: list[PullRequestAudience] | None
     partial_indexes: frozenset[int]
+    partial_keys: frozenset[tuple[str, int]]
 
 
 def _drop_unaddressed(
@@ -779,11 +817,12 @@ def _drop_unaddressed(
     diff and found nothing to say about this team's files, so it is somebody else's news.
     """
     if not audiences:
-        return _AudienceMerges(prs=prs, audiences=audiences, partial_indexes=frozenset())
+        return _AudienceMerges(prs=prs, audiences=audiences, partial_indexes=frozenset(), partial_keys=frozenset())
 
     kept_prs: list[PullRequest] = []
     kept_audiences: list[PullRequestAudience] = []
     partial_indexes: set[int] = set()
+    partial_keys: set[tuple[str, int]] = set()
     for pr, audience in zip(prs, audiences):
         if _grazed(pr, audience):
             logger.info(
@@ -803,9 +842,15 @@ def _drop_unaddressed(
             continue
         if partly_owned:
             partial_indexes.add(len(kept_prs))
+            partial_keys.add((pr.repo_config.repository, pr.pr_number))
         kept_prs.append(pr)
         kept_audiences.append(audience)
-    return _AudienceMerges(prs=kept_prs, audiences=kept_audiences, partial_indexes=frozenset(partial_indexes))
+    return _AudienceMerges(
+        prs=kept_prs,
+        audiences=kept_audiences,
+        partial_indexes=frozenset(partial_indexes),
+        partial_keys=frozenset(partial_keys),
+    )
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -829,15 +874,16 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
     team_id = told.prs[0].team_id
     try:
-        client = build_anthropic_client(
-            "stamphog",
+        # No Python-gateway fallback: it has no stamphog route, so an unset pair posts the plain list.
+        client = build_ai_gateway_anthropic_client(
             ai_product="aio_stamphog",
             team_id=team_id,
             properties={"source_product": _SOURCE_PRODUCT},
             distinct_id=team_distinct_id(team_id),
         )
+        selection_prompt = _build_selection_prompt(told.prs, told.audiences, team_slug)
         picked = _parse_selection(
-            _complete(client, team_id, _build_selection_prompt(told.prs, told.audiences, team_slug)),
+            _complete(client, team_id, selection_prompt, max_tokens=_DIGEST_MAX_TOKENS, effort=_SELECTION_EFFORT),
             dict(enumerate(told.prs)),
             told.partial_indexes,
         )
@@ -851,15 +897,16 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     summary = _build_summary(considered, picked)
     if not summary.prs:
         return summary
-    return replace(summary, headline=_request_headline(client, team_id, summary.prs, told.prs, team_slug))
+    return replace(summary, headline=_request_headline(client, team_id, summary.prs, told, team_slug))
 
 
-def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int = _DIGEST_MAX_TOKENS) -> str:
-    # Messages shape: the Go gateway serves Claude models on this route only. metadata.user_id is
-    # for the Python-gateway fallback; the Go gateway reads the distinct-id header.
+def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int, effort: str) -> str:
+    # Messages shape: the Go gateway serves Claude models on this route only.
     response = client.messages.create(
         model=_DIGEST_MODEL,
         max_tokens=max_tokens,
+        thinking={"type": "adaptive"},
+        output_config={"effort": effort},
         messages=[{"role": "user", "content": prompt}],
         metadata={"user_id": team_distinct_id(team_id)},
     )
@@ -867,7 +914,7 @@ def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int = _DIGE
 
 
 def _request_headline(
-    client: Any, team_id: int, picked: list[DigestPRSummary], prs: list[PullRequest], team_slug: str
+    client: Any, team_id: int, picked: list[DigestPRSummary], told: _AudienceMerges, team_slug: str
 ) -> str:
     """The channel paragraph, or "" when the second call fails or gives nothing worth posting.
 
@@ -876,11 +923,13 @@ def _request_headline(
     a headline. Dropping to a list of unjudged titles because the second call timed out would throw
     away the good half of the work.
     """
-    sources = {(pr.repo_config.repository, pr.pr_number): pr for pr in prs}
+    sources = {(pr.repo_config.repository, pr.pr_number): pr for pr in told.prs}
     try:
         bounded = client.with_options(timeout=_HEADLINE_TIMEOUT_SECONDS, max_retries=_HEADLINE_MAX_RETRIES)
-        prompt = _build_headline_prompt(picked, sources, team_slug)
-        return _parse_headline(_complete(bounded, team_id, prompt, max_tokens=_HEADLINE_MAX_TOKENS))
+        prompt = _build_headline_prompt(picked, sources, team_slug, told.partial_keys)
+        return _parse_headline(
+            _complete(bounded, team_id, prompt, max_tokens=_HEADLINE_MAX_TOKENS, effort=_HEADLINE_EFFORT)
+        )
     except Exception as e:
         logger.warning("stamphog_digest_headline_fallback", team_id=team_id, error=str(e))
         return ""

@@ -3,7 +3,7 @@ import uuid
 import random
 from typing import Optional
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -540,7 +540,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-09T21:37:00Z"):
+        with time_machine.travel("2020-01-09T21:37:00Z", tick=False):
             timeline = self._get_timeline_result(
                 events=[
                     {
