@@ -1,6 +1,9 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -266,27 +269,34 @@ class TestWarehouseSourcesFacade(BaseTest):
 
     @parameterized.expand(
         [
-            ("within_the_limit", 2, [30, 20]),
-            ("above_the_cap", api.MAX_JOBS_PER_SOURCE + 1, [30, 20, 10]),
-            ("zero", 0, [30]),
+            ("within_the_limit", 2, 2),
+            ("above_the_cap", api.MAX_JOBS_PER_SOURCE + 1, api.MAX_JOBS_PER_SOURCE),
+            ("zero", 0, 1),
         ]
     )
     def test_list_jobs_for_source_returns_the_newest_within_the_limit(
-        self, _name: str, limit: int, expected_rows: list[int]
+        self, _name: str, limit: int, expected_count: int
     ) -> None:
-        for rows in (10, 20, 30):
-            ExternalDataJob.objects.create(
+        total = api.MAX_JOBS_PER_SOURCE + 1
+        jobs = ExternalDataJob.objects.bulk_create(
+            ExternalDataJob(
                 team_id=self.team.pk,
                 pipeline=self.source,
                 schema=self.schema,
                 status="Completed",
                 schema_snapshot={},
-                rows_synced=rows,
+                rows_synced=n,
             )
+            for n in range(1, total + 1)
+        )
+        base = timezone.now() - timedelta(days=1)
+        for job in jobs:
+            job.created_at = base + timedelta(seconds=job.rows_synced or 0)
+        ExternalDataJob.objects.bulk_update(jobs, ["created_at"])
 
         results = api.list_jobs_for_source(self.source.id, self.team.pk, limit=limit)
 
-        assert [r.rows_synced for r in results] == expected_rows
+        assert [r.rows_synced for r in results] == list(range(total, total - expected_count, -1))
 
     def test_facade_enforces_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
