@@ -231,12 +231,18 @@ class TestZoneFanout:
 
     @pytest.mark.parametrize(
         ("endpoint", "status_code"),
-        [("rate_limits", 410), ("custom_certificates", 400)],
+        [
+            ("rate_limits", 410),
+            ("custom_certificates", 400),
+            ("firewall_rules", 400),
+            ("filters", 400),
+        ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_skips_zone_missing_plan_feature_and_continues(self, MockSession, endpoint, status_code) -> None:
         # Cloudflare returns a non-403/404 error when a zone's plan doesn't include a
-        # feature (e.g. legacy rate limiting is 410 Gone, custom certs are 400) rather
+        # feature, or when it has moved off a deprecated API (legacy rate limiting is
+        # 410 Gone, custom certs and the legacy firewall rules/filters are 400), rather
         # than an empty list — one such zone must not abort the whole stream.
         session = MockSession.return_value
         _wire(

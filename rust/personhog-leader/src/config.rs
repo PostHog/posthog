@@ -48,6 +48,13 @@ pub struct Config {
     #[envconfig(default = "32")]
     pub fencing_window_max_writes: usize,
 
+    /// Transactional producers per partition; writes rotate across them.
+    /// A takeover fences one id per lane, so the count binds fleet-wide:
+    /// a successor on a smaller count leaves a predecessor's extra lanes
+    /// unfenced.
+    #[envconfig(default = "4")]
+    pub fencing_lanes: usize,
+
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
     #[envconfig(default = "0")]
@@ -280,6 +287,15 @@ pub struct Config {
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
 
+    /// Saga state tables the fence checks read (the takeover scan, the mark
+    /// verifications, the ghost-fence healer). Must be the pair identity
+    /// writes: its LIFECYCLE_OP_TABLE and LIFECYCLE_OP_PERSON_TABLE.
+    #[envconfig(default = "lifecycle_op")]
+    pub lifecycle_op_table: String,
+
+    #[envconfig(default = "lifecycle_op_person")]
+    pub lifecycle_op_person_table: String,
+
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 
@@ -402,6 +418,10 @@ pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
 /// from this, so the two cannot drift apart.
 pub const FENCING_TXN_CALLS: u32 = FENCING_COMMIT_ATTEMPTS + FENCING_ABORT_ATTEMPTS;
 
+/// Sanity ceiling on lanes: each is a producer, a connection and a thread
+/// per acquisition.
+pub const MAX_FENCING_LANES: usize = 64;
+
 /// librdkafka's documented minimum for `transaction.timeout.ms`.
 const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
 /// A floor for the send timeout; zero means *no timeout* to librdkafka,
@@ -473,7 +493,8 @@ impl Config {
     /// So the budget is the aggregate, divided. The floor keeps a
     /// high-partition-count deployment from starving any single producer
     /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure.
+    /// is still far under the un-divided figure. Each share must still
+    /// hold one window of records; raise the aggregate if it cannot.
     pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
         // The floor cannot be unconditional: above roughly fifty
         // partitions it would start multiplying again, and the aggregate
@@ -490,13 +511,20 @@ impl Config {
         // multiplies back up, which is the defect this division exists to
         // remove. The honest bound is the aggregate, and one MiB is the
         // smallest queue librdkafka will take.
-        (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(1)
+        (self.kafka.kafka_producer_queue_mib / self.fenced_producers(partitions)).max(1)
     }
 
     /// The same division for the message-count limit, which bounds the
     /// queue independently of record size.
     pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
-        (self.kafka.kafka_producer_queue_messages / partitions.max(1)).max(1)
+        (self.kafka.kafka_producer_queue_messages / self.fenced_producers(partitions)).max(1)
+    }
+
+    /// Producers the aggregate queue budget is divided among: one per
+    /// lane per partition.
+    fn fenced_producers(&self, partitions: u32) -> u32 {
+        let lanes = u32::try_from(self.fencing_lanes.max(1)).unwrap_or(u32::MAX);
+        partitions.max(1).saturating_mul(lanes)
     }
 
     /// How long fence acquisition may take.
@@ -686,6 +714,15 @@ impl Config {
     pub fn validate_fencing_timescales(&self) -> Result<(), String> {
         if !self.kafka_transactional_fencing {
             return Ok(());
+        }
+        if self.fencing_lanes < 1 {
+            return Err("FENCING_LANES must be at least 1".to_string());
+        }
+        if self.fencing_lanes > MAX_FENCING_LANES {
+            return Err(format!(
+                "FENCING_LANES ({}) must be at most {MAX_FENCING_LANES}",
+                self.fencing_lanes
+            ));
         }
         // Fencing without the lease gate is the combination the e2e
         // zombie scenario breaks: acquisition takes the partition's epoch
@@ -1219,16 +1256,31 @@ mod fencing_timescale_tests {
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
-        // The division alone leaves a workable depth at the deployed
-        // shape, and never rounds to a value librdkafka would reject.
-        assert_eq!(config.fencing_queue_mib(16), 25);
-        assert_eq!(config.fencing_queue_messages(16), 625_000);
+        // The budget is divided among every fenced producer, four lanes
+        // per partition at the default, and never rounds to a value
+        // librdkafka would reject.
+        assert_eq!(config.fencing_queue_mib(16), 6);
+        assert_eq!(config.fencing_queue_messages(16), 156_250);
         assert!(config.fencing_queue_mib(1024) >= 1);
         assert!(config.fencing_queue_messages(1024) >= 1);
         assert!(
             config.fencing_queue_mib(0) >= 1,
             "partitions=0 must not divide by zero"
         );
+    }
+
+    /// Zero lanes would leave a partition with nothing to produce on, and
+    /// an absurd count would open that many connections per acquisition.
+    #[test]
+    fn a_lane_count_outside_its_bounds_is_refused() {
+        for lanes in [0, MAX_FENCING_LANES + 1] {
+            let mut config = fenced(30);
+            config.fencing_lanes = lanes;
+            let err = config
+                .validate_fencing_timescales()
+                .expect_err("a lane count outside its bounds must be refused");
+            assert!(err.contains("FENCING_LANES"), "{err}");
+        }
     }
 
     /// A lease TTL long enough to derive past the broker's own ceiling

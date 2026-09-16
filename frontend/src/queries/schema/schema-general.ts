@@ -586,6 +586,64 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+/**
+ * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
+ * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
+ */
+export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+
+/**
+ * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
+ * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
+ * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
+ * range comes from `{filters}` and the insight left it open.
+ */
+export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
+
+/** One finding of a query's analysis. */
+export interface QueryScanWarning {
+    kind: QueryScanFindingKind
+    /** Only with `no_event_filter` and `no_start_date`. */
+    reason?: QueryScanFindingReason
+    /** Shown to the person: what happened and what to do. */
+    message: string
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** The one fact the finding rests on. */
+    evidence?: string
+}
+
+/** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
+export interface QueryScanAnalysis {
+    /** Empty when the analysis found nothing to fix. */
+    findings: QueryScanWarning[]
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string
+}
+
+/** What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings. */
+export interface QueryScanSummary {
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: integer
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: integer
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysis
+}
+
+/** From `GET /query/scan/{cache_key}`: the analysis once the job has stored it. Empty while the job runs, 404 when nothing is stored. */
+export interface QueryScanResponse {
+    analysis?: QueryScanAnalysis
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -2715,6 +2773,8 @@ interface CachedQueryResponseMixin {
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
     query_metadata?: object
+    /** The rows and time of the run that produced these results, with its analysis once it is stored. */
+    query_scan?: QueryScanSummary
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -2797,6 +2857,9 @@ export type QueryStatus = {
     labels?: string[]
     bytes_read?: integer
     budget_remaining_bytes?: integer
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string
+    query_scan?: QueryScanSummary
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
@@ -2919,6 +2982,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3244,9 +3309,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3423,6 +3490,8 @@ export interface MCPModelBreakdownItem {
 }
 
 export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    /** Whether another page of individual model identifiers is available. */
+    hasMore?: boolean
     results: MCPModelBreakdownItem[]
 }
 
@@ -3432,6 +3501,19 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+    includeAllModels?: boolean
+    /**
+     * Page size when includeAllModels is enabled.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: integer
+    /**
+     * Number of individual models to skip when includeAllModels is enabled.
+     * @minimum 0
+     */
+    offset?: integer
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
@@ -3856,6 +3938,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -4636,7 +4719,8 @@ export interface MetricsQueryClause {
 export interface MetricsQueryPoint {
     /** Bucket start, ISO 8601 */
     time: string
-    value: number
+    /** The bucket's aggregate; null when it isn't representable (a gap). */
+    value: number | null
 }
 
 export interface MetricsQuerySeries {
@@ -4646,6 +4730,8 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
+    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    unit?: string
 }
 
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4654,14 +4740,29 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
-export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat'
+export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
 
 /** Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed.
  * Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10'). */
 export type MetricsAxisScale = 'linear' | 'log'
 
-/** Which summary the `stat` display's headline value shows. */
+/** Which summary the `stat` display's headline value shows.
+ * @deprecated Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working. */
 export type MetricsStatSummary = 'latest' | 'average' | 'total'
+
+/** How a series collapses to one number for the scalar panels and legend calcs. */
+export type MetricsReducer = 'last' | 'mean' | 'min' | 'max' | 'sum' | 'delta'
+
+/** A threshold band: `color` applies from `value` up to the next step. */
+export interface MetricsThreshold {
+    /** Lower bound of this band. The lowest step is the base color below every other step. */
+    value: number
+    /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+    color: string
+}
+
+/** How a null bucket renders on a time-series chart. */
+export type MetricsNullMode = 'gap' | 'zero' | 'connect'
 
 export interface MetricsYAxisSettings {
     /** @default linear */
@@ -4685,8 +4786,21 @@ export interface MetricsDisplaySettings {
     goalLines?: GoalLine[]
     yAxis?: MetricsYAxisSettings
     /** `stat` display only: which summary the headline value shows.
-     * @default latest */
+     * @default latest
+     * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** How scalar panels and legend calcs collapse a series to one number.
+     * @default last */
+    reduce?: MetricsReducer
+    /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+    unit?: string
+    /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+    thresholds?: MetricsThreshold[]
+    /** How a null bucket renders on a time-series chart.
+     * @default gap */
+    nullMode?: MetricsNullMode
+    /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+    legendCalcs?: MetricsReducer[]
 }
 
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
@@ -6300,7 +6414,10 @@ export interface DateRange {
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
      */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now".
+     * A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment
+     * of that day in the project timezone, unless explicitDate is set.
+     */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
@@ -9578,6 +9695,10 @@ export const externalDataSources = [
     'GoogleAdSense',
     'Sequenzy',
     'Skio',
+    'Smartlead',
+    'Substack',
+    'ElectricityMaps',
+    'Amplemarket',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9830,6 +9951,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -10194,6 +10320,7 @@ export enum ProductIntentContext {
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
     ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+    ERROR_TRACKING_SCAN_WITH_VISION = 'error_tracking_scan_with_vision',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',

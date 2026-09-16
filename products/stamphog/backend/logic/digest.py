@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 
 from .audiences import REPO_AUDIENCE_PREFIX, team_slug_from_handle
 
@@ -829,8 +829,8 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
     team_id = told.prs[0].team_id
     try:
-        client = build_anthropic_client(
-            "stamphog",
+        # No Python-gateway fallback: it has no stamphog route, so an unset pair posts the plain list.
+        client = build_ai_gateway_anthropic_client(
             ai_product="aio_stamphog",
             team_id=team_id,
             properties={"source_product": _SOURCE_PRODUCT},
@@ -855,8 +855,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
 
 def _complete(client: Any, team_id: int, prompt: str, *, max_tokens: int = _DIGEST_MAX_TOKENS) -> str:
-    # Messages shape: the Go gateway serves Claude models on this route only. metadata.user_id is
-    # for the Python-gateway fallback; the Go gateway reads the distinct-id header.
+    # Messages shape: the Go gateway serves Claude models on this route only.
     response = client.messages.create(
         model=_DIGEST_MODEL,
         max_tokens=max_tokens,

@@ -1,8 +1,30 @@
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.test import SimpleTestCase
+
+from posthog.management.commands.sync_feature_flags import parse_frontend_feature_flags
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+class TestParseFrontendFeatureFlags(SimpleTestCase):
+    def test_parses_boolean_and_multivariate_flags(self) -> None:
+        flags = parse_frontend_feature_flags(
+            [
+                "export const FEATURE_FLAGS = {",
+                "    BOOLEAN: 'boolean-flag',",
+                "    DEFAULT_MULTIVARIATE: 'default-multivariate', // multivariate=true",
+                "    EXPLICIT_MULTIVARIATE: 'explicit-multivariate', // multivariate=control,test,new",
+                "}",
+            ]
+        )
+
+        assert flags == {
+            "boolean-flag": "boolean",
+            "default-multivariate": ["control", "test"],
+            "explicit-multivariate": ["control", "test", "new"],
+        }
 
 
 class TestSyncFeatureFlags(BaseTest):

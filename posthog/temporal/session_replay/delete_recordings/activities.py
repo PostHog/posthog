@@ -28,6 +28,7 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
     PurgeDeletedMetadataResult,
+    RecordingApiConfigurationError,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,
@@ -204,11 +205,13 @@ async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsRes
 
     recording_api_url = settings.RECORDING_API_URL
     if not recording_api_url:
-        raise RuntimeError("RECORDING_API_URL is not configured")
+        raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
 
     url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/delete"
 
     headers = recording_api_auth_headers(input.team_id, "delete")
+    if not headers:
+        raise RecordingApiConfigurationError("Neither INTERNAL_API_SECRET nor RECORDING_API_JWT_SECRET is configured")
 
     async with internal_httpx_async_client(timeout=60.0, headers=headers) as client:
         response = await client.post(url, json={"session_ids": input.session_ids, "deleted_by": input.deleted_by})

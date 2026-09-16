@@ -171,8 +171,13 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
 
         assert first_result.ready is True
         assert second_result.ready is True
-        assert first_result.job_ids == second_result.job_ids
-        assert mock_sync_execute.call_count == len(first_result.job_ids)
+        # The stable hash shares the complete day-aligned jobs across as_of values;
+        # only the final partial day, claimed up to each as_of, is rebuilt.
+        first_jobs = set(first_result.job_ids)
+        second_jobs = set(second_result.job_ids)
+        assert len(second_jobs) == len(first_jobs)
+        assert len(first_jobs & second_jobs) == len(first_jobs) - 1
+        assert mock_sync_execute.call_count == len(first_jobs) + 1
 
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_dau_metric_shares_precompute_jobs_with_count_metric(self, mock_sync_execute):

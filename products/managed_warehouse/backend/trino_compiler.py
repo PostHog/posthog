@@ -194,7 +194,11 @@ def compile_hogql_to_trino_sql(
     from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
     from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
     from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
+    from posthog.hogql.printer.trino_hogql import (
+        TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
+    )
     from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
 
@@ -276,7 +280,10 @@ def compile_hogql_to_trino_sql(
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,
+            trino_table_locators=trino_table_locators,
+            restricted_properties=trino_context.restricted_properties,
         )
-        hogql_pretty, _ = prepare_and_print_ast(hogql_ast, hogql_context, dialect="hogql")
+        resolved_hogql = resolve_types(hogql_ast, hogql_context, dialect="trino")
+        hogql_pretty = TrinoHogQLPrinter(context=hogql_context).visit(resolved_hogql)
 
     return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)

@@ -1,13 +1,22 @@
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use common::{
     create_client, create_compressed_client, create_test_person, raw_grpc_call_with_gzip_accept,
-    start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
+    start_test_identity, start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
     start_test_replica_with_async_gzip_disabled, start_test_router_raw,
-    start_test_router_raw_with_dying_leader, start_test_router_raw_with_leader,
-    start_test_router_raw_with_leader_and_max_recv, start_test_router_raw_with_max_recv,
-    TestLeaderService, TestReplicaService,
+    start_test_router_raw_with_dying_leader, start_test_router_raw_with_identity,
+    start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
+    start_test_router_raw_with_max_recv, TestIdentityService, TestLeaderService,
+    TestLifecycleService, TestReplicaService,
 };
+use personhog_proto::personhog::identity::v1::person_hog_identity_client::PersonHogIdentityClient;
+use personhog_proto::personhog::identity::v1::{
+    GetOrCreatePersonEntry, GetOrCreatePersonsByDistinctIdsRequest,
+};
+use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_client::PersonHogLifecycleClient;
+use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest as LifecycleDeletePersonsRequest;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
@@ -919,4 +928,107 @@ async fn async_gzip_disabled_flag_skips_compression() {
     let payload = &body[5..];
     let response = <GetPersonResponse as prost::Message>::decode(payload).unwrap();
     assert_eq!(response.person.unwrap().id, 42);
+}
+
+// ============================================================
+// 4. Identity routing — verbatim forward to the identity server
+// ============================================================
+
+/// An identity RPC reaches the identity server with body and headers
+/// intact: the results echo the request entries, and the server saw the
+/// client name header.
+#[tokio::test]
+async fn raw_proxy_get_or_create_routes_to_identity() {
+    let seen_client_name = Arc::new(Mutex::new(None));
+    let identity_addr = start_test_identity(
+        TestIdentityService {
+            seen_client_name: seen_client_name.clone(),
+        },
+        TestLifecycleService,
+    )
+    .await;
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw_with_identity(replica_addr, identity_addr).await;
+
+    let mut client = PersonHogIdentityClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let mut request = Request::new(GetOrCreatePersonsByDistinctIdsRequest {
+        entries: vec![GetOrCreatePersonEntry {
+            team_id: 7,
+            distinct_id: "user-7".to_string(),
+            ..Default::default()
+        }],
+    });
+    request
+        .metadata_mut()
+        .insert("x-client-name", "proxy-test".parse().unwrap());
+
+    let results = client
+        .get_or_create_persons_by_distinct_ids(request)
+        .await
+        .unwrap()
+        .into_inner()
+        .results;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].team_id, 7);
+    assert_eq!(results[0].distinct_id, "user-7");
+    assert!(results[0].created);
+    assert_eq!(
+        seen_client_name.lock().unwrap().as_deref(),
+        Some("proxy-test")
+    );
+}
+
+/// The lifecycle service shares a method name with the service facade
+/// (DeletePersons): the prefix decides the backend, not the method.
+#[tokio::test]
+async fn raw_proxy_lifecycle_delete_persons_routes_to_identity() {
+    let identity_addr =
+        start_test_identity(TestIdentityService::default(), TestLifecycleService).await;
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw_with_identity(replica_addr, identity_addr).await;
+
+    let mut client = PersonHogLifecycleClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let response = client
+        .delete_persons(LifecycleDeletePersonsRequest {
+            team_id: 7,
+            person_ids: vec![1, 2],
+            op_id: "op-1".to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.op_id, "op-1");
+    let person_ids: Vec<i64> = response.results.iter().map(|r| r.person_id).collect();
+    assert_eq!(person_ids, vec![1, 2]);
+}
+
+/// A router without an identity backend refuses the identity service names
+/// outright instead of falling through to the replica.
+#[tokio::test]
+async fn raw_proxy_identity_without_backend_returns_unimplemented() {
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let mut client = PersonHogIdentityClient::connect(format!("http://{router_addr}"))
+        .await
+        .unwrap();
+    let status = client
+        .get_or_create_persons_by_distinct_ids(GetOrCreatePersonsByDistinctIdsRequest {
+            entries: vec![],
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::Unimplemented);
+    assert!(
+        status.message().contains("identity backend not configured"),
+        "{}",
+        status.message()
+    );
 }

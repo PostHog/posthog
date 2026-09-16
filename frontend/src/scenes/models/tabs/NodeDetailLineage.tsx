@@ -63,7 +63,20 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }
 
     if (nodes.length <= 1) {
-        return <p className="mb-0 text-secondary">No upstream or downstream dependencies found.</p>
+        return (
+            <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
+                <div className="max-w-120">
+                    <h3 className="mb-2">No connected models</h3>
+                    <p className="mb-0 text-secondary">
+                        Lineage shows the sources this model reads from and the models that use it. This model has no
+                        recorded connections yet.
+                    </p>
+                </div>
+                <LemonButton type="secondary" size="small" to={urls.models('lineage')} icon={<IconExternal />}>
+                    Explore all lineage
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -83,8 +96,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={urls.dataOps('modeling')}
-                                tooltip="Open full DAG view"
+                                to={urls.models('lineage')}
+                                tooltip="Open the full graph"
                                 icon={<IconExternal />}
                             />
                             <LemonButton

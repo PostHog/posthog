@@ -23,6 +23,10 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+# Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
+# without dragging this module onto the ``django.setup()`` path.
+from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
+
 
 class DesktopAccessReason(StrEnum):
     STARTUP_PLAN = "startup_plan"
@@ -378,6 +382,8 @@ class TaskLatestRunSummaryDTO:
     status: str | None
     environment: str | None
     mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -385,7 +391,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID
@@ -859,3 +865,9 @@ class ComputeQuotaDenialReason(StrEnum):
 
     COMPUTE_QUOTA_EXHAUSTED = "posthog_code_billing_limit_exceeded"
     ORGANIZATION_DEACTIVATED = "organization_deactivated"
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskPullRequest:
+    url: str
+    state: str
