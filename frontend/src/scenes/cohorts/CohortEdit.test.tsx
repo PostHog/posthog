@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -97,6 +97,27 @@ describe('cohortEditLogic', () => {
                 .toMatchValues({
                     cohortErrors: {},
                 })
+        })
+    })
+
+    describe('name field commits', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        // The scene title holds the name in local state and copies it into the form. Submit
+        // validates the form value. A Save click does not always blur the field first, so a
+        // debounced copy let a named cohort submit as empty and report "name cannot be empty".
+        it('validates the name the user typed, without waiting for a debounce or a blur', async () => {
+            render(<CohortEdit id={1} />)
+            logic = cohortEditLogic({ id: 1 })
+
+            fireEvent.click(await screen.findByText(String(mockCohort.name)))
+            fireEvent.change(document.querySelector('[data-attr="scene-title-textarea"]')!, {
+                target: { value: 'Paying users' },
+            })
+
+            expect(logic.values.cohort.name).toEqual('Paying users')
         })
     })
 

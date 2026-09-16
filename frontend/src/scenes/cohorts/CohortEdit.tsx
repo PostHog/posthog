@@ -393,6 +393,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     type: RESOURCE_TYPE,
                                 }}
                                 isLoading={cohortLoading}
+                                // The name only goes into the form, and submit validates the form
+                                // value. It must commit before the Save click that follows it.
+                                renameDebounceMs={0}
                                 onNameChange={(value) => {
                                     setCohortValue('name', value)
                                 }}

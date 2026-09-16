@@ -28,6 +28,20 @@ describe('SceneName', () => {
         expect(onChange).toHaveBeenCalledWith('Paying users')
     })
 
+    // Guards the other half of the cohort "name cannot be empty" desync. `renameDebounceMs={0}`
+    // means no debounce, so a keystroke must reach the consumer in the same tick. A 0ms timer runs
+    // after the Save click that follows it, and the form then validates an empty name.
+    test('commits in the same tick when no debounce is configured', () => {
+        const onChange = jest.fn()
+        render(<SceneName name="" onChange={onChange} canEdit renameDebounceMs={0} />)
+
+        fireEvent.click(screen.getByRole('button'))
+        fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Paying users' } })
+
+        // No timers advanced and no blur — the value is already committed
+        expect(onChange).toHaveBeenCalledWith('Paying users')
+    })
+
     // Guards the reconciliation change: a genuine external update (loading a resource,
     // an AI-generated name) must still replace the field's value.
     test('adopts an external name change into the field', () => {
