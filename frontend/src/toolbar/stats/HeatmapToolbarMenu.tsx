@@ -15,6 +15,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ShiftToInteractTip } from '~/toolbar/elements/ShiftToInteractTip'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -301,10 +302,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 the event can be mapped to a specific element found on the page you are viewing but less
                                 data is usually captured.
                             </p>
-                            <p className="text-xs italic">
-                                Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
-                                interact with the page beneath the clickmap.
-                            </p>
+                            <ShiftToInteractTip />
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={loadingAllElementStats ? <Spinner textColored /> : <IconSync />}
