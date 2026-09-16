@@ -222,7 +222,7 @@ def get_rows(
     config = CALLRAIL_ENDPOINTS[endpoint]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.account_id:
+    if resume is not None:
         resolved_account_id = resume.account_id
     elif config.requires_account:
         resolved_account_id = resolve_account_id(api_key, team_id, job_id, account_id)
