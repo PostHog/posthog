@@ -6429,8 +6429,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
         # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
         # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
-        # timeout and skip its Slack error card, or forge the Slack actor or run source that decide
-        # whose credentials the sandbox gets. Non-protected keys still merge.
+        # timeout and skip its Slack error card, or forge the Slack actor or run source. Non-protected
+        # keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -6495,10 +6495,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_custom_image_name": "attacker-image",
                     "task_summary": "Forged summary",
                     "prior_run_summary": "Forged prior summary",
-                    # the Slack actor is whose OAuth token the sandbox gets
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
-                    # signal_report forces bot authorship past the protected pr_authorship_mode
                     "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
@@ -6557,8 +6555,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
         assert run.state["interaction_origin"] == "slack"
-        assert run.state["slack_actor_user_id"] == self.user.id  # cannot mint a teammate's credential
-        assert run.state["run_source"] == "manual"  # cannot force bot authorship
+        assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
 
@@ -6651,10 +6649,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
-        assert run.state["interaction_origin"] == "slack"  # protected key survives removal
-        # Dropping the Slack actor would fall back to the task creator's credentials.
+        assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
-        assert run.state["run_source"] == "manual"  # protected key survives removal
+        assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
 
