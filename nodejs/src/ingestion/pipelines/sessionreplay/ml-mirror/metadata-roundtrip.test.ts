@@ -14,11 +14,11 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
+import { MlDataKey, decryptEnvelope } from './keys/crypto'
+import { MlKeyReader } from './keys/reader'
+import { sessionKeyId, tableKeyString } from './keys/schema'
+import { MlKafkaEncryption } from './keys/transport'
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { MlDataKey, decryptEnvelope } from './privacy/crypto'
-import { MlKeyReader } from './privacy/reader'
-import { sessionKeyId, tableKeyString } from './privacy/schema'
-import { MlKafkaEncryption } from './privacy/transport'
 import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 const SESSION_A = '01a0a4f0-3200-7000-8000-000000000001'
