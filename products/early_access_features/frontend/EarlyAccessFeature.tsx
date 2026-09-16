@@ -34,7 +34,6 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -81,6 +80,7 @@ import {
     AssigneeLabelDisplay,
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'

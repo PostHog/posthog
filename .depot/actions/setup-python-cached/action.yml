@@ -1,6 +1,3 @@
-# Depot mirror of .github/actions/setup-python-cached (same pattern as .depot/actions/pnpm-install).
-# Kept byte-for-byte equivalent to canonical. actions/cache routes to Depot Cache, so the shared
-# keys do not collide.
 name: Set up Python
 description: |
     Wraps actions/setup-python with a pre-seeded tool cache

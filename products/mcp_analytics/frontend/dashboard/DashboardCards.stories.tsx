@@ -4,6 +4,10 @@ import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
+import { mswDecorator } from '~/mocks/browser'
+import { MCPModelBreakdownQuery } from '~/queries/schema/schema-general'
+
+import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
     type DailyActivity,
     type HarnessRow,
@@ -65,6 +69,12 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
+    { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
+    { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },
+    { category: 'Replit', total_calls: 70, errors: 0, error_rate_pct: 0, sessions: 12 },
+    { category: 'Lovable', total_calls: 50, errors: 1, error_rate_pct: 2, sessions: 10 },
+    { category: 'Kiro', total_calls: 30, errors: 0, error_rate_pct: 0, sessions: 6 },
+    { category: 'Notion', total_calls: 10, errors: 0, error_rate_pct: 0, sessions: 2 },
 ]
 
 const MODEL_ROWS: ModelRow[] = [
@@ -77,6 +87,31 @@ const MODEL_ROWS: ModelRow[] = [
     { model: 'Other', total_calls: 580 },
     { model: 'grok-3', total_calls: 320 },
 ]
+
+const ALL_MODEL_ROWS: ModelRow[] = [
+    ...MODEL_ROWS.filter((row) => row.model !== 'Unknown' && row.model !== 'Other'),
+    ...Array.from({ length: 58 }, (_, index) => ({
+        model: `example-provider/model-with-a-long-version-name-${String(index + 1).padStart(2, '0')}`,
+        total_calls: 10,
+    })),
+]
+
+const modelPagesDecorator = mswDecorator({
+    post: {
+        '/api/environments/:team_id/query/:kind': async ({ request }) => {
+            const { query } = (await request.json()) as { query: MCPModelBreakdownQuery }
+            const offset = query.offset ?? 0
+            const limit = query.limit ?? 50
+            return [
+                200,
+                {
+                    results: ALL_MODEL_ROWS.slice(offset, offset + limit),
+                    hasMore: offset + limit < ALL_MODEL_ROWS.length,
+                },
+            ]
+        },
+    },
+})
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -251,7 +286,16 @@ export const ShareByHarnessNarrow: Story = {
     ),
 }
 
+export const ShareByHarnessExpandedNarrow: Story = {
+    ...ShareByHarnessNarrow,
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all harnesses' }))
+    },
+}
+
 export const ShareByHarnessLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: withTheme((theme) => <HarnessBarChart rows={[]} loading theme={theme} />),
 }
 
@@ -270,6 +314,29 @@ export const ShareByHarnessOtherOnly: Story = {
 }
 
 export const ShareByModel: Story = {
+    decorators: [modelPagesDecorator],
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelExpandedNarrow: Story = {
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all models' }))
+    },
+    decorators: [modelPagesDecorator],
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart rows={MODEL_ROWS} theme={buildTheme()} />
+        </div>
+    ),
+}
+
+export const ShareByModelLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            post: { '/api/environments/:team_id/query/:kind': [500, { detail: 'Could not load models' }] },
+        }),
+    ],
     render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
 }
 
@@ -293,6 +360,31 @@ export const ShareByModelNarrow: Story = {
     ),
 }
 
+export const ShareByModelLowCoverage: Story = {
+    render: withTheme((theme) => (
+        <ModelBarChart
+            rows={[
+                { model: 'Unknown', total_calls: 900 },
+                { model: 'example-model', total_calls: 70 },
+                { model: 'Other', total_calls: 30 },
+            ]}
+            theme={theme}
+        />
+    )),
+}
+
+export const ShareByModelFullCoverage: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'example-model', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelUnknownOnly: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'Unknown', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelEmpty: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
+}
+
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
@@ -307,6 +399,30 @@ export const FlaggedSessions: Story = {
     render: () => (
         <div className="w-[680px]">
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
+        </div>
+    ),
+}
+
+export const OverviewUnknownModels: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { kind: string } }
+                    return [
+                        200,
+                        {
+                            results:
+                                query.kind === 'MCPModelBreakdownQuery' ? [{ model: 'Unknown', total_calls: 100 }] : [],
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <div className="w-[960px]">
+            <MCPAnalyticsDashboardOverview />
         </div>
     ),
 }

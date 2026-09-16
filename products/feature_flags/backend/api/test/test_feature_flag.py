@@ -62,6 +62,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_VIOLATION_COUNTER,
     FLAG_FILTERS_WRITE_COUNTER,
+    REALTIME_COHORT_FLAG_TARGETING_FLAG,
     FeatureFlagSerializer,
     FeatureFlagStatusResponseSerializer,
     _flag_write_source,
@@ -224,18 +225,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_cant_create_flag_with_invalid_filters(self):
         count = FeatureFlag.objects.count()
 
-        invalid_operators = [
-            "icontains",
-            "regex",
-            "not_icontains",
-            "not_regex",
-            "lt",
-            "gt",
-            "lte",
-            "gte",
-        ]
+        string_only_operators = ["icontains", "regex", "not_icontains", "not_regex"]
+        numeric_operators = ["lt", "gt", "lte", "gte"]
 
-        for operator in invalid_operators:
+        for operator in string_only_operators + numeric_operators:
+            expected_kinds = "a string or number" if operator in numeric_operators else "a string"
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags",
                 {
@@ -264,7 +258,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {
                     "type": "validation_error",
                     "code": "cross_field.operator_requires_string_value",
-                    "detail": f"groups[0].properties[0].value: Operator {operator} requires a string value.",
+                    "detail": f"groups[0].properties[0].value: Operator {operator} requires {expected_kinds} value.",
                     "attr": "filters",
                 },
             )
@@ -1185,8 +1179,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("remote configuration", response.json()["detail"])
 
+    @parameterized.expand([("session", False), ("personal_api_key", True)])
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_encrypted_payloads_with_remote_configuration_succeeds(self, mock_report_user_action):
+    def test_create_encrypted_payloads_with_remote_configuration_succeeds(
+        self, _name: str, should_decrypt: bool, mock_report_user_action
+    ):
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="flag writes", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_token}")
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -1199,6 +1203,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        expected_payload = '"secret"' if should_decrypt else REDACTED_PAYLOAD_VALUE
+        assert response.json()["filters"]["payloads"]["true"] == expected_payload
+        flag = FeatureFlag.objects.get(pk=response.json()["id"])
+        ciphertext = flag.filters["payloads"]["true"]
+        assert ciphertext != expected_payload
+        assert get_decrypted_flag_payload(ciphertext, should_decrypt=True) == '"secret"'
+        mock_report_user_action.assert_called_once()
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_remote_config_flag_to_non_remote_with_encrypted_payloads_fails(self, mock_report_user_action):
@@ -2651,6 +2662,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {"name": "Updated Name"},
             ),
             (
+                "empty_filters",
+                {"name": "Updated Name", "filters": {}},
+            ),
+            (
                 "payloads_omitted",
                 {
                     "has_encrypted_payloads": True,
@@ -2692,6 +2707,79 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         self.assertEqual(flag.filters["payloads"]["true"], "original-encrypted-value")
         self.assertTrue(flag.has_encrypted_payloads)
+
+    # A stale non-"true" payload key is only reachable while its cross-field rule is
+    # unenforced; once enforced, a request supplying filters is rejected before update().
+    @parameterized.expand(
+        [
+            ("empty_filters", {}, {"*"}),
+            ("payloads_omitted", {"groups": [{"properties": [], "rollout_percentage": 50}]}, set()),
+        ]
+    )
+    def test_update_encrypted_flag_preserves_every_payload_key(
+        self, _name: str, filters: dict, enforced_rules: set[str]
+    ) -> None:
+        flag = self._create_encrypted_flag()
+        flag.filters["payloads"]["false"] = "other-encrypted-value"
+        flag.save()
+
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": filters}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        flag.refresh_from_db()
+        assert flag.filters["payloads"] == {"true": "original-encrypted-value", "false": "other-encrypted-value"}
+
+    @parameterized.expand([("session", False), ("personal_api_key", True)])
+    def test_update_encrypted_flag_response_payload_is_auth_dependent(self, _name: str, should_decrypt: bool) -> None:
+        plaintext = '"secret"'
+        ciphertext = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        flag = self._create_encrypted_flag(stored_payload=ciphertext)
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="flag writes", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_token}")
+
+        for data in [{"name": "Renamed"}, {"filters": {}}]:
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["filters"]["payloads"]["true"] == (
+                plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE
+            )
+            flag.refresh_from_db()
+            assert flag.filters["payloads"]["true"] == ciphertext
+
+    # A stale non-"true" payload key is only reachable while its cross-field rule is
+    # unenforced; once enforced, a request supplying filters is rejected before update().
+    @parameterized.expand(
+        [
+            ("empty_filters", {}, {"*"}),
+            ("payloads_omitted", {"groups": [{"properties": [], "rollout_percentage": 50}]}, set()),
+        ]
+    )
+    def test_downgrade_from_encrypted_drops_every_stale_payload(
+        self, _name: str, filters: dict, enforced_rules: set[str]
+    ) -> None:
+        flag = self._create_encrypted_flag()
+        flag.filters["payloads"]["false"] = "other-encrypted-value"
+        flag.save()
+
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"has_encrypted_payloads": False, "filters": filters},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        flag.refresh_from_db()
+        assert flag.has_encrypted_payloads is False
+        assert flag.filters["payloads"] == {}
 
     def test_update_encrypted_flag_encrypts_fresh_plaintext_payload(self):
         flag = self._create_encrypted_flag()
@@ -6204,7 +6292,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         expected_detail_fragment,
         mock_feature_enabled,
     ):
-        mock_feature_enabled.return_value = flag_enabled
+        def gate_enabled_for_request_project(key, _distinct_id, *, groups, group_properties, **_kwargs):
+            if key != REALTIME_COHORT_FLAG_TARGETING_FLAG:
+                return flag_enabled
+            return (
+                flag_enabled
+                and groups["project"] == str(self.team.uuid)
+                and group_properties["project"]["id"] == self.team.id
+            )
+
+        mock_feature_enabled.side_effect = gate_enabled_for_request_project
 
         cohort_kwargs: dict[str, Any] = {
             "team": self.team,

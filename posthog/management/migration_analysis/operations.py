@@ -713,14 +713,16 @@ Safe pattern requires:
                             score=2,
                             reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
                             details={"sql": sql, "table": table_name},
-                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+                            guidance=f"""⚠️ **Staged, but hand-written:** Found prior SeparateDatabaseAndState that removed model from state, so the staging is valid. Drop the table with `SafeDropTable` from posthog.migration_helpers instead of this raw DROP.
+
+A raw `DROP TABLE` takes ACCESS EXCLUSIVE on the dropped table and on every table its foreign keys reference, one relation at a time. That order crosses the order of a live multi-table read, and the deadlock detector kills the read rather than the migration. A short `lock_timeout` does not change which session Postgres picks. `SafeDropTable` takes all of the locks up front under a budget derived from `deadlock_timeout`, so the migration loses the race instead.
 
 Remaining checklist:
 - Ensure all code references removed (API, models, imports)
 - Waited at least one full deployment cycle since state removal
 - No other models reference this table via foreign keys
 
-[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#drop-table-lock-order)""",
                         )
 
                 # Not properly staged or can't validate
@@ -1077,4 +1079,47 @@ class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
             score=0,
             reason=f"Wrapper operation - see nested operations for risk: {', '.join(db_op_types)}",
             details={"database_operations": ", ".join(db_op_types)},
+        )
+
+
+class SafeDropTableAnalyzer(OperationAnalyzer):
+    """The drop-table helper that takes its locks up front (posthog/migration_helpers/safe_drop_table.py).
+
+    Scores with the staged `DROP TABLE IF EXISTS` the RunSQL analyzer already recognizes,
+    because it is the same drop. What it adds is lock ordering, so a live read is never
+    the deadlock victim, not a weaker guarantee about the rows.
+    """
+
+    operation_type = "SafeDropTable"
+
+    def analyze(self, op, migration=None, loader=None) -> OperationRisk:
+        tables = [table.lower() for table in op.tables]
+        staged = (
+            migration
+            and loader
+            and all(check_drop_properly_staged("table", table, migration, loader) for table in tables)
+        )
+        if staged:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="SafeDropTable - properly staged (prior state removal found)",
+                details={"tables": tables},
+                guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed each model from state.
+
+Remaining checklist is the one for any staged drop: all code references removed, one full deployment cycle waited since the state removal, and no other table referencing these.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=5,
+            reason="SafeDropTable - no prior state removal found",
+            details={"tables": tables},
+            guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+SafeDropTable handles the lock order, not the staging. The model still has to leave Django state a full deployment cycle earlier, with a DropForeignKey for each key into a hot parent.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
         )

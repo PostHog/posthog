@@ -63,7 +63,9 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
+    build_inference_anchors_sql,
     build_inference_features_sql,
+    build_random_t0_labeler_sql,
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
@@ -111,7 +113,8 @@ _PREDICT_TIMEOUT_S = 120
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
 # Without an explicit bound HogQL caps a query at its default of 100 rows, which would
-# shrink the train, holdout, and score matrices to a tiny sample. Mirrors FEATURE_QUERY_LIMIT.
+# shrink the train, holdout, and score matrices to a tiny sample. scoring.py bounds its
+# queries with the same constant.
 _MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"
@@ -247,10 +250,13 @@ def score_via_sandbox(
     score_rows = _materialize_score_data(
         team=team, pipeline=pipeline, feature_sql=bundle.features_sql, cutoff_ts=cutoff_ts, user=acting_user
     )
-    feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
-    # Cheap guards before paying for a sandbox.
+    n_train = int((model.metrics or {}).get("n_train") or 0)
+    # A population that matches nobody today is a real zero, not a failure: retrying cannot
+    # change it, and the recipe path completes the same cadence with no rows.
     if not score_rows:
-        raise SandboxInferenceError("No inference rows to score")
+        return SandboxScoreResult(scored_rows=[], holdout_auc=model.holdout_score, n_train=n_train, n_features=0)
+    feature_cols = _fitted_feature_cols(prefix) or _numeric_feature_cols(score_rows)
+    # Cheap guard before paying for a sandbox.
     if not feature_cols:
         raise SandboxInferenceError("No numeric feature columns produced by feature SQL")
 
@@ -260,7 +266,7 @@ def score_via_sandbox(
     return SandboxScoreResult(
         scored_rows=scored_rows,
         holdout_auc=model.holdout_score,
-        n_train=int((model.metrics or {}).get("n_train") or 0),
+        n_train=n_train,
         n_features=len(feature_cols),
     )
 
@@ -289,20 +295,28 @@ def _resolve_acting_user(*, team: Team, pipeline: AutoresearchPipeline, user: Us
 def _validate_bundle_feature_sql(bundle: ArtifactBundle) -> None:
     """
     The recipe snapshot was validated at upload; the bundle's ``features.sql`` is what
-    actually runs, so it goes through the same validator here. A trailing LIMIT, OFFSET,
-    or SETTINGS clause is refused as well: inference runs the feature SQL as the top-level
-    query and appends the framework's own LIMIT after it.
+    actually runs, so it goes through the same validator here.
+    """
+    validate_runnable_feature_sql(bundle.features_sql, source="Bundle features.sql")
+
+
+def validate_runnable_feature_sql(feature_sql: str, *, source: str = "feature_sql") -> None:
+    """
+    ``validate_feature_sql`` plus the rule inference adds: no trailing LIMIT, OFFSET, or
+    SETTINGS clause, because inference runs the feature SQL as the top-level query and
+    appends the framework's own LIMIT after it. Shared by both champion shapes, so a
+    recipe-only champion cannot reach a scoring run with SQL the bundle path would refuse.
     """
     try:
-        validate_feature_sql(bundle.features_sql)
+        validate_feature_sql(feature_sql)
     except RecipeValidationError as exc:
-        raise SandboxInferenceError(f"Bundle features.sql failed validation: {exc}") from exc
-    node = parse_select(bundle.features_sql)
+        raise SandboxInferenceError(f"{source} failed validation: {exc}") from exc
+    node = parse_select(feature_sql)
     if not isinstance(node, ast.SelectQuery):
-        raise SandboxInferenceError("Bundle features.sql must be a single SELECT")
+        raise SandboxInferenceError(f"{source} must be a single SELECT")
     if node.limit is not None or node.offset is not None or node.limit_by is not None or node.settings is not None:
         raise SandboxInferenceError(
-            "Bundle features.sql must not end with LIMIT, OFFSET, or SETTINGS; the framework bounds the result"
+            f"{source} must not end with LIMIT, OFFSET, or SETTINGS; the framework bounds the result"
         )
 
 
@@ -351,7 +365,8 @@ def materialize_training_data(
         training_population=pipeline.training_population,
     )
     training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
-    _validate_rows_key_one_person(training_rows, source="training feature_sql")
+    expected = count_training_anchors(team=team, pipeline=pipeline, user=user)
+    _validate_rows_key_one_person(training_rows, source="training feature_sql", expected_count=expected)
     # The training wrapper LEFT JOINs the labels onto the feature rows. A feature row
     # whose distinct_id matched no anchor comes back with NULL label and fold, and the
     # fold split below would file it as a negative holdout example.
@@ -398,16 +413,74 @@ def _materialize_score_data(
         team=team,
     )
     score_rows = _materialize_rows(team=team, sql=score_sql, values=score_values, user=user)
-    _validate_rows_key_one_person(score_rows, source="inference feature_sql")
+    expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
+    _validate_rows_key_one_person(score_rows, source="inference feature_sql", expected_count=expected)
     logger.info(
         "autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows), cutoff_ts=cutoff_ts
     )
     return score_rows
 
 
-def _validate_rows_key_one_person(rows: list[dict[str, Any]], *, source: str) -> None:
+def count_training_anchors(*, team: Team, pipeline: AutoresearchPipeline, user: User | None = None) -> int:
+    """
+    How many labeled anchors the trainer materializes, so feature SQL that drops some of them
+    fails: a selection-biased fit and a distorted holdout AUC look valid row by row.
+    """
+    sql, values = build_random_t0_labeler_sql(
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+        horizon_days=pipeline.horizon_days,
+        lookback_days=pipeline.training_lookback_days,
+        training_population=pipeline.training_population,
+        sample_limit=None,
+    )
+    return _count(team=team, sql=sql, values=values, user=user, what="Training anchor count")
+
+
+def count_inference_anchors(
+    *, team: Team, pipeline: AutoresearchPipeline, cutoff_ts: int | None = None, user: User | None = None
+) -> int:
+    """
+    How many people the inference anchors hold, so a feature query that drops some of them
+    fails: an inner join or a WHERE on the joined table loses anchors without any row looking
+    wrong, and a lost person is never scored again once the cadence advances past them.
+    """
+    anchors_sql, values = build_inference_anchors_sql(
+        lookback_days=_feature_lookback_days(pipeline),
+        inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
+    )
+    return _count(
+        team=team, sql=f"SELECT count() FROM ({anchors_sql.strip()})", values=values, user=user, what="Anchor count"
+    )
+
+
+def _count(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> int:
+    """Run a query whose first column of its first row is the count the caller wants."""
     try:
-        validate_unique_distinct_ids(rows, source=source)
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        result = run_hogql(
+            team=team,
+            query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
+            user=user,
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+    except Exception as exc:
+        raise SandboxInferenceError(f"{what} query failed: {exc}") from exc
+    if len(result.rows) != 1 or not result.rows[0]:
+        raise SandboxInferenceError(f"{what} query did not return a single row")
+    return int(result.rows[0][0])
+
+
+def _validate_rows_key_one_person(
+    rows: list[dict[str, Any]], *, source: str, expected_count: int | None = None
+) -> None:
+    try:
+        validate_unique_distinct_ids(rows, source=source, expected_count=expected_count)
     except RecipeValidationError as exc:
         raise SandboxInferenceError(str(exc)) from exc
 

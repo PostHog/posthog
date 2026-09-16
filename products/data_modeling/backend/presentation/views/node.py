@@ -212,16 +212,14 @@ def _get_downstream_nodes(node: Node) -> set[str]:
 
 
 def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
-    """Annotate the run state a reader is asking about: the serving engine's newest job.
+    """Annotate the run state a reader is asking about: the newest ClickHouse job.
 
-    Duckgres jobs shadow a serving run and often finish after it, so a shadow failure would
+    Managed warehouse jobs can shadow a serving run and finish after it, so a shadow failure would
     otherwise label a model that served fine as failed.
     """
-    serving_jobs = (
-        DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id"))
-        .exclude(engine=DataModelingJobEngine.DUCKGRES)
-        .order_by("-last_run_at")
-    )
+    serving_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("saved_query_id"), engine=DataModelingJobEngine.CLICKHOUSE
+    ).order_by("-last_run_at")
     return queryset.annotate(
         _has_serving_job=Exists(serving_jobs),
         _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
@@ -426,13 +424,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "edges": EdgeSerializer(edges, many=True).data,
             }
         )
-
-    @action(methods=["GET"], detail=False)
-    def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Get all distinct DAGs for the team."""
-        dags = list(DAG.objects.filter(team_id=self.team_id).order_by("name").values("id", "name"))
-        dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
-        return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:

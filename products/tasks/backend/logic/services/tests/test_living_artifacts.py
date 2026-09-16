@@ -23,7 +23,6 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
-    _answer_block_text,
     _answer_text_blocks,
     _chart_card_blocks,
     _post_composed_answer_message,
@@ -710,41 +709,32 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         blocks = _chart_card_blocks(_SlackImageCard(artifact, {}, file_id="F123"))
         self.assertEqual([b["type"] for b in blocks], expected_block_types)
 
-    @parameterized.expand(
-        [
-            ("mrkdwn", False, "section", 3000, [3000, 3000, 500, 5]),
-            ("markdown", True, "markdown", SLACK_MARKDOWN_TEXT_MAX_LEN, [6500, 5]),
-        ]
-    )
-    def test_sections_split_below_the_cap_of_the_block_they_land_in(
-        self, _name, markdown, block_type, cap, expected_lengths
-    ):
-        blocks = _answer_text_blocks(["a" * 6500, "short"], markdown=markdown)
-        self.assertEqual([b["type"] for b in blocks], [block_type] * len(expected_lengths))
-        self.assertEqual([len(_answer_block_text(b)) for b in blocks], expected_lengths)
-        self.assertTrue(all(len(_answer_block_text(b)) <= cap for b in blocks))
-        self.assertEqual(_answer_block_text(blocks[-1]), "short")
+    def test_sections_split_below_the_markdown_block_cap(self):
+        blocks = _answer_text_blocks(["a" * 14000, "short"])
+        self.assertEqual([b["type"] for b in blocks], ["markdown"] * 3)
+        self.assertEqual([len(b["text"]) for b in blocks], [SLACK_MARKDOWN_TEXT_MAX_LEN, 2500, 5])
+        self.assertEqual(blocks[-1]["text"], "short")
 
-    def test_oversized_sections_split_at_whitespace_so_mrkdwn_entities_survive(self):
-        # A hard character slice can cut a converted entity like `<url|text>` in half;
-        # the split must land on whitespace when any is available in the window.
-        words = "word " * 1300  # 6500 chars of 5-char words
-        blocks = _answer_text_blocks([words.strip()], markdown=False)
+    def test_oversized_sections_split_at_whitespace_so_slack_entities_survive(self):
+        # A hard character slice can cut an entity like `<url|text>` in half; the split must
+        # land on whitespace when any is available in the window.
+        words = "word " * 3000  # 15,000 chars of 5-char words
+        blocks = _answer_text_blocks([words.strip()])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(set(text.split(" ")), {"word"})
 
     def test_oversized_fenced_section_is_closed_and_reopened_around_the_split(self):
-        # Tables convert to fenced blocks before this re-split, so a cut inside one would
-        # leave an unclosed fence in one block and a stray closer in the next.
-        table = "| cell | cell |\n" * 250
-        blocks = _answer_text_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"], markdown=False)
+        # A cut inside a fenced block would leave it unclosed in one block and drop a stray
+        # closer in the next.
+        table = "| cell | cell |\n" * 1000
+        blocks = _answer_text_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
             self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
             self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
@@ -752,16 +742,16 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     def test_fenced_whitespace_free_content_terminates_and_stays_balanced(self):
         # After a fence is closed and reopened, the only whitespace in the window can be
         # the reopen prefix's own newline — cutting there consumes nothing of the content.
-        section = f"{_SLACK_CODE_FENCE}\n{'x' * 8000}\n{_SLACK_CODE_FENCE}"
-        blocks = _answer_text_blocks([section], markdown=False)
+        section = f"{_SLACK_CODE_FENCE}\n{'x' * 30000}\n{_SLACK_CODE_FENCE}"
+        blocks = _answer_text_blocks([section])
         self.assertGreater(len(blocks), 1)
         for block in blocks:
-            text = block["text"]["text"]
-            self.assertLessEqual(len(text), 3000)
+            text = block["text"]
+            self.assertLessEqual(len(text), SLACK_MARKDOWN_TEXT_MAX_LEN)
             self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
         self.assertIn(
-            "x" * 8000,
-            "".join(b["text"]["text"] for b in blocks)
+            "x" * 30000,
+            "".join(b["text"] for b in blocks)
             .replace(f"\n{_SLACK_CODE_FENCE}", "")
             .replace(f"{_SLACK_CODE_FENCE}\n", ""),
         )
@@ -799,7 +789,6 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             mapping=MagicMock(channel="C123", thread_ts="1111.1"),
             image_cards=cards,
             answer_sections=[],
-            answer_is_markdown=False,
             mark_delivered=lambda card: None,
             deadline=time.monotonic() + 30,
         )
@@ -821,7 +810,6 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             mapping=MagicMock(channel="C123", thread_ts="1111.1"),
             image_cards=cards,
             answer_sections=["## First", "## Second", "## Third"],
-            answer_is_markdown=True,
             mark_delivered=lambda card: None,
             deadline=time.monotonic() + 30,
         )
@@ -851,7 +839,6 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             mapping=MagicMock(channel="C123", thread_ts="1111.1"),
             image_cards=cards,
             answer_sections=["## First", "## Second", "## Third"],
-            answer_is_markdown=True,
             mark_delivered=lambda card: None,
             deadline=time.monotonic() - 1,  # already spent
         )
@@ -879,7 +866,6 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             mapping=MagicMock(channel="C_DELETED", thread_ts="8888.1"),
             image_cards=cards,
             answer_sections=[],
-            answer_is_markdown=False,
             mark_delivered=delivered.append,
             deadline=time.monotonic() + 30,
         )

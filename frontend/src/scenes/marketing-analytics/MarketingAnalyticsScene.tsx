@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconGear, IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +13,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
+import { PagePerformance } from 'scenes/web-analytics/PagePerformance'
+import { PagePerformanceFilters } from 'scenes/web-analytics/PagePerformanceFilters'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
@@ -24,6 +26,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -41,7 +44,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { setupPlanLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
 import { SetupTab } from './Setup/SetupTab'
@@ -115,7 +118,9 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
+    const { hasSources, hasNoConfiguredSources, loading, isAdPerformance, includeConversionGoals } =
+        useValues(marketingAnalyticsLogic)
+    const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
     const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
@@ -132,6 +137,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     // but only when not actively on the conversion-goals step (let the user click "Continue")
     useEffect(() => {
         if (
+            !isAdPerformance &&
             !loading &&
             hasSources &&
             conversion_goals.length > 0 &&
@@ -140,15 +146,15 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         ) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding, isAdPerformance])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
     useEffect(() => {
-        if (hasNoConfiguredSources && !showOnboarding) {
+        if (!isAdPerformance && hasNoConfiguredSources && !showOnboarding) {
             resetOnboarding()
         }
-    }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [loading, hasSources, showOnboarding, resetOnboarding, isAdPerformance]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
         <LemonBanner
@@ -164,7 +170,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         </LemonBanner>
     )
 
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
+    if (!isAdPerformance && !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return (
             <>
                 {feedbackBanner}
@@ -185,8 +191,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         )
     }
 
-    // Show onboarding if user hasn't completed it yet
-    if (showOnboarding) {
+    if (!isAdPerformance && showOnboarding) {
         return (
             <>
                 {feedbackBanner}
@@ -198,6 +203,15 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
+            {isAdPerformance && conversion_goals.length > 0 && (
+                <LemonSwitch
+                    className="mt-4"
+                    label="Include conversion goals"
+                    checked={includeConversionGoals}
+                    onChange={setAdPerformanceConversionGoals}
+                    data-attr="marketing-ad-performance-conversion-goals"
+                />
+            )}
             <LegacyOAuthReconnectBanner />
             <MarketingAnalyticsSourceStatusBanner />
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
@@ -265,10 +279,41 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        // Untouched by Setup: the explorer compares attribution models against each
-        // other, which is analysis. Setup's Attribution section is the two config
-        // fields (mode and lookback), which is a different thing with the same name.
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.AD_PERFORMANCE,
+                      label: 'Ad performance',
+                      content: (
+                          <>
+                              <MarketingAnalyticsFilters tabs={<></>} />
+                              <MarketingAnalyticsDashboard />
+                              {integrationSettingsModal.integration && (
+                                  <IntegrationSettingsModal
+                                      integrationName={integrationSettingsModal.integration}
+                                      isOpen={integrationSettingsModal.isOpen}
+                                      onClose={closeIntegrationSettingsModal}
+                                      initialTab={integrationSettingsModal.initialTab}
+                                      initialUtmValue={integrationSettingsModal.initialUtmValue}
+                                  />
+                              )}
+                          </>
+                      ),
+                  },
+                  {
+                      key: MarketingAnalyticsTab.PAGE_VISIBILITY,
+                      label: 'Page visibility',
+                      content: (
+                          <>
+                              <PagePerformanceFilters tabs={<></>} />
+                              <PagePerformance />
+                          </>
+                      ),
+                  },
+              ]
+            : []),
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.ATTRIBUTION,
@@ -277,7 +322,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.RETENTION,
@@ -323,6 +369,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.PAGE_VISIBILITY]:
+        'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
+    [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',
     [MarketingAnalyticsTab.DASHBOARD]:
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
     [MarketingAnalyticsTab.ATTRIBUTION]:
@@ -336,10 +385,11 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 }
 
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
+    const { activeTab, dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const aiEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI]
+    const aiEnabled =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI] && activeTab !== MarketingAnalyticsTab.PAGE_VISIBILITY
 
     // Shared context for every Marketing analytics Max tool — consumed by
     // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
@@ -412,6 +462,13 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
 }
 
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newDashboardEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+    useEffect(() => {
+        if (newDashboardEnabled) {
+            return setupPlanLogic.mount()
+        }
+    }, [newDashboardEnabled])
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
     return (

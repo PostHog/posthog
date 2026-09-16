@@ -12,11 +12,8 @@ from typing import Any, Optional
 from temporalio import activity
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
-
-from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
 
 logger = get_logger(__name__)
 
@@ -66,18 +63,10 @@ class StopSlackAgentDesignStreamInput:
     trace_id: Optional[str] = None
 
 
-def _rewrite_object_tags(text: Optional[str], integration_id: int) -> Optional[str]:
-    """Turn agent object tags into Slack-renderable markdown before the text is streamed.
+def _strip_object_tags(text: Optional[str]) -> Optional[str]:
+    from products.slack_app.backend.services.slack_messages import strip_object_tags
 
-    Streamed replies never pass through the relay activity, so its rewrite has to happen here
-    too. A tag split across two streamed chunks stays as written; the final answer arrives whole.
-    """
-    from products.slack_app.backend.services.slack_messages import project_web_url
-
-    if not text or "<" not in text:
-        return text
-    team_id = Integration.objects.only("team_id").get(id=integration_id).team_id
-    return rewrite_object_tags_for_slack(text, project_url=project_web_url(team_id))
+    return strip_object_tags(text) if text else text
 
 
 @activity.defn
@@ -93,7 +82,7 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
             first_task_id=input.first_task_id,
             first_task_title=input.first_task_title,
             first_task_details=input.first_task_details,
-            first_markdown_text=_rewrite_object_tags(input.first_markdown_text, context.integration_id),
+            first_markdown_text=_strip_object_tags(input.first_markdown_text),
         )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
@@ -113,7 +102,7 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
             task_updates=[
                 {"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in input.task_updates
             ],
-            markdown_text=_rewrite_object_tags(input.markdown_text, context.integration_id),
+            markdown_text=_strip_object_tags(input.markdown_text),
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))
@@ -135,7 +124,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
             complete_task_details=input.complete_task_details,
-            final_markdown=_rewrite_object_tags(input.final_markdown, context.integration_id),
+            final_markdown=_strip_object_tags(input.final_markdown),
         )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

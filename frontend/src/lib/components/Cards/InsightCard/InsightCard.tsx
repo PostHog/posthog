@@ -14,6 +14,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
 import {
     InsightErrorState,
@@ -76,7 +77,7 @@ export function shouldRenderInsightCardViz({
     return isPageVisible || !queryVizDefinitelyRendersToCanvas(query)
 }
 
-const LazyEditAlertModal = React.lazy(() =>
+const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 

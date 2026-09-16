@@ -43,9 +43,10 @@ from posthog.schema import (
     TrendsQueryResponse,
 )
 
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql import ast, query_stats
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query_stats import QueryStats
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import (
@@ -54,6 +55,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
@@ -98,6 +100,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
+    hogql_settings: HogQLGlobalSettings | None
 
     def __init__(
         self,
@@ -107,6 +110,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         user: Optional[User] = None,
+        *,
+        workload: Workload = Workload.DEFAULT,
+        hogql_settings: Optional[HogQLGlobalSettings] = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -144,11 +150,26 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             else:
                 query.compareFilter.compare = True
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self.hogql_settings = hogql_settings
+        super().__init__(
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            workload=workload,
+            user=user,
+        )
 
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+
+    def single_flight_variant(self) -> str:
+        # A caller can pass its own execution time, which does not reach the cache key.
+        if self.hogql_settings is None:
+            return super().single_flight_variant()
+        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -327,6 +348,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     query=query,
                     team=self.team,
                     user=self.user,
+                    workload=self.workload,
+                    settings=self.hogql_settings,
                     # timings=timings,
                     # modifiers=modifiers,
                 )
@@ -391,6 +414,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings: HogQLTimings,
             is_parallel: bool,
             query_tags: Optional[QueryTags] = None,
+            stats: Optional[QueryStats] = None,
         ):
             try:
                 if query_tags:
@@ -398,16 +422,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
                 series_with_extra = self.series[index]
 
-                response = execute_hogql_query(
-                    query_type="TrendsQuery",
-                    query=query,
-                    team=self.team,
-                    user=self.user,
-                    timings=timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                    context=self.build_hogql_context(),
-                )
+                with query_stats.use(stats):
+                    response = execute_hogql_query(
+                        query_type="TrendsQuery",
+                        query=query,
+                        team=self.team,
+                        user=self.user,
+                        workload=self.workload,
+                        settings=self.hogql_settings,
+                        timings=timings,
+                        modifiers=self.modifiers,
+                        limit_context=self.limit_context,
+                        context=self.build_hogql_context(),
+                    )
 
                 timings_matrix[index + 1] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
@@ -432,6 +459,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
+                # A thread starts with an empty context, so the query tags and the query scan
+                # accumulator are handed over explicitly.
                 jobs = [
                     threading.Thread(
                         target=run,
@@ -441,6 +470,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             self.timings.clone_for_subquery(index),
                             True,
                             query_tagging.get_query_tags().model_copy(deep=True),
+                            query_stats.get_active(),
                         ),
                     )
                     for index, query in enumerate(queries)

@@ -69,6 +69,11 @@ export const BusinessKnowledgeSourcesListParams = () => zod.object({
 export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('Case-insensitive substring match against the source name and URL.'),
+    source_type: zod
+        .enum(['file', 'text', 'url'])
+        .optional()
+        .describe('Filter to a single source type (text, url, or file).'),
 })
 
 export const BusinessKnowledgeSourcesCreateParams = () => zod.object({

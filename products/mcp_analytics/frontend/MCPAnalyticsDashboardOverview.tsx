@@ -33,7 +33,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
-        hasKnownModelData,
+        hasModelData,
         dailyActivity,
         activityRowsLoading,
         activityIncompleteTail,
@@ -46,6 +46,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         interval,
         filterTestAccounts,
         propertyFilters,
+        queryFilters,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
@@ -54,7 +55,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useChartTheme()
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
             <FilterBar
                 left={
                     <>
@@ -89,7 +90,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 }
             />
             <MCPAnalyticsFirstLook />
-            <section data-quill>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                 <KpiTiles
                     kpis={kpis}
@@ -103,39 +104,42 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     incompleteTail={kpiIncompleteTail}
                 />
             </section>
-            <section data-quill>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
-                <div className="flex flex-col gap-[22px]">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">
+                        <ActivityChart
+                            daily={dailyActivity}
+                            loading={activityRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                            incompleteTail={activityIncompleteTail}
+                        />
+                        <ToolUsageChart
+                            data={toolDailySeries}
+                            loading={toolDailyRowsLoading}
+                            theme={theme}
+                            timezone={timezone}
+                            interval={interval}
+                        />
+                    </div>
                     <div
                         className={cn(
-                            'grid grid-cols-1 gap-[22px]',
-                            hasKnownModelData ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+                            'grid min-w-0 grid-cols-1 gap-4',
+                            hasModelData && '@min-[48rem]/mcp-overview:grid-cols-2'
                         )}
                     >
-                        <div className="flex lg:col-span-2">
-                            <ActivityChart
-                                daily={dailyActivity}
-                                loading={activityRowsLoading}
-                                theme={theme}
-                                timezone={timezone}
-                                interval={interval}
-                                incompleteTail={activityIncompleteTail}
-                            />
-                        </div>
                         <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
-                        {hasKnownModelData ? <ModelBarChart rows={modelRows} theme={theme} /> : null}
+                        {hasModelData ? <ModelBarChart rows={modelRows} theme={theme} filters={queryFilters} /> : null}
                     </div>
-                    <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
-                        <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
-                        <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
-                    </div>
-                    <ToolUsageChart
-                        data={toolDailySeries}
-                        loading={toolDailyRowsLoading}
-                        theme={theme}
-                        timezone={timezone}
-                        interval={interval}
-                    />
+                </div>
+            </section>
+            <section className="flex min-w-0 flex-col gap-4" data-quill>
+                <h2 className="mb-0 text-xl font-semibold text-primary">Reliability</h2>
+                <div className="grid min-w-0 grid-cols-1 gap-4 @min-[64rem]/mcp-overview:grid-cols-2">
+                    <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
+                    <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                 </div>
             </section>
         </div>
