@@ -41,6 +41,9 @@ A team has one image key per session start month.
 KMS wraps each data key with an encryption context that binds its owner and purpose.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
+The envelope seals the raw payload with AES-256-GCM.
+Its additional authenticated data is the JSON of `{"v": 3, "context": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
+The envelope is JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64).
 
 Ingestion processes key state in batches:
 

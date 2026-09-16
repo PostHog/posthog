@@ -51,7 +51,7 @@ export class MlKeyManager {
     }
 
     public start(): Promise<void> {
-        return this.encryption.start()
+        return Promise.resolve()
     }
 
     public stop(): void {

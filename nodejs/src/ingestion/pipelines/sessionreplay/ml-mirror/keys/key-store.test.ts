@@ -78,7 +78,7 @@ describe('ML session key batches', () => {
     let reader: MlKeyReader
     let generated: number
 
-    beforeEach(async () => {
+    beforeEach(() => {
         boundary = new DynamoBoundary()
         generated = 0
         encryption = new MlKeyEncryption(
@@ -97,7 +97,6 @@ describe('ML session key batches', () => {
             8,
             1_000_000_000
         )
-        await encryption.start()
         const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)

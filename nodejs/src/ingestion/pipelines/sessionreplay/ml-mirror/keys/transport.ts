@@ -81,7 +81,7 @@ export class MlKafkaEncryption {
                 const envelope = parseJSON(message.value.toString()) as MlEncryptedEnvelope
                 const context = envelope?.context
                 if (
-                    envelope.v !== 2 ||
+                    envelope.v !== 3 ||
                     !context ||
                     !Number.isSafeInteger(context.teamId) ||
                     context.teamId <= 0 ||

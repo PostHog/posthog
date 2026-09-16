@@ -1,10 +1,9 @@
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
-import sodium from 'libsodium-wrappers'
 import { LRUCache } from 'lru-cache'
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import pLimit from 'p-limit'
 
-import { parseJSON } from '~/common/utils/json-parse'
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
@@ -20,11 +19,29 @@ export interface MlDataKey {
     decryptUntil?: number
 }
 
+/** The raw payload sealed with AES-256-GCM; the canonical JSON of `{ v, context }` is the additional authenticated data. */
 export interface MlEncryptedEnvelope {
-    v: 2
+    v: 3
     context: MlKeyIdentity & { kind: string; ref?: string }
     nonce: string
     ciphertext: string
+}
+
+const NONCE_BYTES = 12
+const TAG_BYTES = 16
+
+/** Both readers rebuild this byte for byte, so key order is sorted and there is no whitespace. */
+export function canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(canonicalJson).join(',')}]`
+    }
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value)
+            .sort()
+            .map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`)
+            .join(',')}}`
+    }
+    return JSON.stringify(value)
 }
 
 export class MlKeyEncryption {
@@ -46,10 +63,6 @@ export class MlKeyEncryption {
         if (requestsPerSecond <= 0) {
             throw new Error('ML KMS request rate must be positive')
         }
-    }
-
-    public async start(): Promise<void> {
-        await sodium.ready
     }
 
     private async request<T>(kind: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
@@ -138,13 +151,15 @@ export class MlKeyEncryption {
 
 export function encryptEnvelope(key: MlDataKey, kind: string, data: Buffer, ref?: string): Buffer {
     const context = { ...key.identity, kind, ...(ref ? { ref } : {}) }
-    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
-    const authenticated = Buffer.from(JSON.stringify({ context, data: data.toString('base64') }))
+    const nonce = randomBytes(NONCE_BYTES)
+    const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce)
+    cipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
+    const ciphertext = Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()])
     const envelope: MlEncryptedEnvelope = {
-        v: 2,
+        v: 3,
         context,
-        nonce: Buffer.from(nonce).toString('base64'),
-        ciphertext: Buffer.from(sodium.crypto_secretbox_easy(authenticated, nonce, key.plaintext)).toString('base64'),
+        nonce: nonce.toString('base64'),
+        ciphertext: ciphertext.toString('base64'),
     }
     return Buffer.from(JSON.stringify(envelope))
 }
@@ -153,26 +168,16 @@ export function decryptEnvelope(key: MlDataKey, envelope: MlEncryptedEnvelope, k
     if (key.decryptUntil !== undefined && performance.now() >= key.decryptUntil) {
         throw new MlKeyReadExpiredError('ML key read lease expired; read the key again')
     }
-    const decoded: unknown = parseJSON(
-        Buffer.from(
-            sodium.crypto_secretbox_open_easy(
-                Buffer.from(envelope.ciphertext, 'base64'),
-                Buffer.from(envelope.nonce, 'base64'),
-                key.plaintext
-            )
-        ).toString('utf8')
-    )
-    if (!decoded || typeof decoded !== 'object' || !('context' in decoded) || !('data' in decoded)) {
-        throw new Error('Invalid authenticated ML envelope')
-    }
     const context = { ...key.identity, kind, ...(ref ? { ref } : {}) }
-    if (
-        envelope.v !== 2 ||
-        !isDeepStrictEqual(decoded.context, context) ||
-        !isDeepStrictEqual(envelope.context, context) ||
-        typeof decoded.data !== 'string'
-    ) {
+    if (envelope.v !== 3 || !isDeepStrictEqual(envelope.context, context)) {
         throw new Error('ML envelope context mismatch')
     }
-    return Buffer.from(decoded.data, 'base64')
+    const sealed = Buffer.from(envelope.ciphertext, 'base64')
+    if (sealed.length < TAG_BYTES) {
+        throw new Error('Invalid authenticated ML envelope')
+    }
+    const decipher = createDecipheriv('aes-256-gcm', key.plaintext, Buffer.from(envelope.nonce, 'base64'))
+    decipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
+    decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES))
+    return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - TAG_BYTES)), decipher.final()])
 }
