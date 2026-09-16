@@ -4,9 +4,7 @@ use serde_json::Value;
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::FlagFilters;
 
-/// Mirrors Python's `detect_config_format` (products/feature_flags/backend/facade/config.py):
-/// an absent discriminator or numeric 1 selects v1, everything else (including 2) is a
-/// format this service does not evaluate.
+/// Mirrors Python's `detect_config_format` (products/feature_flags/backend/facade/config.py).
 fn is_v1_version(version: Option<&Value>) -> bool {
     match version {
         None => true,
@@ -58,7 +56,7 @@ where
 
 /// The single place a `FlagFilters` turns back into stored JSON: the derived `Serialize`
 /// impl flattens `extra`, which for an opaque non-v1 document would emit the typed fields
-/// twice. Serialize through here, not through the struct.
+/// twice.
 pub(crate) fn serialize_filters<S>(filters: &FlagFilters, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

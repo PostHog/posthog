@@ -1,9 +1,8 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::MultivariateFlagVariant;
 
-/// V1 rollout inclusion. The hash is a closure because identifier resolution and hashing
-/// must stay lazy at 100%: a flag at full rollout is included even when the identifier
-/// cannot be resolved.
+/// The hash is a closure because identifier resolution and hashing must stay lazy at 100%:
+/// a flag at full rollout is included even when the identifier cannot be resolved.
 pub fn is_in_rollout(
     percentage: f64,
     hash: impl FnOnce() -> Result<f64, FlagError>,

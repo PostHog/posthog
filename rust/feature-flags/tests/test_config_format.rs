@@ -117,9 +117,6 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     if cached {
         insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
     } else {
-        // Mirrors Python (`products/feature_flags/backend/facade/references.py`): an
-        // evaluable non-v1 document fails the team's whole rebuild, so the previous entry
-        // and ETag survive. The request path below reads Postgres directly instead.
         assert!(build_flags_cache(db.non_persons_reader.clone(), team.id)
             .await
             .is_err());
@@ -130,10 +127,31 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
 
     for (endpoint, version, errors_reported, shape) in [
         ("flags", "2", true, Shape::Detailed),
-        ("flags", "1", true, Shape::Map { rejected: true }),
+        (
+            "flags",
+            "1",
+            true,
+            Shape::Map {
+                keeps_rejected_as_false: true,
+            },
+        ),
         ("decide", "1", false, Shape::EnabledKeys),
-        ("decide", "2", false, Shape::Map { rejected: false }),
-        ("decide", "3", true, Shape::Map { rejected: true }),
+        (
+            "decide",
+            "2",
+            false,
+            Shape::Map {
+                keeps_rejected_as_false: false,
+            },
+        ),
+        (
+            "decide",
+            "3",
+            true,
+            Shape::Map {
+                keeps_rejected_as_false: true,
+            },
+        ),
         ("decide", "4", true, Shape::Detailed),
     ] {
         let response = client
@@ -180,9 +198,11 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                     vec![json!("absent"), json!("one"), json!("one-float")]
                 );
             }
-            Shape::Map { rejected } => {
+            Shape::Map {
+                keeps_rejected_as_false,
+            } => {
                 let mut expected = json!({"absent": true, "one": true, "one-float": true});
-                if rejected {
+                if keeps_rejected_as_false {
                     for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {
                             expected[key] = json!(false);
@@ -196,16 +216,11 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     Ok(())
 }
 
-/// The response shape each endpoint/version pair returns for the same evaluation.
 #[derive(Clone, Copy)]
 enum Shape {
-    /// Detailed `flags` map: `/flags?v=2` and `/decide?v=4`.
     Detailed,
-    /// `featureFlags` as an array of enabled keys: `/decide?v=1`.
     EnabledKeys,
-    /// `featureFlags` as a key -> value map. `rejected` is whether unevaluable flags are
-    /// retained in it as false rather than omitted.
-    Map { rejected: bool },
+    Map { keeps_rejected_as_false: bool },
 }
 
 #[tokio::test]
@@ -259,9 +274,6 @@ async fn non_v1_rejects_before_preparation_and_missing_dependency_default() {
     );
 }
 
-/// A v1 flag whose condition depends on a non-v1 flag still evaluates: the unevaluable
-/// flag is seeded false like any other flag the matcher skips, so `flag_evaluates_to:
-/// false` matches instead of silently missing the dependency.
 #[tokio::test]
 async fn a_dependent_v1_flag_still_matches_against_a_non_v1_dependency() {
     let db = TestContext::new(None).await;

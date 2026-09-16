@@ -387,8 +387,7 @@ async fn handle_batch_flag_evaluation(
     let target = &flags_vec[target_index];
     // The Django caller already returns [] for group-aggregated and inactive flags
     // without calling us; those two guards are defensive. The format check is not: nothing
-    // upstream filters a non-v1 stored config, and its typed fields all read as defaults,
-    // so without this we would page the whole team and fail every person.
+    // upstream filters a non-v1 stored config.
     if target.get_group_type_index().is_some() {
         return Err(BatchFlagEvaluationError::GroupAggregatedFlag);
     }

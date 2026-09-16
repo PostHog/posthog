@@ -196,7 +196,7 @@ pub async fn remote_config(
     // Raw filters, deliberately outside the fail-closed config-format boundary the
     // evaluation paths use: Django's own view reads `payloads["true"]` just as raw and is
     // shadow-compared against this one, so a Rust-only version guard would read as a
-    // permanent mismatch. The serializer reserves `filters.version`, so no such row exists.
+    // permanent mismatch.
     let stored = filters.get("payloads").and_then(|p| p.get("true"));
 
     // Resolve the payload, mirroring Django's `Response(payloads["true"] or None)`: the stored

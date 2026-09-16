@@ -859,11 +859,8 @@ impl FeatureFlagMatcher {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
-        // A stored config this service cannot evaluate is classified once per request, not
-        // per flag inside `get_match`: it gets an error response entry here, and joins
-        // `filtered_out_flag_ids` so it is skipped by preparation and evaluation and
-        // pre-seeded false below — the same treatment an inactive flag gets, so a
-        // dependent's `flag_evaluates_to: false` condition still resolves.
+        // Joining `filtered_out_flag_ids` pre-seeds the flag false below, like an inactive
+        // flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
         let unsupported_format = FlagError::flag_data_parsing("unsupported configuration format");
         let mut unsupported_flag_ids: Vec<FeatureFlagId> = Vec::new();
         for flag in evaluation_stages.iter().flatten() {
@@ -880,8 +877,7 @@ impl FeatureFlagMatcher {
             self.filtered_out_flag_ids.extend(unsupported_flag_ids);
         }
 
-        // Collect flags from evaluation stages for preparation steps. Non-v1 documents are
-        // excluded: preparation reads v1 fields that are empty defaults for them.
+        // Collect flags from evaluation stages for preparation steps
         let flags: Vec<&FeatureFlag> = evaluation_stages
             .iter()
             .flatten()
@@ -2088,8 +2084,6 @@ impl FeatureFlagMatcher {
         if let Some(holdout) = &flag.filters.holdout {
             let percentage = holdout.exclusion_percentage_clamped();
 
-            // The holdout threshold is the v1 rollout predicate: `exclusion_percentage_clamped`
-            // is in [0, 100], so a hash at or below it is in holdout.
             if !crate::flags::v1_bucketing::is_in_rollout(percentage, || {
                 self.get_holdout_hash(flag, None, request_hash_key_override)
             })? {

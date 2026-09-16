@@ -574,8 +574,6 @@ mod mock_impls {
 
     impl MockFrom<FeatureFlag> for FeatureFlagRow {
         fn mock_from(flag: FeatureFlag) -> Self {
-            // Through the dispatch, not the derived impl: a non-v1 document lives in
-            // `extra`, which flattens into duplicate typed keys when serialized bare.
             let filters = crate::flags::config_format::serialize_filters(
                 &flag.filters,
                 serde_json::value::Serializer,
