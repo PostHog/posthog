@@ -9,15 +9,17 @@ export type OrgConsentResult = OrgConsent & { retry: () => void };
 
 export const desktopBetaTermsKeys = {
   all: () => ["consent", "desktop-beta-terms"] as const,
-  acceptance: (organizationId: string) =>
-    [...desktopBetaTermsKeys.all(), organizationId] as const,
+  // Keyed on the project, because a token refresh can move the project while
+  // the organization from /api/users/@me/ stays put.
+  acceptance: (projectId: number | null) =>
+    [...desktopBetaTermsKeys.all(), projectId] as const,
 };
 
 export function useDesktopBetaTerms(organizationId: string | undefined) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const projectId = useAuthStore((s) => s.projectId);
   return useQuery({
-    queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
+    queryKey: desktopBetaTermsKeys.acceptance(projectId),
     queryFn: () => {
       if (projectId === null) throw new Error("No project");
       return getPostHogApiClient().areDesktopBetaTermsAccepted(projectId);
