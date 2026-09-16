@@ -96,13 +96,19 @@ fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
 /// `products/feature_flags/backend/flags_cache.py`.
 fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
     for flag in flags.iter_mut().filter(|f| !is_evaluable(f)) {
-        flag.filters = FlagFilters::default();
+        if flag.filters.is_v1() {
+            let version = flag.filters.extra.remove("version");
+            flag.filters = FlagFilters::default();
+            if let Some(version) = version {
+                flag.filters.extra.insert("version".to_string(), version);
+            }
+        }
     }
 }
 
 /// Yields all property filters from an active, non-deleted flag's filter groups.
 fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if is_evaluable(flag) {
+    let groups = if is_evaluable(flag) && flag.filters.is_v1() {
         flag.filters.groups.as_slice()
     } else {
         &[]
@@ -1012,5 +1018,34 @@ mod tests {
             HashSet::from([referenced.id])
         );
         assert!(meta.flags_with_missing_deps.is_empty());
+    }
+
+    #[test]
+    fn test_blank_inactive_filters_retains_config_format() {
+        for version in [
+            serde_json::json!(1),
+            serde_json::json!(1.0),
+            serde_json::json!(2),
+            serde_json::json!(2.0),
+            serde_json::json!(3),
+            serde_json::json!(null),
+        ] {
+            let document =
+                serde_json::json!({"version": version, "groups": [{"rollout_percentage": 100}]});
+            let flag: FeatureFlag = serde_json::from_value(serde_json::json!({
+                "id": 1, "team_id": 1, "key": "inactive", "active": false, "filters": document
+            }))
+            .unwrap();
+            let v1 = flag.filters.is_v1();
+            let mut flags = vec![flag];
+            blank_inactive_filters(&mut flags);
+            let after = serde_json::to_value(&flags[0]).unwrap();
+            let expected = if v1 {
+                serde_json::json!({"version": version, "groups": []})
+            } else {
+                document
+            };
+            assert_eq!(after["filters"], expected);
+        }
     }
 }

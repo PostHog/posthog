@@ -279,6 +279,11 @@ pub struct FeatureFlag {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub key: String,
+    // Non-v1 documents stay opaque in `extra`; check the format before reading v1 fields.
+    #[serde(
+        deserialize_with = "crate::flags::config_format::deserialize_filters",
+        serialize_with = "crate::flags::config_format::serialize_filters"
+    )]
     pub filters: FlagFilters,
     #[serde(default)]
     pub deleted: bool,

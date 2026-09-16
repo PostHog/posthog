@@ -4,6 +4,29 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 
 ## Architecture overview
 
+Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
+An absent discriminator or numeric 1 (including 1.0) selects v1.
+Numeric 2 (including 2.0) selects the recognized but unsupported v2 arm.
+All other discriminator values are unsupported.
+
+Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
+Non-v1 objects stay opaque in the filters passthrough map so cache round trips retain them and the cache byte budget includes them.
+They bypass v1 regex, cohort, dependency, and property preparation.
+Eligible non-v1 flags return the existing per-flag parsing error.
+Detailed responses mark them failed.
+The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
+Healthy siblings still evaluate, and request eligibility remains unchanged.
+Malformed v1 documents retain the existing ingress error behavior.
+
+The Rust cache builder preserves the discriminator when blanking inactive v1 filters and leaves non-v1 documents opaque.
+This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
+Those paths need independent exclusion and deployment-floor protection before such rows can exist.
+
+The production `v1_bucketing` functions accept prescribed hashes for contract tests.
+Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
+Variant selection adds each `weight / 100.0` from left to right and uses `hash < cumulative`.
+V1 returns no variant beyond the final boundary, including at hash 1.
+
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     evaluate_all_feature_flags                  │

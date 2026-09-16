@@ -70,6 +70,9 @@ impl FeatureFlagList {
     /// Pre-compiles all regex patterns in property filters across a flag slice.
     pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
         for flag in flags.iter_mut() {
+            if !flag.filters.is_v1() {
+                continue;
+            }
             Self::prepare_group_regexes(&mut flag.filters.groups);
         }
     }
@@ -198,7 +201,7 @@ impl FeatureFlagList {
         let flags: Vec<FeatureFlag> = flags_row
             .into_iter()
             .filter_map(|row| {
-                match serde_json::from_value(row.filters) {
+                match crate::flags::config_format::decode_filters(row.filters) {
                     Ok(filters) => Some(FeatureFlag {
                         id: row.id,
                         team_id: row.team_id,
@@ -1447,7 +1450,15 @@ mod tests {
             bucketing_identifier: None,
         }];
 
+        let mut non_v1 = flags[0].clone();
+        non_v1.filters.extra.insert("version".to_string(), json!(2));
+        let mut flags = flags;
+        flags.push(non_v1);
         let sealed = PreparedFlags::seal(flags);
+
+        assert!(sealed[1].filters.groups[0].properties.as_ref().unwrap()[0]
+            .compiled_regex
+            .is_none());
 
         let props = sealed[0].filters.groups[0].properties.as_ref().unwrap();
         assert!(
