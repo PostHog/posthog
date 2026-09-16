@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1362_identity_provider_oidc")]
+    dependencies = [("posthog", "1363_taggeditem_generic_columns")]
 
     operations = [
         migrations.CreateModel(
