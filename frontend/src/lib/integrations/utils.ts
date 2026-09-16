@@ -79,6 +79,9 @@ export type IntegrationConnectSurface =
     | 'logs_alert_notification_destination'
     | 'scanner_alert_notification_destination'
     | 'subscription_wizard'
+    // The subscription editor both creates and edits, so it reports which one the banner appeared in.
+    // Creation through the wizard reports `subscription_wizard` instead.
+    | 'subscription_create'
     | 'subscription_edit'
     | 'evaluation_report_config'
     | 'scanner_scout_slack_destination'

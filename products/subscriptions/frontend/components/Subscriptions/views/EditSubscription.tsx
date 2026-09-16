@@ -516,7 +516,9 @@ function EditSubscriptionForm({
                         {subscription.target_type === 'slack' ? (
                             <>
                                 {!slackIntegrations?.length ? (
-                                    <SlackNotConfiguredBanner surface="subscription_edit" />
+                                    <SlackNotConfiguredBanner
+                                        surface={id === 'new' ? 'subscription_create' : 'subscription_edit'}
+                                    />
                                 ) : (
                                     <>
                                         <LemonField name="integration_id" label="Slack connection">
