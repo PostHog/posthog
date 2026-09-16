@@ -5524,6 +5524,8 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
 /// - With no stored `$initial_browser`, the row's `$browser` backfills it
 /// - Only when the row answers nothing does the request's own value stand, which covers the
 ///   first session, before ingestion has written the row
+/// - A counterpart the row holds as null is no answer either, since ingestion never writes a
+///   null `$initial_` value
 ///
 /// Ownership follows the `$initial_` prefix, not membership of the derivation map, so the row
 /// also wins a key the map cannot derive.
@@ -5561,6 +5563,16 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
     json!({"$initial_host": "other.example.com"}),
     "$initial_host",
     "app.example.com",
+    true
+)]
+#[case::row_null_counterpart_leaves_the_key_to_the_request(
+    // Ingestion refuses a null `$set_once`, because a browser SDK sends every absent campaign
+    // parameter as an explicit null. A row holding `gclid: null` therefore owns no
+    // `$initial_gclid`, and the request's own `gclid` still has to reach the derivation.
+    Some(json!({"gclid": null})),
+    json!({"gclid": "click"}),
+    "$initial_gclid",
+    "click",
     true
 )]
 #[case::db_browser_backfills_initial_ahead_of_override(

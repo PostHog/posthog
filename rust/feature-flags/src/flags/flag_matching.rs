@@ -15,7 +15,8 @@ use crate::flags::flag_matching_utils::{
     calculate_hash, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, is_initial_person_property,
     match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
-    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
+    populate_row_owned_initial_properties, set_feature_flag_hash_key_overrides,
+    should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -2030,8 +2031,9 @@ impl FeatureFlagMatcher {
 
             // Derive the row's own $initial_ values before any override joins the map, so a
             // request can never manufacture an initial value the person row does not support.
+            // A counterpart the row holds as null answers nothing, so it derives nothing.
             populate_os_aliases(&mut db_properties);
-            populate_missing_initial_properties(&mut db_properties);
+            populate_row_owned_initial_properties(&mut db_properties);
             db_properties
         };
 
