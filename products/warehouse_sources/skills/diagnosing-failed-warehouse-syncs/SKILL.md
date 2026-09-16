@@ -89,7 +89,7 @@ almost certainly stuck, even though the status isn't `Failed`.
 Map the `latest_error` string to a root cause. Common patterns:
 
 | Error substring                                                                      | Root cause                                                 | Fix                                                                                   |
-| ------------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
 | `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
 | `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
