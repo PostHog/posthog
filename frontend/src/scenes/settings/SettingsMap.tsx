@@ -16,9 +16,8 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/FeaturePreviews/FeaturePreviews'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -832,18 +831,8 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description: (
-                    <FlaggedFeature
-                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
-                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
-                    >
-                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
-                        settings, but new integrations should use a project secret API key with the feature_flag:read
-                        scope instead.
-                    </FlaggedFeature>
-                ),
-                searchDescription:
-                    'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
+                description:
+                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
                 keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
@@ -1804,7 +1793,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-secret-api-keys',
         title: 'Project secret API keys',
-        flag: 'PROJECT_SECRET_API_KEYS',
         requiresReauthentication: true,
         settings: [
             {
