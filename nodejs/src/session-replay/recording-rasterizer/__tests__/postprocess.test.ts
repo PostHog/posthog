@@ -85,4 +85,88 @@ describe('computeVideoTimestamps', () => {
         expect(result[0].ts_to_s).toBe(10)
         expect(result[0].active).toBe(true)
     })
+
+    describe('measured capture positions', () => {
+        // Two cuts, each costing the frame it was observed on, at 3fps.
+        const periods: InactivityPeriod[] = [
+            { ts_from_s: 0, ts_to_s: 5, active: true },
+            { ts_from_s: 5, ts_to_s: 100, active: false },
+            { ts_from_s: 100, ts_to_s: 110, active: true },
+            { ts_from_s: 110, ts_to_s: 200, active: false },
+            { ts_from_s: 200, ts_to_s: 205, active: true },
+        ]
+        const starts = [
+            { index: 0, video_s: 0 },
+            { index: 1, video_s: 5 },
+            { index: 2, video_s: 5.333 },
+            { index: 3, video_s: 15.333 },
+            { index: 4, video_s: 15.667 },
+        ]
+
+        it('places every period where capture put it, not where segment math predicts', () => {
+            const result = computeVideoTimestamps(periods, starts, 20.667)
+
+            // Segment math alone would end this map at 20, one frame short per cut.
+            expect(result).toMatchObject([
+                { recording_ts_from_s: 0, recording_ts_to_s: 5 },
+                // A cut takes no video time, so it sits on the frame the video resumes on.
+                { recording_ts_from_s: 5.333, recording_ts_to_s: 5.333 },
+                { recording_ts_from_s: 5.333, recording_ts_to_s: 15.333 },
+                { recording_ts_from_s: 15.667, recording_ts_to_s: 15.667 },
+                { recording_ts_from_s: 15.667, recording_ts_to_s: 20.667 },
+            ])
+        })
+
+        it('ends the map on the file duration when no cut was made', () => {
+            const result = computeVideoTimestamps(
+                [{ ts_from_s: 0, ts_to_s: 30, active: true }],
+                [{ index: 0, video_s: 1.5 }],
+                33.2
+            )
+
+            expect(result[0]).toMatchObject({ recording_ts_from_s: 1.5, recording_ts_to_s: 33.2 })
+        })
+
+        it('keeps a truncated render inside the file it produced', () => {
+            const result = computeVideoTimestamps(
+                [
+                    { ts_from_s: 0, ts_to_s: 10, active: true },
+                    { ts_from_s: 10, ts_to_s: 20, active: true },
+                ],
+                [{ index: 0, video_s: 0 }],
+                6
+            )
+
+            expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 6 })
+            // The file ran out before the second stretch, so the map says nothing about it. Putting
+            // it on the last frame would claim that frame shows a stretch the render never reached.
+            expect(result[1]).toMatchObject({ ts_from_s: 10, ts_to_s: 20 })
+            expect(result[1].recording_ts_from_s).toBeUndefined()
+            expect(result[1].recording_ts_to_s).toBeUndefined()
+        })
+
+        it('does not place a cut the render never reached', () => {
+            const result = computeVideoTimestamps(
+                [
+                    { ts_from_s: 0, ts_to_s: 10, active: true },
+                    { ts_from_s: 10, ts_to_s: 12, active: false },
+                    { ts_from_s: 12, ts_to_s: 20, active: true },
+                ],
+                [{ index: 0, video_s: 0 }],
+                6
+            )
+
+            expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 6 })
+            expect(result[1].recording_ts_from_s).toBeUndefined()
+            expect(result[2].recording_ts_from_s).toBeUndefined()
+        })
+
+        it('falls back to segment math for a segment capture never reported', () => {
+            const result = computeVideoTimestamps(periods, [{ index: 2, video_s: 5.333 }])
+
+            expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5 })
+            expect(result[2]).toMatchObject({ recording_ts_from_s: 5.333, recording_ts_to_s: 15.333 })
+            expect(result[4]).toMatchObject({ recording_ts_from_s: 15.333, recording_ts_to_s: 20.333 })
+        })
+    })
 })

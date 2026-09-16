@@ -44,6 +44,10 @@ const baseCaptureResult = {
     frame_count: 120,
     truncated: false,
     inactivity_periods: [],
+    segment_video_starts: [
+        { index: 0, video_s: 0 },
+        { index: 2, video_s: 2.667 },
+    ],
     timings: { setup_s: 0, capture_s: 2.5 },
 }
 
@@ -232,6 +236,7 @@ describe('rasterizeRecording', () => {
         expect(result.capture_duration_s).toBe(5)
         expect(result.frame_count).toBe(120)
         expect(result.truncated).toBe(false)
+        expect(result.segment_video_starts).toEqual(baseCaptureResult.segment_video_starts)
         expect(result.timings.capture_s).toBe(2.5)
         expect(result.timings.setup_s).toBeGreaterThanOrEqual(0)
     })

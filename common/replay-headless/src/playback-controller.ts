@@ -38,9 +38,7 @@ export class PlaybackController {
     }
 
     start(startOffset: number): void {
-        if (this.options.skipInactivity) {
-            this.startInactivitySkipLoop()
-        }
+        this.startPositionLoop()
         this.replayer.play(startOffset)
     }
 
@@ -53,24 +51,36 @@ export class PlaybackController {
     }
 
     /**
-     * Skip inactive segments by polling the current playback position
-     * each frame. Under puppeteer-capture's virtual time, rAF fires
-     * once per beginFrame call, so this is deterministic.
+     * Poll the current playback position each frame, report every segment the
+     * player reaches, and skip the inactive ones. Under puppeteer-capture's
+     * virtual time, rAF fires once per beginFrame call, so this is deterministic.
+     *
+     * The report is what lets the host measure where a segment starts in the
+     * captured file. A skip costs at least the frame it is observed on, so a map
+     * built from segment durations alone loses a frame per cut.
      */
-    private startInactivitySkipLoop(): void {
-        const checkAndSkip = (): void => {
+    private startPositionLoop(): void {
+        let current = -1
+        const checkPosition = (): void => {
             if (this.stopped) {
                 return
             }
             const ts = this.firstTimestamp + this.replayer.getCurrentTime()
-            const inactiveSeg = this.segments.find(
-                (seg: RecordingSegment) => !seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp
+            // Adjacent segments share a boundary timestamp, and the later one is what the
+            // video shows there, so the end of a range belongs to the segment after it.
+            const index = this.segments.findIndex(
+                (seg: RecordingSegment) => ts >= seg.startTimestamp && ts < seg.endTimestamp
             )
-            if (inactiveSeg) {
-                this.replayer.play(inactiveSeg.endTimestamp - this.firstTimestamp)
+            if (index !== -1 && index !== current) {
+                current = index
+                const segment = this.segments[index]
+                this.bridge.signalSegmentEntered(index)
+                if (this.options.skipInactivity && !segment.isActive) {
+                    this.replayer.play(segment.endTimestamp - this.firstTimestamp)
+                }
             }
-            requestAnimationFrame(checkAndSkip)
+            requestAnimationFrame(checkPosition)
         }
-        requestAnimationFrame(checkAndSkip)
+        requestAnimationFrame(checkPosition)
     }
 }

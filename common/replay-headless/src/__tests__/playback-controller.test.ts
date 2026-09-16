@@ -15,7 +15,7 @@ function makeSegment(
 }
 
 function mockBridge(): HostBridge {
-    return { signalEnded: jest.fn() } as unknown as HostBridge
+    return { signalEnded: jest.fn(), signalSegmentEntered: jest.fn() } as unknown as HostBridge
 }
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -129,16 +129,28 @@ describe('PlaybackController', () => {
     })
 
     describe('inactivity skipping', () => {
-        it('does not start skip loop without skipInactivity option', () => {
-            const rafSpy = jest.spyOn(window, 'requestAnimationFrame')
+        it('does not skip without the skipInactivity option', () => {
+            let rafCallback: FrameRequestCallback | null = null
+            jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+                rafCallback = cb
+                return 0
+            })
+
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const segments = [makeSegment({ startTimestamp: 1000, endTimestamp: 5000, isActive: false, kind: 'gap' })]
+            replayer.getCurrentTime.mockReturnValue(2000)
 
+            const controller = new PlaybackController(replayer as any, segments, 1000, {}, bridge)
             controller.start(0)
+            replayer.play.mockClear()
+            rafCallback!(0)
 
-            expect(rafSpy).not.toHaveBeenCalled()
-            rafSpy.mockRestore()
+            expect(replayer.play).not.toHaveBeenCalled()
+            // The position still has to be reported, or the video-time map falls back to prediction.
+            expect(bridge.signalSegmentEntered).toHaveBeenCalledWith(0)
+
+            jest.restoreAllMocks()
         })
 
         it('starts rAF loop when skipInactivity is true', () => {
@@ -220,6 +232,17 @@ describe('PlaybackController', () => {
 
             // Should skip to end of inactive segment (10000 - 1000 = 9000 offset)
             expect(replayer.play).toHaveBeenCalledWith(9000)
+            expect(bridge.signalSegmentEntered).toHaveBeenCalledWith(1)
+
+            // Playback needs a frame to leave the cut, so the same segment must not skip twice.
+            replayer.play.mockClear()
+            rafCallback!(0)
+            expect(replayer.play).not.toHaveBeenCalled()
+
+            // The frame the video resumes on is the one the host stamps as segment 2's start.
+            replayer.getCurrentTime.mockReturnValue(9000)
+            rafCallback!(0)
+            expect(bridge.signalSegmentEntered).toHaveBeenLastCalledWith(2)
 
             jest.restoreAllMocks()
         })

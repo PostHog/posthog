@@ -37,6 +37,16 @@ export interface InactivityPeriod extends BaseInactivityPeriod {
 }
 
 /**
+ * Where a recording segment actually starts in the captured file, read off the
+ * frame counter as capture runs. Index matches the segment's position in
+ * `inactivity_periods`.
+ */
+export interface SegmentVideoStart {
+    index: number
+    video_s: number
+}
+
+/**
  * Structured heartbeat payload sent from the rasterizer activity to Temporal.
  * The parent workflow reads this via `describe().pending_activities[].heartbeat_details`
  * to surface fine-grained progress to the frontend during video rendering.
@@ -86,5 +96,6 @@ export interface RecordingResult {
     frame_count: number // total frames captured
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
+    segment_video_starts: SegmentVideoStart[]
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }
