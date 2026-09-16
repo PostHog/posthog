@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import time
 import random
 import datetime
@@ -76,6 +77,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
+    SSOLoginThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -146,6 +148,14 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    sso_login_throttle = SSOLoginThrottle()
+    if not sso_login_throttle.allow_request(request, view=None):
+        response = HttpResponse("Too many requests. Please try again later.", status=429)
+        wait = sso_login_throttle.wait()
+        if wait is not None:
+            response["Retry-After"] = str(math.ceil(wait))
+        return response
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
