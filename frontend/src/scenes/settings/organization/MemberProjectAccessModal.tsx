@@ -28,7 +28,7 @@ export function MemberProjectAccessModal(): JSX.Element {
                 return (
                     <div className="flex flex-col items-start py-1">
                         <span className="font-medium">{team ? <ProjectName team={team} /> : entry.team_name}</span>
-                        <ProjectFreshnessIndicator teamId={entry.team_id} />
+                        <ProjectFreshnessIndicator teamId={entry.team_id} className="ml-0" />
                     </div>
                 )
             },
