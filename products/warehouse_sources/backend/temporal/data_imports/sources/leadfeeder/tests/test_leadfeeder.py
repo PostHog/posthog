@@ -418,12 +418,12 @@ class TestUnifiedRequests:
                 _unified_response([_item("200", "company_location")]),
             ],
         )
-        _rows(_source("leads", _make_manager(), start_date_config="2026-06-15", api_version=LEADFEEDER_API_2026_08_07))
+        _rows(_source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
         company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
         # account id is a query param on the unified API (a path segment on the legacy API).
         assert {r["params"]["account_id"] for r in company_reqs} == {"1", "2"}
-        assert company_reqs[0]["params"]["start_date"] == "2026-06-15"
+        assert company_reqs[0]["params"]["start_date"] == "2024-01-01"
         assert company_reqs[0]["params"]["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -487,7 +487,7 @@ class TestUnifiedOffsetLimit:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_sync_window_is_chunked_into_contiguous_windows(self, MockSession) -> None:
+    def test_visits_window_is_chunked_into_contiguous_windows(self, MockSession) -> None:
         # A first sync spans up to a year, far more than the offset limit can page through in one
         # request, so the window is split before the vendor ever sees an out-of-range offset.
         session = MockSession.return_value
@@ -495,12 +495,12 @@ class TestUnifiedOffsetLimit:
             session,
             [_unified_response([_item("1", "account")])] + [_unified_response([]) for _ in range(40)],
         )
-        _rows(_source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
+        _rows(_source("visits", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
         windows = [
-            (date.fromisoformat(r["params"]["start_date"]), date.fromisoformat(r["params"]["end_date"]))
+            (date.fromisoformat(r["json"]["start_date"]), date.fromisoformat(r["json"]["end_date"]))
             for r in requests
-            if "/v1/web-visits/companies" in r["url"]
+            if r["url"].endswith("/v1/web-visits")
         ]
         assert len(windows) > 1
         assert windows[0][0] == date(2026, 1, 1)
@@ -511,37 +511,20 @@ class TestUnifiedOffsetLimit:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    @mock.patch.multiple(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder",
-        UNIFIED_OFFSET_LIMIT=4,
-        UNIFIED_MAX_PAGES=2,
-    )
-    def test_window_truncated_by_the_page_cap_is_halved_and_re_read(self, MockSession) -> None:
-        # The cap alone would drop every row past it without a word. A window that comes back full is
-        # read again in halves, which merge dedupes on the primary key.
+    def test_leads_reads_the_whole_range_in_one_window(self, MockSession) -> None:
+        # A lead row counts the visits inside the queried range, and the writer keeps the last row per
+        # primary key, so a split range would store one chunk's count instead of the range's count.
         session = MockSession.return_value
         requests = _wire_full(
             session,
-            [
-                _unified_response([_item("1", "account")]),
-                _unified_response([_item("100", "company_location"), _item("101", "company_location")], page_count=9),
-                _unified_response([_item("102", "company_location"), _item("103", "company_location")], page_count=9),
-                _unified_response([_item("104", "company_location")]),
-                _unified_response([_item("105", "company_location")]),
-            ],
+            [_unified_response([_item("1", "account")])] + [_unified_response([]) for _ in range(40)],
         )
-        rows = _rows(
-            _source("leads", _make_manager(), start_date_config="2026-06-29", api_version=LEADFEEDER_API_2026_08_07)
-        )
+        _rows(_source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
         company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
-        # Two capped pages of the full window, then one request per half.
-        assert [r["params"]["page[num]"] for r in company_reqs] == [1, 2, 1, 1]
-        assert [(r["params"]["start_date"], r["params"]["end_date"]) for r in company_reqs[2:]] == [
-            ("2026-06-29", "2026-06-30"),
-            ("2026-07-01", "2026-07-02"),
+        assert [(r["params"]["start_date"], r["params"]["end_date"]) for r in company_reqs] == [
+            ("2026-01-01", "2026-07-02")
         ]
-        assert [row["id"] for row in rows] == ["100", "101", "102", "103", "104", "105"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
@@ -550,22 +533,33 @@ class TestUnifiedOffsetLimit:
         UNIFIED_OFFSET_LIMIT=2,
         UNIFIED_MAX_PAGES=1,
     )
-    def test_single_day_over_the_offset_limit_warns_instead_of_truncating_silently(self, MockSession) -> None:
+    def test_window_cut_short_by_the_page_cap_warns_and_reads_no_date_twice(self, MockSession) -> None:
+        # Reading the window again in smaller pieces would yield rows already written, which an
+        # append-mode sync stores twice, so the shortfall is reported rather than re-read.
         session = MockSession.return_value
-        _wire_full(
+        requests = _wire_full(
             session,
             [
                 _unified_response([_item("1", "account")]),
-                _unified_response([_item("100", "company_location"), _item("101", "company_location")], page_count=9),
+                _unified_response([_item("100", "web_visit"), _item("101", "web_visit")], page_count=9),
             ],
         )
         with mock.patch.object(leadfeeder_module.logger, "warning") as warning:
-            _rows(
-                _source("leads", _make_manager(), start_date_config="2026-07-02", api_version=LEADFEEDER_API_2026_08_07)
+            rows = _rows(
+                _source(
+                    "visits", _make_manager(), start_date_config="2026-07-01", api_version=LEADFEEDER_API_2026_08_07
+                )
             )
 
+        visit_reqs = [r for r in requests if r["url"].endswith("/v1/web-visits")]
+        assert len(visit_reqs) == 1
+        assert [row["id"] for row in rows] == ["100", "101"]
         assert warning.call_count == 1
-        assert warning.call_args.kwargs["extra"] == {"account_id": "1", "day": "2026-07-02"}
+        assert warning.call_args.kwargs["extra"] == {
+            "account_id": "1",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-02",
+        }
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_legacy_pin_still_uses_token_api_paths(self, MockSession) -> None:

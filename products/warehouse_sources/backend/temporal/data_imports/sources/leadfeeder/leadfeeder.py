@@ -190,8 +190,9 @@ def _base_params() -> dict[str, Any]:
 # instead of paging past it.
 UNIFIED_OFFSET_LIMIT = 10_000
 UNIFIED_MAX_PAGES = UNIFIED_OFFSET_LIMIT // PAGE_SIZE
-# Window a single fan-out request covers. Short enough that an ordinary account stays well inside the
-# offset limit, long enough that a 365-day first sync costs a dozen requests per account.
+# Window a single visits request covers. Short enough that an ordinary account stays well inside the
+# offset limit, long enough that a 365-day first sync costs a dozen requests per account. Every date
+# is requested once, so no row is read twice.
 UNIFIED_WINDOW_DAYS = 30
 
 
@@ -283,10 +284,6 @@ class _DateWindow:
     start: date
     end: date
 
-    @property
-    def days(self) -> int:
-        return (self.end - self.start).days + 1
-
     def as_filter(self) -> dict[str, str]:
         return {"start_date": self.start.isoformat(), "end_date": self.end.isoformat()}
 
@@ -297,6 +294,20 @@ def _date_windows(start: date, end: date, max_days: int) -> Iterator[_DateWindow
         window_end = min(window_start + timedelta(days=max_days - 1), end)
         yield _DateWindow(start=window_start, end=window_end)
         window_start = window_end + timedelta(days=1)
+
+
+def _sync_windows(config: LeadfeederEndpointConfig, start: date, end: date) -> tuple[_DateWindow, ...]:
+    """Windows the sync reads for one account, in order.
+
+    A window is a request, and the vendor answers a request with the rows for that range only, so
+    every value a row holds over the range is a value over the window. A visit is a single event and
+    reads the same whichever window carries it. A company row instead counts the visits inside the
+    queried range, and the writer keeps the last row per primary key, so a split range would leave
+    one window's count in place of the count for the whole sync. Such an endpoint gets one window.
+    """
+    if config.aggregates_over_window:
+        return (_DateWindow(start=start, end=end),)
+    return tuple(_date_windows(start, end, UNIFIED_WINDOW_DAYS))
 
 
 @frozen
@@ -321,11 +332,12 @@ class _UnifiedFanOut:
         return child
 
     def pages(self, account_id: str, window: _DateWindow) -> Iterator[list[dict[str, Any]]]:
-        """Yield every page of one window, halving the window when the offset limit truncates it.
+        """Yield every page of one window, and say so when the offset limit cuts the window short.
 
         The paginator stops at UNIFIED_MAX_PAGES rather than letting the vendor answer 416, so a
-        window that holds more rows than the offset limit comes back short. Halving and re-reading
-        recovers the rest; the overlap is exact primary-key duplicates that merge dedupes.
+        window holding more rows than the offset limit comes back short. Reading the window again in
+        smaller pieces would repeat rows already yielded, which an append-mode sync writes twice, so
+        the shortfall is reported instead.
         """
         rows = 0
         for page in _unified_single_resource(
@@ -339,18 +351,13 @@ class _UnifiedFanOut:
             rows += len(page)
             yield page
 
-        if rows < UNIFIED_OFFSET_LIMIT:
-            return
-        if window.start == window.end:
+        if rows >= UNIFIED_OFFSET_LIMIT:
             logger.warning(
-                "Leadfeeder %s pagination stopped at the vendor's %s-row offset limit; a single day holds more rows than one request can read",
+                "Leadfeeder %s stopped at the vendor's %s-row offset limit; rows past it were not read",
                 self.endpoint,
                 UNIFIED_OFFSET_LIMIT,
-                extra={"account_id": account_id, "day": window.start.isoformat()},
+                extra={"account_id": account_id, **window.as_filter()},
             )
-            return
-        for half in _date_windows(window.start, window.end, max_days=(window.days + 1) // 2):
-            yield from self.pages(account_id, half)
 
 
 def _unified_leadfeeder_source(
@@ -409,11 +416,13 @@ def _unified_leadfeeder_source(
             start.isoformat(),
         )
         start = end
+
+    windows = _sync_windows(config, start, end)
     fan_out = _UnifiedFanOut(client=client, endpoint=endpoint, config=config, team_id=team_id, job_id=job_id)
 
     def _fanned() -> Iterator[list[dict[str, Any]]]:
         for account_id in _unified_account_ids(client, team_id, job_id):
-            for window in _date_windows(start, end, UNIFIED_WINDOW_DAYS):
+            for window in windows:
                 yield from fan_out.pages(account_id, window)
 
     # Partition only on a field confirmed present in the unified schema (visits' `started_at`). The

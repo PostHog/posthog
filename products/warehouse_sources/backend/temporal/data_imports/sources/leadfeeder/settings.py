@@ -68,6 +68,10 @@ class LeadfeederEndpointConfig:
     # When True the endpoint honours the server-side `start_date`/`end_date` date-range filter, which
     # makes it genuinely incremental. Endpoints without a server filter are full refresh only.
     supports_date_filter: bool = False
+    # When True a row aggregates over the queried date range, so the row a sync stores depends on the
+    # range it was read with. Such an endpoint reads its whole range in one request and is never
+    # chunked, because the writer keeps the last row per primary key rather than combining rows.
+    aggregates_over_window: bool = False
     should_sync_default: bool = True
 
 
@@ -93,6 +97,9 @@ LEADFEEDER_ENDPOINTS: dict[str, LeadfeederEndpointConfig] = {
         partition_key="first_visit_date",
         fan_out_over_accounts=True,
         supports_date_filter=True,
+        # `visits` counts the visits inside the queried range, and `first_visit_date` /
+        # `last_visit_date` bound the range too.
+        aggregates_over_window=True,
         incremental_fields=[
             _date_field("last_visit_date"),
             _date_field("first_visit_date"),
