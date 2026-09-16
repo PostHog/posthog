@@ -84,8 +84,9 @@ def normalize_one_apns_integration(
     # second layer of encryption over the first.
     stored_sensitive_config = integration.sensitive_config
     signing_key = stored_sensitive_config.get("signing_key") if isinstance(stored_sensitive_config, dict) else None
-    strips_signing_key = isinstance(signing_key, str) and signing_key != signing_key.strip()
-    if strips_signing_key:
+    strips_signing_key = False
+    if isinstance(signing_key, str) and signing_key != signing_key.strip():
+        strips_signing_key = True
         integration.sensitive_config = {**stored_sensitive_config, "signing_key": signing_key.strip()}
         update_fields.append("sensitive_config")
 
