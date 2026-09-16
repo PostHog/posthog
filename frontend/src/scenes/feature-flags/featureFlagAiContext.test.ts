@@ -136,6 +136,11 @@ describe('featureFlagAiContext', () => {
     test.each([
         ['the same id as a number', { id: 1 }, true],
         ['the same id as a string', { id: '1' }, true],
+        // Every mutation tool declares these spellings as aliases for `id`, and the server resolves
+        // them after this matcher has already seen the raw arguments the model wrote.
+        ['the flagId alias', { flagId: 1 }, true],
+        ['the feature_flag_id alias', { feature_flag_id: '1' }, true],
+        ['an alias naming another flag', { flagId: 2 }, false],
         ['another flag', { id: 2 }, false],
         ['no id', { key: 'test-flag' }, false],
         ['unparseable args', null, false],

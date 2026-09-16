@@ -68,6 +68,11 @@ describe('useFeatureFlagAgentRefresh', () => {
         // Another flag's call must not refresh this page.
         emit(completedToolCall('feature-flag-archive', '{"id":7}'))
         expect(onAgentChange).toHaveBeenCalledTimes(2)
+
+        // A delete leaves nothing to refresh into, so it stays off the allowlist. Without this case,
+        // widening the list to every flag tool breaks no test.
+        emit(completedToolCall('delete-feature-flag', '{"id":1}'))
+        expect(onAgentChange).toHaveBeenCalledTimes(2)
     })
 
     it('ignores a replayed call, so reopening the page does not refresh it again', () => {

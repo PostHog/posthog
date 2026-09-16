@@ -78,6 +78,15 @@ function capturesOf(event: string): any[][] {
     return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
 }
 
+// A promise the test resolves by hand, so it can hold a request open while something else lands.
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve: () => void = () => {}
+    const promise = new Promise<void>((innerResolve) => {
+        resolve = innerResolve
+    })
+    return { promise, resolve }
+}
+
 // jest.config.ts sets clearMocks: true, so these mock.fn() call histories reset before every test.
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -319,7 +328,7 @@ describe('featureFlagLogic', () => {
             logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
             expect(logic.values.isFormDirty).toBe(true)
 
-            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false }))
+            useMocks(serverFlagMock({ name: 'renamed by the agent', active: false, version: 9 }))
 
             await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
                 .toDispatchActions(['refreshFeatureFlagSuccess'])
@@ -328,6 +337,11 @@ describe('featureFlagLogic', () => {
             expect(logic.values.featureFlag.name).toBe('half-written local edit')
             expect(logic.values.featureFlag.active).toBe(false)
             expect(logic.values.isFormDirty).toBe(true)
+            // The next save has to submit a version behind the stored row. A folded-in server
+            // version disarms the stale-write check, and these edits then overwrite everything the
+            // agent wrote, with no error. A save submits the baseline, so the server checks that one.
+            expect(logic.values.featureFlag.version).toBe(0)
+            expect(logic.values.originalFeatureFlag?.version).toBe(0)
             expect(lemonToast.info).toHaveBeenCalledTimes(1)
 
             const [, options] = jest.mocked(lemonToast.info).mock.calls[0]
@@ -368,10 +382,7 @@ describe('featureFlagLogic', () => {
         // refreshes. Needs its own setup: both requests have to be in flight at once, with the test
         // choosing which one answers last.
         it('discards a refresh response that a newer refresh superseded', async () => {
-            let releaseFirstResponse: () => void = () => {}
-            const firstResponseHeld = new Promise<void>((resolve) => {
-                releaseFirstResponse = resolve
-            })
+            const firstResponse = deferred()
             let requestCount = 0
 
             useMocks({
@@ -379,7 +390,7 @@ describe('featureFlagLogic', () => {
                     [FLAG_URL]: async () => {
                         requestCount += 1
                         if (requestCount === 1) {
-                            await firstResponseHeld
+                            await firstResponse.promise
                             return [200, { ...MOCK_FEATURE_FLAG, name: 'first agent change' }]
                         }
                         return [200, { ...MOCK_FEATURE_FLAG, name: 'second agent change' }]
@@ -394,7 +405,7 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.featureFlag.name).toBe('second agent change')
 
-            releaseFirstResponse()
+            firstResponse.resolve()
             await expectLogic(logic).toFinishAllListeners()
 
             // The older response must not put the page or its baseline back.
@@ -406,36 +417,39 @@ describe('featureFlagLogic', () => {
         // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
         it.each([
             ['a toggle', (flag: FeatureFlagType) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
+            // The inline tag and description saves and the cross-project toggle re-baseline without
+            // dispatching any loader success, so a guard keyed to those actions cannot see them.
+            [
+                'an inline field save',
+                (flag: FeatureFlagType) => {
+                    logic.actions.setFeatureFlag(flag)
+                    logic.actions.setOriginalFeatureFlag(flag)
+                },
+            ],
             ['a full reload', (flag: FeatureFlagType) => logic.actions.loadFeatureFlagSuccess(flag)],
         ])('discards a refresh response that %s superseded', async (_label, mutate) => {
-            let releaseResponse: () => void = () => {}
-            const responseHeld = new Promise<void>((resolve) => {
-                releaseResponse = resolve
-            })
-            let markRequestStarted: () => void = () => {}
+            const response = deferred()
             // The loader samples the mutation count before it calls the API, so mutating before the
             // request is open would pass without exercising the guard.
-            const requestStarted = new Promise<void>((resolve) => {
-                markRequestStarted = resolve
-            })
+            const requestStarted = deferred()
 
             useMocks({
                 get: {
                     [FLAG_URL]: async () => {
-                        markRequestStarted()
-                        await responseHeld
+                        requestStarted.resolve()
+                        await response.promise
                         return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
                     },
                 },
             })
 
             logic.actions.refreshFeatureFlagAfterAgentChange()
-            await requestStarted
+            await requestStarted.promise
 
             mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
             expect(logic.values.featureFlag.active).toBe(false)
 
-            releaseResponse()
+            response.resolve()
             await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
 
             expect(logic.values.featureFlag.active).toBe(false)

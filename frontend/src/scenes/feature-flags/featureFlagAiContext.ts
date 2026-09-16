@@ -76,12 +76,19 @@ export const FEATURE_FLAG_MUTATION_TOOLS = [
     'feature-flag-unarchive',
 ]
 
-// The bus is global, so an unrelated flag's call arrives here too. `id` comes through as a string
+// Every mutation tool accepts these spellings for the flag id (`param_overrides.id.aliases` in
+// products/feature_flags/mcp/tools.yaml). The MCP server resolves them to `id`, but this matcher
+// reads the raw arguments the model wrote. Match all five, or an aliased call never refreshes.
+const FLAG_ID_KEYS = ['id', 'flagId', 'flag_id', 'feature_flag_id', 'featureFlagId']
+
+// The bus is global, so an unrelated flag's call arrives here too. The id comes through as a string
 // or a number because the tools cast it, and as null args when they could not be parsed.
 export function mutationTargetsFeatureFlag(innerInput: Record<string, unknown> | null, flagId: number): boolean {
-    const id = innerInput?.id
-    if (typeof id !== 'string' && typeof id !== 'number') {
-        return false
-    }
-    return String(id) === String(flagId)
+    return FLAG_ID_KEYS.some((key) => {
+        const id = innerInput?.[key]
+        if (typeof id !== 'string' && typeof id !== 'number') {
+            return false
+        }
+        return String(id) === String(flagId)
+    })
 }

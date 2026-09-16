@@ -3,6 +3,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -20,6 +21,7 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
+import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
@@ -817,6 +819,13 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
             groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
         },
     }
+}
+
+// Key the agent-change notice to one flag. The default id hashes the message, and the message names
+// no flag, so a notice still open for another flag would swallow this one as a duplicate and leave
+// its button reloading that flag.
+function agentChangeToastId(id: FeatureFlagLogicProps['id']): string {
+    return `feature-flag-agent-change-${id}`
 }
 
 // Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
@@ -2309,10 +2318,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         flagMutationCount: [
             0,
             {
+                // loadFeatureFlagSuccess re-baselines in the reducer below rather than dispatching
+                // setOriginalFeatureFlag, so it has to be counted separately.
                 loadFeatureFlagSuccess: (state) => state + 1,
-                saveFeatureFlagSuccess: (state) => state + 1,
-                updateFeatureFlagActiveSuccess: (state) => state + 1,
-                updateFeatureFlagArchivedSuccess: (state) => state + 1,
+                setOriginalFeatureFlag: (state) => state + 1,
             },
         ],
         originalFeatureFlag: [
@@ -3800,6 +3809,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id
+            // cancelled and would swallow the notice for the next agent change on this flag.
+            toast.dismiss(agentChangeToastId(props.id))
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
@@ -3967,10 +3979,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             // This notice is the only signal that the page and the server disagree,
                             // so it waits to be acted on instead of closing on the container's timer.
                             autoClose: false,
-                            // Key the notice to this flag. The default id hashes the message, and the
-                            // message names no flag, so a notice still open for another flag would
-                            // swallow this one as a duplicate and leave its button reloading that flag.
-                            toastId: `feature-flag-agent-change-${props.id}`,
+                            toastId: agentChangeToastId(props.id),
                             button: {
                                 label: 'Discard edits and reload',
                                 action: () => actions.loadFeatureFlag(),
@@ -4068,6 +4077,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            toast.dismiss(agentChangeToastId(props.id))
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
             // it once against the loaded flag; only on the first load, so a later reload (e.g.
@@ -5152,5 +5162,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Load default evaluation contexts for new flags
             actions.loadFeatureFlag()
         }
+    }),
+
+    beforeUnmount(({ props }) => {
+        // A notice that survives navigation has a button that reloads an unmounted logic.
+        toast.dismiss(agentChangeToastId(props.id))
     }),
 ])
