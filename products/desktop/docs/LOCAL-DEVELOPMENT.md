@@ -44,7 +44,7 @@ This creates an OAuth application with:
    - **Client ID**: `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. This must match `POSTHOG_DEV_CLIENT_ID` in the app source.
    - **Client type**: `Public` (the app is an Electron desktop app)
    - **Authorization grant type**: `Authorization code`
-   - **Redirect URIs**: `http://localhost:8237/callback http://localhost:8239/callback`
+   - **Redirect URIs**: `http://localhost:8237/callback http://localhost:8239/callback http://localhost:5273/callback`
    - **Algorithm**: `RS256`
 4. Save
 
@@ -254,6 +254,24 @@ posthog.isFeatureEnabled("mcp-gateway"); // undefined ⇒ flags never loaded
 ### "Invalid client_id" error during OAuth
 
 The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. Verify at http://localhost:8010/admin/posthog/oauthapplication/.
+
+### "Mismatching redirect URI." during browser sign-in
+
+The browser host sends its own origin plus `/callback` as the OAuth redirect URI.
+The default is `http://localhost:5273/callback`.
+An OAuth application configured only for Electron's callback ports does not allow this address.
+
+1. Select **Local development** in the browser host.
+2. Open `http://localhost:8010/admin/posthog/oauthapplication/` as a local staff user.
+3. Edit the existing application with client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`.
+4. Add `http://localhost:5273/callback` to **Redirect URIs**, separated by a space. Keep the existing URIs.
+5. Save, close the failed sign-in popup, and start sign-in again from the browser host.
+
+This also applies to an existing application created by the demo data generator.
+If you use a different browser origin, register that exact origin plus `/callback` instead.
+Do not add a trailing slash or reuse Electron's port unless the browser host actually runs there.
+The registration must be on the OAuth server selected in **Data region**; changing the local application does not change US or EU Cloud.
+Do not disable redirect validation or use a token override to work around this error.
 
 ### "OAuth error: invalid_scope" or "Couldn't check Desktop access"
 

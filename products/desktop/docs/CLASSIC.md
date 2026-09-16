@@ -65,6 +65,9 @@ To test both sides from this PR:
 4. Select **Classic**. If needed, select **Open web app** to establish the local web session, then reload Classic.
 5. Open a dashboard, change a filter, open an insight, and use **Dashboards** to return. Open another product from the web sidebar and check its tabs and views. Open a normal scene panel. Collapse the web sidebar and check a narrow window. Switch projects in Desktop and check that the frame reloads for that project.
 
+If sign-in returns **Mismatching redirect URI.**, add the browser callback to the existing local OAuth application before you retry.
+Follow the [browser redirect troubleshooting steps](./LOCAL-DEVELOPMENT.md#mismatching-redirect-uri-during-browser-sign-in).
+
 The browser host's existing organization-consent check can reject project-scoped development tokens before Classic opens.
 This preview does not change that check.
 
