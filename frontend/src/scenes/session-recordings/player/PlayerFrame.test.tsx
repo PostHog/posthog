@@ -29,6 +29,8 @@ describe('PlayerFrame', () => {
         if (!(iframe instanceof HTMLIFrameElement)) {
             throw new Error('the player did not render its frame')
         }
+        // jsdom leaves the frame document mid-load, and the player judges a document that finished loading.
+        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
         return iframe
     }
 
@@ -102,17 +104,23 @@ describe('PlayerFrame', () => {
         }
     })
 
-    // Firefox fires load for the frame's initial about:blank document, which has no mount node.
-    // The shell document is still on its way, so this load is not a failure.
-    it('reports nothing when the blank first document loads', () => {
-        const captureSpy = jest.spyOn(posthog, 'captureException')
+    // Firefox fires load for the frame's initial about:blank document, and a load event for a previous
+    // document arrives while the shell is still parsing. Neither has a mount node, and neither is a failure.
+    it.each([
+        ['the blank first document loads', 'about:blank', 'complete'],
+        ['a load arrives while the shell is still parsing', '/replay_player_frame/index.html', 'loading'],
+    ])('reports nothing when %s', (_, url, readyState) => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
         const iframe = renderPlayerFrame()
         // jsdom does not load the frame's src, so its document already carries the shell URL.
-        Object.defineProperty(iframe.contentDocument!, 'URL', { value: 'about:blank' })
+        Object.defineProperty(iframe.contentDocument!, 'URL', { value: url })
+        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: readyState, configurable: true })
 
         fireEvent.load(iframe)
 
-        expect(captureSpy).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(captureSpy).not.toHaveBeenCalledWith('replay player frame load retried', expect.anything())
     })
 
     // A same-origin error page, a login redirect, or a browser network-error page all fire load

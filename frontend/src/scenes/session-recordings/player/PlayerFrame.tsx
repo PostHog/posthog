@@ -86,9 +86,10 @@ export const PlayerFrame = (): JSX.Element => {
         const frameDocument = iframeRef.current?.contentDocument
         const content = frameDocument?.getElementById(PLAYER_FRAME_CONTENT_ID)
         if (!content) {
-            if (frameDocument?.URL === 'about:blank') {
-                // Firefox fires load for the frame's initial about:blank document. The shell document
-                // is still on its way, so this load says nothing about it.
+            // Firefox fires load for the frame's initial about:blank document, and a load event for a
+            // previous document arrives while the shell is still parsing, which is common in a hidden tab.
+            // The shell is still on its way in both cases, and its own load event follows.
+            if (frameDocument?.URL === 'about:blank' || (frameDocument && frameDocument.readyState !== 'complete')) {
                 return
             }
             // A same-origin error page, a login redirect, and a browser error page all fire load too,
