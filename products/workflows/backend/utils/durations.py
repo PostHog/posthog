@@ -1,5 +1,5 @@
 import re
-from typing import Any, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from posthog.dataclasses import frozen
 
@@ -41,7 +41,7 @@ class ParsedDuration:
     negative: bool
 
 
-def parse_duration(value: Any) -> Optional[ParsedDuration]:
+def parse_duration(value: object) -> Optional[ParsedDuration]:
     """The parts of a duration string, or None when it is not one.
 
     Returns the parts rather than a total because each caller bounds them differently: a fixed delay
@@ -57,13 +57,13 @@ def parse_duration(value: Any) -> Optional[ParsedDuration]:
     return ParsedDuration(amount=float(body[:-1]), unit=cast(DurationUnit, body[-1]), negative=negative)
 
 
-def is_duration(value: Any) -> bool:
+def is_duration(value: object) -> bool:
     """True for an unsigned duration string."""
     parsed = parse_duration(value)
     return parsed is not None and not parsed.negative
 
 
-def is_signed_duration(value: Any) -> bool:
+def is_signed_duration(value: object) -> bool:
     """True for a duration string that may point backwards, as a delay_until offset may."""
     return parse_duration(value) is not None
 

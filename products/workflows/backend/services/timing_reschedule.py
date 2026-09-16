@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 
 import structlog
 
@@ -24,7 +24,7 @@ MAX_RESCHEDULE_ACTION_IDS = 100
 _TIME_WINDOW_CONFIG_KEYS = ("day", "time", "timezone", "use_person_timezone", "fallback_timezone")
 
 
-def parse_delay_duration_seconds(value: Any) -> Optional[float]:
+def parse_delay_duration_seconds(value: object) -> Optional[float]:
     """Seconds the worker will actually wait, with the per-unit clamps applied first so a 45d -> 35d
     edit (both clamped to 30d) does not trigger a pointless sweep."""
     parsed = parse_duration(value)
