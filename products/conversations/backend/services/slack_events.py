@@ -60,12 +60,17 @@ def slack_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     return DeliveryOwnership.LOCAL if team is not None else DeliveryOwnership.ELSEWHERE
 
 
-def accept_slack_event(delivery: WebhookDelivery) -> None:
-    """Record a verified Slack event against the workspace's team and wake its worker."""
-    payload: dict[str, Any] = dict(delivery.payload)
+def _accept_delivery(
+    delivery: WebhookDelivery,
+    *,
+    source: ConversationInboundEventSource,
+    payload: dict[str, Any],
+    source_id: str,
+) -> None:
+    """Write the inbound receipt for a verified Slack delivery and wake its worker."""
     slack_team_id = delivery.context.get("slack_team_id", "")
     # Unguarded on purpose: a timed-out lookup fails the delivery, so the dispatcher releases the
-    # dedup mark and Slack's redelivery reaches this consumer instead of the event being lost.
+    # dedup mark and Slack's redelivery reaches this consumer instead of the delivery being lost.
     team = _team_for_workspace(slack_team_id) if slack_team_id else None
     if team is None:
         # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
@@ -78,18 +83,29 @@ def accept_slack_event(delivery: WebhookDelivery) -> None:
     )
     accept_inbound_event(
         team=team,
+        source=source,
+        source_id=source_id,
+        provider_account_id=slack_team_id,
+        payload=payload,
+        provider_retry_num=retry_num,
+        provider_retry_reason=retry_reason,
+        wake=wake_inbound_event,
+    )
+
+
+def accept_slack_event(delivery: WebhookDelivery) -> None:
+    """Record a verified Slack event against the workspace's team and wake its worker."""
+    payload: dict[str, Any] = dict(delivery.payload)
+    _accept_delivery(
+        delivery,
         source=ConversationInboundEventSource.SLACK_EVENTS,
+        payload=payload,
         # A delivery carries no raw body, so an event without an id falls back to a hash of the
         # parsed payload rather than of the signed bytes.
         source_id=slack_events_source_id(
             event_id=delivery.delivery_id,
             signed_body=json.dumps(payload, sort_keys=True).encode("utf-8"),
         ),
-        provider_account_id=slack_team_id,
-        payload=payload,
-        provider_retry_num=retry_num,
-        provider_retry_reason=retry_reason,
-        wake=wake_inbound_event,
     )
 
 
@@ -97,29 +113,12 @@ def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
     """Record a verified Slack interactive payload against the workspace's team and wake its worker."""
     payload: dict[str, Any] = dict(delivery.payload)
     # The signed `payload` field, which the incarnation carried through so the source id hashes
-    # the bytes Slack signed. It is not part of what Slack sent inside the field, so it is off
+    # the bytes Slack signed. It is not part of what Slack sent inside the field, so it comes off
     # the payload again before the receipt stores it.
     raw_payload = str(payload.pop(SLACK_RAW_PAYLOAD_KEY, ""))
-    slack_team_id = delivery.context.get("slack_team_id", "")
-    # Unguarded on purpose: a timed-out lookup fails the delivery, so Slack's redelivery reaches
-    # this consumer instead of the click being lost.
-    team = _team_for_workspace(slack_team_id) if slack_team_id else None
-    if team is None:
-        # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
-        # answer this module gave it before dispatch.
-        return
-
-    retry_num, retry_reason = slack_retry_metadata_from_values(
-        raw_retry_num=delivery.context.get("retry_num", ""),
-        retry_reason=delivery.context.get("retry_reason", ""),
-    )
-    accept_inbound_event(
-        team=team,
+    _accept_delivery(
+        delivery,
         source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
-        source_id=slack_interactivity_source_id(payload=payload, signed_body=raw_payload.encode("utf-8")),
-        provider_account_id=slack_team_id,
         payload=payload,
-        provider_retry_num=retry_num,
-        provider_retry_reason=retry_reason,
-        wake=wake_inbound_event,
+        source_id=slack_interactivity_source_id(payload=payload, signed_body=raw_payload.encode("utf-8")),
     )

@@ -9,7 +9,6 @@ They are a second app here rather than more event types on `supporthog`, so each
 consumers are validated against the type list of the endpoint they actually run on.
 """
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -17,7 +16,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import InvalidPayload, WebhookProvider
+from posthog.ingress.providers import InvalidPayload, WebhookProvider, decode_json
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
 
 SLACK_EVENT_TYPES = frozenset(
@@ -121,24 +120,16 @@ class SlackInteractivityProvider(SlackProvider):
     and the workspace is `team.id` rather than `team_id`.
     """
 
-    def __init__(self, *, secret_getter: Callable[[], str | None]) -> None:
-        super().__init__(app=SLACK_INTERACTIVITY_APP, secret_getter=secret_getter)
+    def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
+        """No handshake here. Slack verifies the Events API URL only, never this one."""
+        return None
 
     def parse(self, request: HttpRequest) -> Any:
-        """The JSON Slack put in the form's `payload` field, plus the field itself.
-
-        Reading the form consumes the request stream under ASGI, which would leave the
-        signature check without the raw bytes. The view verifies before it parses, so by the
-        time this runs the raw body has been read.
-        """
+        """The JSON Slack put in the form's `payload` field, plus the field itself."""
         raw_payload = request.POST.get("payload")
         if raw_payload is None:
             raise InvalidPayload("no payload field in the form body")
-        try:
-            # RecursionError: deeply nested JSON must answer 400, not 500.
-            payload = json.loads(raw_payload)
-        except (json.JSONDecodeError, RecursionError) as error:
-            raise InvalidPayload(str(error)) from error
+        payload = decode_json(raw_payload)
         if not isinstance(payload, dict):
             raise InvalidPayload("payload field is not a JSON object")
         return {**payload, SLACK_RAW_PAYLOAD_KEY: raw_payload}
@@ -169,4 +160,5 @@ def build_slack_provider(*, secret_getter: Callable[[], str | None], app: str = 
 
 
 def build_slack_interactivity_provider(*, secret_getter: Callable[[], str | None]) -> SlackInteractivityProvider:
-    return SlackInteractivityProvider(secret_getter=secret_getter)
+    """The interactivity endpoint runs on the same signing secret as the events endpoint."""
+    return SlackInteractivityProvider(app=SLACK_INTERACTIVITY_APP, secret_getter=secret_getter)

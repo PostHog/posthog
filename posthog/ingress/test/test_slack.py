@@ -9,14 +9,15 @@ from parameterized import parameterized
 from posthog.ingress.providers import InvalidPayload
 from posthog.ingress.slack.provider import SLACK_RAW_PAYLOAD_KEY, build_slack_interactivity_provider
 
-URL = "/api/conversations/v1/slack/interactivity"
+URL = "/webhooks/slack/interactivity"
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
 
 
 def _form_request(payload_field: str, headers: dict[str, str] | None = None) -> Any:
     return RequestFactory().post(
         URL,
         data=urlencode({"payload": payload_field}),
-        content_type="application/x-www-form-urlencoded",
+        content_type=FORM_CONTENT_TYPE,
         headers=headers or {},
     )
 
@@ -36,17 +37,12 @@ class TestSlackInteractivityProvider(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("a field that is not JSON", "{"),
-            ("a field that is not an object", "null"),
+            ("a field that is not JSON", _form_request("{")),
+            ("a field that is not an object", _form_request("null")),
+            ("a form with no payload field", RequestFactory().post(URL, data="", content_type=FORM_CONTENT_TYPE)),
         ]
     )
-    def test_a_payload_field_this_provider_cannot_read_is_an_invalid_payload(self, _name: str, field: str) -> None:
-        with self.assertRaises(InvalidPayload):
-            self.provider.parse(_form_request(field))
-
-    def test_a_form_without_a_payload_field_is_an_invalid_payload(self) -> None:
-        request = RequestFactory().post(URL, data="", content_type="application/x-www-form-urlencoded")
-
+    def test_a_body_this_provider_cannot_read_is_an_invalid_payload(self, _name: str, request: Any) -> None:
         with self.assertRaises(InvalidPayload):
             self.provider.parse(request)
 

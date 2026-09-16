@@ -243,7 +243,7 @@ Last, write `<provider>/README.md` with the fixed sections every provider README
 
 Two shapes that already exist and are worth copying rather than re-deriving:
 
-- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case.
+- **Several apps on one provider.** One incarnation can serve several apps, each with its own secret getter, its own subscribed event types, and its own consumer set. Consumers register against the app name. `github/` is the case. An app is one endpoint's consumer surface rather than one registration with the third party: Slack's events and interactivity endpoints are two apps on one Slack app registration, sharing a secret, so each endpoint validates its consumers against only the types it receives.
 - **A provider that signs the form rather than the body.** The incarnation overrides both `verify()` and `parse()` to read `request.POST`, assembles the signed input from the form fields, and hands it to `HmacSha256` as if it came from headers. `mailgun/` is the case.
 - **The DRF adapter path.** An endpoint that genuinely needs DRF's team scoping keeps its view, and the incarnation contributes a scheme only, declaring no spec, because nothing dispatches there. `customerio/` is the case. The view verifies through `posthog.auth.WebhookSignatureAuthentication`.
   That base class computes its digest with `hmac_sha256_signature()` and compares with `signatures_match()` from `verify/schemes.py`, so the adapter path and the dispatched path share one implementation of HMAC-SHA256.
