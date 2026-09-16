@@ -60,6 +60,7 @@ class ReaperCluster(ProductTeamModel):
     reference_count = models.IntegerField(default=0)
     line_count = models.IntegerField(default=0)
     owner = models.CharField(max_length=255, null=True, blank=True)
+    task_id = models.UUIDField(null=True, blank=True)
     pr_url = models.TextField(null=True, blank=True)
     pr_number = models.IntegerField(null=True, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
