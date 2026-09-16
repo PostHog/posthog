@@ -32,11 +32,13 @@ A consumer registers against an app name, so the two apps share no consumers.
 
 The status codes are the defaults: 403 on a bad signature, 500 when unconfigured, 202 on success.
 The installation lifecycle is a core consumer rather than a product one, because it keeps PostHog's own integration rows in step with GitHub.
+The `posthog` app's conversations consumer declares ownership by installation, so a delivery for an installation the other region holds is forwarded there before local dispatch. The consumers in this region still run — see [Regional forwarding](../README.md#regional-forwarding).
 
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
+- `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
-The remaining GitHub consumers move to ingress one product at a time.
-The [Endpoints table](../README.md#endpoints) lists them.
+The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
+PR analytics shared by those consumers live in `posthog/github/`, see its README.
