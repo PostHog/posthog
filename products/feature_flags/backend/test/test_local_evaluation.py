@@ -3,9 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache, caches
-from django.db import DatabaseError
+from django.db import DatabaseError, ProgrammingError, connections
 from django.test import override_settings
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
@@ -23,6 +24,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
+    DATABASE_FOR_LOCAL_EVALUATION,
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_PROCESSING_ERROR_COUNTER,
     _build_flag_definitions_hypercache,
@@ -961,6 +963,29 @@ class TestLocalEvaluationBatch(BaseTest):
         assert results[gated_team_no_flags.id]["property_matching_version"] == 2
         assert results[ungated_team.id]["minimal_flag_called_events"] is False
         assert results[ungated_team.id]["property_matching_version"] == 1
+
+    def test_batch_falls_back_when_config_column_is_missing(self):
+        # The config SELECT can hit a read replica that has not applied the newest
+        # migration. The rebuild must keep the columns it can read and default the rest,
+        # instead of failing and skipping the cache write for the whole batch.
+        team = self._create_team_with_project("Lagging replica")
+        TeamFeatureFlagsConfig.objects.update_or_create(
+            team=team,
+            defaults={"minimal_flag_called_events": True, "property_matching_version": 2},
+        )
+
+        def fail_on_newest_column(execute, sql, params, many, context):
+            if "property_matching_version" in sql:
+                raise ProgrammingError("column does not exist") from psycopg.errors.UndefinedColumn(
+                    "column does not exist"
+                )
+            return execute(sql, params, many, context)
+
+        with connections[DATABASE_FOR_LOCAL_EVALUATION].execute_wrapper(fail_on_newest_column):
+            results = _get_flags_response_for_local_evaluation_batch([team])
+
+        assert results[team.id]["property_matching_version"] == 1
+        assert results[team.id]["minimal_flag_called_events"] is True
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
