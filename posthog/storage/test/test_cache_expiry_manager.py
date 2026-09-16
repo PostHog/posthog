@@ -8,31 +8,17 @@ Covers:
 - The expiry backlog gauge
 """
 
+import time
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import RefreshPacing, refresh_expiring_caches
-from posthog.storage.hypercache import HyperCache
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.test.test_hypercache_manager import create_test_config as build_config
 
 MODULE = "posthog.storage.cache_expiry_manager"
-
-
-def build_config(update_fn=None, route_refresh_fn=None) -> HyperCacheManagementConfig:
-    hypercache = HyperCache(
-        namespace="test_namespace",
-        value="test_value",
-        load_fn=lambda team: {"test": "data"},
-        expiry_sorted_set_key="test_cache_expiry",
-    )
-    return HyperCacheManagementConfig(
-        hypercache=hypercache,
-        update_fn=update_fn or (lambda team, ttl=None: True),
-        cache_name="test_cache",
-        route_refresh_fn=route_refresh_fn,
-    )
 
 
 def build_teams(count: int) -> list[Team]:
@@ -57,9 +43,15 @@ class TestRefreshExpiringCaches(SimpleTestCase):
         self.mock_push = push_patcher.start()
         self.addCleanup(push_patcher.stop)
 
-        sleep_patcher = patch(f"{MODULE}.time.sleep")
-        self.mock_sleep = sleep_patcher.start()
-        self.addCleanup(sleep_patcher.stop)
+        # Patch the module's `time`, not `time.sleep` on the stdlib module object:
+        # `cache_expiry_manager` does `import time`, so patching the attribute reaches
+        # every other importer for the duration of the test. The real clock is kept,
+        # because the backlog threshold is computed from `time.time()`.
+        time_patcher = patch(f"{MODULE}.time")
+        mock_time = time_patcher.start()
+        mock_time.time.side_effect = time.time
+        self.mock_sleep = mock_time.sleep
+        self.addCleanup(time_patcher.stop)
 
     def test_without_a_routing_hook_every_team_is_built(self):
         update_fn = MagicMock(return_value=True)

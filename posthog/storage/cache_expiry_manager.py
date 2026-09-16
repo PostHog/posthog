@@ -50,7 +50,7 @@ def get_teams_with_expiring_caches(
         redis_client = get_client(hypercache.redis_url)
 
         # Query sorted set for teams expiring within threshold
-        threshold_timestamp = time.time() + (ttl_threshold_hours * 3600)
+        threshold_timestamp = _expiry_threshold(ttl_threshold_hours)
 
         # Get identifiers of teams expiring before threshold (score is expiration timestamp)
         expiring_identifiers = redis_client.zrangebyscore(
@@ -112,11 +112,16 @@ def count_expiring_caches(config: HyperCacheManagementConfig, ttl_threshold_hour
 
     try:
         redis_client = get_client(hypercache.redis_url)
-        threshold_timestamp = time.time() + (ttl_threshold_hours * 3600)
-        return redis_client.zcount(hypercache.expiry_sorted_set_key, "-inf", threshold_timestamp)
+        return redis_client.zcount(hypercache.expiry_sorted_set_key, "-inf", _expiry_threshold(ttl_threshold_hours))
     except Exception as e:
         logger.warning(f"Error counting expiring {config.log_prefix}", error=str(e))
         return None
+
+
+def _expiry_threshold(ttl_threshold_hours: int) -> float:
+    """The sorted-set score below which an entry is due for refresh. Shared so the
+    backlog gauge always describes the same set the sweep pulls its teams from."""
+    return time.time() + (ttl_threshold_hours * 3600)
 
 
 @frozen
@@ -139,11 +144,28 @@ class RefreshPacing:
 
     Passed per run rather than held on the config, so the values can come from settings
     at call time. The config is built at module import, which would freeze them.
+
+    `window_seconds` bounds the total pause, and it is a wall-clock bound for a reason:
+    the pause is a `time.sleep` inside the Celery task, so it holds the worker process
+    and its database connection, and Celery waits for it on shutdown. Keep the window
+    under the worker pod's termination grace period, or a deploy landing mid-run holds
+    the pod in Terminating and then kills it before the run pushes its metrics. That is
+    also why the window is not expressed as a number of pauses: a pause count stops
+    bounding wall-clock the moment someone raises `delay_seconds`.
     """
 
     chunk_size: int
     delay_seconds: float
     window_seconds: float
+
+    def __post_init__(self) -> None:
+        # The loop reads `routed_since_pause < chunk_size`, so a chunk below 1 pauses
+        # after every team instead of never. Callers clamp their own settings, but the
+        # invariant belongs to the type: the next caller writes its own settings.
+        if self.chunk_size < 1:
+            raise ValueError(f"chunk_size must be at least 1, got {self.chunk_size}")
+        if self.delay_seconds < 0 or self.window_seconds < 0:
+            raise ValueError("pacing delays must not be negative")
 
 
 def refresh_expiring_caches(
@@ -253,7 +275,7 @@ def _refresh_teams(
 
 def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> RefreshOutcome:
     try:
-        if config.route_refresh_fn is not None and config.route_refresh_fn(team):
+        if config.route_refresh_fn is not None and config.route_refresh_fn(team.id):
             return "enqueued"
         return "successful" if config.update_fn(team) else "failed"
     except Exception as e:

@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
     CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
+    count_expiring_caches,
     get_teams_with_expiring_caches as get_teams_generic,
 )
 from posthog.storage.hypercache_manager import (
@@ -119,6 +120,10 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
         cache_name=REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG.cache_name,
         successful=successful,
         failed=failed,
+        # This sweep is a fork of `refresh_expiring_caches` (it batch-loads configs to
+        # avoid an N+1), so the backlog gauge the generic sweep pushes has to be passed
+        # here too. Without it this cache is the one hole in a fleet-wide series.
+        expiry_backlog=count_expiring_caches(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours),
     )
     return CacheRefreshCounts(successful=successful, failed=failed)
 

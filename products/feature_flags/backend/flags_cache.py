@@ -923,7 +923,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # cutover, so it isn't defined yet when this config is constructed.
     get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
     # Late-bound for the same reason as get_primary_writer_fn above.
-    route_refresh_fn=lambda team: route_refresh_to_kafka(team),
+    route_refresh_fn=lambda team_id: route_refresh_to_kafka(team_id),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
     # replica may not have applied yet (organization_id keeps the select_related valid).
@@ -1053,6 +1053,11 @@ def get_cache_stats() -> dict[str, Any]:
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
+#
+# At cutover the sweep routes unconditionally: REFRESH_ROUTING_FLAG and its gate go,
+# and the binding is replaced by a hook that always produces, not deleted. The generic
+# surface it uses — route_refresh_fn, the enqueued count and RefreshPacing — keeps its
+# caller and stays.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1193,7 +1198,7 @@ def _route_refresh_to_kafka(team_id: int) -> bool:
         return False
 
 
-def route_refresh_to_kafka(team: Team) -> bool:
+def route_refresh_to_kafka(team_id: int) -> bool:
     """Routing hook for the expiry refresh sweep, bound on
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
 
@@ -1207,10 +1212,10 @@ def route_refresh_to_kafka(team: Team) -> bool:
     window, so the next hourly run raises it again, and the verifier repairs it in the
     meantime.
     """
-    if not _route_refresh_to_kafka(team.id):
+    if not _route_refresh_to_kafka(team_id):
         return False
 
-    _produce_invalidation(team.id, source="refresh")
+    _produce_invalidation(team_id, source="refresh")
     return True
 
 

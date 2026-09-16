@@ -1005,7 +1005,7 @@ class TestRefreshRoutingHook(SimpleTestCase):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=False)
     def test_gate_off_declines_the_team_and_produces_nothing(self, mock_gate, mock_produce):
-        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is False
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
 
         mock_produce.assert_not_called()
         # The sweep must not read the edit path's flag, which is pinned at 100%.
@@ -1018,7 +1018,7 @@ class TestRefreshRoutingHook(SimpleTestCase):
         mock_producer = MagicMock()
         mock_producer_scope.return_value.__enter__.return_value = mock_producer
 
-        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is True
+        assert route_refresh_to_kafka(self.TEAM_ID) is True
 
         produce_kwargs = mock_producer.produce.call_args.kwargs
         assert produce_kwargs["key"] == str(self.TEAM_ID)
@@ -1036,7 +1036,7 @@ class TestRefreshRoutingHook(SimpleTestCase):
     def test_a_broken_gate_leaves_the_build_to_python_without_ticking_the_tombstone(
         self, mock_gate, mock_produce, mock_tombstone
     ):
-        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is False
+        assert route_refresh_to_kafka(self.TEAM_ID) is False
 
         mock_produce.assert_not_called()
         # A run evaluates the gate once per team, so a tick here would hold a constant
@@ -1051,7 +1051,7 @@ class TestRefreshRoutingHook(SimpleTestCase):
         # Still True, so the sweep skips its own build and counts the team as enqueued.
         # The two paths are mutually exclusive so a broken Kafka path shows up as a
         # stale cache rather than being masked by Python quietly building it anyway.
-        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is True
+        assert route_refresh_to_kafka(self.TEAM_ID) is True
 
 
 class TestShadowInvalidationPublishing(SimpleTestCase):
@@ -1266,7 +1266,7 @@ class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
             ),
         ):
             assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn is not None
-            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(Team(id=42)) is True
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.route_refresh_fn(42) is True
 
         assert mock_produce.call_args.kwargs["source"] == "refresh"
 

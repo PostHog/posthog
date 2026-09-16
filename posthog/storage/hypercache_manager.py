@@ -251,7 +251,10 @@ class HyperCacheManagementConfig:
     # The hook owns its own gating, so a cache can ramp the handover per team, and it
     # must swallow a gate failure: raising costs the team a build it would otherwise
     # have had, because the sweep counts the exception as a failed refresh.
-    route_refresh_fn: Callable[[Team], bool] | None = None
+    # Takes a team id rather than a Team: `refresh_only_fields` defers most columns on
+    # the Team the sweep loads, so a hook reading any other field would trigger a lazy
+    # refetch, or fail outright against a read replica that has not applied the column.
+    route_refresh_fn: Callable[[int], bool] | None = None
 
     # Optional attribution of a team's primary cache writer, used to label verifier
     # fixes. During a dual-writer migration (Python Celery builder vs Rust Kafka

@@ -47,11 +47,15 @@ def create_test_config(
     namespace: str = "test_namespace",
     value: str = "test_value",
     token_based: bool = False,
+    update_fn=None,
+    route_refresh_fn=None,
 ) -> HyperCacheManagementConfig:
     """Create a test HyperCacheManagementConfig with minimal setup."""
 
-    def update_fn(team, ttl=None):
+    def default_update_fn(team, ttl=None):
         return True
+
+    update_fn = update_fn or default_update_fn
 
     hypercache = create_test_hypercache(
         namespace=namespace,
@@ -63,6 +67,7 @@ def create_test_config(
         hypercache=hypercache,
         update_fn=update_fn,
         cache_name="test_cache",
+        route_refresh_fn=route_refresh_fn,
     )
 
 
