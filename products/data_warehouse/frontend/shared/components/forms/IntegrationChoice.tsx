@@ -5,6 +5,8 @@ import {
     IntegrationChoice,
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
@@ -21,8 +23,12 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
-    const { location } = useValues(router)
+    const { location, searchParams } = useValues(router)
     const sourceKind = sourceConfig.name.toLowerCase()
+
+    // A failed authorization sends the user back here, where the connect button is. The callback
+    // carries the reason in the URL rather than a toast, which would be gone before they retry.
+    const oauthError = searchParams[INTEGRATION_ERROR_PARAM]
 
     // In onboarding the wizard is embedded in the page. A full-page OAuth redirect to the
     // standalone new-source scene would drop the user out of the onboarding flow, so when we're
@@ -40,11 +46,16 @@ export function SourceIntegrationChoice({
     }
 
     return (
-        <IntegrationChoice
-            {...props}
-            integration={integration ?? sourceKind}
-            redirectUrl={redirectUrl}
-            beforeRedirect={saveFormStateBeforeRedirect}
-        />
+        <div className="flex flex-col gap-2">
+            {oauthError && (
+                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), sourceKind)}</LemonBanner>
+            )}
+            <IntegrationChoice
+                {...props}
+                integration={integration ?? sourceKind}
+                redirectUrl={redirectUrl}
+                beforeRedirect={saveFormStateBeforeRedirect}
+            />
+        </div>
     )
 }
