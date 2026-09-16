@@ -490,7 +490,9 @@ ClickHouse and the other dialects retain their existing function registry, valid
 Trino's weighted median takes a value and weight, and its `If` form also takes a condition.
 Trino's `quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
 Trino's `ifNotFinite` takes the value and its replacement.
-Manifest compilation with `include_hogql=True` uses Trino resolution and preserves function-call syntax in the diagnostic HogQL and column names.
+Both manifest and Django-backed compilation with `include_hogql=True` use Trino resolution and preserve function-call syntax in diagnostic HogQL.
+The saved-view translation workflow uses Django-backed compilation so it can resolve saved-query dependencies while rendering these diagnostics.
+Manifest compilation also preserves function-call syntax in inferred column names.
 The Trino compiler validates function support and arguments; diagnostic rendering does not consult the ClickHouse registry.
 Enabling these diagnostics preserves the generated Trino SQL and bound values.
 Saved-query table metadata is captured eagerly only for Trino's detached compilation; other dialects retain lazy lookup and explicit missing-database errors.
