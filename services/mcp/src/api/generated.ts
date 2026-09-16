@@ -31349,6 +31349,15 @@ export namespace Schemas {
       files: DreamFileDiff[];
     }
 
+    export interface UnpublishedDreamRun {
+      /** Task URL in its project for the unpublished dream outcome and logs. */
+      task_url: string;
+      /** The terminal task-run state, such as completed, failed, or cancelled. */
+      run_status: string;
+      /** When the unpublished dream task was created. */
+      started_at: string;
+    }
+
     /**
      * Response shape for the wiki's dream run listing.
      */
@@ -31357,6 +31366,8 @@ export namespace Schemas {
       head_sha: string;
       /** The organization's active dreaming task, or null when no dream is running. */
       active_run: ActiveDreamRun | null;
+      /** The latest finished dream when no update was published after it started, or null otherwise. */
+      unpublished_run: UnpublishedDreamRun | null;
       /** Every landed dream run, newest first. */
       dreams: DreamRun[];
     }
