@@ -607,7 +607,8 @@ pub async fn start_leader_with_pg_fallback(
         kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         Some(PgFallback {
-            pool,
+            lifecycle_pool: pool.clone(),
+            load_pool: pool,
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),

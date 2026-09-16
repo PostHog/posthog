@@ -304,6 +304,14 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub fallback_pg_min_connections: u32,
 
+    /// Connections for the mark checks and the fence scan, apart from the
+    /// cache-miss loads so a release burst cannot starve reads.
+    #[envconfig(default = "5")]
+    pub lifecycle_pg_max_connections: u32,
+
+    #[envconfig(default = "1")]
+    pub lifecycle_pg_min_connections: u32,
+
     // ── etcd coordination ────────────────────────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,

@@ -8,13 +8,14 @@ use sqlx::{Postgres, Row};
 
 use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
 
-/// A configured PG fallback: the pool and the table it reads. The table
+/// A configured PG fallback: its pools and the tables they read. The table
 /// must be the one the writer maintains (see FALLBACK_TABLE in
 /// config.rs for the pairing rule), so a fallback cannot be constructed
 /// without deciding it.
 #[derive(Clone)]
 pub struct PgFallback {
-    pub pool: PgPool,
+    pub load_pool: PgPool,
+    pub lifecycle_pool: PgPool,
     pub table: String,
     pub lifecycle: LifecycleTables,
 }
@@ -36,8 +37,7 @@ impl LifecycleTables {
     }
 }
 
-/// Take a fallback-pool connection, recording the wait: the pool is small
-/// and shared by cache-miss loads and the sagas' mark checks.
+/// Take a pool connection, recording the wait.
 pub async fn acquire_timed(
     pool: &PgPool,
     caller: &'static str,

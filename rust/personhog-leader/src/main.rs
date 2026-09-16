@@ -304,17 +304,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     } else {
         tracing::info!("PG fallback enabled");
-        let pool_config = common_database::PoolConfig {
-            max_connections: config.fallback_pg_max_connections,
-            min_connections: config.fallback_pg_min_connections,
-            pool_name: Some("personhog-leader-fallback".to_string()),
-            statement_timeout_ms: Some(5_000),
-            ..Default::default()
-        };
+        // The pooler owns liveness; a dead socket surfaces on first use.
+        let pool_config =
+            |name: &str, max_connections: u32, min_connections: u32| common_database::PoolConfig {
+                max_connections,
+                min_connections,
+                pool_name: Some(format!("personhog-leader-{name}")),
+                statement_timeout_ms: Some(5_000),
+                test_before_acquire: false,
+                ..Default::default()
+            };
         let fallback = PgFallback {
-            pool: common_database::get_pool_with_config(
+            load_pool: common_database::get_pool_with_config(
                 &config.fallback_database_url,
-                pool_config,
+                pool_config(
+                    "fallback",
+                    config.fallback_pg_max_connections,
+                    config.fallback_pg_min_connections,
+                ),
+            )?,
+            lifecycle_pool: common_database::get_pool_with_config(
+                &config.fallback_database_url,
+                pool_config(
+                    "lifecycle",
+                    config.lifecycle_pg_max_connections,
+                    config.lifecycle_pg_min_connections,
+                ),
             )?,
             table: config.fallback_table.clone(),
             lifecycle: LifecycleTables::new(
@@ -323,11 +338,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         };
         personhog_common::spawn_pool_monitor(
-            vec![personhog_common::MonitoredPool {
-                pool: fallback.pool.clone(),
-                label: "fallback".to_string(),
-                max_connections: config.fallback_pg_max_connections,
-            }],
+            vec![
+                personhog_common::MonitoredPool {
+                    pool: fallback.load_pool.clone(),
+                    label: "fallback".to_string(),
+                    max_connections: config.fallback_pg_max_connections,
+                },
+                personhog_common::MonitoredPool {
+                    pool: fallback.lifecycle_pool.clone(),
+                    label: "lifecycle".to_string(),
+                    max_connections: config.lifecycle_pg_max_connections,
+                },
+            ],
             Duration::from_secs(10),
         );
         Some(fallback)

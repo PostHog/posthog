@@ -327,7 +327,8 @@ async fn a_committed_release_produces_the_death_document_above_every_version() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -485,7 +486,8 @@ async fn a_revival_is_served_once_the_death_documents_mark_settles() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -668,7 +670,8 @@ async fn a_committed_release_derives_the_death_version_above_the_emitted_floor()
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -765,7 +768,8 @@ async fn a_stub_sealed_at_version_zero_can_be_released() {
     let mut harness = start_fence_harness(
         stub,
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -848,7 +852,8 @@ async fn a_ghost_fence_heals_after_a_rejected_write() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -941,7 +946,8 @@ async fn a_ghost_fence_heals_after_a_rejected_fence_attempt() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -1032,7 +1038,8 @@ async fn a_live_marked_fence_survives_heal_attempts() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -1099,7 +1106,8 @@ async fn a_committed_release_without_a_live_mark_is_refused() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool,
+            lifecycle_pool: pool.clone(),
+            load_pool: pool,
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -1355,7 +1363,8 @@ async fn the_takeover_scan_rebuilds_exactly_the_partitions_live_fences() {
     let partition_a = partition_for_person(team_id, fenced_a, NUM_PARTITIONS);
     let fences: FenceMap = Arc::new(DashMap::new());
     let fallback = PgFallback {
-        pool: pool.clone(),
+        load_pool: pool.clone(),
+        lifecycle_pool: pool.clone(),
         table: "posthog_person".to_string(),
         lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
     };
@@ -1619,7 +1628,8 @@ async fn start_marked_fold_harness(seed: CachedPerson, op: &Uuid) -> FenceHarnes
     let harness = start_fence_harness(
         seed,
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -2102,7 +2112,8 @@ async fn a_fold_whose_op_holds_no_live_target_mark_is_refused() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -2563,7 +2574,8 @@ async fn a_release_after_a_cache_eviction_still_produces_the_death_document() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -2887,7 +2899,8 @@ async fn a_batched_release_closes_every_fence_of_the_routed_partition() {
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),
@@ -2984,7 +2997,8 @@ async fn a_batched_release_with_a_person_off_the_routed_partition_is_refused_who
     let mut harness = start_fence_harness(
         test_cached_person(),
         Some(PgFallback {
-            pool: pool.clone(),
+            load_pool: pool.clone(),
+            lifecycle_pool: pool.clone(),
             table: "posthog_person".to_string(),
             lifecycle: LifecycleTables::new("lifecycle_op", "lifecycle_op_person"),
         }),

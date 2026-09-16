@@ -148,7 +148,7 @@ pub async fn rebuild_partition_fences(
         op_person = tables.op_person,
         op = tables.op,
     );
-    let query = sqlx::query(&sql).fetch_all(&fallback.pool);
+    let query = sqlx::query(&sql).fetch_all(&fallback.lifecycle_pool);
 
     let rows = match tokio::time::timeout(SCAN_TIMEOUT, query).await {
         Ok(result) => result?,
@@ -329,7 +329,7 @@ pub async fn mark_status(
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
-    let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_status").await?;
+    let mut conn = crate::pg::acquire_timed(&fallback.lifecycle_pool, "mark_status").await?;
     let sql = format!(
         "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role <> 'target'",
@@ -352,7 +352,7 @@ pub async fn mark_statuses(
     team_id: i64,
     person_ids: &[i64],
 ) -> Result<HashMap<i64, String>, sqlx::Error> {
-    let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_statuses").await?;
+    let mut conn = crate::pg::acquire_timed(&fallback.lifecycle_pool, "mark_statuses").await?;
     let sql = format!(
         "SELECT person_id, status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = ANY($3) AND role <> 'target'",
@@ -382,7 +382,7 @@ pub async fn target_mark_status(
     team_id: i64,
     person_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
-    let mut conn = crate::pg::acquire_timed(&fallback.pool, "target_mark_status").await?;
+    let mut conn = crate::pg::acquire_timed(&fallback.lifecycle_pool, "target_mark_status").await?;
     let sql = format!(
         "SELECT status FROM {} \
          WHERE op_id = $1 AND team_id = $2 AND person_id = $3 AND role = 'target'",

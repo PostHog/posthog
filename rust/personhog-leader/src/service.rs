@@ -400,7 +400,7 @@ impl PersonHogLeaderService {
         };
 
         let started = Instant::now();
-        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        let result = load_person_from_pg(&fallback.load_pool, &fallback.table, key).await;
         histogram!("personhog_leader_person_load_duration_ms", "source" => "pg")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         match result {
