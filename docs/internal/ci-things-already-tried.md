@@ -596,6 +596,35 @@ What is missing is everything that must be true before a person changes its valu
 
 _Also asked as:_ partition the person table, `PERSON_TABLE_NAME`, `posthog_person_new`, dual-table reads, cut over the Person model
 
+### Add a migration dependency so an app-move migration runs after the new app exists
+
+**Verdict: rejected** · Sep 2026
+
+`posthog/1073_migrate_dashboards_models` moves the dashboard models into the `dashboards` app and points the remaining foreign keys at `dashboards.dashboard`.
+It declares no dependency on the `dashboards` migration that creates those models.
+A database that replays the unsquashed history fails with `ValueError: Related model 'dashboards.dashboard' cannot be resolved` at the first migration after 1073 that renders model state.
+The proposal adds `("dashboards", "0001_migrate_dashboards_models")` to the dependencies of 1073.
+
+The edge cannot exist. Django replaces `dashboards.0001_migrate_dashboards_models` with `dashboards.0001_squash_2026_09_07_initial`, and it remaps the new edge onto the squash.
+That squash depends on `posthog.1340_drop_userproductlist_reason_columns`, which depends on 1073.
+Django then raises `CircularDependencyError` while it builds the graph, so `migrate`, `makemigrations` and `showmigrations` all stop before the first operation runs.
+The result is worse than the error that the edge removes.
+A `run_before` on the `dashboards` side gives the same cycle, because Django remaps that edge onto the squash too.
+
+The plan order is not the cause either. For a database at `posthog/1072`, 1073 sits at plan position 986 and the dashboards squash at 1256, on every run. The failure is deterministic.
+
+The cause is a mixed squash lineage. Every product app initial squash depends on `posthog.1340_drop_userproductlist_reason_columns`.
+A database in the middle of the history uses the posthog originals, because the posthog squash is partly applied, and it uses the product app squashes, because none of their migrations are applied.
+Each of the 23 `posthog/*_migrate_*_models` migrations then moves models to an app whose state arrives hundreds of positions later.
+A database at `posthog/0878` fails at 0879 with the same error shape.
+
+Order alone is not sufficient. A product app initial squash creates its tables with a plain `CreateModel`, and the posthog originals already created those tables, so an earlier position gives a duplicate table.
+
+Two database states migrate correctly. An empty database uses only the squashes. A database with the complete pre-squash history stamps the squashes as applied.
+A database between the two must first migrate with a release from before the 2026-09-07 cutoff. Repair it there, and not with a dependency edit.
+
+_Also asked as:_ related model cannot be resolved, app isn't installed during migrate, migration ordering between posthog and a product app, `run_before` for an app-move migration, missing dependency on a `SeparateDatabaseAndState` model move
+
 ## API contracts
 
 ### Validate the API responses against the generated OpenAPI schema
