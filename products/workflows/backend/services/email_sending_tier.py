@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
@@ -428,10 +429,20 @@ def _create_missing_configs(team_ids: set[int]) -> None:
     if not missing:
         return
     live_team_ids = Team.objects.filter(id__in=missing).values_list("id", flat=True)
-    created = TeamWorkflowsConfig.objects.bulk_create(
-        [TeamWorkflowsConfig(team_id=team_id) for team_id in live_team_ids],
-        ignore_conflicts=True,
-    )
+    try:
+        # A team deleted between that read and this write leaves the insert with no foreign-key
+        # target. Contain the failure in its own transaction rather than locking the Team rows:
+        # locking them would make every unrelated child-row writer wait on a hot parent row for
+        # the length of a fleet-wide sweep. A lost run costs a day of tier movement, and the next
+        # run rebuilds the same candidate list.
+        with transaction.atomic():
+            created = TeamWorkflowsConfig.objects.bulk_create(
+                [TeamWorkflowsConfig(team_id=team_id) for team_id in live_team_ids],
+                ignore_conflicts=True,
+            )
+    except IntegrityError:
+        logger.warning("workflows_email_sending_tier_configs_not_created", team_count=len(missing))
+        return
     logger.info("workflows_email_sending_tier_configs_created", team_count=len(created))
 
 

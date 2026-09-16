@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -427,6 +428,22 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._run({ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10))})
 
         assert not TeamWorkflowsConfig.objects.filter(team_id=ghost_id).exists()
+
+    def test_a_failed_row_creation_does_not_abort_the_sweep(self) -> None:
+        # A team deleted between the live-team read and the insert leaves the insert with no
+        # foreign-key target. That must not stop the sweep from moving every other team.
+        self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
+        used = clean_days(2, TIER_DAILY_CAPS[0])
+        ghost_id = self.team.id + 10_000
+        with patch.object(TeamWorkflowsConfig.objects, "bulk_create", side_effect=IntegrityError):
+            self._run(
+                {
+                    self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used),
+                    ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10)),
+                }
+            )
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
         self._config(
