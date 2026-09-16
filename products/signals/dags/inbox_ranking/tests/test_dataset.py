@@ -11,6 +11,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
     assemble_model_rows,
     label_provenance_ok,
@@ -21,6 +22,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
+    OUTCOME_FIRST_EVENT_COLUMNS,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -163,13 +165,14 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1, 1, T1),
+            ("bogus-id", 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2, 4, T1),
+            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1),
         ],
+        "feedback": [(UUID_B, 2, T1, 1, T2, T1, "negative")],
         "status_changes": [],
-        "pr_events": [],
+        "pr_events": [(UUID_B, 1, T1, 1, T2, 1, T2)],
     }
     rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
 
@@ -183,11 +186,21 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r1["source_products"] == ["error_tracking"]
     assert r1["first_impressed_at"] == T1
     assert r1["open_count"] == 4
+    assert r1["pr_created_count"] == 0
     r2 = rows[UUID_B]
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
-    assert r2["pr_created_count"] == 0
     assert r2["ui_dismiss_count"] == 5
+    assert r2["discuss_count"] == 6
+    assert r2["first_discussed_at"] == T2
+    assert r2["snooze_count"] == 7
+    assert r2["first_snooze_clicked_at"] == T1
+    assert r2["feedback_positive_count"] == 2
+    assert r2["first_positive_feedback_at"] == T1
+    assert r2["feedback_negative_count"] == 1
+    assert r2["first_negative_feedback_at"] == T2
+    assert r2["pr_closed_count"] == 1
+    assert r2["first_pr_closed_at"] == T2
     assert r2["reviewer_add_count"] == 2
     assert r2["first_reviewer_added_at"] == T1
     assert r2["reviewer_remove_count"] == 3
@@ -220,6 +233,22 @@ def test_stream_row_width_mismatch_fails_loudly():
 def test_label_stream_columns_all_exist_in_defaults():
     for _name, _sql, columns in LABEL_STREAMS:
         assert set(columns) <= set(LABEL_DEFAULTS)
+
+
+def test_every_outcome_count_is_paired_with_a_first_event_timestamp():
+    # A horizon label ("did the outcome happen within N days of this moment?") and a time-to-outcome
+    # read both need the moment the outcome first arrived. The cumulative count only says it
+    # happened somewhere in the partition's whole window, so a new count column has to arrive with
+    # its paired timestamp or be named as a uniq over an outcome that already has one.
+    count_columns = {name for name in LABEL_DEFAULTS if name.endswith("_count")}
+    # The user counts are uniq aggregates over an outcome the map already pairs, not outcomes of
+    # their own.
+    assert count_columns == set(OUTCOME_FIRST_EVENT_COLUMNS) | {"impressed_user_count", "opened_user_count"}
+
+    for count_column, first_event_column in OUTCOME_FIRST_EVENT_COLUMNS.items():
+        assert first_event_column in LABEL_DEFAULTS, count_column
+        assert LABEL_DEFAULTS[first_event_column] is None, count_column
+        assert LABELS_SCHEMA.field(first_event_column).type == pa.timestamp("us", tz="UTC")
 
 
 @pytest.mark.parametrize(
@@ -417,8 +446,10 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
 
         row = self._status_row()
         assert row["dismissal_reason"] == "already_fixed"
+        assert row["first_dismissal_reason"] == "analysis_wrong"
         assert row["wrong_dismissal_count"] == 1
         assert row["first_dismissed_server_at"] == T1
+        assert row["first_wrong_dismissed_at"] == T1
 
     @parameterized.expand(
         [
@@ -437,7 +468,10 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         row = self._status_row()
         assert row["status_event_team_id"] == self.team.id
         assert row["dismissal_reason"] == reason
+        # The forged reason is also the earliest one, so it must not reach first_dismissal_reason.
+        assert row["first_dismissal_reason"] == reason
         assert row["wrong_dismissal_count"] == 0
+        assert row["first_wrong_dismissed_at"] is None
 
     def test_tied_tenants_count_and_report_the_same_team(self):
         # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and

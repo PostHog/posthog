@@ -295,7 +295,9 @@ ACTIONS_COLUMNS = (
     "create_pr_click_count",
     "first_create_pr_clicked_at",
     "discuss_count",
+    "first_discussed_at",
     "snooze_count",
+    "first_snooze_clicked_at",
     "reviewer_add_count",
     "first_reviewer_added_at",
     "reviewer_remove_count",
@@ -329,7 +331,9 @@ SELECT
     countIf(toString(properties.action_type) = 'create_pr') AS create_pr_click_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'create_pr'), fromUnixTimestamp(0)) AS first_create_pr_clicked_at,
     countIf(toString(properties.action_type) = 'discuss') AS discuss_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'discuss'), fromUnixTimestamp(0)) AS first_discussed_at,
     countIf(toString(properties.action_type) = 'snooze') AS snooze_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'snooze'), fromUnixTimestamp(0)) AS first_snooze_clicked_at,
     countIf(toString(properties.action_type) = 'add_suggested_reviewer') AS reviewer_add_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'add_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_added_at,
     countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
@@ -353,7 +357,9 @@ STATUS_COLUMNS = (
     "latest_status_event",
     "latest_status_event_at",
     "dismissal_reason",
+    "first_dismissal_reason",
     "wrong_dismissal_count",
+    "first_wrong_dismissed_at",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -386,6 +392,16 @@ SELECT
     -- below: a reason-less genuine transition must not let an older reason from another team
     -- through.
     argMaxIf(bucket_dismissal_reason, last_timestamp, event_team_id = latest_event_team_id) AS dismissal_reason,
+    -- The reason on the *earliest* reasoned dismissal, under the same tenant restriction. The
+    -- latest-wins reason above answers "how is this report classified now"; a horizon or
+    -- time-to-outcome read needs the reason that came with the dismissal it is dating.
+    argMinIf(
+        bucket_first_dismissal_reason,
+        first_timestamp,
+        outcome = 'dismissed'
+        AND bucket_first_dismissal_reason IS NOT NULL
+        AND event_team_id = latest_event_team_id
+    ) AS first_dismissal_reason,
     -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
     -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
     -- builder's assumption that labels only grow. Counted per bucket (a bucket that saw any wrong
@@ -397,6 +413,16 @@ SELECT
     countIf(
         outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
     ) AS wrong_dismissal_count,
+    -- Paired with the count on exactly the same predicate, so a time-to-outcome read never takes a
+    -- moment from a bucket the count itself excluded. Stable as the window grows: a min over a
+    -- window that only extends forward cannot move.
+    nullIf(
+        minIf(
+            first_timestamp,
+            outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
+        ),
+        fromUnixTimestamp(0)
+    ) AS first_wrong_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -439,6 +465,18 @@ FROM (
         -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
         -- aggregates to the outer alias, which is itself an aggregate.
         nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS bucket_dismissal_reason,
+        -- The bucket's earliest reason, the parallel of first_timestamp: a bucket can collapse a
+        -- dismiss, a restore and a second dismissal, and then its latest reason is not the one the
+        -- first dismissal carried. Reason-less events are excluded, so a bucket that holds one
+        -- still reports the reason it does have.
+        nullIf(
+            argMinIf(
+                toString(properties.dismissal_reason),
+                events.timestamp,
+                toString(properties.dismissal_reason) != ''
+            ),
+            ''
+        ) AS bucket_first_dismissal_reason,
         max(toString(properties.dismissal_reason) IN ("""
     + _WRONG_DISMISSAL_REASONS_SQL
     + """)) AS bucket_wrong_dismissal,
@@ -470,6 +508,7 @@ PR_COLUMNS = (
     "pr_merged_count",
     "first_pr_merged_at",
     "pr_closed_count",
+    "first_pr_closed_at",
 )
 PR_EVENTS_SQL = """
 SELECT
@@ -478,7 +517,8 @@ SELECT
     nullIf(minIf(timestamp, event = 'pr_created'), fromUnixTimestamp(0)) AS first_pr_created_at,
     countIf(event = 'pr_merged') AS pr_merged_count,
     nullIf(minIf(timestamp, event = 'pr_merged'), fromUnixTimestamp(0)) AS first_pr_merged_at,
-    countIf(event = 'pr_closed') AS pr_closed_count
+    countIf(event = 'pr_closed') AS pr_closed_count,
+    nullIf(minIf(timestamp, event = 'pr_closed'), fromUnixTimestamp(0)) AS first_pr_closed_at
 FROM events
 WHERE event IN ('pr_created', 'pr_merged', 'pr_closed')
   AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
@@ -489,7 +529,9 @@ GROUP BY report_id
 
 FEEDBACK_COLUMNS = (
     "feedback_positive_count",
+    "first_positive_feedback_at",
     "feedback_negative_count",
+    "first_negative_feedback_at",
     "first_feedback_at",
     "latest_feedback_sentiment",
 )
@@ -500,7 +542,9 @@ FEEDBACK_SQL = f"""
 SELECT
     toString(properties.report_id) AS report_id,
     countIf(toString(properties.sentiment) = 'positive') AS feedback_positive_count,
+    nullIf(minIf(timestamp, toString(properties.sentiment) = 'positive'), fromUnixTimestamp(0)) AS first_positive_feedback_at,
     countIf(toString(properties.sentiment) = 'negative') AS feedback_negative_count,
+    nullIf(minIf(timestamp, toString(properties.sentiment) = 'negative'), fromUnixTimestamp(0)) AS first_negative_feedback_at,
     min(timestamp) AS first_feedback_at,
     argMax(toString(properties.sentiment), timestamp) AS latest_feedback_sentiment
 FROM events
@@ -566,9 +610,13 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "create_pr_click_count": 0,
     "first_create_pr_clicked_at": None,
     "discuss_count": 0,
+    "first_discussed_at": None,
     "snooze_count": 0,
+    "first_snooze_clicked_at": None,
     "feedback_positive_count": 0,
+    "first_positive_feedback_at": None,
     "feedback_negative_count": 0,
+    "first_negative_feedback_at": None,
     "first_feedback_at": None,
     "latest_feedback_sentiment": None,
     "first_resolved_at": None,
@@ -578,7 +626,9 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "latest_status_event": None,
     "latest_status_event_at": None,
     "dismissal_reason": None,
+    "first_dismissal_reason": None,
     "wrong_dismissal_count": 0,
+    "first_wrong_dismissed_at": None,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,
@@ -587,6 +637,7 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "pr_merged_count": 0,
     "first_pr_merged_at": None,
     "pr_closed_count": 0,
+    "first_pr_closed_at": None,
     "refund_count": 0,
     "first_refunded_at": None,
     "refund_reason": None,
@@ -601,6 +652,30 @@ LABEL_DEFAULTS: dict[str, Any] = {
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
+
+# Every cumulative outcome count, paired with the column holding the moment its first counted event
+# arrived. A horizon read ("did the outcome happen within N days of this moment?") and a
+# time-to-outcome read both need that moment: the count dates the outcome only to the partition's
+# whole cumulative window. Each timestamp uses the same predicate as its count, and a min over a
+# window that only extends forward never moves, so the pair holds across partitions.
+OUTCOME_FIRST_EVENT_COLUMNS: dict[str, str] = {
+    "impression_unit_count": "first_impressed_at",
+    "open_count": "first_opened_at",
+    "ui_dismiss_count": "first_ui_dismissed_at",
+    "create_pr_click_count": "first_create_pr_clicked_at",
+    "discuss_count": "first_discussed_at",
+    "snooze_count": "first_snooze_clicked_at",
+    "reviewer_add_count": "first_reviewer_added_at",
+    "reviewer_remove_count": "first_reviewer_removed_at",
+    "resolve_click_count": "first_resolve_clicked_at",
+    "feedback_positive_count": "first_positive_feedback_at",
+    "feedback_negative_count": "first_negative_feedback_at",
+    "wrong_dismissal_count": "first_wrong_dismissed_at",
+    "pr_created_count": "first_pr_created_at",
+    "pr_merged_count": "first_pr_merged_at",
+    "pr_closed_count": "first_pr_closed_at",
+    "refund_count": "first_refunded_at",
+}
 
 
 def canonical_stream_rows(rows: list[tuple[Any, ...]]) -> dict[str, tuple[Any, ...]]:
