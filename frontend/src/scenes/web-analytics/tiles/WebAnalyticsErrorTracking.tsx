@@ -1,6 +1,12 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
+import * as panicPng from '@posthog/brand/hoggies/png/panic'
+import * as starPng from '@posthog/brand/hoggies/png/star'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -17,6 +23,9 @@ import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+
+const HedgehogStar = pngHoggie(starPng)
+const HedgehogPanic = pngHoggie(panicPng)
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
@@ -45,7 +54,7 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     return <>{humanFriendlyLargeNumber(count)}</>
 }
 
-const context: QueryContext = {
+const baseContext: QueryContext = {
     extraDataTableQueryFeatures: [QueryFeature.hideLoadNextButton],
     showOpenEditorButton: false,
     showQueryEditor: false,
@@ -74,23 +83,65 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
     const { layout, query } = tile
     const to = urls.errorTracking()
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { status: errorTrackingStatus } = useValues(
+        productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
+    )
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
+    // An empty table only means good news when exceptions do reach this project: either
+    // some have already been grouped into issues, or autocapture is on and will send them.
+    const errorsAreReported = errorTrackingStatus === 'has-data' || !!currentTeam?.autocapture_exceptions_opt_in
+
+    const crossSellToErrorTracking = useCallback((): void => {
+        addProductIntentForCrossSell({
+            from: ProductKey.WEB_ANALYTICS,
+            to: ProductKey.ERROR_TRACKING,
+            intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
+        })
+    }, [addProductIntentForCrossSell])
+
+    const context = useMemo((): QueryContext => {
+        if (errorsAreReported) {
+            return {
+                ...baseContext,
+                emptyStateIcon: <HedgehogStar className="w-32 mb-2" />,
+                emptyStateHeading: 'No errors found!',
+                emptyStateDetail: 'Keep up the great work!',
+            }
+        }
+        if (errorTrackingStatus === 'needs-setup') {
+            return {
+                ...baseContext,
+                emptyStateIcon: <HedgehogPanic className="w-32 mb-2" />,
+                emptyStateHeading: 'Error tracking is not set up',
+                emptyStateDetail: (
+                    <>
+                        See the exceptions your visitors hit, grouped by issue and linked to the session they happened
+                        in.
+                        <span className="mt-2 flex justify-center">
+                            <LemonButton
+                                to={to}
+                                onClick={crossSellToErrorTracking}
+                                size="small"
+                                type="primary"
+                                data-attr="web-analytics-error-tracking-setup"
+                            >
+                                Set up error tracking
+                            </LemonButton>
+                        </span>
+                    </>
+                ),
+            }
+        }
+        // Detection is still loading, or it failed. Neither answer is safe to act on, so the
+        // generic copy stands: it promises nothing about whether errors are being reported.
+        return baseContext
+    }, [errorsAreReported, errorTrackingStatus, to, crossSellToErrorTracking])
+
     const viewAllButton = (
-        <LemonButton
-            to={to}
-            icon={<IconOpenInNew />}
-            onClick={() => {
-                addProductIntentForCrossSell({
-                    from: ProductKey.WEB_ANALYTICS,
-                    to: ProductKey.ERROR_TRACKING,
-                    intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
-                })
-            }}
-            size="small"
-            type="secondary"
-        >
+        <LemonButton to={to} icon={<IconOpenInNew />} onClick={crossSellToErrorTracking} size="small" type="secondary">
             View all
         </LemonButton>
     )
