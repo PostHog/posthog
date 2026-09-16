@@ -116,9 +116,6 @@ export interface modelPickerLogicActions {
         providerKeys: LLMProviderKey[]
     } // llmProviderKeysLogic
     loadByokModels: () => any
-    setFailedByokProviderKeyIds: (providerKeyIds: string[]) => {
-        providerKeyIds: string[]
-    }
     loadByokModelsFailure: (
         error: string,
         errorObject?: any
@@ -147,6 +144,9 @@ export interface modelPickerLogicActions {
     ) => {
         playgroundModels: ModelOption[]
         payload?: any
+    }
+    setFailedByokProviderKeyIds: (providerKeyIds: string[]) => {
+        providerKeyIds: string[]
     }
 }
 
