@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.types import IncrementalField
 #   "task"          -> one request per task across all visible projects
 #   "goal"          -> one request per goal across all visible workspaces
 #   "user"          -> one request per user the token can see
-FanOut = Literal["none", "workspace", "organization", "project", "task", "goal", "user"]
+#   "team"          -> one request per team across all visible organizations
+#   "portfolio"     -> one request per portfolio across all visible workspaces
+FanOut = Literal["none", "workspace", "organization", "project", "task", "goal", "user", "team", "portfolio"]
 
 # Every Asana resource is identified by its global id ``gid``.
 PRIMARY_KEY = "gid"
@@ -24,8 +26,9 @@ class AsanaEndpointConfig:
     name: str
     fan_out: FanOut
     # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``,
-    # ``{project_gid}``, ``{task_gid}``, ``{goal_gid}`` or ``{user_gid}`` placeholder that the
-    # framework binds from the parent row per request; top-level endpoints carry no placeholder.
+    # ``{project_gid}``, ``{task_gid}``, ``{goal_gid}``, ``{user_gid}``, ``{team_gid}`` or
+    # ``{portfolio_gid}`` placeholder that the framework binds from the parent row per request;
+    # top-level endpoints carry no placeholder.
     path: str
     # Asana list endpoints return compact records ({gid, name, resource_type}) by default.
     # ``opt_fields`` opts extra properties into the response — keep the partition key here.
@@ -41,6 +44,23 @@ class AsanaEndpointConfig:
     # A few endpoints return the whole collection in one response — they take no limit/offset and
     # carry no `next_page`. Sending `limit` to those is rejected.
     paginated: bool = True
+
+
+# Every /status_updates fan-out returns the same object, so the opted-in fields are shared.
+STATUS_UPDATE_OPT_FIELDS = [
+    "title",
+    "text",
+    "html_text",
+    "status_type",
+    "resource_subtype",
+    "author",
+    "created_at",
+    "created_by",
+    "modified_at",
+    "parent",
+    "num_likes",
+    "resource_type",
+]
 
 
 ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
@@ -263,6 +283,77 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         ],
         partition_key="created_at",
     ),
+    "custom_field_settings": AsanaEndpointConfig(
+        name="custom_field_settings",
+        fan_out="project",
+        path="/projects/{project_gid}/custom_field_settings",
+        opt_fields=["custom_field", "parent", "project", "is_important", "resource_type"],
+    ),
+    "team_memberships": AsanaEndpointConfig(
+        name="team_memberships",
+        fan_out="team",
+        path="/teams/{team_gid}/team_memberships",
+        opt_fields=["user", "team", "is_admin", "is_guest", "is_limited_access", "resource_type"],
+    ),
+    # A personal access token only sees portfolios the token's own user owns; a service account sees
+    # every portfolio in the workspace. Nothing in the response marks which case applied.
+    "portfolios": AsanaEndpointConfig(
+        name="portfolios",
+        fan_out="workspace",
+        path="/portfolios?workspace={workspace_gid}",
+        opt_fields=[
+            "name",
+            "created_at",
+            "created_by",
+            "owner",
+            "color",
+            "public",
+            "archived",
+            "workspace",
+            "due_on",
+            "start_on",
+            "members",
+            "current_status_update",
+            "privacy_setting",
+            "default_access_level",
+            "permalink_url",
+            "resource_type",
+        ],
+        partition_key="created_at",
+    ),
+    # One row per portfolio-to-item edge. The row is the contained project (or sub-portfolio), so its
+    # gid repeats across every portfolio holding it — `portfolio_gid` completes the primary key.
+    # The compact item shape is all this endpoint returns; its opt_fields only cover paging metadata.
+    "portfolio_items": AsanaEndpointConfig(
+        name="portfolio_items",
+        fan_out="portfolio",
+        path="/portfolios/{portfolio_gid}/items",
+        parent_fields={"gid": "portfolio_gid"},
+        primary_keys=["portfolio_gid", PRIMARY_KEY],
+    ),
+    # /status_updates takes one `parent` gid that must be a project, goal or portfolio, so each
+    # parent type needs its own fan-out. `resource_subtype` on the row records which kind it was.
+    "project_status_updates": AsanaEndpointConfig(
+        name="project_status_updates",
+        fan_out="project",
+        path="/status_updates?parent={project_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
+    "goal_status_updates": AsanaEndpointConfig(
+        name="goal_status_updates",
+        fan_out="goal",
+        path="/status_updates?parent={goal_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
+    "portfolio_status_updates": AsanaEndpointConfig(
+        name="portfolio_status_updates",
+        fan_out="portfolio",
+        path="/status_updates?parent={portfolio_gid}",
+        opt_fields=STATUS_UPDATE_OPT_FIELDS,
+        partition_key="created_at",
+    ),
     # AI Studio usage endpoints (organization fan-out — AI Studio is an org/division feature, so
     # non-organization workspaces are skipped to avoid invalid requests). Both require the
     # `admin.ai_studio_usage:read` scope on an AI Studio-licensed org; unlicensed orgs return 403.
@@ -307,12 +398,14 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
 
 ENDPOINTS = tuple(ASANA_ENDPOINTS.keys())
 
-# Asana exposes a server-side `modified_since` filter only on /tasks (and the premium-only
-# task search endpoint). The other endpoints have no usable server-side timestamp filter, so
-# the whole source ships full-refresh-only for now — declaring incremental support without a
-# real server filter would make every "incremental" run cost the same as a full refresh.
-# Incremental tasks (via `modified_since`) and the Events API are tracked as follow-ups; they
-# need a live token to smoke-test the filter behaviour before we can rely on it.
+# Asana exposes a server-side timestamp filter on only two of the endpoints here: `modified_since`
+# on /tasks (and the premium-only task search endpoint), and `created_since` on /status_updates.
+# The rest have no usable server-side filter, so the whole source ships full-refresh-only for now —
+# declaring incremental support without a real server filter would make every "incremental" run cost
+# the same as a full refresh.
+# Incremental tasks (via `modified_since`), incremental status updates (via `created_since`) and the
+# Events API are tracked as follow-ups; they need a live token to smoke-test the filter behaviour and
+# the result ordering `sort_mode` has to match before we can rely on them.
 # `ai_studio/runs` does take a `start_at`/`end_at` window, but it filters by an internal metering
 # timestamp that the row shape does not expose — so no synced column maps cleanly onto the cursor,
 # and the arrival order can't be verified without a live token. It stays full-refresh with the rest.

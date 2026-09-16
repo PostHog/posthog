@@ -318,6 +318,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 CallScannerProviderInputs(
                     team_id=inputs.team_id,
                     observation_id=observation_id,
+                    exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),

@@ -12,6 +12,7 @@ from .activities.finalize_check_suite import (
     mark_check_suite_failed_activity,
 )
 from .activities.materialization_gate import materialization_gate_activity
+from .activities.notify_failing_checks import notify_failing_checks_activity
 from .activities.prepare_check_suite import prepare_check_suite_activity
 from .activities.reconcile_schedules import reconcile_metric_schedules_activity
 from .activities.run_check_batch import run_check_batch_activity
@@ -32,6 +33,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     finalize_check_suite_activity,
     mark_check_suite_empty_activity,
     mark_check_suite_failed_activity,
+    notify_failing_checks_activity,
     cleanup_check_runs_activity,
     reconcile_metric_schedules_activity,
 ]

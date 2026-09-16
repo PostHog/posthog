@@ -34,9 +34,11 @@ from products.replay_vision.backend.temporal.network_capture import NetworkReque
 from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
+_IDENTITY_CLOCK = VideoClock(spans=())
 _VIDEO: Any = "VIDEO"
 
 
@@ -136,6 +138,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=42,
             llm_inputs=MagicMock(),
@@ -331,6 +334,7 @@ async def test_signal_timestamps_use_recording_duration(
             scanner=scanner,
             snapshot=snapshot,
             video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
             preamble_text="PRE",
             team_id=1,
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
@@ -581,6 +585,7 @@ class TestVerifyPositives:
                 scanner=scanner,
                 snapshot=snapshot,
                 video_part=_VIDEO,
+                video_clock=_IDENTITY_CLOCK,
                 preamble_text="PRE",
                 team_id=1,
                 llm_inputs=MagicMock(),

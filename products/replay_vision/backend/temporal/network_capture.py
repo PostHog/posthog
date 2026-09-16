@@ -17,17 +17,15 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 
-# The two plugin names that carry network data. posthog-js emits `posthog/network@1` with the fields
-# index-encoded as numeric string keys; rrweb's own recorder emits `rrweb/network@1` with named keys and
-# several requests per event. A recording normally holds one or the other.
+# posthog-js emits `posthog/network@1` with the fields index-encoded as numeric string keys; rrweb's own
+# recorder emits `rrweb/network@1` with named keys and several requests per event.
 POSTHOG_NETWORK_PLUGIN = "posthog/network@1"
 RRWEB_NETWORK_PLUGIN = "rrweb/network@1"
 
 _PLUGIN_EVENT_TYPE = 6
 
-# Index-encoded field positions in a `posthog/network@1` payload, mirroring
-# `PerformanceEventReverseMapping` in frontend/src/scenes/session-recordings/apm/performance-event-utils.ts.
-# Only the fields the scanner reads are listed; the full mapping runs to 40 entries.
+# Mirrors `PerformanceEventReverseMapping` in
+# frontend/src/scenes/session-recordings/apm/performance-event-utils.ts, reduced to the fields read here.
 _INDEXED_FIELDS: dict[str, str] = {
     "0": "entry_type",
     "2": "name",
@@ -36,9 +34,6 @@ _INDEXED_FIELDS: dict[str, str] = {
     "39": "duration",
 }
 
-# Named fields in an `rrweb/network@1` captured request. `status` and `responseStatus` both land on
-# `response_status`: the performance observer supplies one and wrapped fetch/xhr the other. `status` is
-# listed second so it wins when a request carries both, matching the frontend's preference.
 _NAMED_FIELDS: dict[str, str] = {
     "entryType": "entry_type",
     "name": "name",
@@ -46,15 +41,17 @@ _NAMED_FIELDS: dict[str, str] = {
     "method": "method",
     "duration": "duration",
     "responseStatus": "response_status",
-    "status": "response_status",
 }
 
-# A request slower than this is worth showing even when it succeeded, because it is what a user reads as a
-# hang. Below it a successful request explains nothing the video does not already show.
+# The performance observer reports `responseStatus` and wrapped fetch/xhr reports `status`. When a request
+# carries both, `status` wins, matching what the frontend shows for the same request.
+_PREFERRED_STATUS_FIELD = "status"
+
+# Above this a successful request is still worth showing, because it is what a user reads as a hang.
 SLOW_REQUEST_MS = 1000
 
-# Per-session cap. A busy page issues thousands of requests; the scanner only ever reads a few windows of
-# them, and the payload rides through Redis.
+# A busy page issues thousands of requests; the scanner reads a few windows of them and the payload rides
+# through Redis.
 MAX_REQUESTS_PER_SESSION = 500
 
 _MAX_URL_LENGTH = 200
@@ -64,8 +61,8 @@ class NetworkRequest(BaseModel, frozen=True):
     """One captured request the scanner may be shown.
 
     `timestamp_ms` stays absolute (epoch milliseconds) because this payload is built without session
-    metadata. It is converted to a recording-relative `rec_t` when the tool index is built, against the
-    same recording-start anchor the video footer and the events tool use.
+    metadata or the render's cut map. It is made session-relative and then projected onto video seconds
+    when the tool index is built.
     """
 
     timestamp_ms: int
@@ -80,11 +77,9 @@ class SessionNetworkPayload(BaseModel, frozen=True):
     """The network requests worth showing for one session, stashed in Redis between activities."""
 
     requests: list[NetworkRequest] = Field(default_factory=list)
-    # False when the recording holds no network plugin events at all, which means the SDK never captured
-    # them. The prompt has to tell those apart: with capture off, an empty result says nothing about
-    # whether requests failed, and the model must not read it as "nothing failed".
+    # False when the SDK captured no network data at all, which the caller must not let the model read as
+    # "nothing failed": with capture off an empty result is no evidence either way.
     captured: bool = False
-    # True when the session produced more interesting requests than `MAX_REQUESTS_PER_SESSION`.
     truncated: bool = False
 
 
@@ -171,6 +166,8 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
         field = _INDEXED_FIELDS.get(key) or _NAMED_FIELDS.get(key)
         if field is not None:
             fields[field] = value
+    if _PREFERRED_STATUS_FIELD in raw:
+        fields["response_status"] = raw[_PREFERRED_STATUS_FIELD]
 
     url = fields.get("name")
     if not isinstance(url, str) or not url.strip():

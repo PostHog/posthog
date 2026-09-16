@@ -21,13 +21,12 @@ from products.replay_vision.backend.temporal.types import FetchSessionNetworkInp
 
 logger = structlog.get_logger(__name__)
 
-# Blocks fetched at once. The rasterizer is reading the same blocks for the video render, so this stays
-# modest to keep one scan from adding a burst of load to the recording API.
+# The rasterizer is reading the same blocks for the video render, so keep one scan from adding a burst of
+# load to the recording API.
 _BLOCK_CONCURRENCY = 4
 
-# A session with more blocks than this is one of the outliers that has previously exhausted memory in the
-# rasterizer. Reading its whole blob set a second time is not worth a best-effort side input, so the scan
-# runs without network data rather than risking the read.
+# Past this, a recording is one of the outliers that has exhausted rasterizer memory before. Reading its
+# whole blob set again is not worth a side input, so the scan runs without network data instead.
 _MAX_BLOCKS = 250
 
 

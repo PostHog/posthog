@@ -256,6 +256,8 @@ class UploadedVideo(BaseModel, frozen=True):
 class CallScannerProviderInputs(BaseModel, frozen=True):
     team_id: int
     observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
+    # The rendered asset behind `file_uri`; its export context carries the map for converting cited moments.
+    exported_asset_id: int
     file_uri: str
     mime_type: str
     # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).

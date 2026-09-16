@@ -64,6 +64,25 @@ class TestParseNetworkPayload:
         payload = parse_network_payload([_line(_rrweb_event(1000, {"name": "https://app.test/x", **fields}))])
         assert bool(payload.requests) is kept
 
+    def test_wrapped_fetch_status_wins_over_the_observer_status(self) -> None:
+        # Both fields can arrive on one request, in either key order. Losing this precedence misreports a
+        # failed request as a successful one, which is the whole signal the tool exists for.
+        payload = parse_network_payload(
+            [
+                _line(
+                    _rrweb_event(
+                        1000,
+                        {"name": "https://app.test/a", "responseStatus": 200, "status": 503, "duration": 5},
+                    ),
+                    _rrweb_event(
+                        2000,
+                        {"name": "https://app.test/b", "status": 503, "responseStatus": 200, "duration": 5},
+                    ),
+                )
+            ]
+        )
+        assert [request.status for request in payload.requests] == [503, 503]
+
     def test_drops_query_string_headers_and_bodies(self) -> None:
         # These carry tokens and other people's personal data. They must never reach the model or the
         # stored observation, whatever the plugin sent.

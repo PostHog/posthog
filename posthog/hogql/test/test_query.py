@@ -8,12 +8,14 @@ import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseTestMixin,
     NewEventsSchemaSnapshotExtension,
     _create_event,
     _create_person,
     flush_persons_and_events,
 )
+from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
@@ -39,6 +41,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
@@ -48,6 +51,7 @@ from posthog.hogql.test.utils import (
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -2382,3 +2386,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+
+class TestQueryStatsRecording(BaseTest):
+    def test_the_executor_records_each_execution_including_a_killed_run(self) -> None:
+        # The trigger reads the run's executions off the scope, so the executor must record one for
+        # every ClickHouse call, and a run ClickHouse kills has to be recorded with what it read.
+        def ok(sql, values, **kwargs):
+            record(rows_read=42, duration_ms=1.0)
+            return ([[0]], [("count()", "UInt64")])
+
+        with query_stats_scope() as stats:
+            with mock.patch("posthog.hogql.query.sync_execute", side_effect=ok):
+                execute_hogql_query("select count() from events", team=self.team, query_type="test")
+        assert len(stats.executions) == 1
+        assert stats.executions[0].rows_read == 42
+        assert stats.executions[0].tree is not None
+
+        def killed(sql, values, **kwargs):
+            record(rows_read=90, duration_ms=1.0)
+            raise ClickHouseQueryMemoryLimitExceeded()
+
+        with query_stats_scope() as killed_stats:
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                with mock.patch("posthog.hogql.query.sync_execute", side_effect=killed):
+                    execute_hogql_query("select count() from events", team=self.team, query_type="test")
+        assert len(killed_stats.executions) == 1
+        assert killed_stats.executions[0].rows_read == 90

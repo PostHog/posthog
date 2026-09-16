@@ -142,7 +142,7 @@ pub async fn rebuild_partition_fences(
         SELECT lop.team_id, lop.person_id, lop.op_id, o.op_type
         FROM {op_person} lop
         JOIN {op} o ON o.op_id = lop.op_id
-        WHERE lop.status IN ('marked', 'sealed')
+        WHERE lop.mark_active
           AND lop.role <> 'target'
         "#,
         op_person = tables.op_person,
