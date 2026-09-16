@@ -1,4 +1,4 @@
-import { buildIntegerMatcherWithPercentage } from './config'
+import { buildIntegerMatcherWithPercentage } from './matchers'
 
 describe('buildIntegerMatcherWithPercentage', () => {
     it.each([
