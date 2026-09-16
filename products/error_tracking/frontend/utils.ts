@@ -255,6 +255,16 @@ export function generateDateRangeLabel(dateRange: DateRange): string | undefined
     return 'Custom'
 }
 
+// The issue query returns a space-separated datetime and the events query an ISO one, so the same
+// instant reaches the `timestamp` search param in two encodings. Pin the param to one of them.
+export function toIssueTimestampParam(timestamp: string | null | undefined): string | null {
+    if (!timestamp) {
+        return null
+    }
+    const parsed = dayjs(timestamp)
+    return parsed.isValid() ? parsed.toISOString() : null
+}
+
 export function datetimeStringToDayJs(date: string | null, offset: Dayjs): Dayjs | null {
     if (!isStringDateRegex.test(date || '')) {
         return dayjs(date)

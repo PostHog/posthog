@@ -10,6 +10,7 @@ import {
     issueVisionScannerHandoff,
     mergeIssues,
     sourceDisplay,
+    toIssueTimestampParam,
 } from './utils'
 
 function wrapVolumeBuckets(
@@ -324,5 +325,16 @@ describe('sourceDisplay', () => {
                 '../../node_modules/.pnpm/kea-loaders@3.0.0_kea@3.1.5_react@18.2.0_/node_modules/kea-loaders/src/index.ts'
             )
         ).toEqual('kea-loaders.src.index')
+    })
+})
+
+describe('toIssueTimestampParam', () => {
+    it('maps both server encodings of one instant to the same param', () => {
+        expect(toIssueTimestampParam('2026-01-02 03:04:05.678000+00:00')).toBe('2026-01-02T03:04:05.678Z')
+        expect(toIssueTimestampParam('2026-01-02T03:04:05.678000+00:00')).toBe('2026-01-02T03:04:05.678Z')
+    })
+
+    it.each([null, undefined, '', 'not-a-date'])('returns null for %s', (value) => {
+        expect(toIssueTimestampParam(value)).toBeNull()
     })
 })

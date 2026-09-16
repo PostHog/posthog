@@ -15,6 +15,8 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import {
     Button,
     ButtonGroup,
@@ -66,9 +68,18 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen } =
+    const {
+        issue,
+        issueId,
+        issueIdValid,
+        issueLoading,
+        issueNotFound,
+        lastSeen,
+        initialEventTimestamp,
+        selectedEvent,
+        mobileDetailOpen,
+    } = useValues(errorTrackingIssueSceneLogic)
+    const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen, loadSceneData } =
         useActions(errorTrackingIssueSceneLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
@@ -144,7 +155,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
-                        {issue && (
+                        {issue ? (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
                                 {sceneMenuBarEnabled && (
                                     <SceneMenuBar>
@@ -314,6 +325,24 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         />
                                     </div>
                                 </div>
+                            </div>
+                        ) : issueLoading ? (
+                            <SpinnerOverlay sceneLevel />
+                        ) : issueNotFound ? (
+                            <NotFound object="issue" />
+                        ) : (
+                            <div className="flex h-[calc(var(--scene-layout-rect-height))] items-center justify-center p-4">
+                                <LemonBanner
+                                    type="error"
+                                    className="w-full max-w-md"
+                                    action={{
+                                        children: 'Try again',
+                                        onClick: loadSceneData,
+                                        'data-attr': 'error-tracking-issue-load-retry',
+                                    }}
+                                >
+                                    Couldn't load this issue. Try again, and if it keeps happening contact support.
+                                </LemonBanner>
                             </div>
                         )}
                     </BindLogic>
