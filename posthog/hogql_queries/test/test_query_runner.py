@@ -925,16 +925,33 @@ class TestQueryRunner(BaseTest):
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
 
+    @parameterized.expand(
+        [
+            # A field a newer pod added is drift: reported with a stable message, so a schema
+            # change does not mint a new error tracking issue on every rollout.
+            ("field_added_by_a_newer_schema", {"field_added_later": "value"}, False),
+            ("malformed_entry", {"results": "not a list"}, True),
+        ]
+    )
+    @mock.patch("posthog.query_cache.schema_drift.capture_exception")
     @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
-    def test_schema_change_triggers_recalculation(self, mock_query_cache_cls):
+    def test_schema_change_triggers_recalculation(
+        self, _name, entry_override, expect_capture, mock_query_cache_cls, mock_capture_exception
+    ):
         TestQueryRunner = self.setup_test_query_runner_class()
         mock_cache_manager = mock.MagicMock()
         mock_cache_manager.cache_key = "test_cache_key"
         mock_entry = mock.MagicMock()
         mock_entry.as_full_response.return_value = {
+            "cache_key": "test_cache_key",
             "is_cached": True,
-            "invalid_field": "this will cause validation to fail",
-            # Missing all the actual required fields like results, last_refresh, etc.
+            # Fresh enough to be served, so a response that still parses is a cache hit and
+            # the recomputation assertions below discriminate.
+            "last_refresh": "2023-02-04T13:37:00+00:00",
+            "next_allowed_client_refresh": "2023-02-04T13:41:00+00:00",
+            "results": [],
+            "timezone": "UTC",
+            **entry_override,
         }
         mock_cache_manager.lookup.return_value.entry = mock_entry
         mock_cache_manager.lookup.return_value.failure = None
@@ -949,6 +966,7 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_cache_manager.lookup.assert_called_once()
             mock_cache_manager.store_result.assert_called_once()
+            self.assertEqual(mock_capture_exception.called, expect_capture)
 
     @parameterized.expand(
         [

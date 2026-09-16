@@ -163,7 +163,7 @@ from posthog.models import Team, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
+from posthog.query_cache import QueryCache, count_query_cache_hit, report_cached_response_parse_failure, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
@@ -1971,7 +1971,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:
-                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                report_cached_response_parse_failure(e, CachedResponse.__name__)
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
