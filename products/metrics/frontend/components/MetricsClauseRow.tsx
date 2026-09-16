@@ -33,6 +33,17 @@ const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'increase', label: 'Increase' },
 ]
 
+// The backend reads histogram_quantile from the bucket distribution
+// (histogram_bounds/histogram_counts). Only histogram-shaped series carry one;
+// summaries store quantile pairs and scalar rows carry none, so offering the
+// option for those types produces a 400 or an empty chart.
+const HISTOGRAM_QUANTILE_TYPES = new Set(['histogram', 'exponential_histogram'])
+
+const aggregationOptionsForType = (metricType?: string | null): { value: MetricAggregation; label: string }[] =>
+    metricType && HISTOGRAM_QUANTILE_TYPES.has(metricType)
+        ? AGGREGATION_OPTIONS
+        : AGGREGATION_OPTIONS.filter((option) => option.value !== 'histogram_quantile')
+
 /** One query line of the viewer: alias, metric picker, aggregation, filters, and group-by.
  * Editing any control focuses the row — the samples panel, anomaly badge, and picker
  * scoping follow the focused (active) clause. */
@@ -143,7 +154,7 @@ export function MetricsClauseRow({
             <LemonSelect
                 size="small"
                 value={clause.aggregation}
-                options={AGGREGATION_OPTIONS}
+                options={aggregationOptionsForType(clause.selectedMetricType)}
                 onChange={withSelect(setAggregation)}
                 data-attr="metrics-viewer-aggregation"
                 disabledReason={disabledReason}
