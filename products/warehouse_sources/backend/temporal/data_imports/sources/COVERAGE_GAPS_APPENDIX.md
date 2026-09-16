@@ -1180,14 +1180,14 @@ Note: developer.calendly.com is a Gatsby shell with no fetchable spec; the real 
 
 ## CallRail — gaps
 
-Today (7): `calls`, `companies`, `form_submissions`, `tags`, `text_messages`, `trackers`, `users`
+Today (11): `accounts`, `calls`, `companies`, `form_submissions`, `lead_timelines`, `leads`, `page_views`, `tags`, `text_messages`, `trackers`, `users`
 
 Diffed against: <https://apidocs.callrail.com/>
 
-- [ ] `leads (/a/{account_id}/leads.json)` — the conversion object CallRail exists to produce — currently calls and form submissions are synced but not the leads derived from them (high)
-- [ ] `accounts (/a.json)` — lookup resolving the account_id every other resource is scoped under; required for multi-account (agency) reporting (high)
-- [ ] `page_views (/a/{account_id}/calls/{call_id}/page_views.json)` — per-call visitor page-view journey — the attribution path behind each tracked call (high)
-- [ ] `lead_timelines (/a/{account_id}/leads/{id}/timeline.json)` — state/transition history for a lead across calls, texts, and forms (medium)
+- [x] `leads (/a/{account_id}/leads.json)` — the conversion object CallRail exists to produce — currently calls and form submissions are synced but not the leads derived from them (high)
+- [x] `accounts (/a.json)` — lookup resolving the account_id every other resource is scoped under; required for multi-account (agency) reporting (high)
+- [x] `page_views (/a/{account_id}/calls/{call_id}/page_views.json)` — per-call visitor page-view journey — the attribution path behind each tracked call (high)
+- [x] `lead_timelines (/a/{account_id}/leads/{id}/timeline.json)` — state/transition history for a lead across calls, texts, and forms (medium)
 - [ ] `sms_threads (/a/{account_id}/sms_threads.json)` — thread-level SMS conversations, the parent grain the text_messages table hangs off (medium)
 - [ ] `calls summary and timeseries (/a/{account_id}/calls/summary.json, /calls/timeseries.json)` — vendor-computed call volume breakdowns by source and period, matching what the CallRail UI reports (medium)
 - [ ] `form_submissions summary (/a/{account_id}/form_submissions/summary.json)` — vendor-computed form conversion aggregates aligned with the call summary (low)
