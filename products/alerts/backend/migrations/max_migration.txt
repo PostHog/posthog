@@ -1,1 +1,1 @@
-0007_sourcealertconfiguration_sourcealert_and_more
+0007_wipalertconfiguration_wipalert_and_more

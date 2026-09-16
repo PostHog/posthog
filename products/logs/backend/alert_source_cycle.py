@@ -1,26 +1,31 @@
-"""Read-only evaluation of due logs alerts for the shared alerts platform.
+"""Evaluation of due logs alerts on the shared alerts platform.
 
-The production logs fleet evaluates these same alerts every minute on its own queue, so
-this path must not write. It calls no `apply_outcome`, advances no `next_check_at`, writes
-no `LogsAlertEvent` and produces no Kafka message. A write here would notify a person twice
-for one breach.
+Reads and writes the skeleton shared tables, never the logs product's own. The production
+logs fleet evaluates the same alerts on its own queue against `LogsAlertConfiguration`, so
+the two stacks keep separate state and neither can notify on the other's behalf. Delivery
+still stops at a recorded preview.
 
-Grouping, query execution and the lifecycle decision all reuse the production helpers, so a
-preview says what production would have sent. The configuration read stands in for a shared
-alert configuration that the alerts platform does not own yet.
+Grouping, query execution and the lifecycle decision reuse the production helpers, so an
+evaluation says what the logs stack would have said given the same configuration.
 """
 
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Any
+from uuid import UUID
+
+from django.db.models import Q
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import AlertDeliveryPreview, GroupTransition, SourceKind
 from products.alerts.backend.facade.destinations import list_active_alert_destinations
+from products.alerts.backend.facade.scheduling import advance_next_check_at
+from products.alerts.backend.models import WIPAlert, WIPAlertConfiguration
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -30,9 +35,14 @@ from products.logs.backend.alert_check_query import (
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_state_machine import CheckResult, NotificationAction, evaluate_alert_check
-from products.logs.backend.alert_utils import due_alerts_q, next_allowed_check_at
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.alert_state_machine import (
+    AlertSnapshot,
+    AlertState,
+    CheckResult,
+    NotificationAction,
+    evaluate_alert_check,
+)
+from products.logs.backend.alert_utils import next_allowed_check_at
 
 # Private to the production activity. Reimplementing either would let this cycle drift
 # from what production evaluates. Promoting them to a shared home is the deeper fix.
@@ -64,7 +74,7 @@ def _cohort_key(row: Mapping[str, Any], checkpoint: datetime | None, now: dateti
         row["window_minutes"],
         row["evaluation_periods"],
         row["check_interval_minutes"],
-        is_projection_eligible(row["filters"]),
+        is_projection_eligible(row["source_config"]),
         resolve_alert_date_to(row["next_check_at"] or now, checkpoint),
     )
 
@@ -91,35 +101,75 @@ def _is_in_quiet_hours(row: Mapping[str, Any], team: Team, now: datetime) -> boo
         return True
 
 
-def _preview_for_alert(
-    alert: LogsAlertConfiguration,
+@frozen
+class _QuerySubject:
+    """Satisfies the query layer's `AlertQuerySubject`, so it never sees a configuration model."""
+
+    id: UUID
+    team_id: int
+    filters: dict[str, Any]
+
+
+def _snapshot(configuration: WIPAlertConfiguration, alert: WIPAlert, prior_breached: tuple[bool, ...]) -> AlertSnapshot:
+    return AlertSnapshot(
+        state=AlertState(alert.state),
+        evaluation_periods=configuration.evaluation_periods,
+        datapoints_to_alarm=configuration.datapoints_to_alarm,
+        cooldown_minutes=configuration.cooldown_minutes,
+        last_notified_at=alert.last_notified_at,
+        snooze_until=alert.snooze_until,
+        consecutive_failures=configuration.consecutive_failures,
+        recent_events_breached=prior_breached,
+    )
+
+
+def _apply_outcome(configuration: WIPAlertConfiguration, alert: WIPAlert, outcome, now: datetime) -> None:
+    """Persists the decision to the shared tables. The logs product's own rows are untouched:
+    that stack keeps its own state and reaches its own verdict on the same configuration."""
+    alert.state = outcome.new_state.value
+    if outcome.update_last_notified_at:
+        alert.last_notified_at = now
+    alert.save(update_fields=["state", "last_notified_at"])
+
+    configuration.consecutive_failures = outcome.consecutive_failures
+    configuration.next_check_at = advance_next_check_at(
+        configuration.next_check_at, configuration.check_interval_minutes, now
+    )
+    configuration.save(update_fields=["consecutive_failures", "next_check_at"])
+
+
+def _evaluate_one(
+    configuration: WIPAlertConfiguration,
+    alert: WIPAlert,
     buckets: list[BucketedCount],
     *,
-    evaluation_periods: int,
     window_end: datetime,
     now: datetime,
 ) -> AlertDeliveryPreview | None:
     current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, alert.threshold_count, alert.threshold_operator, evaluation_periods
+        buckets, configuration.threshold_count, configuration.threshold_operator, configuration.evaluation_periods
     ) or (False,)
 
     outcome = evaluate_alert_check(
-        alert.to_snapshot(recent_events_breached=tuple(prior_windows_breached)),
+        _snapshot(configuration, alert, tuple(prior_windows_breached)),
         CheckResult(result_count=None, threshold_breached=current_breached),
         now,
     )
+    _apply_outcome(configuration, alert, outcome, now)
     if outcome.notification == NotificationAction.NONE:
         return None
 
     spec = EVENT_KIND_CONFIG[_NOTIFICATION_EVENT_KINDS[outcome.notification]]
     destinations = list_active_alert_destinations(
-        team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=[spec.event_id]
+        team_id=configuration.team_id,
+        alert_id=str(configuration.legacy_configuration_id or configuration.id),
+        allowed_event_ids=[spec.event_id],
     )
     return AlertDeliveryPreview(
         source=SourceKind.LOGS,
-        alert_id=str(alert.id),
-        alert_name=alert.name,
-        evaluation_key=f"{alert.id}:window:{window_end.isoformat()}",
+        alert_id=str(configuration.id),
+        alert_name=configuration.name,
+        evaluation_key=f"{configuration.id}:window:{window_end.isoformat()}",
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
@@ -141,18 +191,13 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
     same alerts against the same windows and derives the same evaluation keys.
 
     The due predicate is applied again here. Discovery ran earlier in the tick, so a
-    configuration can have been disabled, snoozed or broken since, and evaluating one that
-    production would now skip is what makes a preview a lie.
+    configuration can have been disabled since, and evaluating one that is no longer due
+    records a transition nobody asked for.
     """
     rows = list(
-        LogsAlertConfiguration.objects.filter(
-            due_alerts_q(
-                cutoff,
-                broken_state=LogsAlertConfiguration.State.BROKEN,
-                snoozed_state=LogsAlertConfiguration.State.SNOOZED,
-            ),
-            team_id=team_id,
-        )
+        WIPAlertConfiguration.objects.for_team(team_id)
+        .filter(enabled=True, source_kind=WIPAlertConfiguration.SourceKind.LOGS)
+        .filter(Q(next_check_at__lte=cutoff) | Q(next_check_at__isnull=True))
         # Ordered so the cohort budget and the preview cap keep the same alerts on a
         # retried attempt. Without an ordering Postgres is free to return the rows in a
         # different physical order and the truncation would fall somewhere else.
@@ -163,7 +208,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
             "window_minutes",
             "evaluation_periods",
             "check_interval_minutes",
-            "filters",
+            "source_config",
             "next_check_at",
             "schedule_restriction",
         )
@@ -171,7 +216,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
     # Production excludes a structurally broken filter before evaluating, so including one
     # here would preview a notification production would never send.
     rows = [row for row in rows if _slot_of(row["next_check_at"], cutoff) == slot]
-    rows = [row for row in rows if _detect_broken_filter_config(row["filters"]) is None]
+    rows = [row for row in rows if _detect_broken_filter_config(row["source_config"]) is None]
     if not rows:
         return ()
 
@@ -210,17 +255,33 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
         for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE, strict=False):
             # Hydrated one chunk at a time. Production splits discovery from evaluation so
             # that it never holds every due alert in the fleet in memory at once.
-            alerts_by_id = {str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=list(chunk))}
-            # An alert deleted since the discovery read is absent from this pass rather than
-            # a KeyError that would cost every other team its evaluation.
-            alerts = [alerts_by_id[alert_id] for alert_id in chunk if alert_id in alerts_by_id]
-            if not alerts:
+            configurations_by_id = {
+                str(configuration.id): configuration
+                for configuration in WIPAlertConfiguration.objects.for_team(team_id).filter(id__in=list(chunk))
+            }
+            # A configuration deleted since the discovery read is absent from this pass rather
+            # than a KeyError that would cost every other team its evaluation.
+            configurations = [configurations_by_id[i] for i in chunk if i in configurations_by_id]
+            if not configurations:
                 continue
+            # One runtime row per configuration until a source groups, so the empty key is the
+            # whole of its state today and a real key needs no new table.
+            alerts_by_configuration = {
+                str(alert.configuration_id): alert
+                for alert in WIPAlert.objects.for_team(team_id).filter(
+                    configuration__in=configurations, grouping_key=""
+                )
+            }
+            for configuration in configurations:
+                if str(configuration.id) not in alerts_by_configuration:
+                    alerts_by_configuration[str(configuration.id)] = WIPAlert.objects.create(
+                        team_id=team_id, configuration=configuration, grouping_key=""
+                    )
 
             try:
                 result = BatchedAlertCheckQuery(
                     team=teams[team_id],
-                    alerts=alerts,
+                    alerts=[_QuerySubject(id=c.id, team_id=c.team_id, filters=c.source_config) for c in configurations],
                     date_from=date_to - timedelta(minutes=lookback),
                     date_to=date_to,
                     projection_eligible=projection_eligible,
@@ -231,25 +292,25 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[Aler
                 logger.exception(
                     "Logs alert cohort query failed; skipping the cohort",
                     team_id=team_id,
-                    cohort_size=len(alerts),
+                    cohort_size=len(configurations),
                     error=str(error),
                 )
                 continue
 
-            for alert in alerts:
+            for configuration in configurations:
                 try:
-                    preview = _preview_for_alert(
-                        alert,
-                        result.per_alert.get(str(alert.id), []),
-                        evaluation_periods=evaluation_periods,
+                    preview = _evaluate_one(
+                        configuration,
+                        alerts_by_configuration[str(configuration.id)],
+                        result.per_alert.get(str(configuration.id), []),
                         window_end=date_to,
                         now=cutoff,
                     )
                 except Exception as error:
                     logger.exception(
-                        "Failed to evaluate a logs alert for preview; skipping the alert",
-                        alert_id=str(alert.id),
-                        team_id=alert.team_id,
+                        "Failed to evaluate a logs alert; skipping it",
+                        configuration_id=str(configuration.id),
+                        team_id=configuration.team_id,
                         error=str(error),
                     )
                     continue
