@@ -52,6 +52,13 @@ FROM and JOIN completion includes visible table CTEs before catalog tables, with
 CTE names follow the same scope, definition-order, and shadowing rules as relation lookup; scalar WITH aliases are not tables.
 A visible CTE hides a catalog table with the same name, and pagination counts that name once.
 CTE insertion quotes the whole name when needed, including names with dots.
+When visible sources expose the same field name, unqualified completion returns one suggestion per source.
+The label remains the field name, the detail includes its type and source, and insertion uses the qualified field, for example `e.uuid`.
+An explicit table alias identifies its source, including separate aliases in a self-join; the table name and its alias do not create duplicate suggestions.
+CTEs and aliased subqueries use the same rules, with identifier quoting for both the source and field.
+Multi-part physical table paths use HogQL's implicit double-underscore alias, for example `postgres__synced__orders.synced_id`; an explicit alias takes precedence.
+Equal field labels have a deterministic source order across completion pages.
+Unique fields and already-qualified completion retain their existing details and insertion text.
 
 Select aliases follow the resolution order in `posthog/hogql/resolver.py` (`visit_select_query` and `visit_alias`).
 An explicit alias becomes visible after its defining SELECT item, so later items can reference it.
@@ -64,7 +71,7 @@ Direct alias chains retain catalog types, and validation typo suggestions includ
 Physical field completion borrows the catalog prefix index.
 Derived projections have a shared limit of 16,384 fields before deduplication.
 Field resolution also has a request-wide budget of 1,048,576 work units, counting relation visits and identifier bytes used for lookups and derived-field indexes.
-Select-alias indexing, lookup, and suggestion scans share that work budget.
+Select-alias indexing, source enumeration, lookup, and field suggestion scans share that work budget.
 Aliases of the same relation share a cached field index and one candidate entry for unqualified type resolution.
 Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
 Derived qualified suggestions are sorted and deduplicated before pagination.
@@ -78,7 +85,7 @@ Derived qualified suggestions are sorted and deduplicated before pagination.
 - Property provenance through select aliases is not available. A visible alias that shadows a property owner suppresses its property suggestions and property-name validation. Track the alias expression's owner before enabling property traversal; qualified physical properties remain available.
 - Scalar WITH aliases, aliases inside expressions, ARRAY JOIN aliases, QUALIFY, and duplicate-alias diagnostics remain follow-up work. Model their resolver order and parser support before extending the top-level SELECT alias index. For duplicate declarations, the index retains the first declaration; it does not establish that the query is valid.
 - Validation skips field checks when a query has no known FROM bindings, including SELECT without FROM. Completion can still suggest its aliases. Add explicit empty-source scopes and distinguish unknown relations before enabling strict validation there.
-- Joined relations can still produce equal field labels with no source in the suggestion detail. Add relation provenance and qualification-aware insertion text before resolving that ambiguity. References to the same relation already share one suggestion set.
+- JOIN USING output coalescing and ambiguous unqualified-field diagnostics remain follow-up work. Completion offers each source's qualified field; it does not choose a join-wide value or change validation's ambiguity rules.
 - CTE table-name suggestions require cursor replacement to produce parseable SQL. Malformed WITH clauses fall back to catalog suggestions without guessing CTE scope. Structured recovery remains follow-up work.
 - Unaliased `FROM` subquery outputs, completion inside quoted identifiers, expression type inference, and complete set-operation semantics remain follow-up work.
 - Recursive CTEs, lateral subqueries, and full HogQL compiler parity are outside this layer. The service does not execute queries or fetch metadata during analysis.

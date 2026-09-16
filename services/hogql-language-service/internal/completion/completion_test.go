@@ -12,6 +12,7 @@ import (
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/validation"
 )
 
 func testCatalog() *catalog.PreparedCatalog {
@@ -144,13 +145,101 @@ func TestCompletesTablesAfterFrom(t *testing.T) {
 }
 
 func TestCompletesFieldsForAlias(t *testing.T) {
-	query := "SELECT o. FROM orders AS o"
-	result, err := Complete(testCatalog(), query, len("SELECT o."), PositionEncodingUTF8, "")
-	if err != nil {
-		t.Fatal(err)
+	type testCase struct {
+		name, query string
+		fields      []Suggestion
 	}
-	if len(result.Suggestions) != 2 {
-		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	tests := []testCase{
+		{"qualified", "SELECT o.| FROM orders AS o", []Suggestion{{Label: "amount", Detail: "float"}, {Label: "order_id", Detail: "string"}}},
+		{"alias is not another source", "SELECT uu| FROM events AS e", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"self join", "SELECT uu| FROM events AS e JOIN events AS other ON e.uuid = other.uuid", []Suggestion{
+			{Label: "uuid", Detail: "string from e", InsertText: "e.uuid"}, {Label: "uuid", Detail: "string from other", InsertText: "other.uuid"},
+		}},
+		{"physical join", "SELECT prop| FROM events JOIN persons ON 1 = 1", []Suggestion{
+			{Label: "properties", Detail: "json from events", InsertText: "events.properties"}, {Label: "properties", Detail: "json from persons", InsertText: "persons.properties"},
+		}},
+		{"cte and subquery", "WITH recent AS (SELECT uuid FROM events) SELECT uu| FROM recent AS r JOIN (SELECT uuid FROM events) AS s ON 1 = 1", []Suggestion{
+			{Label: "uuid", Detail: "string from r", InsertText: "r.uuid"}, {Label: "uuid", Detail: "string from s", InsertText: "s.uuid"},
+		}},
+		{"cte self join", "WITH recent AS (SELECT uuid FROM events) SELECT uu| FROM recent AS r JOIN recent AS s ON 1 = 1", []Suggestion{
+			{Label: "uuid", Detail: "string from r", InsertText: "r.uuid"}, {Label: "uuid", Detail: "string from s", InsertText: "s.uuid"},
+		}},
+		{"quoted qualifier", "SELECT uu| FROM events AS `recent.items` JOIN events AS `FROM` ON 1 = 1", []Suggestion{
+			{Label: "uuid", Detail: "string from `FROM`", InsertText: "`FROM`.uuid"}, {Label: "uuid", Detail: "string from `recent.items`", InsertText: "`recent.items`.uuid"},
+		}},
+		{"dotted cte", "WITH `recent.items` AS (SELECT uuid FROM events) SELECT uu| FROM `recent.items` JOIN events AS e ON 1 = 1", []Suggestion{
+			{Label: "uuid", Detail: "string from `recent.items`", InsertText: "`recent.items`.uuid"}, {Label: "uuid", Detail: "string from e", InsertText: "e.uuid"},
+		}},
+		{"warehouse qualifier", "WITH recent AS (SELECT uuid AS synced_id FROM events) SELECT synced_| FROM postgres.synced.orders JOIN recent ON 1 = 1", []Suggestion{
+			{Label: "synced_id", Detail: "string from postgres__synced__orders", InsertText: "postgres__synced__orders.synced_id"}, {Label: "synced_id", Detail: "string from recent", InsertText: "recent.synced_id"},
+		}},
+		{"quoted field", "WITH t AS (SELECT uuid AS `user id` FROM events) SELECT us| FROM t AS a JOIN t AS b ON 1 = 1", []Suggestion{
+			{Label: "user id", Detail: "string from a", InsertText: "a.`user id`"}, {Label: "user id", Detail: "string from b", InsertText: "b.`user id`"},
+		}},
+		{"unknown expression type", "WITH t AS (SELECT count() AS total FROM events) SELECT tot| FROM t AS a JOIN t AS b ON 1 = 1", []Suggestion{
+			{Label: "total", Detail: "from a", InsertText: "a.total"}, {Label: "total", Detail: "from b", InsertText: "b.total"},
+		}},
+		{"case-folded fields", "WITH a AS (SELECT uuid AS shared FROM events), b AS (SELECT uuid AS SHARED FROM events) SELECT sha| FROM a JOIN b ON 1 = 1", []Suggestion{
+			{Label: "SHARED", Detail: "string from b", InsertText: "b.SHARED"}, {Label: "shared", Detail: "string from a", InsertText: "a.shared"},
+		}},
+		{"select alias precedence", "SELECT e.event AS uuid FROM events AS e JOIN events AS other ON 1 = 1 ORDER BY uu|", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"qualified join stays unqualified", "SELECT e.uu| FROM events AS e JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"nested alias shadow", "SELECT * FROM events AS e WHERE uuid IN (SELECT uu| FROM events AS e)", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"cte scope isolation", "WITH t AS (SELECT uu| FROM events AS e) SELECT * FROM t JOIN events AS other ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
+		{"subquery scope isolation", "SELECT * FROM events AS e JOIN (SELECT uu| FROM events AS other) AS s ON 1 = 1", []Suggestion{{Label: "uuid", Detail: "string"}}},
+	}
+	var sources []string
+	var fields []Suggestion
+	for index := range PageSize + 2 {
+		alias := fmt.Sprintf("source_%02d", index)
+		sources = append(sources, "events AS "+alias)
+		fields = append(fields, Suggestion{Label: "uuid", Detail: "string from " + alias, InsertText: alias + ".uuid"})
+	}
+	tests = append(tests, testCase{"joined pagination", "SELECT uu| FROM " + strings.Join(sources, " CROSS JOIN "), fields})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.query, '|')
+			query := strings.Replace(test.query, "|", "", 1)
+			var fields []Suggestion
+			cursor := ""
+			for {
+				result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, cursor)
+				if err != nil || result.ParseError != "" || len(result.Suggestions) > PageSize {
+					t.Fatalf("result = %#v, err = %v", result, err)
+				}
+				for _, suggestion := range result.Suggestions {
+					if suggestion.Kind == "field" {
+						fields = append(fields, suggestion)
+					}
+				}
+				cursor = result.NextCursor
+				if cursor == "" {
+					break
+				}
+				if len(fields) >= len(test.fields) {
+					t.Fatalf("unexpected next page: %#v", result)
+				}
+			}
+			if len(fields) != len(test.fields) {
+				t.Fatalf("fields = %#v, want %#v", fields, test.fields)
+			}
+			for index, expected := range test.fields {
+				actual := fields[index]
+				if actual.Label != expected.Label || actual.Detail != expected.Detail || actual.InsertText != expected.InsertText {
+					t.Errorf("field = %#v, want %#v", actual, expected)
+				}
+				if actual.InsertText != "" {
+					start := strings.LastIndexByte(query[:position], ' ') + 1
+					completed := query[:start] + actual.InsertText + query[position:]
+					if checked := validation.Validate(testCatalog(), completed); !checked.Valid {
+						t.Errorf("inserted query %q is invalid: %#v", completed, checked)
+					}
+				}
+				if index > 0 && fields[index-1].Label == actual.Label && fields[index-1].SortText == actual.SortText {
+					t.Errorf("indistinguishable sort keys: %#v", fields)
+				}
+			}
+		})
 	}
 }
 
@@ -297,22 +386,31 @@ func BenchmarkCompleteDerivedLookups(b *testing.B) {
 	}
 }
 
-func TestSelectAliasLookupWorkBudget(t *testing.T) {
+func TestCompletionFieldLookupWorkBudget(t *testing.T) {
 	tables := map[string]catalog.Table{}
 	var sources []string
 	for index := range 128 {
 		name := fmt.Sprintf("source_%d", index)
-		tables[name] = catalog.Table{Name: name, Fields: map[string]catalog.Field{"amount": {Name: "amount", Type: "float"}}}
+		tables[name] = catalog.Table{Name: name, Fields: map[string]catalog.Field{
+			"amount":                             {Name: "amount", Type: "float"},
+			"field_" + strings.Repeat("x", 8192): {Type: "float"},
+		}}
 		sources = append(sources, name)
 	}
 	schema := catalog.Prepare(&catalog.Catalog{Tables: tables})
-	query := "SELECT " + strings.Repeat("x", 8192) + " AS total FROM " + strings.Join(sources, " CROSS JOIN ") + " ORDER BY tot"
-	if err := querylimits.Validate(query); err != nil {
-		t.Fatal(err)
-	}
-	result, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
-	if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
-		t.Fatalf("result = %#v, err = %v", result, err)
+	for _, query := range []string{
+		"SELECT " + strings.Repeat("x", 8192) + " AS total FROM " + strings.Join(sources, " CROSS JOIN ") + " ORDER BY tot|",
+		"SELECT field_| FROM " + strings.Join(sources, " CROSS JOIN "),
+	} {
+		position := strings.IndexByte(query, '|')
+		query = strings.Replace(query, "|", "", 1)
+		if err := querylimits.Validate(query); err != nil {
+			t.Fatal(err)
+		}
+		result, err := Complete(schema, query, position, PositionEncodingUTF8, "")
+		if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
+			t.Fatalf("result = %#v, err = %v", result, err)
+		}
 	}
 }
 

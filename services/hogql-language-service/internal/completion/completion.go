@@ -144,26 +144,7 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else {
-		aliases := map[string]bool{}
-		for alias := range bindings.SelectAliases(lowerPrefix) {
-			aliases[alias.Name] = true
-			suggestions = appendFields(suggestions, slices.Values([]catalog.Entry{alias}))
-		}
-		seen := map[analysis.Relation]bool{}
-		for _, relation := range bindings.All() {
-			if seen[relation] {
-				continue
-			}
-			seen[relation] = true
-			fields := func(yield func(catalog.Entry) bool) {
-				for field := range relation.Prefix(lowerPrefix) {
-					if !aliases[field.Name] && !yield(field) {
-						return
-					}
-				}
-			}
-			suggestions = appendFields(suggestions, fields)
-		}
+		suggestions = fieldSuggestions(bindings, lowerPrefix)
 		if document != nil && document.LimitError() != nil {
 			return Result{}, document.LimitError()
 		}
@@ -184,12 +165,18 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		}
 		left, right := strings.ToLower(suggestions[i].Label), strings.ToLower(suggestions[j].Label)
 		if left == right {
+			if suggestions[i].Label == suggestions[j].Label {
+				return suggestions[i].InsertText < suggestions[j].InsertText
+			}
 			return suggestions[i].Label < suggestions[j].Label
 		}
 		return left < right
 	})
 	for index := range suggestions {
 		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
+		if suggestions[index].Kind == "field" && suggestions[index].InsertText != "" {
+			suggestions[index].SortText += "-" + suggestions[index].InsertText
+		}
 	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}
 	if offset > len(suggestions) {
@@ -269,16 +256,6 @@ func decodeCursor(cursor string) (int, error) {
 
 func encodeCursor(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
-}
-
-func appendFields(out []Suggestion, fields iter.Seq[catalog.Entry]) []Suggestion {
-	for field := range fields {
-		if !supportedHogQLIdentifier(field.Name) {
-			continue
-		}
-		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type, InsertText: suggestionInsertText("field", field.Name)})
-	}
-	return out
 }
 
 func suggestionInsertText(kind, name string) string {
