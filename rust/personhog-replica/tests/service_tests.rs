@@ -5,19 +5,20 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
+    TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
 use tonic::Request;
+use uuid::Uuid;
 
 /// Test context that wraps TestContext and adds a service instance.
 pub struct ServiceTestContext {
@@ -1252,8 +1253,71 @@ async fn test_delete_hash_key_overrides_by_teams_invalid_batch_size(#[case] batc
 }
 
 // ============================================================
-// Delete persons batch for team tests
+// Delete tombstoned persons tests
 // ============================================================
+
+#[rstest]
+#[case::server_default(0, 10)]
+#[case::caller_budget(5, 3)]
+#[tokio::test]
+async fn test_delete_tombstoned_persons_reports_each_outcome(
+    #[case] max_rows: i64,
+    #[case] expected_trimmed: i64,
+) {
+    // The test storage clamps max_rows to 12. The gone and blocked persons take 2 rows of the
+    // budget; the 20-row person is trimmed with what is left and comes back pending.
+    let ctx = ServiceTestContext::new().await;
+    let gone = ctx.insert_person("svc_tomb_gone", None).await.unwrap();
+    ctx.tombstone_person(gone.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_tomb_live", None).await.unwrap();
+    let blocked = ctx.insert_person("svc_tomb_blocked", None).await.unwrap();
+    ctx.tombstone_person(blocked.id, Some("svc_tomb_blocked"))
+        .await
+        .unwrap();
+    let big = ctx.insert_person("svc_tomb_big", None).await.unwrap();
+    for i in 0..19 {
+        ctx.add_distinct_id_to_person(big.id, &format!("svc_tomb_big_{i}"))
+            .await
+            .unwrap();
+    }
+    ctx.tombstone_person(big.id, None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![
+                gone.uuid.to_string(),
+                live.uuid.to_string(),
+                blocked.uuid.to_string(),
+                big.uuid.to_string(),
+                Uuid::now_v7().to_string(),
+            ],
+            max_rows,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert_eq!(response.skipped_live_count, 1);
+    assert_eq!(
+        response.blocked_person_uuids,
+        vec![blocked.uuid.to_string()]
+    );
+    assert_eq!(response.pending_person_uuids, vec![big.uuid.to_string()]);
+    assert_eq!(response.rows_deleted, 1 + expected_trimmed);
+    assert!(!ctx.person_row_exists(gone.id).await.unwrap());
+    assert!(ctx.person_row_exists(live.id).await.unwrap());
+    assert!(ctx.person_row_exists(blocked.id).await.unwrap());
+    assert!(ctx.person_row_exists(big.id).await.unwrap());
+    assert_eq!(
+        ctx.distinct_id_row_count(big.id).await.unwrap(),
+        20 - expected_trimmed
+    );
+
+    ctx.cleanup().await.ok();
+}
 
 #[tokio::test]
 async fn test_delete_persons_batch_for_team() {
