@@ -2,7 +2,7 @@ import re
 import time
 import hashlib
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol, TypedDict, cast
 
 from django.conf import settings
@@ -20,6 +20,10 @@ from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
+# Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
+MONTH_DELETE_GRACE_DAYS = 14
+# A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
+MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -45,6 +49,11 @@ class PrivacyDynamoClient(Protocol):
 
 def item_key(pk: str, sk: str) -> DynamoItem:
     return {"pk": {"S": pk}, "sk": {"S": sk}}
+
+
+def month_end(session_month: str) -> datetime:
+    year, month = (int(part) for part in session_month.split("-"))
+    return datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
 
 
 def identity_digest(value: str) -> str:
@@ -79,10 +88,17 @@ class AITrainingPrivacyStore:
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
-        self.client.put_item(
-            TableName=self.table_name,
-            Item={**item_key(f"month:{session_month}", "deleted"), "deleted": {"BOOL": True}},
-        )
+        try:
+            deletable_from = (
+                month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS) + MONTH_DELETE_IN_FLIGHT_MARGIN
+            )
+        except ValueError as error:
+            raise ValueError("Session month must use YYYY-MM") from error
+        if timezone.now() < deletable_from:
+            raise ValueError(
+                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d %H:%M} UTC, "
+                f"{MONTH_DELETE_GRACE_DAYS} days and one hour after the month ends"
+            )
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None
@@ -157,26 +173,31 @@ class AITrainingPrivacyStore:
         work = request.cursor.get("work")
         if work is None:
             work = self.initialize(request)
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         while work:
             if time.monotonic() >= deadline:
                 return False
             work = self.advance(work[0]) + work[1:]
-            request.cursor = {"work": work}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=work)
         now = timezone.now()
         complete_after = request.cursor.get("complete_after")
         if complete_after is None:
-            request.cursor = {"work": [], "complete_after": now.timestamp() + KEY_READ_LEASE_SECONDS}
-            request.save(update_fields=["cursor"])
+            self.save_cursor(request, work=[], complete_after=now.timestamp() + KEY_READ_LEASE_SECONDS)
             return False
         if now.timestamp() < complete_after:
             return False
+        # Key creation checks the team block only when it reads the batch, so a batch that read before the block can still store a key within its commit budget; the lease outlasts that budget, so one more sweep after it catches every straggler.
+        if request.kind == "team" and not request.cursor.get("reswept"):
+            self.save_cursor(request, work=[{"op": "team", "team_id": request.team_id, "shard": -1}], reswept=True)
+            return self.apply(request, deadline)
         request.completed_at = now
         request.identifiers = []
         request.save(update_fields=["completed_at", "identifiers"])
         return True
+
+    def save_cursor(self, request: AITrainingDeletionRequest, **fields: object) -> None:
+        request.cursor = {**request.cursor, **fields}
+        request.save(update_fields=["cursor"])
 
     def drain(self, limit: int = 100, budget_seconds: int = 240) -> int:
         deadline = time.monotonic() + budget_seconds

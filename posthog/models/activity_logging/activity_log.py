@@ -46,6 +46,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "GeneratedWidget",
     "Canvas",
     "Endpoint",
     "EndpointVersion",
@@ -57,6 +58,8 @@ ActivityScope = Literal[
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
+    "ReplayScanner",
+    "VisionAlertConfiguration",
     "Comment",
     "Team",
     "Project",
@@ -400,6 +403,48 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
 }
 
+# Machine-written. A test asserts this covers `ReplayScanner._MACHINE_OWNED_FIELDS`, a narrower set.
+replay_scanner_machine_fields = [
+    "scanner_version",
+    "origin",
+    "inline_key",
+    "primed_at",
+    "last_swept_at",
+    "last_seen_session_id",
+    "deep_swept_through",
+    "deep_seen_session_id",
+    "deep_attempted_at",
+    "sweep_read_bytes_by_hour",
+    "fast_read_bytes_by_hour",
+    "deep_read_bytes_by_hour",
+    "feedback_themes",
+    "estimated_monthly_observations",
+    "estimated_at",
+    "estimate_attempted_at",
+    "search_suggestions",
+    "search_suggestions_watermark",
+    "search_suggestions_generated_at",
+    "search_last_viewed_at",
+    "limit_notified_period_start",
+    "admission_budget_used",
+    "admission_budget_refreshed_at",
+    "admission_budget_period_start",
+    "admission_credits_since_refresh",
+    "updated_at",
+]
+
+# Rewritten on every check; an alert's firing history is read from its own event log instead.
+vision_alert_machine_fields = [
+    "state",
+    "consecutive_failures",
+    "last_checked_at",
+    "last_notified_at",
+    "next_check_at",
+    "first_enabled_at",
+    # The engine passes this alongside next_check_at on every suppressed check.
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -411,6 +456,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "ReplayScanner": replay_scanner_machine_fields,
+    "VisionAlertConfiguration": vision_alert_machine_fields,
     "LogsAlertConfiguration": [
         "next_check_at",
         "last_notified_at",
@@ -524,6 +571,10 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    # The reverse relations are listed because the diff reads each one in full; a scanner's
+    # observations run to millions of rows, and its alerts carry their own audit trail.
+    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
@@ -1128,6 +1179,37 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
         return None
 
 
+# The frontend matches on this job type to render the job id as a link to a sandbox task.
+# Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
+AGENT_TRIGGER_JOB_TYPE = "agent"
+
+
+def agent_trigger() -> Optional[Trigger]:
+    """The agent attribution for this request, or None when no token-bound task reached it.
+
+    The task id is required because it is the only server-set part. The intent is the agent's claim.
+    """
+    task_id = activity_storage.get_agent_task_id()
+    if not task_id:
+        return None
+    intent = activity_storage.get_agent_intent()
+    return Trigger(
+        job_type=AGENT_TRIGGER_JOB_TYPE,
+        job_id=task_id,
+        payload={"intent": intent} if intent else {},
+    )
+
+
+def _with_agent_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save."""
+    try:
+        trigger = agent_trigger()
+        return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
+    except Exception as e:
+        capture_exception(e)
+        return detail
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -1150,6 +1232,9 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    if detail.trigger is None:
+        # A product that sets its own trigger already says what drove the write.
+        detail = _with_agent_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

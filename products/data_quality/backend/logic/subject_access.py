@@ -20,7 +20,7 @@ from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
 
 from posthog.dataclasses import frozen
@@ -113,6 +113,63 @@ class DenialContext:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
+
+
+@frozen
+class ReferenceGate:
+    """Decides whether one person may be told a check failed.
+
+    A check can read tables other than the one it is defined on: a ``custom_sql`` check reads
+    whatever its query selects, and a ``relationships`` check reads the table it points at. The
+    failure count in the notification therefore says something about every one of those tables, so
+    a person who may not read one of them must not get the notification.
+
+    Holds the two things that answer this: the tables, views and metrics the person may read, and
+    a matcher for the table names they are denied.
+
+    Both come from the person's :class:`DenialContextKey` and from nothing else, so one gate can
+    serve every person whose key is equal. The :class:`DenialContext` it is built from cannot be
+    shared that way, because that also holds the HogQL database built for one specific person.
+    """
+
+    readable: ReadableSubjects
+    matcher: DeniedTableMatcher = field(compare=False)
+
+    def admits(self, executed_references: Sequence[dict[str, str]], names: Sequence[str]) -> bool:
+        readable_references = all(
+            self.readable.contains(ref[_SUBJECT_TYPE_KEY], ref[_SUBJECT_UUID_KEY]) for ref in executed_references
+        )
+        if not readable_references:
+            return False
+        return not self.matcher.matches(names)
+
+
+@frozen
+class DenialContextKey:
+    """What one person is allowed to read, reduced to something a cache can key on.
+
+    Working out which table names a person is denied is expensive, because it builds a HogQL
+    database for them. These four values are the only things about the person that the answer
+    depends on, so two people on the same team with equal keys are denied exactly the same names.
+
+    A surface that has to check hundreds of people can therefore resolve one :class:`DenialContext`
+    per distinct key instead of one per person.
+    """
+
+    allowed_table_ids: frozenset[UUID]
+    allowed_view_ids: frozenset[UUID]
+    can_read_catalog: bool
+    denied_system_tables: frozenset[str]
+
+
+def denial_context_key(team: "Team", user: "User", user_access_control: "UserAccessControl") -> DenialContextKey:
+    """Reads the key for one person. Runs a few Postgres queries and builds no HogQL database."""
+    return DenialContextKey(
+        allowed_table_ids=warehouse_facade.allowed_table_ids(team.id, user_access_control),
+        allowed_view_ids=data_modeling_facade.allowed_saved_query_ids(team.id, user_access_control),
+        can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+        denied_system_tables=system_table_denials(team, user, user_access_control),
+    )
 
 
 @frozen
