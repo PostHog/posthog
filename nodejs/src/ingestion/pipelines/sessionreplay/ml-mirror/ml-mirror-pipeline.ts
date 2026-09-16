@@ -218,7 +218,7 @@ export function createMlMirrorReplayPipeline(
                 .gather(),
         (afterBatch) =>
             afterBatch.pipe(async function passThroughAfterBatch(input) {
-                await mlOptions.privacy?.commit()
+                await mlOptions.privacy?.commit(promiseScheduler)
                 return ok(input)
             }),
         // One batch in flight at a time (also the framework default): each feed tags the manager's

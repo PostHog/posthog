@@ -7,6 +7,8 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
 
+import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+
 import { TableKey, tableKeyString } from './schema'
 
 export type DynamoItem = Record<string, AttributeValue>
@@ -34,6 +36,10 @@ export class MlPrivacyDynamoDB {
     ) {}
 
     public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
+        return this.timed('dynamodb_read', () => this.readUntimed(keys, deadline))
+    }
+
+    private async readUntimed(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
         const chunks: TableKey[][] = []
@@ -69,35 +75,46 @@ export class MlPrivacyDynamoDB {
     }
 
     public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {
-        return this.writeConcurrency(async () => {
-            try {
-                await this.client.send(
-                    new PutItemCommand({
-                        TableName: this.tableName,
-                        Item: { ...encodeKey(key), ...attributes },
-                        ConditionExpression: 'attribute_not_exists(pk)',
-                    }),
-                    { abortSignal: this.requestSignal(deadline) }
-                )
-                return true
-            } catch (error) {
-                if (error instanceof ConditionalCheckFailedException) {
-                    return false
+        return this.writeConcurrency(() =>
+            this.timed('dynamodb_put_if_absent', async () => {
+                try {
+                    await this.client.send(
+                        new PutItemCommand({
+                            TableName: this.tableName,
+                            Item: { ...encodeKey(key), ...attributes },
+                            ConditionExpression: 'attribute_not_exists(pk)',
+                        }),
+                        { abortSignal: this.requestSignal(deadline) }
+                    )
+                    return true
+                } catch (error) {
+                    if (error instanceof ConditionalCheckFailedException) {
+                        return false
+                    }
+                    throw error
                 }
-                throw error
-            }
-        })
+            })
+        )
     }
 
     public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
         await this.writeConcurrency(() =>
-            this.client.send(
-                new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
-                {
-                    abortSignal: this.requestSignal(deadline),
-                }
+            this.timed('dynamodb_put', () =>
+                this.client.send(
+                    new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
+                    { abortSignal: this.requestSignal(deadline) }
+                )
             )
         )
+    }
+
+    private async timed<T>(request: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+        const startedAt = performance.now()
+        try {
+            return await operation()
+        } finally {
+            MlMirrorMetrics.observeMlPrivacyRequest(request, performance.now() - startedAt)
+        }
     }
 
     private requestSignal(deadline?: AbortSignal): AbortSignal {

@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import pLimit from 'p-limit'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
 
@@ -51,7 +52,8 @@ export class MlKeyEncryption {
         await sodium.ready
     }
 
-    private async request<T>(operation: () => Promise<T>): Promise<T> {
+    private async request<T>(kind: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+        const queuedAt = performance.now()
         return this.concurrency(async () => {
             const now = Date.now()
             const scheduledAt = Math.max(now, this.nextRequestAt)
@@ -59,12 +61,18 @@ export class MlKeyEncryption {
             if (scheduledAt > now) {
                 await new Promise((resolve) => setTimeout(resolve, scheduledAt - now))
             }
-            return operation()
+            const sentAt = performance.now()
+            MlMirrorMetrics.observeMlPrivacyRequest('kms_wait', sentAt - queuedAt)
+            try {
+                return await operation()
+            } finally {
+                MlMirrorMetrics.observeMlPrivacyRequest(kind, performance.now() - sentAt)
+            }
         })
     }
 
     public async generate(identity: MlKeyIdentity): Promise<MlDataKey> {
-        const result = await this.request(() =>
+        const result = await this.request('kms_generate', () =>
             this.kms.send(
                 new GenerateDataKeyCommand({
                     KeyId: this.masterKeyArn,
@@ -96,7 +104,7 @@ export class MlKeyEncryption {
         }
         let pending = this.pending.get(id)
         if (!pending) {
-            pending = this.request(async () => {
+            pending = this.request('kms_decrypt', async () => {
                 const result = await this.kms.send(
                     new DecryptCommand({
                         KeyId: this.masterKeyArn,
