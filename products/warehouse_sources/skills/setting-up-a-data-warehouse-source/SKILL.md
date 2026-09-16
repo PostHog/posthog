@@ -159,7 +159,13 @@ field definitions. The response is a dict keyed by source type. Each entry descr
     `payload`. `external-data-sources-db-schema` does not accept it — that call reads the raw values. So the
     advanced flow cannot discover tables from a stored credential. Prefer the one-step setup for any source that
     declares a sensitive field.
-  - `switch-group` and `select` options nest their own `fields` array. Read those the same way.
+  - `switch-group` and `select` options nest their own `fields` array. These are branches, not extra fields. Only
+    the chosen option's fields apply to a `select`, and a `switch-group`'s fields apply only when the group is on.
+    Ask for the active branch alone. Prompting for a Snowflake `private_key` when the user picked password auth is
+    the usual way this goes wrong.
+  - Branches nest in the payload too. A `select` container carries the chosen option under `selection`, a
+    `switch-group` carries `enabled`, and the branch's own fields sit beside that key. Do not flatten them to the
+    top level.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
 
