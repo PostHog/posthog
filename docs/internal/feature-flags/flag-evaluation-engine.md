@@ -461,6 +461,8 @@ pub struct FlagEvaluationState {
 Property overrides from the request body are merged on top of DB-fetched properties. Request overrides take precedence.
 GeoIP-derived `$geoip_*` properties follow the same rule. They are added to the request overrides before evaluation, but only fill keys the request didn't supply.
 See [GeoIP enrichment of `person_properties`](rust-service-overview.md#geoip-enrichment-of-person_properties).
+One class is the exception. The persons row owns every `$initial_` key, so a request value for one of them stands only where the row answers nothing.
+See [`$initial_` person properties come from the persons row](rust-service-overview.md#initial_-person-properties-come-from-the-persons-row).
 
 ### Unfetched properties fail closed
 
