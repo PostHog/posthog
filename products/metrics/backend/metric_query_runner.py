@@ -539,7 +539,7 @@ class MetricQueryRunner:
                     "time": time,
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": labels,
-                    "series_fingerprints": row[4 + group_count],
+                    "series_fingerprints": row[3 + group_count],
                 }
             )
         return rows
