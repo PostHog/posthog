@@ -1774,8 +1774,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
             max_wait_duration = data.get("config", {}).get("max_wait_duration")
-            # A falsy timeout means "wait indefinitely": conditional_branch.ts skips the parse
-            # entirely for it, so only a value that actually reaches the parser needs the format.
+            # A falsy timeout never reaches the parser: conditional_branch.ts skips the re-park and
+            # continues to the next action, so only a value the parser sees needs the format. It does
+            # not wait indefinitely, whatever the field name suggests.
             if strict and max_wait_duration and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
 
