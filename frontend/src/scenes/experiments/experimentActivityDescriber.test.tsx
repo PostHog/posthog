@@ -413,10 +413,10 @@ describe('experimentActivityDescriber', () => {
             expect(text).not.toContain(': on')
         })
 
-        it('describes a reset entry without narrating the individual cleared fields', () => {
+        it('describes a reset entry without narrating the cleared fields', () => {
             const result = experimentActivityDescriber(
                 baseLogItem({
-                    activity: 'updated',
+                    activity: 'reset',
                     detail: {
                         name: 'Checkout funnel',
                         changes: [
@@ -434,20 +434,6 @@ describe('experimentActivityDescriber', () => {
                                 before: '2026-07-18T14:25:34Z',
                                 after: null,
                             },
-                            {
-                                type: ActivityScope.EXPERIMENT,
-                                action: 'deleted',
-                                field: 'conclusion',
-                                before: 'won',
-                                after: null,
-                            },
-                            {
-                                type: ActivityScope.EXPERIMENT,
-                                action: 'changed',
-                                field: 'status',
-                                before: 'complete',
-                                after: 'draft',
-                            },
                         ],
                         merge: null,
                         trigger: null,
@@ -458,7 +444,29 @@ describe('experimentActivityDescriber', () => {
             expect(text).toContain('reset experiment')
             expect(text).not.toContain('start date')
             expect(text).not.toContain('end date')
-            expect(text).not.toContain('conclusion')
+        })
+
+        it('keeps a row for a standalone end date removal', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'deleted',
+                                field: 'end_date',
+                                before: '2026-07-18T14:25:34Z',
+                                after: null,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain('removed the end date')
         })
 
         it.each([

@@ -151,8 +151,8 @@ export const getExperimentChangeDescription = (
             }
 
             /**
-             * only a reset clears the start date, so this change carries the row;
-             * the end_date/conclusion clears from the same reset describe to null
+             * a start_date clear rewrites the whole row to the 'reset' activity in the backend
+             * handler, so this only renders for rows logged before that rewrite shipped
              */
             if (action === 'deleted') {
                 return 'reset experiment:'
@@ -168,11 +168,8 @@ export const getExperimentChangeDescription = (
                 return 'stopped experiment'
             }
 
-            /**
-             * only a reset clears the end date; the start_date clause renders the reset
-             */
             if (action === 'deleted') {
-                return null
+                return 'removed the end date of'
             }
 
             return 'changed the end date'
@@ -198,11 +195,8 @@ export const getExperimentChangeDescription = (
                 )
             }
 
-            /**
-             * only a reset clears the conclusion; the start_date clause renders the reset
-             */
             if (action === 'deleted') {
-                return null
+                return 'removed the conclusion of'
             }
 
             return 'changed the conclusion'
