@@ -6,6 +6,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 # the endpoint name from ENDPOINTS / get_schemas. Partial coverage is fine — anything not listed
 # here falls back to LLM enrichment using the docs_url and column data types.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "accounts": {
+        "description": "CallRail accounts the API key can reach. The top-level object every other resource is scoped under, and the lookup for multi-account (agency) reporting.",
+        "docs_url": "https://apidocs.callrail.com/#accounts",
+        "columns": {
+            "id": "Unique identifier for the account.",
+            "name": "Name of the account.",
+            "outbound_recording_enabled": "Whether recording is enabled for outbound calls placed from the CallRail web application.",
+            "hipaa_account": "Whether the account is a HIPAA account.",
+        },
+    },
     "calls": {
         "description": "Tracked phone calls captured by CallRail, including caller details, attribution source, and outcome.",
         "docs_url": "https://apidocs.callrail.com/#calls",
@@ -55,6 +65,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "landing_page_url": "Page the visitor landed on before submitting.",
             "form_url": "URL of the page containing the form.",
             "first_form": "Whether this was the person's first form submission.",
+        },
+    },
+    "leads": {
+        "description": "Leads in the CallRail account: the people derived from tracked calls, texts, and form submissions.",
+        "docs_url": "https://apidocs.callrail.com/#leads",
+        "columns": {
+            "id": "Unique identifier for the lead.",
+            "name": "Full name of the lead.",
+            "phone": "Phone number of the lead, in E.164 format.",
+            "email": "Email address of the lead.",
+            "created_at": "When the lead was created (ISO 8601, UTC).",
+            "company_id": "Identifier of the company the lead belongs to.",
+            "company_name": "Name of the company the lead belongs to.",
+        },
+    },
+    "lead_timelines": {
+        "description": "Timeline of every event and interaction recorded for a lead, one row per event, across calls, form submissions, texts, chats, and milestones. Synced once per lead.",
+        "docs_url": "https://apidocs.callrail.com/#lead-timelines",
+        "columns": {
+            "lead_id": "Identifier of the lead this event belongs to. Injected from the parent lead.",
+            "type": "Kind of event: call, form_submission, sms, chat, or milestone.",
+            "id": "Identifier of the underlying object the event refers to, unique within the lead's timeline.",
+            "event_date": "When the event happened (ISO 8601).",
+            "customer_name": "Name of the customer on a call event.",
+            "customer_phone_number": "Phone number of the customer, in E.164 format.",
+            "direction": "Whether a call event was inbound or outbound.",
+            "duration": "Length of a call event in seconds.",
+            "answered": "Whether a call event was answered.",
+            "form_name": "Name of the form on a form_submission event.",
+            "form_url": "URL of the page the form was submitted from.",
+            "form_fields": "Values submitted with the form.",
+            "form_submission_url": "URL the visitor landed on after submitting the form.",
+            "message_content": "Body of an sms event.",
+            "message_phone_number": "Phone number an sms event was exchanged with.",
+            "message_type": "Kind of message on an sms event.",
+            "thread_id": "Identifier of the SMS thread an sms event belongs to.",
+            "chat_subject": "Subject of a chat event.",
+            "chat_id": "Identifier of the chat.",
+            "milestone_type": "Which milestone a milestone event marks, e.g. lead_created.",
+            "touchpoint_type": "Attribution touchpoint behind the event, e.g. organic_search or paid_search.",
+        },
+    },
+    "page_views": {
+        "description": "Browsing history behind a tracked call: the pages a visitor viewed before dialing, newest first. Only recorded for calls placed to a session tracker, and synced once per call.",
+        "docs_url": "https://apidocs.callrail.com/#page-views",
+        "columns": {
+            "call_id": "Identifier of the call this page view belongs to. Injected from the parent call.",
+            "referrer_url": "URL of the referring source or website the visitor was previously viewing.",
+            "page_url": "URL the visitor was viewing, either before navigating on or as the last page seen before calling the tracking number.",
+            "created_at": "When the page view was recorded (ISO 8601).",
         },
     },
     "text_messages": {

@@ -23,7 +23,6 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
-from posthog.api.github_webhooks.views import github_webhook
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
@@ -35,7 +34,10 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import home, home_with_region_redirect
+from posthog.ingress.github.provider import build_github_provider
+from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
+from posthog.product_urls import ProductRootRoutes
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
@@ -49,7 +51,6 @@ from products.customer_analytics.backend.presentation.views.internal import (
 )
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
-from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.api.push_subscriptions import push_subscriptions
 from products.notebooks.backend.facade.sql_v2 import (
@@ -70,14 +71,10 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
-from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
-from products.user_interviews.backend.presentation.webhooks import (
-    start_call as user_interviews_start_call,
-    vapi_webhook,
-)
+from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
 from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
@@ -97,6 +94,9 @@ from .views import (
     stats,
     update_preferences,
 )
+
+# One view for both paths, so the provider is built once per process rather than once per route.
+github_app_webhook = build_webhook_view(build_github_provider("posthog"))
 
 urlpatterns = [
     # EU spend must precede both the API router and the API fallback.
@@ -142,21 +142,11 @@ urlpatterns = [
     path("api/alerts/github", github.SecretAlert.as_view()),
     opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
-        "api/legal_documents/pandadoc",
-        legal_document_pandadoc_webhook,
-        name="legal_document_pandadoc_webhook",
-    ),
-    path(
         "api/users/<str:user_id>/signal_autonomy/",
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/vapi_webhook/",
-        csrf_exempt(vapi_webhook),
-        name="user_interviews_vapi_webhook",
-    ),
     path(
         "api/user_interviews/share/<str:access_token>/start_call/",
         csrf_exempt(user_interviews_start_call),
@@ -303,6 +293,9 @@ urlpatterns = [
         HogliClientMetadataView.as_view(),
         name="hogli-client-metadata",
     ),
+    # The one slot for root routes products declare themselves, after every core route and before
+    # the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
+    *ProductRootRoutes.collect(),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
@@ -358,11 +351,10 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
-    # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
-    opt_slash_path("webhooks/github/pr", github_webhook),
-    opt_slash_path("webhooks/github", github_webhook),
-    # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
-    opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
+    # GitHub App webhook — ingress fans it out to the tasks, conversations and workflows consumers.
+    # It stays in core because the App is shared: no single product owns its registration.
+    opt_slash_path("webhooks/github/pr", github_app_webhook),
+    opt_slash_path("webhooks/github", github_app_webhook),
     # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
     opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
