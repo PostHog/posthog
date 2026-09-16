@@ -2,7 +2,7 @@ List LLM traces to inspect AI/LLM usage across your application. Returns traces 
 
 Set `detail: "summary"` to preview event content when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` preserves the existing full-detail response, subject to size limits.
 
-The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld, because it can hold credentials, authentication state, request headers, user identity, permissions, or budget context. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched. A bag that has something withheld lists those names under `_redactedKeys`, with no values, and a response that withheld anything carries one top-level `_redacted` object next to `results`. The values are unchanged in PostHog.
+The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld, because it can hold credentials, authentication state, request headers, user identity, permissions, or budget context. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched. A bag that has something withheld lists those names under `_redactedKeys`, with no values, and a response that withheld anything carries one top-level `_redacted` object next to `results`. These tools never return a withheld value. The property still works as a filter here, and its value is unchanged in PostHog.
 
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
@@ -98,7 +98,7 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the event data, returned in full by default and previewed under `detail: "summary"`, subject to response size limits. See "Event types and their properties" below.
+- `events` — list of direct child events (generations, metrics, feedback). Each event carries its retained `properties`, returned in full by default and previewed under `detail: "summary"`, subject to response size limits. Withheld properties appear as names under `_redactedKeys` in every mode. See "Event types and their properties" below.
 
 ## Event types and their properties
 
