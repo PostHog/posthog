@@ -85,7 +85,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const { observation, reason } = item
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const clip = observationClipRange(observation)
-    const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
+    const result = readResult(observation)
+    // Fall back to the result's own scanner_type when the snapshot is absent, like observationClipRange,
+    // so a scan with no snapshot still places its outcome in the right spot.
+    const scannerType =
+        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
+        (result?.scanner_type as ScannerType | undefined)
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
     // A monitor verdict or a scorer score is a single token, so it rides the header row instead of
@@ -94,7 +99,6 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const outcomeInHeader = scannerType === 'monitor' || scannerType === 'scorer'
     // Summarizers already tell the story through title + summary; the other types show only an
     // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
-    const result = readResult(observation)
     const reasoning =
         scannerType !== 'summarizer' && typeof result?.reasoning === 'string'
             ? { text: result.reasoning, segments: result.reasoning_segments }
@@ -161,7 +165,13 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     <div className="flex flex-wrap items-center gap-2 min-w-0">
                         {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
                         <span className="text-muted text-sm truncate">{scannerName}</span>
-                        {outcomeInHeader && <ObservationResultSummary observation={observation} />}
+                        {/* Above the card's full-area overlay link, like the other interactive
+                            elements, so the outcome's hover tooltip stays reachable. */}
+                        {outcomeInHeader && (
+                            <span className="relative z-10">
+                                <ObservationResultSummary observation={observation} />
+                            </span>
+                        )}
                     </div>
                     <LemonButton
                         type="secondary"
