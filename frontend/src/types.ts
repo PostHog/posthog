@@ -82,7 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
+import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -6300,6 +6300,8 @@ export interface DataModelingNode {
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
+    /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
+    endpoint?: NodeEndpointApi | null
 }
 
 export interface DataModelingEdge {
