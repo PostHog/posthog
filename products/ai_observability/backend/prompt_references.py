@@ -81,6 +81,19 @@ def get_active_referencing_parent_names(team_id: int, child_name: str) -> list[s
     )
 
 
+def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
+    """Prompts whose latest or labeled version references `prompt_name` through this label."""
+    return sorted(
+        LLMPromptDependency.objects.filter(
+            team_id=team_id, child_name=prompt_name, child_label=label_name, prompt__deleted=False
+        )
+        .filter(Q(prompt__is_latest=True) | Q(prompt__labels__isnull=False))
+        .exclude(parent_name=prompt_name)
+        .values_list("parent_name", flat=True)
+        .distinct()
+    )
+
+
 def _reference_error(message: str, code: str) -> serializers.ValidationError:
     return serializers.ValidationError(message, code=code)
 
@@ -91,10 +104,16 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
     Raises DRF ValidationError so every write path (create, publish, duplicate)
     surfaces the same 400. Depth is capped at one level: a prompt that contains
     references cannot itself be referenced, checked in both directions here.
+
+    Must run inside the transaction that writes the version row: the target
+    lookups take row locks so a concurrent archive or label change on a
+    referenced prompt serializes with this validation instead of racing it.
+    Targets are processed in sorted order so concurrent publishers acquire
+    locks in the same order.
     """
     text = normalize_prompt_to_string(prompt_payload)
     all_references = parse_prompt_references(text)
-    references = list(dict.fromkeys(all_references))
+    references = sorted(set(all_references), key=lambda r: (r.name, r.version or 0, r.label or ""))
     if not references:
         return
 
@@ -127,9 +146,11 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
             )
 
         if reference.version is not None:
-            target = LLMPrompt.objects.filter(
-                team_id=team_id, name=reference.name, version=reference.version, deleted=False
-            ).first()
+            target = (
+                LLMPrompt.objects.select_for_update()
+                .filter(team_id=team_id, name=reference.name, version=reference.version, deleted=False)
+                .first()
+            )
             if target is None:
                 exists = LLMPrompt.objects.filter(team_id=team_id, name=reference.name, deleted=False).exists()
                 if not exists:
@@ -145,7 +166,8 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
                 )
         else:
             label = (
-                LLMPromptLabel.objects.filter(team_id=team_id, prompt_name=reference.name, name=reference.label)
+                LLMPromptLabel.objects.select_for_update(of=("self", "prompt"))
+                .filter(team_id=team_id, prompt_name=reference.name, name=reference.label)
                 .select_related("prompt")
                 .first()
             )

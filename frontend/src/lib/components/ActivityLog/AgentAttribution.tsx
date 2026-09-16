@@ -24,12 +24,14 @@ export function AgentAttribution({ logItem }: { logItem: HumanizedActivityLogIte
                     <span className="text-default">{attribution.intent}</span>
                 </div>
             )}
-            <div>
-                Agent task{' '}
-                <Link to={urls.codeTaskLink(attribution.taskId)} target="_blank" targetBlankIcon>
-                    {attribution.taskId.slice(0, 8)}
-                </Link>
-            </div>
+            {attribution.taskId && (
+                <div>
+                    Agent task{' '}
+                    <Link to={urls.codeTaskLink(attribution.taskId)} target="_blank" targetBlankIcon>
+                        {attribution.taskId.slice(0, 8)}
+                    </Link>
+                </div>
+            )}
         </div>
     )
 }

@@ -1714,6 +1714,8 @@ export type TrendsFormulaNode = {
 export interface ChartStyle {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: 'linear' | 'smooth'
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: 'palette' | 'opacity'
 }
 
 export type TrendsFilter = {
@@ -2181,6 +2183,8 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
