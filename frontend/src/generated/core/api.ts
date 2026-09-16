@@ -80,6 +80,7 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    ToolbarEntitlementsApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
     UploadedMediaCreateBody,
@@ -2492,6 +2493,17 @@ export const revokeLeakedKeyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
+export const getUserToolbarEntitlementsRetrieveUrl = () => {
+    return `/api/user/toolbar_entitlements/`
+}
+
+export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

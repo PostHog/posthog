@@ -38,6 +38,7 @@ from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
@@ -76,7 +77,8 @@ from posthog.auth import (
     SessionAuthentication,
     session_auth_required,
 )
-from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
+from posthog.cloud_utils import is_cloud
+from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
@@ -1824,6 +1826,57 @@ def get_toolbar_preloaded_flags(request):
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
+
+
+TOOLBAR_ENTITLEMENT_FEATURES: list[AvailableFeature] = [
+    AvailableFeature.TOOLBAR_HEATMAPS,
+]
+
+
+def _toolbar_entitlements(organization: Organization) -> dict[str, bool]:
+    """Gated toolbar tools are a Cloud plan entitlement, so every self-hosted deployment keeps them."""
+    if not is_cloud():
+        return {feature.value: True for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+    return {feature.value: organization.is_feature_available(feature) for feature in TOOLBAR_ENTITLEMENT_FEATURES}
+
+
+class ToolbarEntitlementsSerializer(serializers.Serializer):
+    entitlements = serializers.DictField(
+        child=serializers.BooleanField(),
+        help_text="Whether the current organization has each toolbar plan entitlement, keyed by feature name.",
+    )
+
+
+class ToolbarEntitlementsErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Why toolbar entitlements could not be retrieved.")
+
+
+class ToolbarEntitlementsView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+    include_in_api_docs = True
+
+    @extend_schema(
+        extensions={"x-product": "core"},
+        responses={
+            200: ToolbarEntitlementsSerializer,
+            400: ToolbarEntitlementsErrorSerializer,
+            403: ToolbarEntitlementsErrorSerializer,
+        },
+    )
+    def get(self, request: Request) -> JsonResponse:
+        user = cast(User, request.user)
+        team = user.team
+        if not team:
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        return JsonResponse({"entitlements": _toolbar_entitlements(team.organization)})
+
+
+get_toolbar_entitlements = session_auth_required(ToolbarEntitlementsView.as_view())
 
 
 @session_auth_required
