@@ -7,6 +7,7 @@ from products.tasks.backend.feature_flags import (
     get_model_access_error,
     is_dev_stack_image_bake_enabled,
     is_mcp_exec_skills_enabled,
+    is_pi_cloud_runtime_enabled,
 )
 
 
@@ -145,3 +146,37 @@ class TestIsMcpExecSkillsEnabled:
             side_effect=RuntimeError("flags down"),
         ):
             assert is_mcp_exec_skills_enabled("org-1", "user-1") is False
+
+
+class TestIsPiCloudRuntimeEnabled:
+    def test_evaluates_for_the_user_and_organization_server_side(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as feature_enabled_mock:
+            assert is_pi_cloud_runtime_enabled(distinct_id="user-1", organization_id="org-1") is True
+
+        assert feature_enabled_mock.call_args.args[0] == "pi-harness"
+        assert feature_enabled_mock.call_args.args[1] == "user-1"
+        kwargs = feature_enabled_mock.call_args.kwargs
+        assert kwargs["groups"] == {"organization": "org-1"}
+        assert kwargs["only_evaluate_locally"] is False
+
+    @pytest.mark.parametrize(
+        "distinct_id, organization_id",
+        [(None, "org-1"), ("user-1", None), ("", "org-1"), ("user-1", "")],
+    )
+    def test_an_unidentifiable_caller_is_refused_without_consulting_the_flag(self, distinct_id, organization_id):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert is_pi_cloud_runtime_enabled(distinct_id=distinct_id, organization_id=organization_id) is False
+
+        feature_enabled_mock.assert_not_called()
+
+    def test_fails_closed_on_flag_service_error(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flags down"),
+        ):
+            assert is_pi_cloud_runtime_enabled(distinct_id="user-1", organization_id="org-1") is False
