@@ -764,25 +764,35 @@ class TestPostgresSourceNonRetryableErrors:
         assert "pg_hba.conf" in friendly[0]
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg,expected_fragment",
         [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
             # fails with this provider message. The host/IP and port are volatile and excluded.
-            'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
-            "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+            (
+                'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
+                "compute-time quota",
+            ),
+            (
+                "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+                "compute-time quota",
+            ),
+            # The same provider family blocks the handshake once the project's data-transfer
+            # allowance is spent, so it needs the same classification as the compute-time quota.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.',
+                "data transfer quota",
+            ),
+            (
+                "OperationalError: Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.",
+                "data transfer quota",
+            ),
         ],
     )
-    def test_exceeded_compute_time_quota_is_non_retryable(self, source, error_msg):
+    def test_exceeded_provider_quota_is_non_retryable_with_friendly_message(self, source, error_msg, expected_fragment):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exceeded compute-time quota error should be non-retryable: {error_msg}"
-
-    def test_exceeded_compute_time_quota_returns_friendly_message(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "Exceeded compute-time quota error should surface an actionable message"
-        assert "compute-time quota" in friendly[0]
+        assert friendly, f"Exceeded provider quota error should surface an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
