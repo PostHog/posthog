@@ -204,7 +204,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
     })),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         /**
          * we need to wait for the metric to load to check if we need to modify the name and id
          */
@@ -248,6 +248,11 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
             if (values.metricSaving) {
+                // Queue a trailing rerun instead of dropping the call: the request reads
+                // values.sharedMetric at send time, so one rerun persists the newest state
+                // (e.g. a tag edit made while an explicit save was in flight)
+                cache.queuedUpdateRedirect = Boolean(cache.queuedUpdateRedirect) || redirect
+                cache.updateQueued = true
                 return
             }
             actions.setMetricSaving(true)
@@ -259,7 +264,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 if (response.id) {
                     lemonToast.success('Shared metric updated successfully')
                     actions.loadSharedMetrics()
-                    if (redirect) {
+                    if (redirect && !cache.updateQueued) {
                         router.actions.push('/experiments?tab=shared-metrics')
                     }
                 }
@@ -267,6 +272,12 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to update shared metric')
             } finally {
                 actions.setMetricSaving(false)
+                if (cache.updateQueued) {
+                    const queuedRedirect = Boolean(cache.queuedUpdateRedirect) || redirect
+                    cache.updateQueued = false
+                    cache.queuedUpdateRedirect = false
+                    actions.updateSharedMetric(queuedRedirect)
+                }
             }
         },
         deleteSharedMetric: async () => {
