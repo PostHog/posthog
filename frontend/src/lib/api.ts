@@ -7,7 +7,13 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    BROWSER_FETCH_FAILURE_MESSAGES,
+    NetworkError,
+    type NetworkFailureReason,
+    readableErrorMessage,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -7565,7 +7571,10 @@ async function handleFetch(
             })
             throw new NetworkError(reason, error)
         }
-        throw new ApiError(error as any, response?.status)
+        // The caught value is the failure, not its message: passing it as `message` stringifies an
+        // object to "[object Object]" and leaves `detail`, `code` and `data` empty, so neither the
+        // user nor support can read what went wrong.
+        throw new ApiError(readableErrorMessage(error), response?.status, response?.headers, error)
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.

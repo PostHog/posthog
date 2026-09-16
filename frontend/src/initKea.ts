@@ -58,6 +58,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
     'loadInstrumentationChecklist', // AI observability hides its checklist entirely rather than accusing a project on data it could not read
     'loadFullEmail', // Its failure listener shows a retry toast and closes the modal
+    'addToPlaylist', // The replay collection popover toasts its own add failure
+    'removeFromPlaylist', // The replay collection popover toasts its own remove failure
     'draftScannerFromGoal', // replayScannerLogic's failure listener toasts and routes back to the goal questions
     'loadRunDiff', // The Wizard run drawer renders its own diff error banner with a retry
     'loadRunArtifacts', // The Wizard run drawer renders its own artifact error banner with a retry
