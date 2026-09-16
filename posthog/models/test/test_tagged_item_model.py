@@ -156,6 +156,7 @@ class TestTaggedItemGenericColumns(BaseTest):
         dashboards = [Dashboard.objects.create(team_id=self.team.id, name=f"dashboard {i}") for i in range(3)]
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
         rows = [TaggedItem(tag_id=tag.id, dashboard=dashboard) for dashboard in dashboards]
+        ContentType.objects.get_for_model(Dashboard)
 
         with self.assertNumQueries(2):
             TaggedItem.objects.bulk_create(rows)
