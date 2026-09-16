@@ -66,6 +66,7 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -2653,6 +2654,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    query_scan?: QueryScanSummary
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
