@@ -45,6 +45,7 @@ Rules that decide whether this works:
 - The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
 - An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade.
+- A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
 `products/stamphog/backend/tests/test_webhook_consumers.py` is the shape: drive the real view with a signed `RequestFactory` request and assert the enqueue, plus the event type the app does not register, the bad signature, the unparseable body, the non-POST, and the missing secret.
@@ -57,13 +58,16 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass with `scheme()` (from `posthog/ingress/verify/`), `deliveries()` (how to read the event type, delivery id and context off the verified request), and any status codes the provider's protocol fixes. Defaults are 403 on a bad signature, 500 when unconfigured, 202 on success.
+- A `WebhookProvider` subclass with `scheme()` (from `posthog/ingress/verify/`), `deliveries(request, payload, facts)` (how to read the event type, delivery id and context off the verified request), and any status codes the provider's protocol fixes. Defaults are 403 on a bad signature, 500 when unconfigured, 202 on success.
+  - `verify(request)` answers a `Verification`: the outcome, plus `facts`, whatever the scheme proved on the way. A scheme that validates a signed token puts its verified claims there and `deliveries` cross-checks the body against them; an HMAC scheme leaves it empty and `deliveries` ignores it.
+  - `parse(request)` decodes the body, and defaults to JSON. Override it for a provider that posts a form, and raise `InvalidPayload` for a body it cannot read. Verification runs first and must, because reading `request.POST` consumes the request stream under ASGI.
+  - `throttle_class` names a DRF throttle from `posthog.rate_limit`, run in front of verification. Set one when the endpoint is public and its verification is expensive, such as a JWT signing-key lookup.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
 
 Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
-2. Wire the URL with `build_webhook_view()`, for example `opt_slash_path("webhooks/<provider>", build_webhook_view(build_<provider>_provider()))`. GitHub and SES sit in `posthog/urls.py`; the others are declared by the owning product.
+2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("webhooks/<product>/<provider>", build_webhook_view(build_<provider>_provider()))`. The path must start with `webhooks/<product>/` or `api/<product>/`, or the URL conf fails to load. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
 3. Write `posthog/ingress/<provider>/README.md` with the fixed sections, in this order: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers. `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one, and on a README with different or reordered headings.
 4. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
 5. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
