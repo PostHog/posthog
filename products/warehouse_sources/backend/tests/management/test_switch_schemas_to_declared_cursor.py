@@ -166,6 +166,21 @@ class TestSwitchSchemasToDeclaredCursor:
         assert schema.sync_type_config["incremental_field"] == "processedAt"
         assert schema.sync_type_config["incremental_field_last_value"] == 1758000000
 
+    def test_one_unreadable_source_row_does_not_strand_the_rest(self, team):
+        broken = _create_full_refresh_schema(team, with_table=False, job_inputs={"subdomain": "nibbles"})
+        healthy = _create_full_refresh_schema(team)
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1758000000):
+            call_command(
+                "switch_schemas_to_declared_cursor", source_type="Zendesk", schema_name="tickets", live_run=True
+            )
+
+        broken.refresh_from_db()
+        healthy.refresh_from_db()
+        # The selection has no order, so a row that raises must not decide whether the others run.
+        assert broken.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        assert healthy.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+
     def test_dry_run_changes_nothing(self, team):
         schema = _create_full_refresh_schema(team)
 

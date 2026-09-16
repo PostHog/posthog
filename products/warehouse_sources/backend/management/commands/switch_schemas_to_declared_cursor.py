@@ -73,85 +73,95 @@ class Command(BaseCommand):
 
         switched = 0
         skipped = 0
+        failed = 0
         for schema in schema_list:
-            matched = self._matched_schema(schema, schema_name)
-            declared = source.declared_incremental_field_for_schema(matched) if matched is not None else None
-            if matched is None or declared is None:
-                self.stdout.write(f"  skip schema={schema.id} team={schema.team_id}: connector declares no cursor")
-                skipped += 1
-                continue
+            try:
+                matched = self._matched_schema(schema, schema_name)
+                declared = source.declared_incremental_field_for_schema(matched) if matched is not None else None
+                if matched is None or declared is None:
+                    self.stdout.write(f"  skip schema={schema.id} team={schema.team_id}: connector declares no cursor")
+                    skipped += 1
+                    continue
 
-            # Which write mode the cursor feeds, as `build_default_sync_settings` picks it for a new
-            # connection. A table the connector can only append to has no key to merge on, so
-            # merging it raises `MissingPrimaryKeysException` on every run once the table exists.
-            if matched.supports_incremental:
-                sync_type = ExternalDataSchema.SyncType.INCREMENTAL
-            elif matched.supports_append:
-                sync_type = ExternalDataSchema.SyncType.APPEND
-            else:
+                # Which write mode the cursor feeds, as `build_default_sync_settings` picks it for a
+                # new connection. A table the connector can only append to has no key to merge on,
+                # so merging it raises `MissingPrimaryKeysException` on every run once the table
+                # exists.
+                if matched.supports_incremental:
+                    sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+                elif matched.supports_append:
+                    sync_type = ExternalDataSchema.SyncType.APPEND
+                else:
+                    self.stdout.write(
+                        f"  skip schema={schema.id} team={schema.team_id}: connector declares a cursor for this "
+                        f"table but supports neither incremental nor append"
+                    )
+                    skipped += 1
+                    continue
+
+                # The warehouse holds the column snake_cased, while the connector declares the
+                # vendor's own spelling (`processedAt`). The config keeps the declared name, which
+                # every data-side reader normalizes for itself.
+                cursor_column = NamingConvention.normalize_identifier(declared["field"])
+                last_value = schema.table.get_max_value_for_column(cursor_column) if schema.table else None
+                if last_value is None and not allow_reimport:
+                    self.stdout.write(
+                        f"  skip schema={schema.id} team={schema.team_id}: no value to start the cursor from, "
+                        f"switching would re-read the whole history (pass --allow-reimport to accept that)"
+                    )
+                    skipped += 1
+                    continue
+
                 self.stdout.write(
-                    f"  skip schema={schema.id} team={schema.team_id}: connector declares a cursor for this "
-                    f"table but supports neither incremental nor append"
+                    f"  schema={schema.id} team={schema.team_id} sync_type={sync_type} "
+                    f"cursor={declared['field']} starting at {last_value}"
                 )
-                skipped += 1
-                continue
+                if not live_run:
+                    continue
 
-            # The warehouse holds the column snake_cased, while the connector declares the vendor's
-            # own spelling (`processedAt`). The config keeps the declared name, which every data-side
-            # reader normalizes for itself.
-            cursor_column = NamingConvention.normalize_identifier(declared["field"])
-            last_value = schema.table.get_max_value_for_column(cursor_column) if schema.table else None
-            if last_value is None and not allow_reimport:
-                self.stdout.write(
-                    f"  skip schema={schema.id} team={schema.team_id}: no value to start the cursor from, "
-                    f"switching would re-read the whole history (pass --allow-reimport to accept that)"
+                schema.sync_type = sync_type
+                schema.sync_type_config["incremental_field"] = declared["field"]
+                schema.sync_type_config["incremental_field_type"] = str(declared["field_type"])
+                if (
+                    sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    and matched.default_incremental_lookback_seconds is not None
+                    and schema.sync_type_config.get("incremental_field_lookback_seconds") is None
+                ):
+                    # These tables get their recent rows restated upstream, so without the
+                    # connector's re-read window the cursor advances past a revision and no later
+                    # run sees it. A value already on the schema is the operator's, so it wins.
+                    schema.sync_type_config["incremental_field_lookback_seconds"] = (
+                        matched.default_incremental_lookback_seconds
+                    )
+                # Reads `incremental_field_type` back out of the config, so it has to be set first.
+                schema.update_incremental_field_value(last_value, save=False)
+                schema.save(update_fields=["sync_type", "sync_type_config"])
+                switched += 1
+                logger.info(
+                    "Switched schema to its declared cursor",
+                    schema_id=str(schema.id),
+                    team_id=schema.team_id,
+                    source_type=source_type,
+                    sync_type=str(sync_type),
+                    incremental_field=declared["field"],
                 )
-                skipped += 1
-                continue
-
-            self.stdout.write(
-                f"  schema={schema.id} team={schema.team_id} sync_type={sync_type} "
-                f"cursor={declared['field']} starting at {last_value}"
-            )
-            if not live_run:
-                continue
-
-            schema.sync_type = sync_type
-            schema.sync_type_config["incremental_field"] = declared["field"]
-            schema.sync_type_config["incremental_field_type"] = str(declared["field_type"])
-            if (
-                sync_type == ExternalDataSchema.SyncType.INCREMENTAL
-                and matched.default_incremental_lookback_seconds is not None
-                and schema.sync_type_config.get("incremental_field_lookback_seconds") is None
-            ):
-                # These tables get their recent rows restated upstream, so without the connector's
-                # re-read window the cursor advances past a revision and no later run sees it. A
-                # value already on the schema is the operator's, so it wins.
-                schema.sync_type_config["incremental_field_lookback_seconds"] = (
-                    matched.default_incremental_lookback_seconds
-                )
-            # Reads `incremental_field_type` back out of the config, so it has to be set first.
-            schema.update_incremental_field_value(last_value, save=False)
-            schema.save(update_fields=["sync_type", "sync_type_config"])
-            switched += 1
-            logger.info(
-                "Switched schema to its declared cursor",
-                schema_id=str(schema.id),
-                team_id=schema.team_id,
-                source_type=source_type,
-                sync_type=str(sync_type),
-                incremental_field=declared["field"],
-            )
+            except Exception:
+                # A row whose stored credentials no longer parse must not strand the schemas after
+                # it: the selection has no order, so a re-run can stop at a different point again.
+                failed += 1
+                self.stdout.write(self.style.ERROR(f"  fail schema={schema.id} team={schema.team_id}"))
+                logger.exception("Failed to switch schema", schema_id=str(schema.id), team_id=schema.team_id)
 
         if not live_run:
             self.stdout.write(
                 self.style.WARNING(
-                    f"\nDry run over {len(schema_list)} schema(s), {skipped} not eligible. Pass --live-run to apply."
+                    f"\nDry run over {len(schema_list)} schema(s), {skipped} not eligible, {failed} failed. "
+                    f"Pass --live-run to apply."
                 )
             )
             return
 
-        self.stdout.write(self.style.SUCCESS(f"\nDone. Switched: {switched}, skipped: {skipped}"))
+        self.stdout.write(self.style.SUCCESS(f"\nDone. Switched: {switched}, skipped: {skipped}, failed: {failed}"))
 
     def _matched_schema(self, schema: ExternalDataSchema, schema_name: str) -> SourceSchema | None:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
