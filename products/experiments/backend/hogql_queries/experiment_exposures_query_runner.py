@@ -27,7 +27,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
+from products.analytics_platform.backend.lazy_computation.stale_policy import (
+    is_background_warming_request,
+    is_forced_refresh_request,
+)
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
@@ -138,6 +141,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # A warmer must never take the grace or the short budget: it is the refresh
         # mechanism, so serving it stale would leave the rows nobody rebuilds.
         background = is_background_warming_request()
+        # Retry and manual refresh arrive as force_blocking/force_async. The grace would hand
+        # them the rows the person is replacing, and this path enqueues no revalidation, so
+        # repeat clicks would return them until the grace ran out. Keep the short budget: the
+        # read rebuilds within it, or falls through to the direct scan, and both are fresh.
+        forced = is_forced_refresh_request()
 
         return ensure_exposures_precomputed(
             self.team,
@@ -145,7 +153,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self.window_start,
             analysis_window_end(self.window_end_date, self.as_of),
             wait_timeout_seconds=None if background else EXPOSURES_USER_ENSURE_WAIT_SECONDS,
-            stale_while_revalidate_seconds=None if background else EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS,
+            stale_while_revalidate_seconds=(None if background or forced else EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS),
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:

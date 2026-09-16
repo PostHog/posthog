@@ -26,6 +26,7 @@ from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_defa
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tags_context
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -873,14 +874,28 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("user_facing", False, EXPOSURES_USER_ENSURE_WAIT_SECONDS, EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS),
-            ("background_warming", True, None, None),
+            ("user_facing", {}, EXPOSURES_USER_ENSURE_WAIT_SECONDS, EXPOSURES_STALE_WHILE_REVALIDATE_SECONDS),
+            ("background_warming", {"feature": Feature.CACHE_WARMUP}, None, None),
+            (
+                "force_blocking",
+                {"execution_mode": ExecutionMode.CALCULATE_BLOCKING_ALWAYS.value},
+                EXPOSURES_USER_ENSURE_WAIT_SECONDS,
+                None,
+            ),
+            (
+                "force_async",
+                {"execution_mode": ExecutionMode.CALCULATE_ASYNC_ALWAYS.value},
+                EXPOSURES_USER_ENSURE_WAIT_SECONDS,
+                None,
+            ),
         ]
     )
-    def test_exposures_read_bounds_its_precompute_wait(self, _name, background, expected_wait, expected_grace):
+    def test_exposures_read_bounds_its_precompute_wait(self, _name, request_tags, expected_wait, expected_grace):
         # The chart has a cheap direct-scan fallback, so a person must never wait out the
         # executor's 180s default budget for it. A warmer keeps the default and takes no
-        # serve-stale grace, or it would serve itself the rows it is there to rebuild.
+        # serve-stale grace, or it would serve itself the rows it is there to rebuild. A
+        # forced refresh keeps the short budget but drops the grace, or Retry would return
+        # the rows it is clearing.
         feature_flag = self.create_feature_flag(key="exposure-wait-budget")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -900,7 +915,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             exposure_criteria=experiment.exposure_criteria,
         )
 
-        request_context = tags_context(feature=Feature.CACHE_WARMUP) if background else nullcontext()
+        request_context = tags_context(**request_tags) if request_tags else nullcontext()
         with (
             patch(
                 "products.experiments.backend.hogql_queries.experiment_exposures_query_runner.ensure_exposures_precomputed",
