@@ -633,6 +633,9 @@ class TestPullZoneLogs:
         assert [s.params["offset"] for s in sent[1:]] == [0, PER_PAGE, 0]
         assert all(s.params["limit"] == PER_PAGE for s in sent[1:])
         assert sent[1].params["order"] == "asc"
+        # `to` is fixed once per sync, not left to the API's own "now" default, so a page cannot
+        # widen the window every zone and offset shares.
+        assert len({s.params["to"] for s in sent[1:]}) == 1
         assert rows == [
             {"pullZoneId": 3, "requestId": "a", "statusCode": 200},
             {"pullZoneId": 3, "requestId": "b", "statusCode": 404},

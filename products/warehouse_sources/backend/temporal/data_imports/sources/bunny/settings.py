@@ -55,6 +55,11 @@ DATE_FROM_PARAM = "dateFrom"
 # retention window only. It rejects a query that starts before that window, so a run asks from
 # the later of the watermark and the oldest instant still retained.
 LOG_DATE_FROM_PARAM = "from"
+# `to` defaults to the moment the API handles each request, so a run that fixes it once and
+# reuses it for every page and pull zone queries a stable window instead of one that keeps
+# growing as new entries land during the walk. Without this a busy zone's `hasMore` could stay
+# true indefinitely.
+LOG_DATE_TO_PARAM = "to"
 LOG_RETENTION = timedelta(days=3)
 # The window end defaults to the moment the API handles the request, so the start is held just
 # inside the retention edge to leave room for that and for request latency.

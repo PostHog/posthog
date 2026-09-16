@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.sett
     BUNNY_ENDPOINTS,
     DATE_FROM_PARAM,
     LOG_DATE_FROM_PARAM,
+    LOG_DATE_TO_PARAM,
     LOG_EXCLUDED_FIELDS,
     LOG_RETENTION,
     LOG_WINDOW_MARGIN,
@@ -143,12 +144,16 @@ def _rest_client(access_key: str, base_url: str = BUNNY_BASE_URL) -> RESTClient:
     )
 
 
-def _request_params(config: BunnyEndpointConfig, date_from: Optional[str] = None) -> dict[str, Any]:
+def _request_params(
+    config: BunnyEndpointConfig, date_from: Optional[str] = None, date_to: Optional[str] = None
+) -> dict[str, Any]:
     if config.charts is not None:
         return {**config.params, DATE_FROM_PARAM: date_from}
     if config.logging_api:
-        # The paginator carries this endpoint's page size, alongside its offset.
-        return {**config.params, LOG_DATE_FROM_PARAM: date_from}
+        # The paginator carries this endpoint's page size, alongside its offset. `to` is fixed
+        # once per sync (see `_log_date_to`) rather than left to the API's own default of "now",
+        # so the window a run walks cannot grow while it walks it.
+        return {**config.params, LOG_DATE_FROM_PARAM: date_from, LOG_DATE_TO_PARAM: date_to}
     return {config.page_size_param: PER_PAGE, **config.params}
 
 
@@ -179,6 +184,17 @@ def _log_date_from(db_incremental_field_last_value: Any) -> str:
     watermark = parse_datetime_value(db_incremental_field_last_value)
     date_from = retention_edge if watermark is None else max(watermark, retention_edge)
     return date_from.strftime(DATE_FROM_FORMAT)
+
+
+def _log_date_to() -> str:
+    """The ``to`` bound a log query asks up to, captured once when the sync starts.
+
+    The Logging API defaults ``to`` to the moment it handles each request. Sending that default
+    on every page would let the window grow for as long as the walk takes, and a busy zone's
+    ``pagination.hasMore`` could then stay true indefinitely. Fixing the bound once caps the
+    window's size at the number of entries it held when the sync began.
+    """
+    return datetime.now(UTC).strftime(DATE_FROM_FORMAT)
 
 
 def _stream_access_key(library: dict[str, Any]) -> Optional[str]:
@@ -285,9 +301,11 @@ def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator
                 yield [{**call.injected, **row} for row in page]
 
 
-def _log_pages(access_key: str, config: BunnyEndpointConfig, date_from: str) -> Iterator[list[dict[str, Any]]]:
+def _log_pages(
+    access_key: str, config: BunnyEndpointConfig, date_from: str, date_to: str
+) -> Iterator[list[dict[str, Any]]]:
     """Walk the CDN access logs of every pull zone that has logging turned on."""
-    params = _request_params(config, date_from)
+    params = _request_params(config, date_from, date_to)
     for call in _endpoint_calls(access_key, config):
         try:
             for page in call.client.paginate(
@@ -366,7 +384,8 @@ def bunny_source(
 
     if config.logging_api:
         date_from = _log_date_from(db_incremental_field_last_value)
-        return _source_response(config, lambda: _log_pages(access_key, config, date_from))
+        date_to = _log_date_to()
+        return _source_response(config, lambda: _log_pages(access_key, config, date_from, date_to))
 
     if config.parent is not None:
         return _source_response(config, lambda: _fanout_list_pages(access_key, config))
