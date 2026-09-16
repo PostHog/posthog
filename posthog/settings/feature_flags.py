@@ -79,6 +79,22 @@ FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
 # See cache_expiry_manager.py for implementation details.
 FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
 
+# Pacing for the teams the refresh sweep routes to the Kafka cache builder instead of
+# building itself. The builder drains a batch sequentially, so a whole run produced at
+# once sits in front of the flag edits raised after it and delays their rebuilds. The
+# run pauses for CHUNK_DELAY_SECONDS after every CHUNK_SIZE routed teams, which spreads
+# a run at the 5000-team cap over about 20 minutes. WINDOW_SECONDS caps the total pause,
+# so a misconfigured chunk size or delay cannot make an hourly run outlive its schedule.
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE: int = max(
+    1, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE", 250, type_cast=int)
+)
+FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS", 60.0, type_cast=float)
+)
+FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS: float = max(
+    0.0, get_from_env("FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS", 1200.0, type_cast=float)
+)
+
 # Batch size for flags cache verification. Each batch loads both cached data
 # (from Redis) and DB data (FeatureFlag objects) into memory simultaneously.
 # Teams with 100+ flags and large filters JSONs can use significant memory.

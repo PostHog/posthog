@@ -28,7 +28,7 @@ Manual operations:
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -53,6 +53,7 @@ from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.cache_expiry_manager import (
     CacheRefreshCounts,
+    RefreshPacing,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
@@ -921,6 +922,8 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     # Kafka-routing block further down this module and is deleted with it at
     # cutover, so it isn't defined yet when this config is constructed.
     get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
+    # Late-bound for the same reason as get_primary_writer_fn above.
+    route_refresh_fn=lambda team: route_refresh_to_kafka(team),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
     # replica may not have applied yet (organization_id keeps the select_related valid).
@@ -983,9 +986,18 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
                - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
-        CacheRefreshCounts with successful and failed refresh counts
+        CacheRefreshCounts with successful, failed and enqueued refresh counts
     """
-    return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+    return refresh_expiring_caches(
+        FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+        ttl_threshold_hours,
+        limit,
+        pacing=RefreshPacing(
+            chunk_size=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE,
+            delay_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS,
+            window_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS,
+        ),
+    )
 
 
 def cleanup_stale_expiry_tracking() -> int:
@@ -1032,9 +1044,10 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _shadow_compare_enabled,
-# publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation,
-# and the Kafka branch inside it.
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), REFRESH_ROUTING_FLAG, _route_refresh_to_kafka,
+# route_refresh_to_kafka (and its config binding), SHADOW_COMPARE_FLAG,
+# _shadow_compare_enabled, publish_shadow_invalidation, _produce_invalidation,
+# _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
 # call site outside this block is the tail of update_team_service_flags_cache in
 # tasks.py, which goes with it.
@@ -1133,6 +1146,72 @@ def _route_to_kafka(team_id: int) -> bool:
     return bool(result)
 
 
+# Per-team gate for the hourly expiry refresh sweep. A different flag from
+# KAFKA_ROUTING_FLAG on purpose: that one is pinned at 100% for the edit path, so
+# reusing it would move the sweep the moment this code shipped. The two ramp
+# independently, and setting this one back to 0 returns the next hourly run to the
+# Python builder with no cleanup, because a refresh message already in flight still
+# produces a correct build.
+REFRESH_ROUTING_FLAG = "flags-cache-refresh-kafka"
+
+
+def _route_refresh_to_kafka(team_id: int) -> bool:
+    """Return True if this team's hourly refresh should be raised as a Kafka
+    invalidation instead of being built in the Celery worker.
+
+    Every failure mode returns False, which keeps the sweep building in Python. That
+    is the safe direction: a build that happens is never worse than a message nobody
+    consumes.
+
+    Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER, for the
+    reason `_shadow_compare_enabled` gives. Local evaluation cannot resolve
+    REFRESH_ROUTING_FLAG for as long as the flag does not exist in PostHog, so a tick
+    would fire for every team of every run, which is about 5,000 an hour, and hold a
+    constant high rate on a panel that means "rare anomaly". A client that is actually
+    broken raises instead, and the warning below records that.
+    """
+    try:
+        return feature_enabled_or_false(
+            REFRESH_ROUTING_FLAG,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # Log so a fleet-wide silent disable is visible in Sentry rather than only as
+        # an enqueued gauge that quietly returns to zero mid-ramp.
+        logger.warning(
+            "flags_cache_refresh_routing_flag_evaluation_failed",
+            team_id=team_id,
+            flag=REFRESH_ROUTING_FLAG,
+            exc_info=True,
+        )
+        return False
+
+
+def route_refresh_to_kafka(team: Team) -> bool:
+    """Routing hook for the expiry refresh sweep, bound on
+    FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.
+
+    Returns True when the team's refresh was raised as a Kafka invalidation, which
+    makes the sweep skip its own build and count the team as enqueued.
+
+    There is no Celery fallback when the produce fails, for the reason
+    `_enqueue_invalidation` gives: the two paths are mutually exclusive so a broken
+    Kafka path shows up as a stale cache instead of being masked by Python quietly
+    building the team anyway. A team whose message is lost stays inside the expiry
+    window, so the next hourly run raises it again, and the verifier repairs it in the
+    meantime.
+    """
+    if not _route_refresh_to_kafka(team.id):
+        return False
+
+    _produce_invalidation(team.id, source="refresh")
+    return True
+
+
 # Per-team gate for shadow parity publishing. A different flag from
 # KAFKA_ROUTING_FLAG on purpose: this one never decides which writer serves a
 # team, so the two ramp independently. See flags_cache_messages for what the
@@ -1224,7 +1303,7 @@ def publish_shadow_invalidation(team_id: int) -> None:
         _produce_invalidation(team_id, shadow=True)
 
 
-def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
+def _produce_invalidation(team_id: int, shadow: bool = False, source: Literal["edit", "refresh"] = "edit") -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
     A produce failure must not raise out of a signal handler and is deliberately
@@ -1238,9 +1317,14 @@ def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
     `data` must be a dict, not pre-encoded bytes: `produce` runs it through
     `json.dumps`, so bytes would `TypeError` and silently fail the swallow path.
     `mode="json"` converts `datetime` to ISO string.
+
+    `source` names the producer that raised the message. The builder treats every
+    source identically and uses the value to attribute builds and latency, so a wrong
+    value costs a reading and never a build. See flags_cache_messages for why a region
+    whose builder predates the field must not be sent anything but the default.
     """
     try:
-        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow)
+        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC), shadow=shadow, source=source)
         with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
             producer.produce(
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
@@ -1251,7 +1335,12 @@ def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
             )
     except Exception as e:
         logger.warning(
-            "flags_cache_invalidation_produce_failed", team_id=team_id, shadow=shadow, error=str(e), exc_info=True
+            "flags_cache_invalidation_produce_failed",
+            team_id=team_id,
+            shadow=shadow,
+            source=source,
+            error=str(e),
+            exc_info=True,
         )
 
 

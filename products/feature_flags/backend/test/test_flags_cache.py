@@ -29,13 +29,14 @@ from parameterized import parameterized
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
-from posthog.storage.cache_expiry_manager import CacheRefreshCounts
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts, RefreshPacing
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     KAFKA_ROUTING_FLAG,
+    REFRESH_ROUTING_FLAG,
     SHADOW_COMPARE_FLAG,
     _blank_inactive_filters,
     _compare_flag_fields,
@@ -55,6 +56,7 @@ from products.feature_flags.backend.flags_cache import (
     get_team_primary_flags_writer,
     get_teams_with_flags_queryset,
     publish_shadow_invalidation,
+    route_refresh_to_kafka,
     update_flags_cache,
     verify_team_flags,
 )
@@ -990,6 +992,64 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_produce.assert_not_called()
 
 
+class TestRefreshRoutingHook(SimpleTestCase):
+    """The hourly sweep's routing hook. It gates on its own flag, produces a refresh
+    invalidation when the gate is open, and never falls back to building in Python."""
+
+    TEAM_ID = 11
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=False)
+    def test_gate_off_declines_the_team_and_produces_nothing(self, mock_gate, mock_produce):
+        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is False
+
+        mock_produce.assert_not_called()
+        # The sweep must not read the edit path's flag, which is pinned at 100%.
+        assert mock_gate.call_args.args[0] == REFRESH_ROUTING_FLAG
+        assert REFRESH_ROUTING_FLAG != KAFKA_ROUTING_FLAG
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_gate_on_produces_a_message_the_builder_reads_as_a_refresh(self, mock_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is True
+
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["key"] == str(self.TEAM_ID)
+        envelope = FlagsCacheInvalidation.model_validate(produce_kwargs["data"])
+        assert envelope.team_id == self.TEAM_ID
+        assert envelope.source == "refresh"
+        assert envelope.shadow is False
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.feature_enabled_or_false",
+        side_effect=RuntimeError("posthoganalytics borked"),
+    )
+    def test_a_broken_gate_leaves_the_build_to_python_without_ticking_the_tombstone(
+        self, mock_gate, mock_produce, mock_tombstone
+    ):
+        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is False
+
+        mock_produce.assert_not_called()
+        # A run evaluates the gate once per team, so a tick here would hold a constant
+        # rate on a panel that means "rare anomaly".
+        mock_tombstone.labels.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache.feature_enabled_or_false", return_value=True)
+    def test_a_produce_failure_does_not_fall_back_to_building_in_python(self, mock_gate, mock_producer_scope):
+        mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
+
+        # Still True, so the sweep skips its own build and counts the team as enqueued.
+        # The two paths are mutually exclusive so a broken Kafka path shows up as a
+        # stale cache rather than being masked by Python quietly building it anyway.
+        assert route_refresh_to_kafka(Team(id=self.TEAM_ID)) is True
+
+
 class TestShadowInvalidationPublishing(SimpleTestCase):
     """Shadow parity publishing. It runs at the tail of the Celery build rather
     than at invalidation time, so the Rust builder diffs against a cache entry
@@ -1914,8 +1974,18 @@ class TestBatchOperations(BaseTest):
         self.assertEqual(counts.successful, 2)
         self.assertEqual(counts.failed, 0)
 
-        # Should call generic refresh_expiring_caches with correct config
-        mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
+        # Should call generic refresh_expiring_caches with correct config, and take the
+        # pacing for routed teams from settings rather than pinning it in code.
+        mock_refresh.assert_called_once_with(
+            FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
+            24,
+            settings.FLAGS_CACHE_REFRESH_LIMIT,
+            pacing=RefreshPacing(
+                chunk_size=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_SIZE,
+                delay_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_CHUNK_DELAY_SECONDS,
+                window_seconds=settings.FLAGS_CACHE_REFRESH_KAFKA_WINDOW_SECONDS,
+            ),
+        )
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_cleanup_stale_expiry_tracking(self, mock_get_client):
