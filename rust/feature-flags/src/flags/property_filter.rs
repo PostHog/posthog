@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
+use crate::flags::flag_matching_utils::is_initial_person_property;
 use crate::flags::flag_models::FeatureFlagId;
 use crate::properties::property_matching::{
     lookup_key_for, to_string_representation, REGEX_BACKTRACK_LIMIT,
@@ -77,6 +78,11 @@ impl PropertyFilter {
     /// caller sending a raw `created_at` in `person_properties` overrides would make this return
     /// `false`, skip the DB fetch, and let the filter fall through to operator defaults — silently
     /// bypassing the real persons-table value.
+    ///
+    /// An `$initial_` key also always selects the filter, because the persons table owns that
+    /// value — see `is_initial_person_property`. Without the fetch the request's per-device copy
+    /// is the only value `get_person_properties` can merge, so two devices of one person resolve
+    /// the same flag differently and neither has to agree with server-side evaluation.
     pub fn requires_db_property(&self, person_property_overrides: &HashMap<String, Value>) -> bool {
         if self.is_cohort() || self.depends_on_feature_flag() {
             return false;
@@ -84,7 +90,9 @@ impl PropertyFilter {
         if self.prop_type == PropertyType::Group {
             return true;
         }
-        !person_property_overrides.contains_key(lookup_key_for(self).as_ref())
+        let lookup_key = lookup_key_for(self);
+        is_initial_person_property(lookup_key.as_ref())
+            || !person_property_overrides.contains_key(lookup_key.as_ref())
     }
 
     /// Pre-compiles the regex pattern for Regex/NotRegex operators.
@@ -165,6 +173,19 @@ mod tests {
             Value::String("2024-01-01".to_string()),
         )]);
         assert!(!filter.requires_db_property(&sentinel));
+    }
+
+    #[test]
+    fn test_initial_person_property_requires_db_even_when_overridden() {
+        let filter = mock!(crate::properties::property_models::PropertyFilter, key: "$initial_os".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
+
+        // posthog-js sends its device-local $initial_os on every request. One person with two
+        // devices sends two values, so the fetch has to happen for the row to win the merge.
+        let overrides = HashMap::from([(
+            "$initial_os".to_string(),
+            Value::String("Windows".to_string()),
+        )]);
+        assert!(filter.requires_db_property(&overrides));
     }
 
     #[test]

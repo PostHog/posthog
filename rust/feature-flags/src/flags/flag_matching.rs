@@ -12,8 +12,8 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, discard_initial_person_properties,
-    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    get_feature_flag_hash_key_overrides, is_initial_person_property,
     match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
     set_feature_flag_hash_key_overrides, should_write_hash_key_override,
 };
@@ -559,17 +559,10 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        let mut person_property_overrides =
-            merge_distinct_id_into_person_properties(&self.distinct_id, person_property_overrides);
-
-        // Drop the request's `$initial_` properties, so the persons table answers them. This is
-        // the single enforcement point: `requires_db_property` then asks for the fetch, and the
-        // merge in `get_person_properties` has nothing left to overwrite the stored value with.
-        // `only_use_override_person_properties` reads no persons row, so its callers keep theirs.
-        if !self.only_use_override_person_properties {
-            discard_initial_person_properties(&mut person_property_overrides);
-        }
-        let person_property_overrides = Some(person_property_overrides);
+        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
+            &self.distinct_id,
+            person_property_overrides,
+        ));
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -2042,10 +2035,11 @@ impl FeatureFlagMatcher {
             db_properties
         };
 
-        // Merge in overrides (overrides take precedence).
-        //
-        // `$initial_` keys never reach here — `evaluate_all_feature_flags` drops them from the
-        // request, so the derivation above is what answers them.
+        // Merge in overrides (overrides take precedence), except for an `$initial_` key the row
+        // answered above — see `is_initial_person_property`. A request `$initial_` value still
+        // lands when the row answered nothing, which is the first session, before ingestion has
+        // written the row. posthog-js sends these keys without their non-initial counterparts,
+        // so dropping them outright would leave that session with no value at all.
         //
         // PersonMetadata fields are stored under sentinel-prefixed keys (see
         // `lookup_key_for` in property_matching.rs). A caller could override the canonical
@@ -2054,7 +2048,18 @@ impl FeatureFlagMatcher {
         // production, and overrides are caller-trusted by design. If we ever need to lock
         // metadata fields to the DB value, filter the prefixed keys out here.
         if let Some(overrides) = property_overrides {
-            merged_properties.extend(overrides.iter_owned());
+            for (key, value) in overrides.iter_owned() {
+                match merged_properties.get(&key) {
+                    Some(stored) if is_initial_person_property(&key) => {
+                        if *stored != value {
+                            with_canonical_log(|log| log.initial_person_properties_from_row = true);
+                        }
+                    }
+                    _ => {
+                        merged_properties.insert(key, value);
+                    }
+                }
+            }
         }
 
         // Mirror $os <-> $os_name so a condition keyed on either matches when the

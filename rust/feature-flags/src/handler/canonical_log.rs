@@ -203,10 +203,11 @@ pub struct FlagsCanonicalLogLine {
     /// Attributable counterpart to `flags_geoip_properties_differ_from_lookup_total`, which has
     /// no labels.
     pub geoip_properties_differ_from_lookup: bool,
-    /// Set when the request supplied `$initial_` person properties, which flag matching
-    /// discarded so the persons table answered them. Attributable counterpart to
-    /// `flags_request_initial_properties_discarded_total`, which has no labels.
-    pub initial_person_properties_discarded: bool,
+    /// Set when the persons row answered an `$initial_` property the request also supplied,
+    /// with a different value. This sizes the evaluations that a per-device copy would have
+    /// decided. There is no paired counter: `get_person_properties` runs per flag, so a
+    /// counter would multiply by flag count, while this flag stays per request.
+    pub initial_person_properties_from_row: bool,
     /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
     pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
@@ -338,7 +339,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_disabled: false,
             quota_limited: false,
             geoip_properties_differ_from_lookup: false,
-            initial_person_properties_discarded: false,
+            initial_person_properties_from_row: false,
             flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
@@ -409,7 +410,7 @@ impl FlagsCanonicalLogLine {
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
             geoip_properties_differ_from_lookup = self.geoip_properties_differ_from_lookup,
-            initial_person_properties_discarded = self.initial_person_properties_discarded,
+            initial_person_properties_from_row = self.initial_person_properties_from_row,
             flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,

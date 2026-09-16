@@ -5522,9 +5522,22 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
 /// other and with server-side evaluation:
 /// - A stored `$initial_browser` wins, including over a request's own `$initial_browser`
 /// - With no stored `$initial_browser`, the row's `$browser` backfills it
-/// - Only when the row has neither does the request's `$browser` backfill it, which covers
-///   the first session, before ingestion has written the row
+/// - Only when the row answers nothing does the request's own value stand, which covers the
+///   first session, before ingestion has written the row
 #[rstest]
+#[case::request_initial_stands_when_row_answers_nothing(
+    // posthog-js sends `$initial_browser` without a `$browser` to derive it from, so this
+    // request value is the only one there is. The row has neither key.
+    Some(json!({"email": "someone@example.com"})),
+    json!({"$initial_browser": "Safari"}),
+    true
+)]
+#[case::request_initial_stands_when_no_person_row_exists(
+    // Same case with no person row at all, which is the first session.
+    None,
+    json!({"$initial_browser": "Safari"}),
+    true
+)]
 #[case::override_initial_browser_does_not_replace_db(
     // A browser sends its own device-local $initial_browser on every request. The row owns
     // that value, so the request copy must lose.

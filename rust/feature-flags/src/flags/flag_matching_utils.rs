@@ -37,7 +37,6 @@ use crate::{
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
         FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK, FLAG_HASH_KEY_RETRIES_COUNTER,
         FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
-        REQUEST_INITIAL_PROPERTIES_DISCARDED_COUNTER,
     },
     properties::property_models::{OperatorType, PropertyFilter},
 };
@@ -147,19 +146,8 @@ const INITIAL_PROPERTY_PREFIX: &str = "$initial_";
 /// The prefix test is deliberately wider than `INITIAL_PROPERTY_MAP`: the map only lists the
 /// keys this file can derive from a counterpart, while ownership covers every `$initial_` key
 /// ingestion writes, including ones no derivation reaches.
-fn is_initial_person_property(key: &str) -> bool {
+pub fn is_initial_person_property(key: &str) -> bool {
     key.starts_with(INITIAL_PROPERTY_PREFIX)
-}
-
-/// Removes the `$initial_` properties a request supplied, so the persons table answers them.
-/// See `is_initial_person_property` for why a request copy is not an answer.
-pub fn discard_initial_person_properties(properties: &mut HashMap<String, Value>) {
-    let supplied = properties.len();
-    properties.retain(|key, _| !is_initial_person_property(key));
-    if properties.len() != supplied {
-        common_metrics::inc(REQUEST_INITIAL_PROPERTIES_DISCARDED_COUNTER, &[], 1);
-        with_canonical_log(|log| log.initial_person_properties_discarded = true);
-    }
 }
 
 /// Populates missing `$initial_` properties from their non-initial counterparts.
