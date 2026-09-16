@@ -1,4 +1,5 @@
 import io
+import copy
 import json
 import math
 import datetime
@@ -17,6 +18,7 @@ from botocore.exceptions import ClientError
 from posthog import settings
 
 from products.signals.backend.ranking.features import (
+    BIRTH_GRAIN,
     EMBEDDING_COLUMN,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_INSERTED_AT_COLUMN,
@@ -25,6 +27,8 @@ from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_GRAIN,
+    SCORING_MOMENT_GRAIN,
     TABULAR_FEATURE_SET,
     Extras,
     FeatureSet,
@@ -58,8 +62,9 @@ from products.signals.dags.inbox_ranking.training.examples import (
     cap_examples,
     example_columns,
     holdout_mask,
+    reports_missing_birth_snapshot,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, dismissed_as_wrong
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
 from products.signals.dags.inbox_ranking.training.telemetry import (
     DISTINCT_ID,
@@ -106,10 +111,16 @@ D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
 
 
+# Midday on D0, so a default report is born on the first snapshot day the tests build and the
+# birth grain keeps it. A test about any other grain passes its own `report_created_at`.
+BIRTH = pd.Timestamp("2026-08-10T12:00:00Z")
+BEFORE_THE_WINDOW = pd.Timestamp("2026-07-01T00:00:00Z")
+
+
 def _state(report_ids: list[str], **overrides) -> pd.DataFrame:
     n = len(report_ids)
     base = {
-        "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
+        "report_created_at": [BIRTH] * n,
         "report_age_hours": [12.0] * n,
         "signal_count": [3] * n,
         "total_weight": [1.5] * n,
@@ -135,6 +146,26 @@ def _labels(report_ids: list[str], **overrides) -> pd.DataFrame:
     }
     base.update(overrides)
     return pd.DataFrame(base, index=pd.Index(report_ids, name="report_id"))
+
+
+def _at_grain(feature_set: FeatureSet, grain: str) -> FeatureSet:
+    """`feature_set` with a different example grain, so a test can pin one grain's rows."""
+    variant = copy.copy(feature_set)
+    variant.example_grain = grain
+    return variant
+
+
+def _two_day_snapshots(ids: list[str], head: Head, created: list[pd.Timestamp]) -> dict[datetime.date, Snapshot]:
+    """D0 and D0 + 1 with the head's outcome unobserved, plus each one's horizon partner with it
+    observed, so a report is a usable moment on either day."""
+    snapshots: dict[datetime.date, Snapshot] = {}
+    for offset in (0, 1):
+        day = D0 + datetime.timedelta(days=offset)
+        state = _state(ids, report_created_at=created)
+        snapshots[day] = Snapshot(date=day, state=state, labels=_labels(ids, open_count=[0] * len(ids)))
+        partner = day + datetime.timedelta(days=head.horizon_days)
+        snapshots[partner] = Snapshot(date=partner, state=state, labels=_labels(ids, open_count=[1] * len(ids)))
+    return snapshots
 
 
 @pytest.mark.parametrize(
@@ -174,27 +205,30 @@ def test_feature_vector_matches_feature_frame(row):
 
 
 def test_build_examples_is_a_scoring_moment_with_a_future_label():
+    # The grain a re-scoring family would ask for: a row per snapshot, censored once the outcome is
+    # visible. Every report here is older than D0, so no birth-day exemption applies.
     open_head = HEADS_BY_NAME["open"]
     later = D0 + datetime.timedelta(days=open_head.horizon_days)
     ids = ["a", "b", "c", "d"]
+    state = _state(ids, report_created_at=[BEFORE_THE_WINDOW] * 4)
     snapshots = {
         # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
         # b: already opened at D0 -> excluded; c: never opened -> negative;
         # d: never impressed -> outside the cohort.
         D0: Snapshot(
             date=D0,
-            state=_state(ids),
+            state=state,
             labels=_labels(ids, open_count=[0, 1, 0, 0], impression_unit_count=[0, 1, 1, 0]),
         ),
         later: Snapshot(
             date=later,
-            state=_state(ids),
+            state=state,
             labels=_labels(ids, open_count=[2, 3, 0, 0], impression_unit_count=[1, 1, 1, 0]),
         ),
         # A snapshot with no horizon partner contributes nothing.
-        later + datetime.timedelta(days=1): Snapshot(date=later, state=_state(ids), labels=_labels(ids)),
+        later + datetime.timedelta(days=1): Snapshot(date=later, state=state, labels=_labels(ids)),
     }
-    examples = build_examples(snapshots, open_head, TABULAR_FEATURE_SET)
+    examples = build_examples(snapshots, open_head, _at_grain(TABULAR_FEATURE_SET, SCORING_MOMENT_GRAIN))
     assert list(examples.columns) == list(example_columns(TABULAR_FEATURE_SET))
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0}
     assert (examples["snapshot_date"] == D0).all()
@@ -203,6 +237,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
 
 def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
     head = HEADS_BY_NAME["pr_created"]
+    wrong_head = HEADS_BY_NAME["dismiss_wrong"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["a", "b", "c", "gone"]
     # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
@@ -226,6 +261,10 @@ def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untru
     snapshots = {
         D0: assemble_snapshot(D0, state, labels_now),
         later: assemble_snapshot(later, state_later, labels_later),
+        # The two heads read different horizons off the same day.
+        D0 + datetime.timedelta(days=wrong_head.horizon_days): assemble_snapshot(
+            D0 + datetime.timedelta(days=wrong_head.horizon_days), state_later, labels_later
+        ),
     }
 
     assert snapshots[D0].labels.loc["b", "impression_unit_count"] == 0
@@ -235,11 +274,7 @@ def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untru
     pr = build_examples(snapshots, head, TABULAR_FEATURE_SET).set_index("report_id")["label"].to_dict()
     assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
     # dismiss_wrong reads the status stream: a is dropped, b was never impressed, c is a positive.
-    wrong = (
-        build_examples(snapshots, HEADS_BY_NAME["dismiss_wrong"], TABULAR_FEATURE_SET)
-        .set_index("report_id")["label"]
-        .to_dict()
-    )
+    wrong = build_examples(snapshots, wrong_head, TABULAR_FEATURE_SET).set_index("report_id")["label"].to_dict()
     assert wrong == {"c": 1}
 
 
@@ -275,12 +310,13 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
 @pytest.mark.parametrize(
     "head_name,frame,expected_cohort,expected_label",
     [
-        # pr_merged: cohort is reports with a PR, label is the merge within the horizon.
+        # pr_merged: cohort is everyone, label is the merge within the horizon, whether or not the
+        # report already had a PR at the scoring moment.
         (
             "pr_merged",
-            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 0]}),
-            [True, True, False],
-            [True, False, False],
+            pd.DataFrame({"pr_created_count": [1, 1, 0], "pr_merged_count": [1, 0, 1]}),
+            [True, True, True],
+            [True, False, True],
         ),
         # discuss: cohort is impressed reports, label is a discuss action.
         (
@@ -549,22 +585,73 @@ def test_unseen_pool_is_the_reports_born_on_the_partition_day():
     assert pool.index.tolist() == ["a"]
 
 
-def test_build_examples_never_covers_a_report_born_on_the_partition_day():
-    # What the newborn pool rests on: a builder change that reached the partition day would leak.
+@pytest.mark.parametrize("grain", [BIRTH_GRAIN, SCORING_MOMENT_GRAIN, REPORT_GRAIN])
+def test_build_examples_never_covers_a_report_born_on_the_partition_day(grain):
+    # What the newborn pool rests on: a builder change that reached the partition day would leak,
+    # and every grain a set can select has to keep that property.
     head = HEADS_BY_NAME["open"]
     scoring_day = D0 - datetime.timedelta(days=head.horizon_days)
-    old, newborn = pd.Timestamp("2026-07-01T00:00:00Z"), pd.Timestamp("2026-08-10T09:00:00Z")
+    newborn = pd.Timestamp("2026-08-10T09:00:00Z")
     snapshots = {
         scoring_day: assemble_snapshot(
-            scoring_day, _state(["old"], report_created_at=[old]), _labels(["old"], open_count=[0])
+            scoring_day,
+            _state(["old"], report_created_at=[pd.Timestamp(scoring_day, tz="UTC")]),
+            _labels(["old"], open_count=[0]),
         ),
         D0: assemble_snapshot(
             D0,
-            _state(["old", "newborn"], report_created_at=[old, newborn]),
+            _state(["old", "newborn"], report_created_at=[pd.Timestamp(scoring_day, tz="UTC"), newborn]),
             _labels(["old", "newborn"], open_count=[1, 1]),
         ),
     }
-    assert set(build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"]) == {"old"}
+    examples = build_examples(snapshots, head, _at_grain(TABULAR_FEATURE_SET, grain))
+    assert set(examples["report_id"]) == {"old"}
+
+
+def test_birth_grain_keeps_one_row_per_report_on_the_day_it_was_created():
+    # The default grain. One row per report is what stops a long-lived report from weighting the
+    # fit by its lifetime, and the row has to be the birth day rather than the first snapshot the
+    # report is usable on, or the label stops being "outcome within the horizon of being born".
+    head = HEADS_BY_NAME["open"]
+    snapshots = _two_day_snapshots(["newborn", "older"], head, [BIRTH, BEFORE_THE_WINDOW])
+
+    examples = build_examples(snapshots, head, TABULAR_FEATURE_SET)
+
+    assert examples["report_id"].tolist() == ["newborn"]
+    assert examples["snapshot_date"].tolist() == [D0]
+
+
+def test_pr_merged_is_a_merge_from_birth_rather_than_a_merge_given_a_pr():
+    # The cohort is everyone, so a report with no PR on its birth day is an example: a merge inside
+    # the horizon is its positive, and never getting one is its negative.
+    head = HEADS_BY_NAME["pr_merged"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    ids = ["merged", "nothing"]
+    snapshots = {
+        D0: assemble_snapshot(D0, _state(ids), _labels(ids, pr_created_count=[0, 0], pr_merged_count=[0, 0])),
+        later: assemble_snapshot(later, _state(ids), _labels(ids, pr_created_count=[1, 0], pr_merged_count=[1, 0])),
+    }
+
+    examples = build_examples(snapshots, head, TABULAR_FEATURE_SET)
+
+    assert examples.set_index("report_id")["label"].to_dict() == {"merged": 1, "nothing": 0}
+
+
+def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_costs():
+    # At the birth grain a missing partition silently removes every report born that day, so the
+    # count has to separate that from the reports born before the window, which the grain drops on
+    # purpose and which would otherwise swamp the number.
+    gap = D0 + datetime.timedelta(days=1)
+    dates = [D0, gap, gap + datetime.timedelta(days=1)]
+    ids = ["born_in_the_gap", "older"]
+    created = [pd.Timestamp(gap, tz="UTC") + pd.Timedelta(hours=9), BEFORE_THE_WINDOW]
+    snapshots = {
+        date: Snapshot(date=date, state=_state(ids, report_created_at=created), labels=_labels(ids))
+        for date in (D0, dates[-1])
+    }
+
+    assert reports_missing_birth_snapshot(snapshots, dates) == 1
+    assert reports_missing_birth_snapshot({}, dates) == 0
 
 
 def test_build_examples_keeps_an_outcome_that_landed_on_the_reports_birth_day():
@@ -1308,24 +1395,19 @@ def test_a_report_without_this_models_vector_is_not_an_embeddings_example(extras
 
 def test_report_grain_keeps_one_example_per_report_and_needs_a_vector():
     # The scoring-moment grain emits a near-duplicate row per snapshot, which is what 1536 columns
-    # cannot afford; the first usable moment is also the grain of the pool the unseen read grades.
+    # cannot afford; the report grain keeps the first snapshot a report is usable on.
     head = HEADS_BY_NAME["open"]
-    ids = ["a", "b"]
-    snapshots: dict[datetime.date, Snapshot] = {}
-    for offset in (0, 1):
-        day = D0 + datetime.timedelta(days=offset)
-        later = day + datetime.timedelta(days=head.horizon_days)
-        snapshots[day] = Snapshot(date=day, state=_state(ids), labels=_labels(ids, open_count=[0, 0]))
-        snapshots[later] = Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[1, 1]))
+    snapshots = _two_day_snapshots(["a", "b"], head, [BIRTH, BIRTH])
     extras = _report_vectors({"a": _embedding()})
 
-    examples = build_examples(snapshots, head, REPORT_EMBEDDINGS_FEATURE_SET, extras)
+    examples = build_examples(snapshots, head, _at_grain(REPORT_EMBEDDINGS_FEATURE_SET, REPORT_GRAIN), extras)
 
     assert examples["report_id"].tolist() == ["a"]
     assert examples["snapshot_date"].tolist() == [D0]
     assert examples["emb_0"].tolist() == [0.0]
-    # The tabular set reads the same snapshots at the moment grain, both reports, both days.
-    assert build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["a", "b", "a", "b"]
+    # The same snapshots at the moment grain: both reports, both days.
+    moments = build_examples(snapshots, head, _at_grain(TABULAR_FEATURE_SET, SCORING_MOMENT_GRAIN))
+    assert moments["report_id"].tolist() == ["a", "b", "a", "b"]
 
 
 def test_cap_examples_keeps_every_positive_and_a_seeded_sample_of_the_negatives():
@@ -1375,19 +1457,15 @@ def test_report_grain_moves_the_example_to_the_first_moment_its_vector_existed_f
     # A report whose vector landed after its first snapshot must not be dropped outright: its
     # example belongs on the first snapshot where that vector was already the report's own.
     head = HEADS_BY_NAME["open"]
-    ids = ["a"]
-    snapshots: dict[datetime.date, Snapshot] = {}
-    for offset in (0, 1):
-        day = D0 + datetime.timedelta(days=offset)
-        later = day + datetime.timedelta(days=head.horizon_days)
-        snapshots[day] = Snapshot(date=day, state=_state(ids), labels=_labels(ids, open_count=[0]))
-        snapshots[later] = Snapshot(date=later, state=_state(ids), labels=_labels(ids, open_count=[1]))
+    snapshots = _two_day_snapshots(["a"], head, [BIRTH])
     # Landed during D0 + 1, so D0 cannot have it and D0 + 1 can.
     extras = _report_vectors({"a": _embedding()}, landed=SNAPSHOT_END + datetime.timedelta(hours=6))
 
-    examples = build_examples(snapshots, head, REPORT_EMBEDDINGS_FEATURE_SET, extras)
+    examples = build_examples(snapshots, head, _at_grain(REPORT_EMBEDDINGS_FEATURE_SET, REPORT_GRAIN), extras)
 
     assert examples["snapshot_date"].tolist() == [D0 + datetime.timedelta(days=1)]
+    # At the birth grain there is no later moment to move to, so the report is no example at all.
+    assert build_examples(snapshots, head, REPORT_EMBEDDINGS_FEATURE_SET, extras).empty
 
 
 def test_reading_a_moment_needs_the_vectors_landing_time():

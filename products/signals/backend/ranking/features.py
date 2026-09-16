@@ -79,11 +79,11 @@ EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 # row whose vector is a different length is not this model's, so it is treated as missing.
 EMBEDDING_DIMENSIONS = 1536
 
-# How many rows one report contributes to a head's examples.
-# `scoring_moment` is one row per (report, snapshot): the serving situation replayed over the
-# snapshots of the lookback. `report` is one row per report, at the first snapshot of the window
-# where it is a usable scoring moment, which is the grain of the newborn pool the unseen read
-# grades.
+# How many rows one report contributes to a head's examples. The default is `birth`, one row per
+# report at the snapshot of the day it was created; `examples.py` holds the reasoning.
+# `scoring_moment` is one row per (report, snapshot), and `report` is the first snapshot of the
+# window where the report is a usable moment. Both stay selectable for the re-scoring families.
+BIRTH_GRAIN = "birth"
 SCORING_MOMENT_GRAIN = "scoring_moment"
 REPORT_GRAIN = "report"
 
@@ -152,7 +152,7 @@ class FeatureSet(abc.ABC):
     feature_names: tuple[str, ...]
     state_columns: tuple[str, ...]
     extras_keys: tuple[str, ...] = ()
-    example_grain: str = SCORING_MOMENT_GRAIN
+    example_grain: str = BIRTH_GRAIN
     # Rows one head's examples may keep, or None for every row the grain produces.
     max_examples_per_head: int | None = None
 
@@ -215,19 +215,19 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
 
     One example per report, not one per scoring moment. A day's newborns over the whole lookback,
     times 1536 floats, is gigabytes of Parquet per partition and more than the training pod holds,
-    which is what rules the moment grain out at this width. The first snapshot where a report is a
-    usable scoring moment is also the grain of the newborn pool the unseen read grades, so the
-    training population matches the graded one. `max_examples_per_head` bounds what is left; the
-    lookback stays the tabular set's, so positives still accrue over the whole window.
+    which is what rules the moment grain out at this width. The default birth grain gives that.
+    `max_examples_per_head` bounds what is left; the lookback stays the tabular set's, so positives
+    still accrue over the whole window.
 
     Vectors arrive through `extras`, from the dt=D `inbox_report_embeddings` snapshot, which holds
     the latest vector per report. A report is re-embedded whenever its text changes, and the
     summary workflow and each re-research run rewrite it, so the latest vector can postdate the
     moment being built. `as_of` is therefore load-bearing rather than a nicety: a moment takes the
-    vector only when that vector had already landed, and at the report grain the example moves to
-    the first snapshot where it had. Without the check the family would train on text that did not
-    exist when the report was supposedly scored, which is the one thing that would invalidate the
-    comparison this family exists for.
+    vector only when that vector had already landed, so a report whose birth-day snapshot holds
+    only a later vector is no example at all, and at the report grain it moves to the first
+    snapshot where the vector was its own. Without the check the family would train on text that
+    did not exist when the report was supposedly scored, which is the one thing that would
+    invalidate the comparison this family exists for.
 
     A report the snapshot has no vector for at all is not buildable either: the source table's TTL
     runs from report creation, so a long-lived report loses its vector while still live, and an
@@ -240,7 +240,6 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     feature_names = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
     state_columns = ()
     extras_keys = (REPORT_EMBEDDINGS_EXTRA,)
-    example_grain = REPORT_GRAIN
     # 1536 float32 columns, so a head's Parquet slice and its training matrix both scale with this.
     # Sized so every head of this family fits one partition's examples object and the fits stay
     # inside the training job's runtime budget, with the budget spent on positives first.
