@@ -33,6 +33,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
+import { memberDisplayName } from './memberDisplayName'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
@@ -278,9 +279,13 @@ export function Members(): JSX.Element | null {
             render: (_, member) => (
                 <div className="flex flex-col py-1">
                     <span className="ph-no-capture font-medium">
-                        {member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user)}
+                        {member.user.uuid == user.uuid
+                            ? `${memberDisplayName(member)} (you)`
+                            : memberDisplayName(member)}
                     </span>
-                    <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
+                    {fullName(member.user) && (
+                        <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
+                    )}
                     {!member.user.is_email_verified &&
                         !member.has_social_auth &&
                         preflight?.email_service_available && (
@@ -294,7 +299,7 @@ export function Members(): JSX.Element | null {
                         )}
                 </div>
             ),
-            sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
+            sorter: (a, b) => memberDisplayName(a).localeCompare(memberDisplayName(b)),
         },
         {
             title: 'Level',

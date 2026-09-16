@@ -6,11 +6,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
 
+import { memberDisplayName } from './memberDisplayName'
 import { describeProjectAccessSource, projectAccessSourceUrl } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 
@@ -65,7 +66,7 @@ export function MemberProjectAccessModal(): JSX.Element {
         <LemonModal
             isOpen={!!modalMember}
             onClose={closeProjectAccessModal}
-            title={modalMember ? `Project access for ${fullName(modalMember.user)}` : ''}
+            title={modalMember ? `Project access for ${memberDisplayName(modalMember)}` : ''}
             description={
                 <>
                     Access is set per project in the access control settings.{' '}
