@@ -202,10 +202,10 @@ const SCRIPT_STUBS: Record<string, ScriptStubs> = {
             },
         },
     },
-    // The Depot shadow gates its whole graph on a sampling variable and a dice roll; plan it as sampled in.
+    // The Depot graph hangs off a hand-off check the planner cannot read; plan it as handed
+    // off, which is the only case where its jobs do any work.
     '.depot/workflows/ci-backend.yml': {
-        vars: { CI_DEPOT_SHADOW_PERCENT: '100' },
-        jobOutputs: { sample: { sampled: 'true' } },
+        jobOutputs: { 'wait-for-handoff': { handed_off: 'true' } },
     },
 }
 
