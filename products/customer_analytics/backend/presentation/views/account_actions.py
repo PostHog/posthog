@@ -109,10 +109,10 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         ),
     )
     tags = serializers.ListField(
-        child=serializers.CharField(max_length=200),
+        child=serializers.CharField(max_length=200, allow_blank=True),
         required=False,
         max_length=100,
-        help_text="Tag names to apply, per tags_mode.",
+        help_text="Tag names to apply, per tags_mode. Blank names are dropped.",
     )
     tags_mode = serializers.ChoiceField(
         choices=["add", "set", "remove"],

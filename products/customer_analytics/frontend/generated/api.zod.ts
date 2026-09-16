@@ -228,7 +228,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string())
             .optional()
-            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+            .describe(
+                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+            ),
         slack_summary_cadence: zod
             .union([
                 zod
@@ -326,7 +328,9 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string())
             .optional()
-            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+            .describe(
+                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+            ),
         slack_summary_cadence: zod
             .union([
                 zod
@@ -395,7 +399,9 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string())
             .optional()
-            .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
+            .describe(
+                'Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.'
+            ),
         slack_summary_cadence: zod
             .union([
                 zod

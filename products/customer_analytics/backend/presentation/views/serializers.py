@@ -938,9 +938,9 @@ class AccountSerializer(DataclassSerializer):
         ),
     )
     tags = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(allow_blank=True),
         required=False,
-        help_text="Tag names attached to the account. Pass a list to replace existing tags.",
+        help_text="Tag names attached to the account. Pass a list to replace existing tags. Blank names are dropped.",
     )
     notebooks = serializers.ListField(
         child=serializers.CharField(),

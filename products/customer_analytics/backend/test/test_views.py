@@ -908,6 +908,20 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.json()["tags"], [])
         self.assertFalse(account.tagged_items.exists())
 
+    def test_update_drops_blank_tags(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="", team=self.team))
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"tags": ["", "  ", "vip"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["tags"], ["vip"])
+        self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["vip"])
+
     def test_list_filters_by_tags(self):
         billing_tag = Tag.objects.create(name="billing", team=self.team)
         urgent_tag = Tag.objects.create(name="urgent", team=self.team)

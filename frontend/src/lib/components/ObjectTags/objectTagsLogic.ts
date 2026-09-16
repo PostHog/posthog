@@ -57,7 +57,8 @@ export const objectTagsLogic = kea<objectTagsLogicType>([
     })),
     listeners(({ props }) => ({
         setTags: ({ tags }) => {
-            const nextTags = uniqueBy(tags.map(cleanTag), (i) => i)
+            // A blank entry would be saved as a tag that renders as nothing.
+            const nextTags = uniqueBy(tags.map(cleanTag).filter(Boolean), (i) => i)
             props.onChange?.(nextTags)
         },
     })),

@@ -656,8 +656,17 @@ def list_external_accounts(
     return contracts.ExternalAccountListPage(results=results, next_cursor=next_cursor)
 
 
+def _tag_names(tags: Iterable[str]) -> list[str]:
+    """The tag names the raw strings resolve to, minus the blanks.
+
+    ``tagify`` strips whitespace, so a payload of ``[""]`` would otherwise leave a tag row that
+    renders as nothing and then rides along in every later edit of the account's tags.
+    """
+    return list({name for name in (tagify(tag) for tag in tags) if name})
+
+
 def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
-    normalized = list({tagify(t) for t in tags})
+    normalized = _tag_names(tags)
     if mode == "remove":
         removed_tags = [
             tagged_item.tag
@@ -946,7 +955,7 @@ def _set_tags(
     renders its new tags without re-reading a stale prefetch (the mixin did the same)."""
     if tags is None:
         return
-    deduped_tags = list({tagify(t) for t in tags})
+    deduped_tags = _tag_names(tags)
     tagged_item_objects = []
     added_tags: list[Tag] = []
     for tag in deduped_tags:

@@ -104,7 +104,7 @@ export function ObjectTags({
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
-                    value={tags}
+                    value={displayTags}
                     options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
                     onChange={setTags}
                     onBlur={() => {
