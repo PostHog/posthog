@@ -97,6 +97,16 @@ describe('eventUsageLogic', () => {
             )
         })
 
+        it('uses the direct fallback when the selected insight does not match', () => {
+            eventUsageLogic.actions.reportInsightOpened('abc123' as InsightShortId, 'starred')
+            eventUsageLogic.actions.reportInsightViewed({ short_id: 'def456' as InsightShortId }, null, true)
+
+            expect(capture).toHaveBeenCalledWith(
+                'insight viewed',
+                expect.objectContaining({ opened_from: 'direct_or_unknown' })
+            )
+        })
+
         it('records a stable insight ID for starred actions without the display name', () => {
             const insightShortId = 'abc123' as InsightShortId
 
