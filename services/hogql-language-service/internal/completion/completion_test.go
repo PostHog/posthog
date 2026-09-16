@@ -101,12 +101,45 @@ func TestCompletesFieldsForHogQLQualifiedTable(t *testing.T) {
 }
 
 func TestCompletesTablesAfterFrom(t *testing.T) {
-	result, err := Complete(testCatalog(), "SELECT * FROM ord", len("SELECT * FROM ord"), PositionEncodingUTF8, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Suggestions) != 1 || result.Suggestions[0].Label != "orders" {
-		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	for _, test := range []struct {
+		name, query string
+		tables      map[string]string
+	}{
+		{"catalog", "SELECT * FROM ord|", map[string]string{"orders": "data_warehouse"}},
+		{"cte from", "WITH recent AS (SELECT event FROM events) SELECT * FROM rec|", map[string]string{"recent": "CTE"}},
+		{"cte join", "WITH recent AS (SELECT event FROM events) SELECT * FROM events JOIN rec| ON 1 = 1", map[string]string{"recent": "CTE"}},
+		{"cte comma", "WITH recent AS (SELECT event FROM events) SELECT * FROM events, rec|", map[string]string{"recent": "CTE"}},
+		{"catalog and cte", "WITH order_summary AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"orders": "data_warehouse", "order_summary": "CTE"}},
+		{"catalog shadow", "WITH Orders AS (SELECT event FROM events) SELECT * FROM ord|", map[string]string{"Orders": "CTE"}},
+		{"unicode prefix", "WITH `Σ` AS (SELECT event FROM events) SELECT * FROM ς|", map[string]string{"Σ": "CTE"}},
+		{"inner shadow", "WITH recent AS (SELECT event FROM events) SELECT * FROM (WITH Recent AS (SELECT uuid FROM events) SELECT * FROM rec|) AS s", map[string]string{"Recent": "CTE"}},
+		{"outer visible", "WITH recent AS (SELECT event FROM events) SELECT * FROM (SELECT * FROM rec|) AS s", map[string]string{"recent": "CTE"}},
+		{"previous cte", "WITH recent AS (SELECT event FROM events), recent_next AS (SELECT * FROM rec|) SELECT * FROM recent_next", map[string]string{"recent": "CTE"}},
+		{"no self or later cte", "WITH recent AS (SELECT * FROM rec|), recent_next AS (SELECT event FROM events) SELECT * FROM recent", nil},
+		{"no sibling cte", "SELECT * FROM (WITH recent AS (SELECT event FROM events) SELECT * FROM recent) AS a JOIN (SELECT * FROM rec|) AS b ON 1 = 1", nil},
+		{"no previous statement", "WITH recent AS (SELECT event FROM events) SELECT * FROM recent; SELECT * FROM rec|", nil},
+		{"no scalar alias", "WITH 1 AS recent SELECT * FROM rec|", nil},
+		{"malformed cte", "WITH recent AS (SELECT event FROM events SELECT * FROM rec|", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.query, '|')
+			query := strings.Replace(test.query, "|", "", 1)
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Suggestions) != len(test.tables) || result.Total != len(test.tables) {
+				t.Fatalf("result = %#v, want tables %#v", result, test.tables)
+			}
+			seen := map[string]bool{}
+			for _, suggestion := range result.Suggestions {
+				detail, exists := test.tables[suggestion.Label]
+				if !exists || seen[suggestion.Label] || suggestion.Kind != "table" || suggestion.Detail != detail {
+					t.Fatalf("unexpected suggestion %#v, want tables %#v", suggestion, test.tables)
+				}
+				seen[suggestion.Label] = true
+			}
+		})
 	}
 }
 
@@ -153,6 +186,31 @@ func TestCompletesScopedProjections(t *testing.T) {
 		{"derived body isolation", "SELECT * FROM orders AS x JOIN (SELECT x.| FROM events) AS s ON 1 = 1", nil},
 		{"joined derived sources", "WITH t AS (SELECT event FROM events) SELECT s.| FROM t JOIN (SELECT amount AS total FROM orders) AS s ON 1 = 1", map[string]string{"total": "float"}},
 		{"unicode prefix", "WITH t AS (SELECT amount AS `数額` FROM orders) SELECT t.数| FROM t", map[string]string{"数額": "float"}},
+		{"earlier select alias", "SELECT amount AS total, tot| FROM orders", map[string]string{"total": "float"}},
+		{"alias chain", "SELECT amount AS total, total AS subtotal, sub| FROM orders", map[string]string{"subtotal": "float"}},
+		{"alias in where", "SELECT amount AS total FROM orders WHERE tot| > 0", map[string]string{"total": "float"}},
+		{"alias in prewhere", "SELECT amount AS total FROM orders PREWHERE tot| > 0", map[string]string{"total": "float"}},
+		{"alias in group by", "SELECT amount AS total FROM orders GROUP BY tot|", map[string]string{"total": "float"}},
+		{"alias in having", "SELECT sum(amount) AS total FROM orders HAVING tot| > 0", map[string]string{"total": ""}},
+		{"alias in order by", "SELECT amount AS total FROM orders ORDER BY tot|", map[string]string{"total": "float"}},
+		{"alias in window", "SELECT amount AS total FROM orders WINDOW w AS (PARTITION BY tot|)", map[string]string{"total": "float"}},
+		{"alias in limit", "SELECT amount AS total FROM orders LIMIT tot|", map[string]string{"total": "float"}},
+		{"alias without from", "SELECT 1 AS total ORDER BY tot|", map[string]string{"total": ""}},
+		{"alias shadows field", "SELECT order_id AS amount FROM orders ORDER BY amo|", map[string]string{"amount": "string"}},
+		{"qualified field bypasses alias", "SELECT order_id AS amount FROM orders ORDER BY orders.amo|", map[string]string{"amount": "float"}},
+		{"projected alias chain", "SELECT s.sub| FROM (SELECT amount AS total, total AS subtotal FROM orders) AS s", map[string]string{"subtotal": "float"}},
+		{"no forward select alias", "SELECT tot|, amount AS total FROM orders", nil},
+		{"no self select alias", "SELECT tot| AS total FROM orders", nil},
+		{"no alias in join", "SELECT amount AS total FROM orders JOIN events ON tot| = 1", nil},
+		{"no outer select alias", "SELECT amount AS total FROM orders WHERE order_id IN (SELECT tot| FROM events)", nil},
+		{"no inner select alias", "SELECT tot| FROM orders WHERE order_id IN (SELECT event AS total FROM events)", nil},
+		{"no select alias across statements", "SELECT amount AS total FROM orders; SELECT tot| FROM events", nil},
+		{"no select alias across union", "SELECT amount AS total FROM orders UNION ALL SELECT tot| FROM orders", nil},
+		{"no select alias in cte", "WITH t AS (SELECT tot| FROM orders) SELECT amount AS total FROM orders", nil},
+		{"alias property shadow", "SELECT uuid AS properties FROM events ORDER BY properties.$geo_ci|", nil},
+		{"alias virtual property shadow", "SELECT uuid AS session FROM events ORDER BY session.properties.$entry|", nil},
+		{"qualified properties bypass alias", "SELECT uuid AS properties FROM events ORDER BY events.properties.$geo_ci|", map[string]string{"$geo_city": "String"}},
+		{"no recovered select aliases", "SELECT amount AS total FROM orders WHERE tot| >", nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			position := strings.IndexByte(test.query, '|')
@@ -164,6 +222,9 @@ func TestCompletesScopedProjections(t *testing.T) {
 			fields := map[string]string{}
 			for _, suggestion := range result.Suggestions {
 				if suggestion.Kind == "field" || suggestion.Kind == "property" {
+					if _, duplicate := fields[suggestion.Label]; duplicate {
+						t.Fatalf("duplicate suggestion: %#v", suggestion)
+					}
 					fields[suggestion.Label] = suggestion.Detail
 				}
 			}
@@ -236,7 +297,26 @@ func BenchmarkCompleteDerivedLookups(b *testing.B) {
 	}
 }
 
-func TestDerivedProjectionPaginationAndLimits(t *testing.T) {
+func TestSelectAliasLookupWorkBudget(t *testing.T) {
+	tables := map[string]catalog.Table{}
+	var sources []string
+	for index := range 128 {
+		name := fmt.Sprintf("source_%d", index)
+		tables[name] = catalog.Table{Name: name, Fields: map[string]catalog.Field{"amount": {Name: "amount", Type: "float"}}}
+		sources = append(sources, name)
+	}
+	schema := catalog.Prepare(&catalog.Catalog{Tables: tables})
+	query := "SELECT " + strings.Repeat("x", 8192) + " AS total FROM " + strings.Join(sources, " CROSS JOIN ") + " ORDER BY tot"
+	if err := querylimits.Validate(query); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
+	if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+}
+
+func TestProjectionPaginationAndLimits(t *testing.T) {
 	var items []string
 	for index := 0; index < PageSize+2; index++ {
 		items = append(items, fmt.Sprintf("amount AS field_%02d", index))
@@ -245,6 +325,7 @@ func TestDerivedProjectionPaginationAndLimits(t *testing.T) {
 	for _, source := range []string{
 		"WITH t AS (SELECT " + strings.Join(items, ", ") + " FROM orders) SELECT t.| FROM t",
 		"SELECT t.| FROM (SELECT " + strings.Join(items, ", ") + " FROM orders) AS t",
+		"SELECT " + strings.Join(items[:PageSize+2], ", ") + " FROM orders ORDER BY field_|",
 	} {
 		position := strings.IndexByte(source, '|')
 		query := strings.Replace(source, "|", "", 1)
@@ -319,6 +400,16 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	aliasQuery := "SELECT o.\"order-total\" AS \"billing total\" FROM orders AS o ORDER BY bill"
+	aliasResult, err := Complete(schema, aliasQuery, len(aliasQuery), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cteQuery := "WITH `recent.items` AS (SELECT * FROM orders), `recent items` AS (SELECT * FROM orders) SELECT * FROM rec"
+	cteResult, err := Complete(schema, cteQuery, len(cteQuery), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, test := range []struct {
 		result     Result
@@ -331,6 +422,9 @@ func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
 		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
 		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
 		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
+		{result: aliasResult, label: "billing total", insertText: "`billing total`"},
+		{result: cteResult, label: "recent.items", insertText: "`recent.items`"},
+		{result: cteResult, label: "recent items", insertText: "`recent items`"},
 	} {
 		suggestion, ok := findSuggestion(test.result.Suggestions, test.label)
 		if !ok || suggestion.InsertText != test.insertText {
@@ -398,6 +492,13 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		excluded   []string
 		total      int
 	}{
+		{name: "empty query select", query: "", position: 0, label: "SELECT", kind: "keyword", total: 2},
+		{name: "empty query with", query: "", position: 0, label: "WITH", kind: "keyword", total: 2},
+		{name: "whitespace query", query: " \n\t\u2003", position: len(" \n\t\u2003"), label: "SELECT", kind: "keyword", total: 2},
+		{name: "select prefix", query: "sel", position: 3, label: "SELECT", kind: "keyword", total: 1},
+		{name: "with prefix", query: "wi", position: 2, label: "WITH", kind: "keyword", total: 1},
+		{name: "after comment", query: "-- example\n", position: len("-- example\n"), label: "WITH", kind: "keyword", total: 2},
+		{name: "after statement", query: "SELECT 1; ", position: len("SELECT 1; "), label: "SELECT", kind: "keyword", total: 2},
 		{name: "function in select", query: "SELECT cou FROM orders", position: len("SELECT cou"), label: "count", kind: "function", insertText: "count()"},
 		{name: "embedded function in select", query: "SELECT geoD FROM orders", position: len("SELECT geoD"), label: "geoDistance", kind: "function", insertText: "geoDistance()"},
 		{name: "function in where", query: "SELECT * FROM orders WHERE coa", position: len("SELECT * FROM orders WHERE coa"), label: "coalesce", kind: "function", insertText: "coalesce()"},
@@ -443,6 +544,8 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 
 func TestCompletionReturnsNoSuggestionsInsideStringOrComment(t *testing.T) {
 	for _, query := range []string{
+		"-- sel",
+		"/* wi",
 		"SELECT * FROM orders WHERE order_id = 'cou",
 		"SELECT * FROM orders -- cou",
 		"SELECT * FROM orders /* cou",
@@ -465,25 +568,38 @@ func TestCompletionPagesWithoutSkippingOrRepeatingTables(t *testing.T) {
 	}
 	prepared := catalog.Prepare(schema)
 	query := "SELECT * FROM table_"
-	first, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(first.Suggestions) != PageSize || first.NextCursor == "" {
-		t.Fatalf("first page has %d suggestions and cursor %q", len(first.Suggestions), first.NextCursor)
-	}
-	if first.Total != 30 {
-		t.Fatalf("total = %d", first.Total)
-	}
-	second, err := Complete(prepared, query, len(query), PositionEncodingUTF8, first.NextCursor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(second.Suggestions) != 5 || second.NextCursor != "" {
-		t.Fatalf("second page has %d suggestions and cursor %q", len(second.Suggestions), second.NextCursor)
-	}
-	if first.Suggestions[24].Label != "table_24" || second.Suggestions[0].Label != "table_25" {
-		t.Fatalf("page boundary is %q then %q", first.Suggestions[24].Label, second.Suggestions[0].Label)
+	for _, ctePrefix := range []string{"", "WITH table_05 AS (SELECT 1), table_30 AS (SELECT 2) "} {
+		t.Run(ctePrefix, func(t *testing.T) {
+			input := ctePrefix + query
+			var expected []string
+			if ctePrefix != "" {
+				expected = append(expected, "table_05", "table_30")
+			}
+			for index := range 30 {
+				if ctePrefix == "" || index != 5 {
+					expected = append(expected, fmt.Sprintf("table_%02d", index))
+				}
+			}
+			first, err := Complete(prepared, input, len(input), PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(first.Suggestions) != PageSize || first.NextCursor == "" || first.Total != len(expected) {
+				t.Fatalf("first page = %#v", first)
+			}
+			second, err := Complete(prepared, input, len(input), PositionEncodingUTF8, first.NextCursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(second.Suggestions) != len(expected)-PageSize || second.NextCursor != "" || second.Total != len(expected) {
+				t.Fatalf("second page = %#v", second)
+			}
+			for index, suggestion := range append(first.Suggestions, second.Suggestions...) {
+				if suggestion.Label != expected[index] {
+					t.Fatalf("suggestion %d = %#v, want %s", index, suggestion, expected[index])
+				}
+			}
+		})
 	}
 	if _, err := Complete(prepared, query, len(query), PositionEncodingUTF8, "not-a-cursor"); err == nil {
 		t.Fatal("invalid cursor was accepted")
