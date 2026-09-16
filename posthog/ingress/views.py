@@ -34,10 +34,12 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         if outcome is VerificationOutcome.NOT_CONFIGURED:
             logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
-            return HttpResponse("Webhook not configured", status=provider.unconfigured_status)
+            reason = "Webhook not configured" if provider.explains_rejections else ""
+            return HttpResponse(reason, status=provider.unconfigured_status)
         if outcome is not VerificationOutcome.VERIFIED:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_signature")
-            return HttpResponse("Invalid signature", status=provider.invalid_signature_status)
+            reason = "Invalid signature" if provider.explains_rejections else ""
+            return HttpResponse(reason, status=provider.invalid_signature_status)
 
         try:
             # RecursionError: deeply nested JSON must answer 400, not 500.

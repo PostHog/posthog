@@ -1,6 +1,6 @@
 import { KEY_READ_LEASE_MS, MlDataKey, MlKeyEncryption } from './crypto'
 import { MlPrivacyDynamoDB } from './dynamodb'
-import { MlKeyIdentity, TableKey, keySessionMonth, monthBlockId, tableKeyString, teamBlockId } from './schema'
+import { MlKeyIdentity, TableKey, tableKeyString, teamBlockId } from './schema'
 
 export class MlKeyReader {
     constructor(
@@ -28,19 +28,11 @@ export class MlKeyReader {
                 ...(sessionId ? { sessionId } : { sessionMonth: item.session_month?.S }),
             })
         }
-        const state = await this.db.read(
-            [...identities.values()].flatMap((identity) => [
-                monthBlockId(keySessionMonth(identity)),
-                teamBlockId(identity.teamId),
-            ])
-        )
+        const state = await this.db.read([...identities.values()].map((identity) => teamBlockId(identity.teamId)))
         const result = new Map<string, MlDataKey>()
         await Promise.all(
             [...identities].map(async ([id, identity]) => {
-                if (
-                    state.has(tableKeyString(monthBlockId(keySessionMonth(identity)))) ||
-                    state.has(tableKeyString(teamBlockId(identity.teamId)))
-                ) {
+                if (state.has(tableKeyString(teamBlockId(identity.teamId)))) {
                     return
                 }
                 result.set(id, {

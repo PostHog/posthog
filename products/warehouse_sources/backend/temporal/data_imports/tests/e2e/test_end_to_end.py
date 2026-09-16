@@ -68,7 +68,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    ExternalDataJobWorkflow,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -3367,15 +3370,20 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             ignore_assertions=True,
         )
 
-    # assert that the running job was completed successfully and that the new workflow was triggered
     mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
 
-    run: ExternalDataJob | None = await get_latest_run_if_exists(
-        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
-    )
+    run: ExternalDataJob | None = await sync_to_async(
+        ExternalDataJob.objects.filter(team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id)
+        .order_by("-created_at")
+        .first
+    )()
 
     assert run is not None
-    assert run.status == ExternalDataJobStatus.COMPLETED
+    if _current_pipeline_mode == "v3":
+        assert run.status == ExternalDataJobStatus.FAILED
+        assert run.latest_error == WORKER_RESTART_ERROR_MESSAGE
+    else:
+        assert run.status == ExternalDataJobStatus.COMPLETED
 
 
 @pytest.mark.django_db(transaction=True)

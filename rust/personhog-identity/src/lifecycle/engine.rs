@@ -23,11 +23,11 @@ use chrono::{DateTime, Utc};
 use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use rand::Rng;
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use tonic::Status;
 use uuid::Uuid;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 
 /// Terminal step: the op ran to the end.
 pub const STEP_COMPLETED: &str = "completed";
@@ -191,7 +191,7 @@ pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError>;
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError>;
 }
 
 #[derive(Clone, Debug)]
@@ -211,23 +211,23 @@ pub struct EngineConfig {
 }
 
 pub struct Engine {
-    pool: PgPool,
+    pools: IdentityPools,
     config: EngineConfig,
     tables: IdentityTables,
 }
 
 impl Engine {
-    pub fn new(pool: PgPool, config: EngineConfig, tables: IdentityTables) -> Self {
+    pub fn new(pools: IdentityPools, config: EngineConfig, tables: IdentityTables) -> Self {
         tables.validate().expect("invalid identity table set");
         Self {
-            pool,
+            pools,
             config,
             tables,
         }
     }
 
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    pub fn pools(&self) -> &IdentityPools {
+        &self.pools
     }
 
     pub fn tables(&self) -> &IdentityTables {
@@ -277,7 +277,7 @@ impl Engine {
             team_id as i32,
             driver.initial_step(),
             request
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?
         .rows_affected()
             > 0;
@@ -328,7 +328,7 @@ impl Engine {
             return Ok(row);
         }
         let step_start = Instant::now();
-        let stepped = driver.run_step(&self.pool, &row).await;
+        let stepped = driver.run_step(&self.pools, &row).await;
         record_step_duration(&row, step_start);
         stepped?;
         self.load(op_id).await?.ok_or_else(|| {
@@ -447,7 +447,7 @@ impl Engine {
             }
 
             let step_start = Instant::now();
-            let stepped = driver.run_step(&self.pool, &row).await;
+            let stepped = driver.run_step(&self.pools, &row).await;
             record_step_duration(&row, step_start);
             if let Err(err) = stepped {
                 // Attributable escalation: a persistently failing op (a
@@ -539,7 +539,7 @@ impl Engine {
             WHERE op_id = $1
             "#,
             op_id
-            => fetch_optional(&self.pool)
+            => fetch_optional(self.pools.fast())
         )
     }
 
@@ -582,7 +582,7 @@ impl Engine {
             op_id,
             self.config.lease.as_secs_f64(),
             unpark
-            => fetch_optional(&self.pool)
+            => fetch_optional(self.pools.fast())
         )
     }
 
@@ -608,7 +608,7 @@ impl Engine {
             op_id,
             attempt,
             reason
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?
         .rows_affected()
             > 0;
@@ -646,7 +646,7 @@ impl Engine {
             op_id,
             self.config.lease.as_secs_f64(),
             attempt
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?;
         Ok(result.rows_affected() > 0)
     }
@@ -657,7 +657,7 @@ impl Engine {
             "UPDATE {lifecycle_op} SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
             op_id,
             attempt
-            => execute(&self.pool)
+            => execute(self.pools.fast())
         )?;
         Ok(())
     }
@@ -682,7 +682,7 @@ impl Engine {
             "#,
             self.config.lease.as_secs_f64(),
             SWEEP_BATCH_SIZE
-            => fetch_all(&self.pool)
+            => fetch_all(self.pools.fast())
         )?;
 
         let mut resumed = 0u32;
@@ -717,7 +717,7 @@ impl Engine {
         match mirrored_query_scalar!(
             self.tables.is_validation(),
             r#"SELECT count(*) AS "count!" FROM {lifecycle_op} WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
-            => fetch_one(&self.pool)
+            => fetch_one(self.pools.fast())
         ) {
             Ok(parked) => common_metrics::gauge(OPS_PARKED, &[], parked as f64),
             Err(e) => tracing::warn!(error = %e, "failed to refresh the parked-ops gauge"),
@@ -743,7 +743,7 @@ impl Engine {
             "#,
             retention.as_secs_f64(),
             self.config.gc_batch_limit
-            => execute(&self.pool)
+            => execute(self.pools.get(Lane::Heavy))
         )?;
         Ok(result.rows_affected())
     }
