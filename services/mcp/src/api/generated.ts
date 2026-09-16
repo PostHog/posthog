@@ -37101,7 +37101,7 @@ export namespace Schemas {
       /** What this experiment's default exposure resolves to — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. A custom `exposure_criteria.exposure_config` overrides this, so read `effective_exposure_event` for the event the results are counted on. */
       readonly resolved_exposure_event: string;
       /**
-         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the exposure config is an action, which can match more than one event, or the stored config cannot be read.
+         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the config names an action, the criteria set an activation event that must follow a flag exposure, the config carries no event name, or the stored config cannot be read.
          * @nullable
          */
       readonly effective_exposure_event: string | null;
@@ -38235,7 +38235,7 @@ export namespace Schemas {
       /** What this experiment's default exposure resolves to — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. A custom `exposure_criteria.exposure_config` overrides this, so read `effective_exposure_event` for the event the results are counted on. */
       readonly resolved_exposure_event: string;
       /**
-         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the exposure config is an action, which can match more than one event, or the stored config cannot be read.
+         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the config names an action, the criteria set an activation event that must follow a flag exposure, the config carries no event name, or the stored config cannot be read.
          * @nullable
          */
       readonly effective_exposure_event: string | null;
@@ -67287,7 +67287,7 @@ export namespace Schemas {
       /** What this experiment's default exposure resolves to — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. A custom `exposure_criteria.exposure_config` overrides this, so read `effective_exposure_event` for the event the results are counted on. */
       readonly resolved_exposure_event?: string;
       /**
-         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the exposure config is an action, which can match more than one event, or the stored config cannot be read.
+         * The event this experiment's results are counted on, after any custom `exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` when the experiment uses the default exposure. Null when no single event applies: the config names an action, the criteria set an activation event that must follow a flag exposure, the config carries no event name, or the stored config cannot be read.
          * @nullable
          */
       readonly effective_exposure_event?: string | null;

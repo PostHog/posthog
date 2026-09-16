@@ -23,6 +23,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
+    ExperimentEventExposureConfig,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -39,10 +40,8 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    get_exposure_event_and_property,
-    resolve_default_exposure_event,
-)
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
+from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -418,8 +417,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "The event this experiment's results are counted on, after any custom "
             "`exposure_criteria.exposure_config` is applied. Equal to `resolved_exposure_event` "
             "when the experiment uses the default exposure. Null when no single event applies: "
-            "the exposure config is an action, which can match more than one event, or the "
-            "stored config cannot be read."
+            "the config names an action, the criteria set an activation event that must follow "
+            "a flag exposure, the config carries no event name, or the stored config cannot be "
+            "read."
         ),
     )
     version = serializers.IntegerField(
@@ -560,16 +560,22 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_effective_exposure_event(self, obj: Experiment) -> str | None:
         try:
-            event, _ = get_exposure_event_and_property(
-                obj.feature_flag.key if obj.feature_flag else "",
-                obj.exposure_criteria,
-                default_exposure_event=self.get_resolved_exposure_event(obj),
+            # Resolved through the same helper the results queries use, so the reported event
+            # cannot drift from the one they read.
+            params = get_exposure_config_params_for_builder(
+                obj.exposure_criteria, obj.team, obj.start_date or timezone.now()
             )
         except PydanticValidationError:
             # Criteria written before the shape validation landed can still fail the strict parse.
             # Those experiments already break in the results queries; reading them must not 500.
             return None
-        return event
+        if params.activation_config is not None:
+            # Activation mode counts an activation event that follows a flag exposure, so no
+            # single event describes the exposures.
+            return None
+        if not isinstance(params.exposure_config, ExperimentEventExposureConfig):
+            return None
+        return params.exposure_config.event or None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

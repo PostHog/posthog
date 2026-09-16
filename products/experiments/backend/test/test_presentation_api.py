@@ -53,6 +53,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
+# Stands in for an action id the parameterized cases cannot know until the row exists.
+ACTION_PK = "<action>"
+
 
 def _make(cls, **attrs):
     """Build an auth instance without running __init__, setting only the attributes the test needs."""
@@ -672,28 +675,60 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("no_config", None, "$experiment_exposure"),
+            ("no_criteria", None, "$experiment_exposure"),
             (
                 "default_config",
-                {"kind": "ExperimentEventExposureConfig", "event": "$feature_flag_called", "properties": []},
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    }
+                },
                 "$experiment_exposure",
             ),
             (
                 "custom_event",
-                {"kind": "ExperimentEventExposureConfig", "event": "listing_view", "properties": []},
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "listing_view",
+                        "properties": [],
+                    }
+                },
                 "listing_view",
             ),
-            ("action_config", "action", None),
+            ("action_config", {"exposure_config": {"kind": "ActionsNode", "id": ACTION_PK}}, None),
+            (
+                "blank_event",
+                {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "", "properties": []}},
+                None,
+            ),
+            (
+                "activation_event",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "listing_view",
+                        "properties": [],
+                    }
+                },
+                None,
+            ),
+            ("activation_action", {"activation_config": {"kind": "ActionsNode", "id": ACTION_PK}}, None),
         ]
     )
     def test_detail_reports_effective_exposure_event(
-        self, _name: str, exposure_config: Any, expected_event: str | None
+        self, _name: str, exposure_criteria: Any, expected_event: str | None
     ) -> None:
         # resolved_exposure_event only describes the default path, so a client that reads it alone
-        # filters on the default event for an experiment whose results come from a custom one.
-        if exposure_config == "action":
+        # names the default event for an experiment whose results come from somewhere else.
+        if exposure_criteria:
             action = Action.objects.create(team=self.team, name="Viewed listing", created_by=self.user)
-            exposure_config = {"kind": "ActionsNode", "id": action.pk}
+            exposure_criteria = {
+                key: {**config, "id": action.pk} if config.get("id") == ACTION_PK else config
+                for key, config in exposure_criteria.items()
+            }
 
         experiment = Experiment.objects.create(
             team=self.team,
@@ -702,7 +737,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 team=self.team, key=f"effective-exposure-{_name}", created_by=self.user
             ),
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=7),
-            exposure_criteria={"exposure_config": exposure_config} if exposure_config else None,
+            exposure_criteria=exposure_criteria,
         )
 
         def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
