@@ -35,6 +35,7 @@ import duckdb
 import pyarrow as pa
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import AnsiIdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -60,6 +61,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
+    "MOTHERDUCK_TRANSIENT_ERRORS",
+    "MOTHERDUCK_UNAVAILABLE_MESSAGE",
     "MotherDuckConnectionError",
     "MotherDuckImplementation",
     "build_motherduck_connection_string",
@@ -82,6 +85,19 @@ MOTHERDUCK_SYSTEM_SCHEMAS = ("information_schema", "pg_catalog")
 # Catalogs MotherDuck and the client attach for their own bookkeeping — never user data. Only
 # consulted for an account-wide connection; pinning a database scopes discovery on its own.
 MOTHERDUCK_SYSTEM_DATABASES = ("md_information_schema", "system", "temp", "memory", "_duckdb_ui")
+
+# DuckDB reports MotherDuck being unreachable as an `Invalid Input Error` from the client
+# extension's init, the same class a wrong database name or access token produces, so the class
+# below cannot tell an outage from a config problem. These are MotherDuck's own wordings for one.
+MOTHERDUCK_TRANSIENT_ERRORS = (
+    "could not connect to motherduck",
+    "please try again later",
+)
+
+MOTHERDUCK_UNAVAILABLE_MESSAGE = (
+    "MotherDuck is temporarily unavailable, so PostHog couldn't connect. This isn't a problem with "
+    "your database name or access token. Try again in a few minutes."
+)
 
 # DuckDB prefixes every error message with its stable error class ("Catalog Error:", "Binder
 # Error:", …). The text after the prefix carries volatile object names, so we match the class.
@@ -164,6 +180,8 @@ def translate_motherduck_error(error: Exception) -> str:
             "Your MotherDuck plan has reached its compute limit. Queries may be slow or fail until the "
             "limit resets. Upgrade your MotherDuck plan for more capacity."
         )
+    if error_message_matches(message, MOTHERDUCK_TRANSIENT_ERRORS):
+        return MOTHERDUCK_UNAVAILABLE_MESSAGE
     for key, value in MOTHERDUCK_ERROR_CLASSES.items():
         if key in message:
             return value

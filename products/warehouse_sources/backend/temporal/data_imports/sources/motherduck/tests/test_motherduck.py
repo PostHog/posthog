@@ -3,9 +3,11 @@ import os
 import pytest
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pyarrow as pa
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
     MotherduckSourceConfig,
@@ -13,7 +15,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     DEFAULT_MOTHERDUCK_FETCH_SIZE,
     DUCKDB_LOCAL_CONFIG,
+    MOTHERDUCK_ERROR_CLASSES,
     MOTHERDUCK_SYSTEM_DATABASES,
+    MotherDuckConnectionError,
     MotherDuckImplementation,
     build_motherduck_connection_string,
     connect,
@@ -22,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import MotherduckSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+_SERVICE_UNAVAILABLE_ERROR = (
+    'Invalid Input Error: Initialization function "motherduck_duckdb_cpp_init" failed: '
+    "Request failed: Could not connect to MotherDuck. Please try again later"
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
 _CONNECT_PATH = f"{_MODULE}.duckdb.connect"
@@ -116,6 +125,7 @@ class TestMotherDuck:
                 "reached its compute limit",
             ),
             ("Catalog Error: Table with name nope does not exist", "Can't find that database or schema"),
+            (_SERVICE_UNAVAILABLE_ERROR, "MotherDuck is temporarily unavailable"),
             # Unmapped errors surface their first line only (DuckDB appends candidate/hint blocks).
             ("Parser Error: syntax error at or near\nCandidate bindings: ...", "Parser Error: syntax error at or near"),
         ],
@@ -529,13 +539,30 @@ class TestMotherDuck:
         [
             "Catalog Error: Table with name users does not exist!",
             "Binder Error: Referenced column email not found in FROM clause!",
-            "Invalid Input Error: The following options were not recognized: motherduck_token",
+            MOTHERDUCK_ERROR_CLASSES["Invalid Input Error"],
             "Source column type changed",
         ],
     )
     def test_permanent_failures_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable), f"Error should be non-retryable: {error_msg}"
+
+    def test_service_outages_keep_retrying(self, source):
+        # The import activity consults the non-retryable set first, so an outage has to miss that
+        # set entirely or it stops the sync and asks the owner to check credentials they can't fix.
+        assert not error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_non_retryable_errors())
+        assert error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_retryable_errors())
+        assert error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_retry_exhausted_errors())
+
+    def test_an_outage_stays_retryable_once_connect_has_translated_it(self, source):
+        # `connect()` replaces the driver text with our own copy, so classification runs against
+        # that copy for any failure raised while opening a connection.
+        with patch(_CONNECT_PATH, side_effect=duckdb.Error(_SERVICE_UNAVAILABLE_ERROR)):
+            with pytest.raises(MotherDuckConnectionError) as exc_info:
+                connect("md-token", "my_db")
+
+        assert not error_message_matches(str(exc_info.value), source.get_non_retryable_errors())
+        assert error_message_matches(str(exc_info.value), source.get_retryable_errors())
 
     def test_validate_credentials_requires_an_access_token(self, source):
         ok, message = source.validate_credentials(_make_config(access_token=""), team_id=1)
@@ -557,6 +584,7 @@ class TestMotherDuck:
             (Exception("Catalog Error: Database with name nope does not exist!"), "database and schema names"),
             (Exception("Binder Error: Referenced column not found"), "rejected the query"),
             (Exception("Invalid Input Error: bad option"), "connection details"),
+            (Exception(_SERVICE_UNAVAILABLE_ERROR), "MotherDuck is temporarily unavailable"),
             (ValueError("Invalid MotherDuck database name: 'my db'"), "Invalid MotherDuck database name"),
             (Exception("something totally unexpected"), "Could not connect to MotherDuck"),
         ],
