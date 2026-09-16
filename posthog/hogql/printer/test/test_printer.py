@@ -2536,6 +2536,52 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "utc",
+                "UTC",
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
+            ),
+            (
+                "non_utc",
+                "US/Pacific",
+                "SELECT event FROM events ORDER BY timestamp DESC LIMIT 10",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10",
+            ),
+            (
+                "table_alias",
+                "UTC",
+                "SELECT e.event FROM events AS e ORDER BY e.timestamp ASC LIMIT 10",
+                "ORDER BY toDate(e.timestamp) ASC, toTimeZone(e.timestamp, %(hogql_val_0)s) ASC LIMIT 10",
+            ),
+            (
+                "subquery_with_its_own_limit",
+                "UTC",
+                "SELECT event FROM (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10)",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
+            ),
+            (
+                "cte_with_its_own_limit",
+                "UTC",
+                "WITH recent AS (SELECT event FROM events ORDER BY timestamp DESC LIMIT 10) SELECT event FROM recent",
+                "ORDER BY toDate(events.timestamp) DESC, toTimeZone(events.timestamp, %(hogql_val_0)s) DESC LIMIT 10)",
+            ),
+        ]
+    )
+    def test_order_by_events_timestamp_reads_in_sort_key_order(
+        self, _name: str, timezone: str, query: str, expected_order_by: str
+    ):
+        self.team.timezone = timezone
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        printed = self._select(query, context)
+
+        self.assertIn(expected_order_by, printed)
+        self.assertEqual(context.values["hogql_val_0"], timezone)
+
+    @parameterized.expand(
+        [
             [
                 "bare",
                 "select event from events order by event WITH FILL",
