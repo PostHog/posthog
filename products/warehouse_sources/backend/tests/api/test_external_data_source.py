@@ -3,7 +3,7 @@ import time
 import uuid
 import typing as t
 from datetime import date, timedelta
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Event
 from typing import Any, cast
 
 import time_machine
@@ -5508,6 +5508,45 @@ class TestExternalDataSource(APIBaseTest):
             by_table = {entry["table"]: entry for entry in response.json()}
             assert by_table["Charge"]["permission_error"] == "Missing rak_charge_read"
             assert by_table["Customer"]["permission_error"] is None
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    def test_database_schema_answers_with_the_listing_when_the_permission_probe_is_slow(self, mock_capture_exception):
+        # The probe is one request per endpoint on some sources, so it can spend as long as the
+        # listing did. Outside the budget it pushed the whole answer past the gateway, which left
+        # the wizard with nothing — the tables it already had included.
+        release_probe = Event()
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.DISCOVERY_DEADLINE_SECONDS",
+                1.0,
+            ),
+        ):
+            validate_credentials_mock.return_value = True
+            check_perms_mock.side_effect = lambda *args, **kwargs: release_probe.wait(5)
+
+            try:
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                    data={
+                        "source_type": "Stripe",
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
+                        "stripe_account_id": "blah",
+                    },
+                )
+            finally:
+                release_probe.set()
+
+        assert response.status_code == 200
+        entries = response.json()
+        assert len(entries) > 0
+        assert all(entry["permission_error"] is None for entry in entries)
+        mock_capture_exception.assert_not_called()
 
     def test_database_schema_zendesk_credentials(self):
         with patch(

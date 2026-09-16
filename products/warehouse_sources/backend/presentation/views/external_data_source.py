@@ -3669,11 +3669,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": error_message},
             )
 
-        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available". It
+        # shares the same budget because a source that probes one endpoint at a time can spend as
+        # long here as the listing did, which would put the answer back past the gateway.
         try:
-            endpoint_permissions = source.get_endpoint_permissions(
-                source_config, self.team_id, [schema.name for schema in schemas]
+            endpoint_permissions = deadline.run(
+                lambda: source.get_endpoint_permissions(source_config, self.team_id, [s.name for s in schemas])
             )
+        except FutureTimeoutError:
+            # The tables are already listed, so a probe that runs out of budget costs the user only
+            # the per-table detail. Answer with the listing rather than lose it to an optional extra.
+            _record_discovery_failure(source, "permissions_timeout")
+            logger.warning(
+                "database_schema endpoint permission probe timed out",
+                source_type=source_type,
+                team_id=self.team_id,
+            )
+            endpoint_permissions = {schema.name: None for schema in schemas}
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             endpoint_permissions = {schema.name: None for schema in schemas}
