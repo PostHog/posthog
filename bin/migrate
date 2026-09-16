@@ -92,6 +92,8 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
     MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
     MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
+    # Must match UNSUPPORTED_DATABASE_EXIT_CODE in posthog/management/commands/migrate.py
+    MIGRATE_UNSUPPORTED_DATABASE=78
     
     MIGRATE_ATTEMPT=1
     MIGRATE_SUCCESS=false
@@ -117,9 +119,16 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         if $MIGRATE_CMD; then
             MIGRATE_SUCCESS=true
             break
+        else
+            MIGRATE_STATUS=$?
         fi
         
         echo "[migrate] Django migration failed"
+        
+        if [ "$MIGRATE_STATUS" = "$MIGRATE_UNSUPPORTED_DATABASE" ]; then
+            echo "[migrate] the database version is not supported, so retrying cannot help"
+            break
+        fi
         
         if [ $MIGRATE_ATTEMPT -ge $MIGRATE_MAX_RETRIES ]; then
             echo "[migrate] max retries reached, aborting"
