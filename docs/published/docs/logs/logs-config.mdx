@@ -57,3 +57,18 @@ This setting changes only how patterns are derived. The stored log body is never
 ## Propagation
 
 A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.
+
+## JSON attribute parsing configuration
+
+In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body. The control uses the same project-admin and Logs Editor restrictions as the other Logs settings.
+
+The `logs-json-attribute-parsing` feature flag controls the setting's visibility. Saving or clearing the key uses the existing project API permissions and does not require that flag.
+
+The project API stores the key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above:
+
+- The value must be a string. Leading and trailing whitespace is trimmed, and the trimmed key can be at most 200 characters.
+- The key is matched literally, including dots.
+- The default is off. An empty string disables parsing.
+- The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
+
+Saving a key records your choice. Ingestion does not read it yet, so no fields are extracted from the attribute.

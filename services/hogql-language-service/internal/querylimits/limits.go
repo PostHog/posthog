@@ -6,9 +6,11 @@ const MaxQueryBytes = 64 << 10
 const MaxNestingDepth = 128
 const MaxSuggestionInputBytes = 128
 const MaxDiagnostics = 25
+const MaxCTEProjectedFields = 16 << 10
 
 var ErrQueryTooLarge = errors.New("query exceeds maximum size")
 var ErrQueryTooDeep = errors.New("query exceeds maximum nesting depth")
+var ErrCTEProjectionTooLarge = errors.New("query expands too many CTE fields; select fewer fields in each CTE")
 
 func Validate(query string) error {
 	if len(query) > MaxQueryBytes {
