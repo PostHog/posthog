@@ -7,14 +7,14 @@
     "key": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
     "data": "c3ludGhldGljIGludGVyb3BlcmFiaWxpdHkgcGF5bG9hZA==",
     "envelope": {
-        "v": 2,
+        "v": 3,
         "context": {
             "teamId": 7,
             "organizationId": "00000000-0000-4000-8000-000000000007",
             "sessionId": "01994569-4380-7000-8000-000000000007",
             "kind": "rrweb"
         },
-        "nonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD",
-        "ciphertext": "J7ZDxBv0xIHU+NbDMakk4Zfw4/QVzp9N/3Nou2Fw5EHMoFUnJlmLR1uMpdNQ9RzghmLG2IQZxuytZzl6nXIwDjThieTFFxsTD88iry/Q3f/IUXtrfO8AwN71Edwmw5cQe4BWZiI1F3lmYLi3SqiwWWOgDAQcaFAy95e9dIaB2uMh74M1617MqtZLMQnnvLwoDUSk60ovZhTwL5spBFy02JOaAOxpazluT8+qeuQEzfgI+/54rUzdJPg6gScSOBIAQWp3Jbk9xVOrxtdqLB4BtPKAPYwqFwIJtuS/UQ=="
+        "nonce": "AwMDAwMDAwMDAwMD",
+        "ciphertext": "VofNdzJNKisZYCoynzKNY51Zko7W/PgZW6enwYKcLNfQw1APuYhuzy8mpJ3qd2oMKRc="
     }
 }

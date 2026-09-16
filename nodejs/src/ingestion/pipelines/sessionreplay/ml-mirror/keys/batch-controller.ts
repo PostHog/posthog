@@ -1,6 +1,8 @@
 import pLimit from 'p-limit'
 
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { PipelineResult, PipelineResultType, ok } from '~/ingestion/framework/results'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { usesRawSessionIdentifiers } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 import {
     DeleteKeyResult,
@@ -18,18 +20,18 @@ export interface MlRecordingKey extends SessionKey {
     mlIdentity: MlKeyIdentity
 }
 
-export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
+export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
     private readonly publish = pLimit(8)
     private batch?: MlKeyBatch
-    private deferred: Array<() => Promise<void>> = []
+    private deferred: Array<(sideEffects: (promises: Promise<unknown>[]) => Promise<void>) => Promise<void>> = []
 
     constructor(
         private readonly store: MlSessionKeyStore,
         private readonly encryption: MlKeyEncryption
     ) {}
 
-    public async start(): Promise<void> {
-        await this.encryption.start()
+    public start(): Promise<void> {
+        return Promise.resolve()
     }
 
     public stop(): void {
@@ -43,9 +45,11 @@ export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
 
     public async prepare(identities: MlSessionIdentity[]): Promise<void> {
         this.deferred = []
+        const startedAt = performance.now()
         this.batch = await this.store.prepare(
             identities.filter((identity) => usesRawSessionIdentifiers(identity.sessionId))
         )
+        MlMirrorMetrics.observeMlKeyPhase('prepare', performance.now() - startedAt)
     }
 
     public keys(teamId: number, sessionId: string): MlSessionKeys | undefined {
@@ -56,25 +60,42 @@ export class MlPrivacyBatchController implements KeyStore, RecordingEncryptor {
         input: T,
         action: (input: T) => Promise<PipelineResult<T>>
     ): Promise<PipelineResult<T>> {
-        this.deferred.push(async () => {
+        this.deferred.push(async (sideEffects) => {
             const key = await this.getKey(input.headers.session_id, input.team.teamId)
             if (key.sessionState !== 'deleted') {
                 const result = await action({ ...input, sessionKey: key })
                 if (result.type === PipelineResultType.OK) {
-                    await Promise.all(result.sideEffects ?? [])
+                    await sideEffects(result.sideEffects ?? [])
                 }
             }
         })
         return Promise.resolve(ok(input))
     }
 
-    public async commit(): Promise<void> {
+    // Delivery acks are handed to the consumer's scheduler, which drains before offsets commit, so publication runs at enqueue speed instead of one ack round trip per message.
+    public async commit(scheduler?: PromiseScheduler): Promise<void> {
         if (!this.batch) {
             return
         }
+        const startedAt = performance.now()
         await this.batch.commit()
-        await Promise.all(this.deferred.map((action) => this.publish(action)))
+        const committedAt = performance.now()
+        MlMirrorMetrics.observeMlKeyPhase('commit', committedAt - startedAt)
+        const sideEffects = async (promises: Promise<unknown>[]): Promise<void> => {
+            if (!promises.length) {
+                return
+            }
+            if (scheduler) {
+                for (const promise of promises) {
+                    void scheduler.schedule(promise)
+                }
+            } else {
+                await Promise.all(promises)
+            }
+        }
+        await Promise.all(this.deferred.map((action) => this.publish(() => action(sideEffects))))
         this.deferred = []
+        MlMirrorMetrics.observeMlKeyPhase('publish', performance.now() - committedAt)
     }
 
     public getKey(sessionId: string, teamId: number): Promise<SessionKey> {
