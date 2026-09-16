@@ -261,6 +261,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -337,6 +338,8 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
@@ -359,6 +362,7 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -666,6 +670,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -740,6 +745,8 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
@@ -762,6 +769,7 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive

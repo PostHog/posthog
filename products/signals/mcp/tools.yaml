@@ -76,6 +76,11 @@ tools:
             priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
             adding to the log.
+        agent_note: >
+            Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
+            state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
+            show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan
+            applies, verify the issue from the report's evidence.
     inbox-report-artefacts-retrieve:
         operation: signals_report_artefacts_retrieve
         enabled: true
@@ -257,6 +262,9 @@ tools:
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
             identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
             from another actor requires `takeover=true`.
+
+            Before work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current
+            state before work and the outcome after the chosen resolution.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
             `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
@@ -449,7 +457,8 @@ tools:
             the coordinator's next tick. A scout under any other name does not come back on its own: its config stays
             deleted until you re-register it with `scout-config-create`, and its skill still reads as a scout meanwhile.
             To retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it
-            inert) rather than deleting the config.
+            inert) rather than deleting the config. A scout whose `scout_role` is `operational` cannot be deleted at
+            all: it is part of the self-driving system rather than the project's own fleet.
     scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -462,12 +471,14 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project. Each scout has one row with its schedule (rolling
-            `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit`
-            (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered:
-            immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the
-            coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the
-            inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the
+            `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
+            project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output
+            destinations. A freshly authored scout appears once its config is registered: immediately via
+            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
+            tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
+            findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
+            Pair with `scout-config-update` to tune them.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -517,13 +528,16 @@ tools:
             idempotent: true
         title: Create a scout
         description: >
-            Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the
+            Create a custom scout skill and its runnable config in one atomic call. Give it a `display_name`, the label
+            people read, kept exactly as written, and the server generates the scout's permanent skill name from it,
+            adding a numeric suffix when that name is taken, so two scouts may share a label without sharing an
+            identity. Pass `name` instead to choose that identifier yourself; any valid skill name works and the
             `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific
             event or signal names, thresholds, investigation steps, and report criteria there. The server always grants
             the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or
             cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post
             into, or users to DM directly). Repeating the same definition is safe and applies any supplied config
-            fields. Reusing the name for a different definition returns a conflict.
+            fields. Reusing an explicit `name` for a different definition returns a conflict.
         exclude_params:
             - suggestion_id
     scout-edit-report:
@@ -733,9 +747,13 @@ tools:
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
             `skill-get`) to orient on the team in one tool call instead of paginating through
-            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`.
-            Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is
-            the scout's inferred learnings.
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. The
+            response opens with a compact `summary` envelope holding `emit_eligibility` (the gate deciding whether
+            anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the
+            full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the
+            inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when
+            you want the gate and the counts without the inventory. Distinct from `scout-scratchpad-search`: profile is
+            ground truth from authoritative tables; scratchpad is the scout's inferred learnings.
     scout-record-output:
         operation: signals_scout_record_output
         enabled: true
@@ -945,6 +963,18 @@ tools:
             returning every entry's full prose. Results capped at 1000.
     signals-report-artefacts-diff:
         operation: signals_report_artefacts_diff
+        enabled: false
+    signals-report-checks-create:
+        operation: signals_report_checks_create
+        enabled: false
+    signals-report-checks-destroy:
+        operation: signals_report_checks_destroy
+        enabled: false
+    signals-report-checks-list:
+        operation: signals_report_checks_list
+        enabled: false
+    signals-report-checks-retrieve:
+        operation: signals_report_checks_retrieve
         enabled: false
     signals-report-pr-checks:
         operation: signals_report_pr_checks

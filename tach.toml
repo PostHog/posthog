@@ -191,8 +191,9 @@ layer = "modules"
 # alerts — external consumers go through the facade: facade.contracts for the
 # destination and delivery types, facade.destinations for destination configuration and
 # dispatch, facade.email for alert mail, facade.lifecycle for the shared state machine,
-# facade.scheduling for the scheduling math, facade.delivery_slo for delivery SLOs, and
-# facade.api for the insight-alert reads and writes. presentation.views carries the DRF
+# facade.scheduling for the scheduling math, facade.delivery_slo for delivery SLOs,
+# facade.evaluation for the threshold comparator, and facade.api for the insight-alert reads
+# and writes. presentation.views carries the DRF
 # surface adopter products mount or reuse in process, which a facade may not hold.
 [[interfaces]]
 expose = [
@@ -746,6 +747,7 @@ layer = "modules"
 path = "products.reminders"
 depends_on = [
     "posthog",
+    "products.access_control",
     "products.dashboards",
     "products.error_tracking",
     "products.experiments",

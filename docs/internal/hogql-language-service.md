@@ -32,6 +32,18 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+## Query analysis
+
+`internal/analysis` owns validation's parsed statements, nested scopes, table and CTE bindings, and projected fields.
+Each document belongs to one request and borrows that request's immutable catalog.
+Statements initialize on demand, while CTE projections share one budget across the document.
+Validation retains diagnostic formatting, typo suggestions, and position-encoding conversion.
+
+This extraction does not change completion behavior.
+Completion still uses its existing cursor repair and table-binding recovery.
+The next layer will connect completion to the analyzer, then add CTE and subquery output suggestions.
+Select-alias visibility and property provenance remain follow-up work; recursive CTEs and compiler parity are out of scope.
+
 ## Isolation boundary
 
 Every protected route requires both `team_id` and `user_id` in its path. Shared middleware converts those values into

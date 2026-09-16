@@ -192,10 +192,8 @@ django.Exists products.dashboards.backend.facade.api.insight_has_listed_tile fac
 django.HttpRequest products.demo.backend.facade.api.demo_route facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
-django.HttpRequest products.stamphog.backend.facade.webhooks.stamphog_github_webhook facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-returns 1
-django.HttpResponse products.stamphog.backend.facade.webhooks.stamphog_github_webhook facade-returns 1
 django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_event facade-returns 1
 django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_review_event facade-returns 1
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1
@@ -289,6 +287,7 @@ event_definitions.PropertyDefinition access_control.PropertyAccessControl.proper
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
 event_definitions.PropertyDefinition posthog.TaggedItem.property_definition reverse-accessor(tagged_items) 1
+experiments.Experiment posthog.TaggedItem.experiment reverse-accessor(tagged_items) 1
 experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
 experiments.ExperimentSavedMetric posthog.TaggedItem.experiment_saved_metric reverse-accessor(tagged_items) 1
 experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
@@ -699,7 +698,6 @@ rest_framework.Request products.data_catalog.backend.facade.api.upsert_metric fa
 rest_framework.Request products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.access.code_access_required_response facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-accepts(request) 1
-rest_framework.Request products.tasks.backend.facade.client_provenance.is_sandbox_oauth_request facade-accepts(request) 1
 rest_framework.Response products.tasks.backend.facade.access.code_access_required_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.compute_quota_limit_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.usage_limit_response facade-returns 1
@@ -811,7 +809,7 @@ warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_load.create_table write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation drf-field-queryset 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation other(Assign) 1
-warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query instance-many(exclude) 1
+warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query.sync_cadence instance-many(exclude) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table construct 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table drf-model-serializer 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table instance-many(all) 1
