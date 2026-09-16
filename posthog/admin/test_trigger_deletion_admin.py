@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -157,6 +158,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
             response = self.admin.trigger_deletion_view(http_request, str(self.project.pk))
         return response, mock_start
 
+    @time_machine.travel("2025-01-15 12:00:00", tick=False)
     def test_post_starts_project_deletion_and_marks_pending(self):
         response, mock_start = self._call("POST")
 
@@ -171,6 +173,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.assertLessEqual(kwargs["start_delay"], timedelta(hours=48))
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        assert self.project.deletion_scheduled_at is not None
         self.assertAlmostEqual(
             self.project.deletion_scheduled_at.timestamp(),
             (timezone.now() + timedelta(hours=48)).timestamp(),
@@ -203,6 +206,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
+    @time_machine.travel("2025-01-15 12:00:00", tick=False)
     def test_already_pending_deletion_does_not_retrigger(self):
         self.project.is_pending_deletion = True
         self.project.deletion_scheduled_at = timezone.now() + timedelta(hours=48)
