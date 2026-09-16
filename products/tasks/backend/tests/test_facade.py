@@ -489,7 +489,7 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"ai_stage": "context-layer-dream"},
         )
         terminal_task = self._make_task(internal=True)
-        TaskRun.objects.create(
+        terminal = TaskRun.objects.create(
             task=terminal_task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
@@ -529,6 +529,17 @@ class TestFacadeReadsAndMappers(TestCase):
 
         assert result is not None
         self.assertEqual(result.id, active.id)
+        latest = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream"
+        )
+        assert latest is not None
+        self.assertEqual(latest.id, terminal.id)
+        TaskRun.objects.filter(id=active.id).update(created_at=terminal.created_at + timedelta(seconds=1))
+        latest_terminal = facade.get_latest_internal_task_run_for_organization(
+            self.organization.id, ai_stage="context-layer-dream", terminal_only=True
+        )
+        assert latest_terminal is not None
+        self.assertEqual(latest_terminal.id, terminal.id)
 
     def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
