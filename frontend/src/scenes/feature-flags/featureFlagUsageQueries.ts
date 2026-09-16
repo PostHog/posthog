@@ -5,9 +5,6 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
-//
-// The buildFlagEvaluations* builders answer the same two questions from the flag_evaluations table
-// instead of the events table, for the organizations that read flag evaluations from there.
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 
@@ -184,8 +181,7 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// The dedicated flag-evaluation table, which only holds $feature_flag_called. It is not a root
-// table, so the `posthog.` prefix is part of the name. An organization without the
+// Not a root table, so the `posthog.` prefix is part of the name. An organization without the
 // flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
 const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
@@ -197,10 +193,7 @@ function earliestRetainedDay(): dayjs.Dayjs {
     return dayjs().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
 }
 
-/**
- * Pulls a date range back inside the retention window. A range that reaches further would show
- * fewer rows than the same range on the events table, with nothing on the chart to say why.
- */
+/** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {
     const earliest = earliestRetainedDay()
     const dateFrom = dateStringToDayJs(dateRange.date_from ?? null)
