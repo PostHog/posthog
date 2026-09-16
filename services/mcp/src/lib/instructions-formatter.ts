@@ -1,5 +1,5 @@
 import type { GroupType } from '@/api/client'
-import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
@@ -233,6 +233,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
+                toolDomainsMaxChars: MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET,
                 extraCommands: learnEnabled ? LEARN_COMMAND_LINE : undefined,
             }
         )
