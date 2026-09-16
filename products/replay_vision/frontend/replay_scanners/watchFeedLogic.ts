@@ -63,6 +63,15 @@ export interface watchFeedLogicActions {
             value: true
         }
     }
+    restoreFeedFilters: (
+        search: string,
+        scannerIds: string[],
+        tags: string[]
+    ) => {
+        scannerIds: string[]
+        search: string
+        tags: string[]
+    }
     setDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -76,11 +85,7 @@ export interface watchFeedLogicActions {
     setScannerTypeFilter: (scannerType: ScannerType | null) => {
         scannerType: ScannerTypeEnumApi | null
     }
-    setSearch: (
-        search: string,
-        fromUrl?: boolean
-    ) => {
-        fromUrl: boolean
+    setSearch: (search: string) => {
         search: string
     }
     setTagsFilter: (tags: string[]) => {
@@ -139,9 +144,12 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
     actions({
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setScannerTypeFilter: (scannerType: ScannerType | null) => ({ scannerType }),
-        setSearch: (search: string, fromUrl: boolean = false) => ({ search, fromUrl }),
+        setSearch: (search: string) => ({ search }),
         setScannerIdsFilter: (scannerIds: string[]) => ({ scannerIds }),
         setTagsFilter: (tags: string[]) => ({ tags }),
+        // Restores every shared-link filter at once so one request runs and every recipient sees the
+        // same feed, regardless of the scanner/tag selections their browser remembered.
+        restoreFeedFilters: (search: string, scannerIds: string[], tags: string[]) => ({ search, scannerIds, tags }),
         clearFeedFilters: true,
         loadFeed: true,
     }),
@@ -207,6 +215,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+                restoreFeedFilters: (_, { search }) => search,
                 clearFeedFilters: () => '',
             },
         ],
@@ -217,6 +226,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             { persist: true },
             {
                 setScannerIdsFilter: (_, { scannerIds }) => scannerIds,
+                restoreFeedFilters: (_, { scannerIds }) => scannerIds,
                 clearFeedFilters: () => [],
             },
         ],
@@ -225,6 +235,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             { persist: true },
             {
                 setTagsFilter: (_, { tags }) => tags,
+                restoreFeedFilters: (_, { tags }) => tags,
                 clearFeedFilters: () => [],
             },
         ],
@@ -258,12 +269,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             reportFiltered(values)
             actions.loadFeed()
         },
-        setSearch: async ({ fromUrl }, breakpoint) => {
-            // Debounce keystrokes. A URL restore loads immediately so its request runs alongside the
-            // other restored filters and collapses into one, instead of flickering in 300ms later.
-            if (!fromUrl) {
-                await breakpoint(300)
-            }
+        setSearch: async (_, breakpoint) => {
+            // Debounce keystrokes; a shared-link restore loads once through restoreFeedFilters instead.
+            await breakpoint(300)
+            reportFiltered(values)
+            actions.loadFeed()
+        },
+        restoreFeedFilters: () => {
             reportFiltered(values)
             actions.loadFeed()
         },
@@ -324,19 +336,26 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.replayVision()]: (_, searchParams) => {
-            // A shared link names the filters explicitly; absent params leave the reader's own persisted
-            // picks alone rather than silently widening their feed to the whole fleet.
-            const search = typeof searchParams.feed_search === 'string' ? searchParams.feed_search : null
-            if (search !== null && search !== values.search) {
-                actions.setSearch(search, true)
+            // A link that carries any feed_* param is a full filter snapshot, so restore all three and
+            // clear the ones it omits — otherwise the reader's remembered scanner/tag picks would leak
+            // in and the same link would show different feeds to different people. A link with no feed_*
+            // param leaves those remembered picks alone rather than widening the feed to the whole fleet.
+            const hasFeedParams =
+                searchParams.feed_search !== undefined ||
+                searchParams.feed_scanners !== undefined ||
+                searchParams.feed_tags !== undefined
+            if (!hasFeedParams) {
+                return
             }
+            const search = typeof searchParams.feed_search === 'string' ? searchParams.feed_search : ''
             const scanners = parseCsvParam(searchParams.feed_scanners)
-            if (searchParams.feed_scanners !== undefined && !objectsEqual(scanners, values.scannerIdsFilter)) {
-                actions.setScannerIdsFilter(scanners)
-            }
             const tags = parseCsvParam(searchParams.feed_tags)
-            if (searchParams.feed_tags !== undefined && !objectsEqual(tags, values.tagsFilter)) {
-                actions.setTagsFilter(tags)
+            const unchanged =
+                search === values.search &&
+                objectsEqual(scanners, values.scannerIdsFilter) &&
+                objectsEqual(tags, values.tagsFilter)
+            if (!unchanged) {
+                actions.restoreFeedFilters(search, scanners, tags)
             }
         },
     })),

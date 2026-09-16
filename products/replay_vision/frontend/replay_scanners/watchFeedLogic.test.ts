@@ -92,17 +92,28 @@ describe('watchFeedLogic', () => {
         expect(logic.values.scannerIdsFilter).toEqual(['scanner-a', 'scanner-b'])
     })
 
-    it('applies a searched shared link to the feed', async () => {
+    it('restores a shared link as a full snapshot, clearing filters it omits', async () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
 
         await expectLogic(logic, () => {
-            router.actions.push('/replay-vision?feed_search=coupon')
+            logic.actions.setScannerIdsFilter(['scanner-a'])
         })
-            .toDispatchActions(['setSearch', 'loadFeed', 'loadFeedSuccess'])
+            .toDispatchActions(['loadFeedSuccess'])
             .toFinishAllListeners()
-        expect(logic.values.search).toBe('coupon')
-        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('search')).toBe('coupon')
+
+        // A link that names only tags is a full snapshot: tags apply and the remembered scanner clears,
+        // in a single load, so the same link shows the same feed to every recipient.
+        await expectLogic(logic, () => {
+            router.actions.push('/replay-vision?feed_tags=checkout')
+        })
+            .toDispatchActions(['restoreFeedFilters', 'loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.tagsFilter).toEqual(['checkout'])
+        expect(logic.values.scannerIdsFilter).toEqual([])
+        const params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
+        expect(params.get('tags')).toBe('checkout')
+        expect(params.get('scanner_ids')).toBeNull()
     })
 
     it('clears every filter at once', async () => {
