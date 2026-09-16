@@ -166,11 +166,20 @@ describe('recording cleanup (integration)', () => {
                  WHERE deletion_type = 5 AND team_id = $1 AND key = $2 AND delete_verified_at IS NULL`,
                 [teamId, observationId]
             )
+        // Already queued, as after a cleanup that failed past this insert: the unique (deletion_type, key)
+        // constraint must not abort the whole statement on the retry.
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at) VALUES (5, $1, $2, now())`,
+            [teamId, targetObservationId],
+            'fixtureQueuedEvent'
+        )
 
         await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
-        // A repeated delete reruns the cleanup and must not trip the unique (deletion_type, key) constraint.
-        await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
 
+        expect(
+            await count(`SELECT count(*) FROM replay_vision_replayobservation WHERE id = $1`, [targetObservationId])
+        ).toBe(0)
         expect(await queued(targetObservationId)).toBe(1)
         expect(await queued(otherObservationId)).toBe(0)
     })

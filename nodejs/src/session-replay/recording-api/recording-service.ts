@@ -439,11 +439,11 @@ export class RecordingService {
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `WITH observations AS (
-                     SELECT id, team_id FROM replay_vision_replayobservation
+                     SELECT id FROM replay_vision_replayobservation
                      WHERE team_id = $1 AND session_id = ANY($2)
                  ), queued_events AS (
                      INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at)
-                     SELECT 5, team_id, id::text, now() FROM observations
+                     SELECT 5, $1, id::text, now() FROM observations
                      ON CONFLICT DO NOTHING
                  ), deleted_labels AS (
                      DELETE FROM replay_vision_replayobservationlabel
