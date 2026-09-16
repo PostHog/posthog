@@ -384,7 +384,15 @@ const NARROWING_ACTION_CASES: {
         reason: ExperimentReplayListEmptyReason.TooEarly,
         action: 'all_sessions',
     },
-    { narrowing: 'nothing', experimentId: 155, reason: ExperimentReplayListEmptyReason.TooEarly, action: null },
+    {
+        // The tab opens on the in-session scope, so a list narrowed by nothing is one whose viewer
+        // widened it back out. Every other young list has a narrowing to offer the way out of.
+        narrowing: 'nothing',
+        experimentId: 155,
+        setup: (logic) => logic.actions.setExposureScope('all_exposed'),
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: null,
+    },
     {
         // Replay off names its own cause, and its banner offers the settings link alone. The
         // variant still narrows the tab, so reading the narrowing rather than the reason would

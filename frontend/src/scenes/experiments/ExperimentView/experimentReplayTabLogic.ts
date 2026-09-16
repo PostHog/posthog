@@ -750,7 +750,6 @@ export interface experimentReplayTabLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             filtersCustomized: boolean,
             effectiveVariantKey: string | null,
-            effectiveExposureScope: ExperimentReplayExposureScope,
             scannedWindowEnd: string | null,
             recordingsFilters: RecordingUniversalFilters,
             arg: any
