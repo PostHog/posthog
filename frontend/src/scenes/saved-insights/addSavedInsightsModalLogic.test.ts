@@ -2,7 +2,9 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
@@ -264,6 +266,71 @@ describe('addSavedInsightsModalLogic', () => {
                 })
 
             expect(apiCallCount).toBe(1)
+        })
+    })
+
+    describe('dashboard membership updates', () => {
+        const insightOnDashboards = (dashboardIds: number[]): QueryBasedInsightModel =>
+            ({
+                ...createInsight(53),
+                dashboard_tiles: dashboardIds.map((dashboardId, index) => ({
+                    id: index + 1,
+                    dashboard_id: dashboardId,
+                    deleted: false,
+                })),
+            }) as QueryBasedInsightModel
+
+        it('keeps the other dashboards when adding', async () => {
+            initKeaTests()
+            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.addInsightToDashboard(insightOnDashboards([7, 8]), 9)
+            ).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(53, { dashboards: [7, 8, 9] })
+
+            logic.unmount()
+        })
+
+        it('keeps the other dashboards when removing', async () => {
+            initKeaTests()
+            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.removeInsightFromDashboard(insightOnDashboards([7, 8]), 8)
+            ).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(53, { dashboards: [7] })
+
+            logic.unmount()
+        })
+
+        it.each([
+            [500, null],
+            [403, "You don't have permission to remove insights from dashboard: 7"],
+        ])('handles a %s instead of filing an unhandled rejection', async (status, detail) => {
+            initKeaTests()
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+            jest.spyOn(insightsApi, 'update').mockRejectedValue(
+                new ApiError('Non-OK response', status, undefined, { detail })
+            )
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expect(
+                expectLogic(logic, () =>
+                    logic.actions.addInsightToDashboard(insightOnDashboards([7]), 9)
+                ).toFinishAllListeners()
+            ).resolves.toBeDefined()
+
+            expect(toastError).toHaveBeenCalledWith(detail ?? 'Failed to add insight to dashboard')
+
+            logic.unmount()
         })
     })
 
