@@ -51,11 +51,45 @@ const BULK_SKIP_REASONS: Record<BulkSkipOutcome, string> = {
 // Headroom per visible session for the observations a retry stacks on top of the original scan.
 const OBSERVATIONS_PER_SESSION_ALLOWANCE = 4
 
-// The API rejects a whole batch that exceeds its per-request cap, so a select-all of several hundred
-// rows would start nothing at all. Send the selection in cap-sized requests instead.
+// The API rejects a whole batch over its per-request cap, so a select-all would start nothing at all.
 const MAX_SESSIONS_PER_REQUEST = visionScannersBulkObserveCreateBodySessionIdsMax
 
 type BulkSkipCounts = Record<BulkSkipOutcome, number>
+
+interface BulkTally {
+    started: number
+    failed: number
+    alreadyScanned: number
+    alreadyRunning: number
+    skips: BulkSkipCounts
+}
+
+function emptyTally(): BulkTally {
+    return {
+        started: 0,
+        failed: 0,
+        alreadyScanned: 0,
+        alreadyRunning: 0,
+        skips: { skipped_limit: 0, skipped_quota: 0, skipped_scanner_limit: 0 },
+    }
+}
+
+function tallyBatch(tally: BulkTally, results: { scan_outcome?: string | null }[]): number {
+    let capped = 0
+    for (const { scan_outcome } of results) {
+        if (scan_outcome && scan_outcome in tally.skips) {
+            tally.skips[scan_outcome as BulkSkipOutcome] += 1
+            capped += 1
+        } else if (scan_outcome === 'failed') {
+            tally.failed += 1
+        } else if (scan_outcome === 'already_scanned') {
+            tally.alreadyScanned += 1
+        } else if (scan_outcome === 'already_running') {
+            tally.alreadyRunning += 1
+        }
+    }
+    return capped
+}
 
 /** Ties break toward the most specific reason, matching the backend's headroom tie-break. */
 function dominantSkip(skipCounts: BulkSkipCounts): BulkSkipOutcome {
@@ -269,46 +303,22 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     actions.bulkScanDone(0, 0)
                     return
                 }
-                // The backend scans what fits and reports the rest — surface the split so the user
-                // knows a partial run happened rather than assuming everything started.
-                const skipCounts: BulkSkipCounts = {
-                    skipped_limit: 0,
-                    skipped_quota: 0,
-                    skipped_scanner_limit: 0,
-                }
-                let started = 0
-                let failed = 0
-                let alreadyScanned = 0
-                let alreadyRunning = 0
+                const tally = emptyTally()
                 try {
                     for (let sent = 0; sent < sessionIds.length; sent += MAX_SESSIONS_PER_REQUEST) {
                         const batch = sessionIds.slice(sent, sent + MAX_SESSIONS_PER_REQUEST)
                         const response = await visionScannersBulkObserveCreate(String(teamId), props.scannerId, {
                             session_ids: batch,
                         })
-                        started += response.started
-                        let batchSkipped = 0
-                        for (const r of response.results ?? []) {
-                            if (r.scan_outcome && r.scan_outcome in skipCounts) {
-                                skipCounts[r.scan_outcome as BulkSkipOutcome] += 1
-                                batchSkipped += 1
-                            } else if (r.scan_outcome === 'failed') {
-                                failed += 1
-                            } else if (r.scan_outcome === 'already_scanned') {
-                                alreadyScanned += 1
-                            } else if (r.scan_outcome === 'already_running') {
-                                alreadyRunning += 1
-                            }
-                        }
-                        if (batchSkipped > 0) {
-                            // A cap bound on this batch, so every later one would be skipped for the same
-                            // reason. Count the rest of the selection under it instead of asking again.
-                            skipCounts[dominantSkip(skipCounts)] += sessionIds.length - sent - batch.length
+                        tally.started += response.started
+                        if (tallyBatch(tally, response.results ?? []) > 0) {
+                            // The same cap binds every later batch, so count the remainder under it instead.
+                            tally.skips[dominantSkip(tally.skips)] += sessionIds.length - sent - batch.length
                             break
                         }
                     }
-                    const limited =
-                        skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
+                    const { started, failed, alreadyScanned, alreadyRunning, skips } = tally
+                    const limited = skips.skipped_limit + skips.skipped_quota + skips.skipped_scanner_limit
                     // Every outcome the run produced, so no branch below has to drop one silently.
                     const rest = [
                         alreadyScanned ? `${alreadyScanned} already scanned` : null,
@@ -317,19 +327,15 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     ]
                         .filter(Boolean)
                         .join(', ')
-                    const skipped = limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skipCounts)]})` : ''
+                    const skipped = limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skips)]})` : ''
                     if (started > 0) {
                         const extras = [skipped, rest].filter(Boolean).join(', ')
                         lemonToast.success(
                             `Started ${started} scan${started === 1 ? '' : 's'}${extras ? ` — ${extras}` : ''}`
                         )
                     } else if (limited > 0) {
-                        lemonToast.warning(
-                            `${BULK_SKIP_MESSAGES[dominantSkip(skipCounts)]}${rest ? ` Also ${rest}.` : ''}`
-                        )
+                        lemonToast.warning(`${BULK_SKIP_MESSAGES[dominantSkip(skips)]}${rest ? ` Also ${rest}.` : ''}`)
                     } else if (alreadyScanned + alreadyRunning > 0) {
-                        // Every session already has an answer or one on the way, so retrying is the one
-                        // thing that would not help. Failures go with it rather than replacing it.
                         if (failed > 0) {
                             lemonToast.warning(`No scans started. ${rest}.`)
                         } else {
@@ -339,30 +345,29 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                         lemonToast.error('No scans started. Please try again.')
                     }
                 } catch (error: any) {
-                    // The backend only reports a bulk trigger once it has accepted the batch, so without
-                    // this a rejected selection leaves no trace in analytics at all.
+                    // The backend reports a trigger only once it accepts the batch, so a rejected selection would otherwise leave no trace.
                     posthog.capture('replay_vision_bulk_scan_rejected', {
                         scanner_id: props.scannerId,
                         requested: sessionIds.length,
-                        started,
+                        started: tally.started,
                         status: error?.status,
                     })
                     // A later batch can fail after an earlier one started scans, so say how many survived.
                     const detail = error?.detail ? `: ${error.detail}` : ''
                     lemonToast.error(
-                        started > 0
-                            ? `Bulk scan failed after starting ${started} scan${started === 1 ? '' : 's'}${detail}`
+                        tally.started > 0
+                            ? `Bulk scan failed after starting ${tally.started} scan${
+                                  tally.started === 1 ? '' : 's'
+                              }${detail}`
                             : `Bulk scan failed${detail}`
                     )
                 } finally {
                     // Arm the poll window before the refetch, which can beat the row inserts.
-                    actions.bulkScanDone(started, alreadyRunning)
-                    // Started scans create pending observations server-side — refetch to reflect them.
-                    // Also on failure: an earlier batch can have started scans before a later one failed.
+                    actions.bulkScanDone(tally.started, tally.alreadyRunning)
+                    // An earlier batch can have started scans before a later one failed, so refetch either way.
                     actions.loadObservations()
-                    if (started > 0 || skipCounts.skipped_quota > 0) {
-                        // A started scan reserves credits at once, and a quota skip means the cached
-                        // number is already behind the server, so the banner needs the new one.
+                    if (tally.started > 0 || tally.skips.skipped_quota > 0) {
+                        // A started scan reserves credits at once, so the cached banner number is stale.
                         refreshVisionQuota()
                     }
                 }
