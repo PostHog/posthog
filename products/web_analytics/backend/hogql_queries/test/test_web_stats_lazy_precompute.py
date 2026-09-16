@@ -304,12 +304,39 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # which needs numeric properties the harness does not materialize — so
         # this exercises the lazy path on its own rather than asserting parity.
         self._seed()
+        # One event each with a missing, zero, and half-set viewport: all three
+        # must fold into a single (None, None) row rather than erroring or
+        # minting bogus pairs.
+        unusable_viewports = [
+            {"$viewport_width": None, "$viewport_height": None},
+            {"$viewport_width": 0, "$viewport_height": 0},
+            {"$viewport_width": 1280, "$viewport_height": None},
+        ]
+        for i, overrides in enumerate(unusable_viewports):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"vp{i}"], properties={"name": f"vp{i}"})
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"vp{i}",
+                timestamp="2024-01-05T10:00:00Z",
+                properties=self._props(
+                    **{
+                        "$session_id": str(uuid7("2024-01-05")),
+                        "$host": "example.com",
+                        "$current_url": "https://example.com/a",
+                        "$pathname": "/a",
+                        **overrides,
+                    }
+                ),
+            )
         with self._enable_lazy():
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.VIEWPORT))
 
         assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
-        assert len(response.results) > 0
         assert all(isinstance(row[0], tuple) and len(row[0]) == 2 for row in response.results)
+        rows = {row[0]: row for row in response.results}
+        assert set(rows) == {(1920, 1080), (375, 667), (None, None)}
+        assert rows[(None, None)][2][0] == len(unusable_viewports)  # one view per unusable-viewport event
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_host_filter_gets_distinct_cache_entry(self):
