@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { UserType } from '~/types'
 
 import { adminLoginAs } from './adminLoginAs'
 
@@ -17,7 +18,7 @@ describe('adminLoginAs', () => {
         useMocks({
             get: {
                 '/admin/auth_check': () => [200, {}],
-                '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, is_impersonated: true }],
+                '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, id: 7, is_impersonated: true }],
             },
             post: { '/admin/login/user/:id/': () => [200, {}] },
         })
@@ -26,13 +27,17 @@ describe('adminLoginAs', () => {
         expect(posthog.capture).not.toHaveBeenCalled()
     })
 
-    it('rejects and captures when the server refuses the impersonation', async () => {
-        // django-loginas answers a refusal with a redirect back to the referer, so the POST still
-        // resolves with a 200. Only /api/users/@me/ shows that the session never changed.
+    // django-loginas answers a refusal with a redirect back to the referer, so the POST still
+    // resolves with a 200. Only /api/users/@me/ shows which session the browser holds now: none,
+    // or the one the refused attempt failed to replace.
+    it.each<[string, Partial<UserType>]>([
+        ['no session started', { id: 7, is_impersonated: false }],
+        ['the previous user is still impersonated', { id: 3, is_impersonated: true }],
+    ])('rejects and captures when the server refuses the impersonation and %s', async (_, meOverrides) => {
         useMocks({
             get: {
                 '/admin/auth_check': () => [200, {}],
-                '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, is_impersonated: false }],
+                '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, ...meOverrides }],
             },
             post: { '/admin/login/user/:id/': () => [200, {}] },
         })

@@ -128,9 +128,10 @@ async function startImpersonation({ userId, reason, readOnly }: AdminLoginAsPara
 
     // django-loginas answers a rejected attempt with a redirect back to the referer, so the
     // followed request lands on a 200 that is indistinguishable from a success. Ask the API who
-    // we are now instead of trusting the status.
+    // we are now instead of trusting the status. A rejection also leaves an already impersonated
+    // session untouched, so the answer must be the user this request asked for.
     const me = await usersRetrieve('@me')
-    if (!me.is_impersonated) {
+    if (!me.is_impersonated || me.id !== userId) {
         throw new AdminLoginAsError(
             'rejected',
             'PostHog refused the impersonation. The user may be a staff member, or may have opted out of impersonation.'
