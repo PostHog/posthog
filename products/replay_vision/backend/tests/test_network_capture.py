@@ -108,10 +108,19 @@ class TestParseNetworkPayload:
         assert payload.requests[0].url == "https://app.test/api/x"
         assert "sekret" not in payload.requests[0].model_dump_json()
 
-    def test_strips_the_query_from_a_url_too_malformed_to_split(self) -> None:
-        # A URL too broken to parse is still client-supplied text that can carry a token.
-        malformed = "http://[bad/api?token=sekret"
+    @parameterized.expand(
+        [
+            ("unparseable host", "http://[bad/api?token=sekret"),
+            ("unparseable host with userinfo", "http://someone:sekret@[bad/api"),
+            ("port out of range", "http://someone:sekret@app.test:99999/api?q=sekret"),
+            ("non-numeric port", "http://someone:sekret@app.test:abc/api"),
+        ]
+    )
+    def test_a_url_the_parser_rejects_still_loses_its_secrets(self, _label: str, malformed: str) -> None:
+        # The structured path cannot run on these, and `.port` raises on the last two. Either way the
+        # request must still be reported, without the credential or the query.
         payload = parse_network_payload([_line(_rrweb_event(1000, {"name": malformed, "status": 500}))])
+        assert len(payload.requests) == 1, "a malformed URL must not drop the request"
         assert "sekret" not in payload.requests[0].url
 
     def test_records_a_partial_read_when_asked(self) -> None:

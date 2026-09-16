@@ -222,26 +222,47 @@ def _normalize(raw: dict[str, Any], timestamp_ms: int) -> NetworkRequest | None:
 
 
 def _clean_url(url: str) -> str:
-    """Drop the query string and fragment, then bound the length.
+    """Reduce a captured URL to scheme, host, port and path, then bound the length.
 
     A query string carries the values the user typed or filtered by, which belong to other people: search
-    terms, email addresses, record IDs, and sometimes a token. A failing endpoint is identified well
-    enough by its method and path, so the parts that leak are not worth keeping.
+    terms, email addresses, record IDs, and sometimes a token. The authority can carry `user:password@`.
+    A failing endpoint is identified well enough by its method and path, so the parts that leak go.
+
+    Every parse step runs inside the guard, `.port` included: it raises on a malformed port, and an
+    escaping error would be swallowed further up and drop the whole recording's network data.
     """
     url = url.strip()
     try:
         split = urlsplit(url)
+        host = split.hostname or ""
+        port = split.port
+        scheme = split.scheme
+        path = split.path
     except ValueError:
-        # Still cut at the first `?` or `#`: a URL too malformed to split is client-supplied text that
-        # can carry a token just as readily as a well-formed one.
-        return re.split(r"[?#]", url, maxsplit=1)[0][:_MAX_URL_LENGTH]
-    # `netloc` carries any `user:password@` prefix, so rebuild the authority from the host and port.
-    host = split.hostname or ""
-    authority = f"{host}:{split.port}" if split.port else host
-    cleaned = urlunsplit((split.scheme, authority, split.path, "", ""))
+        return _strip_unsafe_parts(url)[:_MAX_URL_LENGTH]
+
+    authority = f"{host}:{port}" if port else host
+    cleaned = urlunsplit((scheme, authority, path, "", ""))
     if len(cleaned) > _MAX_URL_LENGTH:
         return cleaned[:_MAX_URL_LENGTH] + "…"
     return cleaned
+
+
+def _strip_unsafe_parts(url: str) -> str:
+    """Remove the query, the fragment and any userinfo from a URL too malformed to parse.
+
+    The structured path cannot run here, so cut on the delimiters directly. A malformed URL is still
+    client-supplied text and carries a credential just as readily as a well-formed one.
+    """
+    url = re.split(r"[?#]", url, maxsplit=1)[0]
+    scheme, separator, rest = url.partition("://")
+    if not separator:
+        scheme, separator, rest = "", "", url
+    authority, slash, path = rest.partition("/")
+    if "@" in authority:
+        # Userinfo ends at the last `@` before the path.
+        authority = authority.rsplit("@", 1)[1]
+    return f"{scheme}{separator}{authority}{slash}{path}"
 
 
 def _is_interesting(request: NetworkRequest) -> bool:

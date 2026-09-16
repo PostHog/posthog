@@ -31,6 +31,11 @@ _BLOCK_CONCURRENCY = 4
 # this is a side input, so an outlier is worth skipping rather than straining the worker for.
 _MAX_COMPRESSED_BYTES = 64 * 1024 * 1024
 
+# Bytes alone do not bound the number of requests: many small blocks stay under the byte budget while
+# still issuing a fetch each. The activity's own timeout is enforced from outside, so it would abort the
+# scan rather than degrade it.
+_MAX_BLOCKS = 250
+
 
 @activity.defn
 @track_activity()
@@ -78,7 +83,7 @@ async def _load_payload(team_id: int, session_id: str) -> SessionNetworkPayload:
         return SessionNetworkPayload()
 
     compressed_bytes = sum(max(0, block.end_byte - block.start_byte) for block in blocks)
-    if compressed_bytes > _MAX_COMPRESSED_BYTES:
+    if len(blocks) > _MAX_BLOCKS or compressed_bytes > _MAX_COMPRESSED_BYTES:
         logger.info(
             "replay_vision.fetch_network.skipped_large_recording",
             session_id=session_id,

@@ -1,6 +1,6 @@
 import asyncio
 import datetime as dt
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 import temporalio.workflow as wf
@@ -150,6 +150,19 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     maximum_attempts=3,
 )
+
+
+async def _optional(task: Any) -> None:
+    """Await a side-input activity, absorbing its failure.
+
+    The activity handles its own errors, but a timeout or a spent retry chain is enforced by the server
+    and never reaches that handler. Without this the scan would fail over a side input it can run
+    without. `CancelledError` derives from `BaseException`, so workflow cancellation still propagates.
+    """
+    try:
+        await task
+    except Exception:
+        wf.logger.warning("replay_vision.side_input_failed", exc_info=True)
 
 
 def _has_embeddable_text(model_output: object) -> bool:
@@ -430,8 +443,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             retry_policy=_ENSURE_ASSET_RETRY,
         )
         if wf.patched("replay-vision-session-network-2026-09"):
-            # Rides alongside the other two so the extra recording-block read costs no wall-clock. The
-            # activity never raises, so the scan proceeds without network data on any failure.
+            # Rides alongside the other two so the extra recording-block read costs no wall-clock.
             network_task = wf.execute_activity(
                 fetch_session_network_activity,
                 FetchSessionNetworkInputs(
@@ -443,7 +455,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_FETCH_RETRY,
             )
-            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, network_task)
+            _, asset_result, _ = await asyncio.gather(fetch_task, asset_task, _optional(network_task))
         else:
             _, asset_result = await asyncio.gather(fetch_task, asset_task)
         return asset_result
