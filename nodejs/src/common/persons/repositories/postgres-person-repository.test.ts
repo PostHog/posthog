@@ -614,6 +614,14 @@ describe('PostgresPersonRepository', () => {
                 ])
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 1, persons: 1 })
 
+                const markRow = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT mark_active FROM lifecycle_op_person WHERE op_id = $1',
+                    [opId],
+                    'checkMarkActive'
+                )
+                expect(markRow.rows[0].mark_active).toBe(true)
+
                 await repository.releaseLifecycleMarks(opId, team.id)
                 await expect(countLifecycleRows(opId)).resolves.toEqual({ ops: 0, persons: 0 })
             })

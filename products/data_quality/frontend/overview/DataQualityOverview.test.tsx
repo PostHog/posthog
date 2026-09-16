@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -198,6 +198,7 @@ describe('DataQualityOverview', () => {
         await waitFor(() => expect(runSubjectButtons()).toHaveLength(1))
 
         const disclosure = queryAll('[data-attr="data-quality-subject-disclosure"]')[0]
+        expect(within(disclosure.parentElement!).getByText('Failing')).toBeTruthy()
         // Suffix match: the rendered href carries the /project/:id prefix, so an exact match on the
         // path would find nothing and the assertion below would pass on a null link.
         const link = document.querySelector('a[href$="/models/node-1/tests"]')
@@ -225,6 +226,8 @@ describe('DataQualityOverview', () => {
         expect(document.querySelector('[data-attr="data-quality-overview-new-check"]')).not.toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-browse"]')).toBeNull()
         expect(document.querySelector('[data-attr="data-quality-overview-empty-state"] img')).not.toBeNull()
+        expect(screen.queryByPlaceholderText('Search checks')).toBeNull()
+        expect(document.querySelector('[data-attr="data-quality-overview-run-all"]')).toBeNull()
 
         fireEvent.click(document.querySelector('[data-attr="data-quality-overview-first-check"]')!)
 

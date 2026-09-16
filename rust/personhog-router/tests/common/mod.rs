@@ -33,6 +33,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -454,6 +455,13 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn delete_tombstoned_persons(
+        &self,
+        _request: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        Ok(Response::new(DeleteTombstonedPersonsResponse::default()))
+    }
+
     async fn split_person(
         &self,
         _request: Request<SplitPersonRequest>,
@@ -715,10 +723,27 @@ impl PersonHogLeader for TestLeaderService {
         Err(Status::unimplemented("not exercised by router tests"))
     }
 
+    async fn fence_persons(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FencePersonsRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonsResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
     async fn release_fence(
         &self,
         request: Request<personhog_proto::personhog::types::v1::ReleaseFenceRequest>,
     ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFenceResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    async fn release_fences(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::ReleaseFencesRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFencesResponse>, Status>
+    {
         require_partition_metadata(&request)?;
         Err(Status::unimplemented("not exercised by router tests"))
     }

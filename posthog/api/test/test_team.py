@@ -827,6 +827,43 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_rotate_heatmaps_screenshot_secret(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            first_secret = response.json()["heatmaps_screenshot_secret"]
+            self.assertTrue(first_secret.startswith("phh_"))
+            self.assertEqual(first_secret, self.team.heatmaps_screenshot_secret)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertNotEqual(response.json()["heatmaps_screenshot_secret"], first_secret)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "heatmaps_screenshot_secret"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "changed"])
+            self.assertNotIn(first_secret, str(changes))
+            self.assertNotIn(response.json()["heatmaps_screenshot_secret"], str(changes))
+
+            self.client.patch(f"/api/environments/{self.team.id}/", {"heatmaps_screenshot_secret": "phh_chosen"})
+            self.team.refresh_from_db()
+            self.assertNotEqual(self.team.heatmaps_screenshot_secret, "phh_chosen")
+
+        def test_rotate_heatmaps_screenshot_secret_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_heatmaps_screenshot_secret/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.team.refresh_from_db()
+            self.assertIsNone(self.team.heatmaps_screenshot_secret)
+
         def test_rotate_secret_token_insufficient_privileges(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -2004,6 +2041,52 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
+            self.team.logs_settings = existing_settings
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {**existing_settings, "json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2061,6 +2144,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
@@ -3645,6 +3729,32 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # Even the safe field must not be applied when the request is rejected.
         assert self.team.surveys_opt_in is not True
 
+    def test_member_cannot_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        assert self.team.heatmaps_screenshot_secret
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["heatmaps_screenshot_secret"] is None, (
+                f"MEMBER read the admin-only screenshot secret via {url}"
+            )
+
+    def test_admin_can_read_heatmaps_screenshot_secret(self) -> None:
+        self.team.rotate_heatmaps_screenshot_secret_and_save(user=self.user, is_impersonated_session=False)
+        self.team.refresh_from_db()
+        secret = self.team.heatmaps_screenshot_secret
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.project.id}/"):
+            response = self.client.get(url)
+            assert response.json()["heatmaps_screenshot_secret"] == secret, (
+                f"ADMIN could not read the screenshot secret via {url}"
+            )
+
     def _enable_access_control_with_member_level(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -3724,6 +3834,24 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+    def test_invalid_logs_json_attribute_key(self, key):
+        self._assert_field_error(
+            "logs_settings",
+            {"json_parse_logs_attribute_key": key},
+            "invalid",
+            "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+            "Use an empty string to disable parsing.",
+        )
+
+    @parameterized.expand(
+        [("context", "context"), (" app.context ", "app.context"), ("  ", ""), (" " + "a" * 200 + " ", "a" * 200)]
+    )
+    def test_normalize_logs_json_attribute_key(self, key, expected):
+        assert TeamSerializer().validate_logs_settings({"json_parse_logs_attribute_key": key}) == {
+            "json_parse_logs_attribute_key": expected
+        }
+
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
     # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
