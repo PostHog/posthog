@@ -9,9 +9,8 @@ actions that follow the impression say which rows were worth the top.
 
 Three orders are graded on each list, on exactly the same rows:
 
-- `model`, descending score of the head whose outcome is being graded;
-- `heuristic`, the rank the list served, which is what the person saw, minus any row no score
-  existed for;
+- `model`, descending score of the head whose outcome is being graded, with unscored rows last;
+- `heuristic`, every row at the rank the list served, pooling all served sorts;
 - `random`, seeded permutations, the chance line a gap has to clear.
 
 Pure functions over frames; `shadow/dag.py` owns the ClickHouse, S3 and telemetry plumbing.
@@ -22,15 +21,14 @@ either order thinks of it. That flatters the heuristic line and no re-ranking of
 remove it. `positive_served_rank_mean` reports how concentrated the outcomes were at the top of
 the served list, so the size of the effect is visible next to the numbers it distorts.
 
-**A graded list is a slice of a served list, not the whole one.** The client sends only the rows
-a render newly showed, so a second page arrives as its own event, and the merged flat list sends
-one event per state section with the ranks taken over the merged list. The events of one render
-share no id, so nothing reassembles them. Rows that competed at adjacent ranks can therefore sit
-in different slices and never be compared, and `MIN_LIST_SIZE`, the drop of a list with no
-outcome, and the NDCG cutoffs all apply per slice. That narrows the field around every positive
-and lifts all three orders together. Within a slice the relative order is still the served one,
-because the orders sort on `served_rank`. Closing this needs an id on the event that names the
-render, which is a producer change.
+**Only complete reconstructed lists are graded.** Events are unioned by absolute rank inside a
+five-second UTC bucket for the same viewer, session, scope and normalized tab. State-section
+tabs normalize to `reports` so merged sections meet. The maximum list_size must equal the row
+count, ranks must be contiguous, and conflicting rank assignments are excluded. Pagination
+inside the bucket extends the list; later incomplete pages are excluded. Without a render ID,
+the bucket can split a render or combine nearby visits, so this is a conservative approximation.
+Repeat visits in different buckets stay separate. Unscored reports keep their outcomes and rank
+last in the model order, tied on served rank; a group with no available scores is not graded.
 
 **The graded outcome is a list-scoped proxy for the head it is named after, not that head's own
 label.** Relevance here is "the person who saw this list engaged with this row inside the
@@ -71,16 +69,8 @@ RANDOM_SEED = 0
 # back to from a link or a notification.
 ATTRIBUTION_WINDOW = datetime.timedelta(minutes=30)
 
-# When a dt=D score becomes something a sweep could have served: the training job is scheduled for
-# 06:00 UTC the next morning, so nothing before D+1 06:00 could have used it. Comparing on snapshot
-# day alone would let a list served at 03:00 use a model that had not been fit yet.
-#
-# This is a lower bound, not the write time. 06:00 is when the job starts and the scores asset is
-# the fourth in it, so the object lands later; a partition that failed and re-ran, or was
-# backfilled weeks afterwards, still reports this same instant. A list served in that gap joins
-# scores that did not exist yet, which is the backdating the rule exists to stop. Closing it needs
-# the object's real write time, and nothing records that today.
-SCORE_AVAILABLE_AFTER = datetime.timedelta(days=1, hours=6)
+RENDER_WINDOW = "5s"
+SECTION_TABS = ("monitoring", "needs-decision", "resolved", "dismissed", "not-actionable")
 
 # A list of one is ranked identically by every order, so it separates nothing and only adds weight
 # to the average.
@@ -175,73 +165,43 @@ class ServedList:
     served_rank: np.ndarray
 
 
-def score_available_at(snapshot_date: pd.Series) -> pd.Series:
-    """The instant each scoring day's scores could first have been served."""
-    return pd.to_datetime(snapshot_date, utc=True) + SCORE_AVAILABLE_AFTER
-
-
-def _first_render_of_each_visit(per_list: pd.DataFrame) -> dict[str, str]:
-    """Each render mapped to the first render of its visit. A render repeats the last one kept when
-    the same list came back inside an attribution window of it."""
-    visit_of: dict[str, str] = {}
-    last_kept: dict[tuple[Any, ...], tuple[str, pd.Timestamp]] = {}
-    for impression_id, render in per_list.sort_values("impressed_at").iterrows():
-        key = (render["distinct_id"], render["tab"], render["scope"], render["reports"], render["ranks"])
-        previous = last_kept.get(key)
-        if previous is not None and render["impressed_at"] - previous[1] < ATTRIBUTION_WINDOW:
-            visit_of[str(impression_id)] = previous[0]
-            continue
-        last_kept[key] = (str(impression_id), render["impressed_at"])
-        visit_of[str(impression_id)] = str(impression_id)
-    return visit_of
-
-
 def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
-    """One row per (list, report), collapsing repeats of the same list into their first render.
+    """Reassemble complete render windows after per-event outcome attribution.
 
-    Coming back to a query the person already ran is a fresh ranking context to the client, so
-    toggling a filter back and forth re-sends the same ranking within a minute. Left alone, one
-    person's toggling outweighs everyone else's reading. Two renders are the same list when the
-    same person saw the same reports at the same ranks in the same place.
-
-    The attribution window is what makes a repeat a repeat, and it is why this is not a plain
-    drop-duplicates over the day. Renders closer together than that window compete for the same
-    engagements, so they are one viewing. A person who comes back hours later and opens something
-    has made a second observation, and folding it into the morning's render loses the open
-    entirely: the engagement falls outside that render's window, and the render is then dropped
-    for having no outcome at all.
-
-    Outcomes are attributed per render before this runs, and a repeat brings its own with it: the
-    renders of one visit are one viewing, so an engagement that followed the second belongs to the
-    visit the first one opened. Collapsing first would have dropped it, because it lands outside
-    the window of the render that survives.
+    Attribute first so a later incomplete impression cannot credit an earlier complete list.
+    Duplicate rows retain any outcome attributed to their latest event in the render window.
     """
     if impressions.empty:
         return impressions
-    per_list = (
-        impressions.sort_values(["impression_id", "served_rank"])
-        .groupby("impression_id", sort=False)
-        .agg(
-            distinct_id=("distinct_id", "first"),
-            tab=("tab", "first"),
-            scope=("scope", "first"),
-            impressed_at=("impressed_at", "min"),
-            reports=("report_id", tuple),
-            ranks=("served_rank", tuple),
+    rows = impressions.assign(
+        render_window=impressions["impressed_at"].dt.floor(RENDER_WINDOW),
+        tab=impressions["tab"].replace(dict.fromkeys(SECTION_TABS, "reports")),
+    )
+    complete: list[pd.DataFrame] = []
+    for _, render in rows.groupby(["distinct_id", "session_id", "scope", "tab", "render_window"], sort=True):
+        size = render["list_size"].max()
+        if pd.isna(size) or size < 1 or not render["session_id"].iloc[0]:
+            continue
+        if (render.groupby("served_rank")["report_id"].nunique() > 1).any():
+            continue
+        ranked = render.sort_values(["impressed_at", "impression_id"]).drop_duplicates("served_rank")
+        if (
+            len(ranked) != size
+            or ranked["report_id"].nunique() != size
+            or set(ranked["served_rank"]) != set(range(1, int(size) + 1))
+        ):
+            continue
+        ranked = ranked.assign(
+            **{
+                column: ranked["served_rank"].map(render.groupby("served_rank")[column].max())
+                for outcome in OUTCOMES
+                if (column := outcome_column(outcome)) in render
+            }
         )
-    )
-    visit_of = _first_render_of_each_visit(per_list)
-    collapsed = impressions.assign(impression_id=impressions["impression_id"].map(visit_of))
-    return collapsed.groupby(["impression_id", "report_id"], as_index=False, sort=False).agg(
-        distinct_id=("distinct_id", "first"),
-        impressed_at=("impressed_at", "min"),
-        tab=("tab", "first"),
-        scope=("scope", "first"),
-        # Identical across a visit by construction: the ranks are part of what makes two renders
-        # the same list.
-        served_rank=("served_rank", "first"),
-        **{outcome_column(outcome): (outcome_column(outcome), "max") for outcome in OUTCOMES},
-    )
+        complete.append(
+            ranked.assign(impression_id=render["impression_id"].min(), list_size=size).drop(columns="render_window")
+        )
+    return pd.concat(complete, ignore_index=True) if complete else impressions.head(0)
 
 
 def with_outcomes(impressions: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:
@@ -280,16 +240,21 @@ def join_scores(lists: pd.DataFrame, scores: pd.DataFrame) -> pd.DataFrame:
     """One row per (list, report, model, head), carrying the newest score that existed when the
     list was served.
 
-    A report is scored on the day it is born, so a list served on its birth day joins nothing: the
-    daily job that would have scored it has not run yet. Those rows are the residual the coverage
-    number reports, and they cannot be recovered without scoring at birth.
+    Unscored reports retain a null score and all their outcomes for each model group. The model
+    orders them last. A group with no score available for any served row produces no grades.
     """
     if lists.empty or scores.empty:
         return lists.head(0).merge(scores.head(0), on="report_id", how="inner")
     joined = lists.merge(scores, on="report_id", how="inner")
     joined = joined.loc[joined["available_at"] <= joined["impressed_at"]]
-    return joined.sort_values("snapshot_date").drop_duplicates(
+    matched = joined.sort_values(["snapshot_date", "available_at", "model_version"]).drop_duplicates(
         subset=["impression_id", "report_id", "model_name", "model_role", "head"], keep="last"
+    )
+    groups = scores[["model_name", "model_role", "head"]].drop_duplicates()
+    return lists.merge(groups, how="cross").merge(
+        matched.drop(columns=lists.columns.difference(["impression_id", "report_id"])),
+        on=["impression_id", "report_id", "model_name", "model_role", "head"],
+        how="left",
     )
 
 
@@ -303,7 +268,7 @@ def score_coverage(served_rows: int, joined: pd.DataFrame) -> float | None:
     """
     if not served_rows:
         return None
-    covered = joined.drop_duplicates(subset=["impression_id", "report_id"])
+    covered = joined.loc[joined["score"].notna()].drop_duplicates(subset=["impression_id", "report_id"])
     return float(len(covered) / served_rows)
 
 
@@ -328,7 +293,7 @@ def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
         lists.append(
             ServedList(
                 relevance=relevance,
-                score=ordered["score"].to_numpy(dtype=float),
+                score=ordered["score"].fillna(-np.inf).to_numpy(dtype=float),
                 served_rank=ordered["served_rank"].to_numpy(dtype=float),
             )
         )
@@ -395,12 +360,14 @@ def _positive_coverage(rows: pd.DataFrame, outcome: str, served_positives: int) 
     """Share of the served rows that drew `outcome` which this group had a score for."""
     if not served_positives:
         return None
-    return float(rows[outcome_column(outcome)].sum() / served_positives)
+    return float(rows.loc[rows["score"].notna(), outcome_column(outcome)].sum() / served_positives)
 
 
 def _full_list_coverage(rows: pd.DataFrame, served_per_list: pd.Series) -> float | None:
-    """Share of this group's lists that the join left whole."""
-    per_list = rows.groupby("impression_id").size()
+    """Share of served lists for which this group had a score for every row."""
+    per_list = (
+        rows.loc[rows["score"].notna()].groupby("impression_id").size().reindex(served_per_list.index, fill_value=0)
+    )
     if per_list.empty:
         return None
     return float((per_list == served_per_list.reindex(per_list.index)).mean())
@@ -412,18 +379,9 @@ def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGr
     Grouping is by model family and role rather than version for the reason `RankingGrade` gives:
     one day's lists are ranked by whichever version scored each report at its birth.
 
-    `model_role` is the role a score was written under, not a policy identity. The scorer writes a
-    champion row only when the pointer names a version other than the day's candidate, so a
-    partition promoted that morning carries candidate rows alone and the reports born on it are
-    missing from the champion group. That group's own `score_coverage` shows the thinness; the
-    reports cannot be recovered here, because nothing records which version the pointer held on a
-    past day.
-
-    `served` is the pre-join frame, and it is here to be a denominator. The join keeps only the
-    rows a score existed for, so the graded lists are a subset of the rendered ones in two ways
-    the ranking metrics cannot show: an outcome on an unscored row leaves the sample entirely, and
-    a surviving list loses the rows above its positives. `positive_coverage` and
-    `full_list_coverage` report both, the way `positive_served_rank_mean` reports position bias.
+    `model_role` is the snapshot role, not the current serving policy. Missing champion partitions
+    use candidate scores as a fallback in `load_scores`. Coverage reports actual non-null scores
+    per group. Unscored rows and their outcomes stay in every order; see the module docstring.
     """
     grades: list[RankingGrade] = []
     if joined.empty:
@@ -433,6 +391,8 @@ def grade_lists(joined: pd.DataFrame, *, served: pd.DataFrame) -> list[RankingGr
     served_positives = {outcome: int(served[outcome_column(outcome)].sum()) for outcome in OUTCOMES}
     for (model_name, model_role, head), rows in joined.groupby(["model_name", "model_role", "head"], sort=True):
         if head not in OUTCOMES:
+            continue
+        if not rows["score"].notna().any():
             continue
         lists = served_lists(rows, str(head))
         if not lists:

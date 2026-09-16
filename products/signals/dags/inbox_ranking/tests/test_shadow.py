@@ -11,19 +11,17 @@ import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.shadow.dag import GRADE_SCHEMA, grade_rows, load_scores
+from products.signals.dags.inbox_ranking.shadow.dag import GRADE_SCHEMA, grade_rows, impression_frame, load_scores
 from products.signals.dags.inbox_ranking.shadow.metrics import (
     ATTRIBUTION_WINDOW,
     HEURISTIC_ORDER,
     MODEL_ORDER,
     RANDOM_ORDER,
-    SCORE_AVAILABLE_AFTER,
     deduplicate_lists,
     grade_lists,
     join_scores,
     ndcg_at_k,
     reciprocal_rank,
-    score_available_at,
     score_coverage,
     served_lists,
     with_outcomes,
@@ -60,6 +58,8 @@ def _served(impression_id: str, report_ids: list[str], *, at: datetime.datetime 
             "scope": "project",
             "report_id": report_id,
             "served_rank": rank,
+            "session_id": "session-1",
+            "list_size": len(report_ids),
         }
         for rank, report_id in enumerate(report_ids, start=1)
     ]
@@ -77,7 +77,7 @@ def _scores(report_ids: list[str], scores: list[float], *, snapshot_date: dateti
             "score": scores,
         }
     )
-    return frame.assign(available_at=score_available_at(frame["snapshot_date"]))
+    return frame.assign(available_at=pd.Timestamp(snapshot_date, tz="UTC") + datetime.timedelta(days=1, hours=7))
 
 
 def test_ndcg_rewards_putting_the_engaged_report_first():
@@ -94,28 +94,63 @@ def test_reciprocal_rank_is_one_over_the_first_hit():
     assert reciprocal_rank(np.array([0.0, 0.0])) == 0.0
 
 
-def test_repeated_renders_of_one_list_count_once():
-    # Toggling a filter back and forth is a fresh ranking context to the client, so it re-sends
-    # the same ranking within a minute. Left alone, one person's toggling outweighs everyone
-    # else's reading.
+def test_repeated_renders_only_collapse_inside_the_same_render_window():
     rows = _lists(
         [
             *_served("first", [UUID_A, UUID_B]),
+            *_served("duplicate", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(seconds=1)),
             *_served("second", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(minutes=1)),
             *_served("reordered", [UUID_B, UUID_A], at=SERVED_AT + datetime.timedelta(minutes=2)),
             # Hours later the same order is a second visit, not a repeat: an open that follows it
             # lands outside the morning render's attribution window and would be lost with it.
             *_served("revisit", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(hours=5)),
         ]
-    ).assign(outcome_open=[False, False, True, False, False, False, False, False], outcome_action=False)
+    )
 
-    kept = deduplicate_lists(rows)
+    outcomes = pd.DataFrame(
+        [{"report_id": UUID_A, "distinct_id": "user-1", "timestamp": SERVED_AT + datetime.timedelta(seconds=2)}]
+    ).assign(outcome="open")
+    kept = deduplicate_lists(with_outcomes(rows, outcomes))
 
-    assert sorted(kept["impression_id"].unique()) == ["first", "reordered", "revisit"]
-    # The open followed the second render of the morning visit, and a visit is one viewing, so it
-    # belongs to the render that stands for it.
-    opened = kept.loc[kept["outcome_open"], ["impression_id", "report_id"]]
-    assert opened.to_numpy().tolist() == [["first", UUID_A]]
+    assert sorted(kept["impression_id"].unique()) == ["duplicate", "reordered", "revisit", "second"]
+    assert len(kept) == 8
+    assert kept.loc[kept["outcome_open"], "report_id"].tolist() == [UUID_A]
+
+
+@pytest.mark.parametrize("section_tabs", [("all", "all"), ("monitoring", "needs-decision")])
+def test_section_and_pagination_events_reassemble_one_complete_list(section_tabs: tuple[str, str]) -> None:
+    rows = _lists(_served("first", [UUID_A, UUID_B]))
+    rows["impression_id"] = ["first", "second"]
+    rows["tab"] = list(section_tabs)
+    rows.loc[1, "impressed_at"] += datetime.timedelta(seconds=2)
+    if section_tabs == ("all", "all"):
+        rows.loc[0, "list_size"] = 1
+
+    assembled = deduplicate_lists(rows)
+
+    assert assembled["impression_id"].nunique() == 1
+    assert assembled["report_id"].tolist() == [UUID_A, UUID_B]
+    assert assembled["served_rank"].tolist() == [1, 2]
+    assert assembled["list_size"].tolist() == [2, 2]
+
+
+@pytest.mark.parametrize(
+    "variation", ["missing_row", "next_bucket", "different_session", "rank_conflict", "missing_session"]
+)
+def test_incomplete_or_conflicting_render_windows_are_excluded(variation: str) -> None:
+    rows = _lists(_served("first", [UUID_A, UUID_B]))
+    if variation == "missing_row":
+        rows = rows.head(1)
+    elif variation == "next_bucket":
+        rows.loc[1, "impressed_at"] += datetime.timedelta(seconds=5)
+    elif variation == "different_session":
+        rows.loc[1, "session_id"] = "session-2"
+    elif variation == "missing_session":
+        rows["session_id"] = ""
+    else:
+        rows.loc[1, "served_rank"] = 1
+
+    assert deduplicate_lists(rows).empty
 
 
 def test_an_engagement_counts_for_the_list_that_preceded_it():
@@ -153,12 +188,19 @@ def test_an_engagement_is_credited_to_one_list_only():
     credited = engaged.loc[engaged["outcome_open"], ["impression_id", "report_id"]]
     assert credited.to_numpy().tolist() == [["reordered", UUID_A]]
 
+    incomplete = rows.loc[~((rows["impression_id"] == "reordered") & (rows["report_id"] == UUID_B))]
+    complete = deduplicate_lists(with_outcomes(incomplete, outcomes))
+    assert complete["impression_id"].unique().tolist() == ["first"]
+    assert not complete["outcome_open"].any()
+
 
 def test_a_list_only_uses_scores_that_already_existed_when_it_was_served():
     rows = _lists(_served("first", [UUID_A, UUID_B]))
     scores = pd.concat(
         [
-            _scores([UUID_A], [0.9], snapshot_date=DAY - datetime.timedelta(days=3)),
+            _scores([UUID_A], [0.9], snapshot_date=DAY - datetime.timedelta(days=3)).assign(
+                available_at=SERVED_AT - datetime.timedelta(hours=1)
+            ),
             _scores([UUID_A], [0.4], snapshot_date=DAY - datetime.timedelta(days=1)),
             # A report born on the day it was impressed: the daily job that scores it has not run.
             _scores([UUID_B], [0.8], snapshot_date=DAY),
@@ -168,8 +210,9 @@ def test_a_list_only_uses_scores_that_already_existed_when_it_was_served():
 
     joined = join_scores(rows, scores)
 
-    assert joined["report_id"].tolist() == [UUID_A]
-    assert joined["score"].tolist() == [0.4]
+    assert joined["report_id"].tolist() == [UUID_A, UUID_B]
+    assert joined["score"].iloc[0] == 0.4
+    assert pd.isna(joined["score"].iloc[1])
     assert score_coverage(len(rows), joined) == 0.5
 
 
@@ -250,26 +293,29 @@ def test_the_chance_line_does_not_move_when_the_rows_arrive_in_another_order():
     assert chance(joined.iloc[[3, 0, 2, 1]]) == chance(joined)
 
 
-def test_a_grade_reports_the_engagement_and_the_rows_the_join_dropped():
-    # The join keeps only scored rows, and the unscored ones are reports born the day they were
-    # impressed — where an open lands most often. A list whose only open is unscored leaves the
-    # sample, and a surviving list is graded with its unscored rows closed up.
+def test_a_grade_keeps_unscored_positives_and_ranks_them_last():
     served = _lists(
         [
             *_served("kept", [UUID_A, UUID_B, UUID_B + "-c"]),
             *_served("dropped", [UUID_B + "-d", UUID_B + "-e"], at=SERVED_AT + datetime.timedelta(hours=2)),
         ]
     ).assign(outcome_open=[True, False, False, True, False], outcome_action=False)
-    # Only the first two rows of `kept` were scored; the newborns everywhere else were not.
-    joined = served.head(2).assign(
-        model_name="tabular_xgb", model_version="2026-09-09", model_role="champion", head="open", score=[0.9, 0.1]
-    )
+    joined = join_scores(served, _scores([UUID_A, UUID_B], [0.9, 0.1], snapshot_date=DAY - datetime.timedelta(days=1)))
 
     grade = next(grade for grade in grade_lists(joined, served=served) if grade.ranking_order == MODEL_ORDER)
 
-    # One of the two opens survived the join, and the one list graded lost a row it was served.
+    assert grade.lists == 2
+    assert grade.reports == 5
     assert grade.positive_coverage == 0.5
     assert grade.full_list_coverage == 0.0
+    assert grade.score_coverage == 0.4
+    assert grade.mrr == 1.0
+
+    served["outcome_open"] = [False, False, True, True, False]
+    joined = join_scores(served, _scores([UUID_A, UUID_B], [0.9, 0.1], snapshot_date=DAY - datetime.timedelta(days=1)))
+    grade = next(grade for grade in grade_lists(joined, served=served) if grade.ranking_order == MODEL_ORDER)
+    assert grade.mrr == pytest.approx((1 / 3 + 1) / 2)
+    assert grade.positive_coverage == 0.0
 
 
 def test_a_grade_carries_the_versions_that_scored_the_day():
@@ -288,13 +334,27 @@ def test_a_grade_carries_the_versions_that_scored_the_day():
 
 
 class TestShadowQueries(ClickhouseTestMixin, BaseTest):
-    def _impress(self, impressions: list[dict], *, distinct_id: str = "user-1", at=SERVED_AT) -> None:
+    def _impress(
+        self,
+        impressions: list[dict],
+        *,
+        distinct_id: str = "user-1",
+        at=SERVED_AT,
+        tab: str = "all",
+        list_size: int | None = None,
+    ) -> None:
         _create_event(
             team=self.team,
             event="Inbox reports impressed",
             distinct_id=distinct_id,
             timestamp=at,
-            properties={"tab": "all", "scope": "project", "impressions": impressions},
+            properties={
+                "tab": tab,
+                "scope": "project",
+                "impressions": impressions,
+                "$session_id": "0198c0e8-93c8-7000-8000-a934eeb1b940",
+                "list_size": len(impressions) if list_size is None else list_size,
+            },
         )
 
     def _rows(self, sql: str) -> list[tuple]:
@@ -310,12 +370,28 @@ class TestShadowQueries(ClickhouseTestMixin, BaseTest):
         self._impress([{"report_id": UUID_A, "rank": 1}, {"report_id": UUID_B, "rank": 2}])
         self._impress([{"report_id": UUID_A, "rank": 1}], distinct_id="user-2")
 
-        rows = self._rows(IMPRESSION_LISTS_SQL)
+        rows = deduplicate_lists(impression_frame(self._rows(IMPRESSION_LISTS_SQL))).to_numpy().tolist()
 
         lists = {row[0] for row in rows}
         assert len(lists) == 2
         by_report = {(row[0], row[5]): row[6] for row in rows}
         assert sorted(by_report.values()) == [1, 1, 2]
+
+    def test_merged_sections_reconstruct_the_render_and_exclude_an_incomplete_visit(self) -> None:
+        self._impress([{"report_id": UUID_A, "rank": 1}], tab="monitoring", list_size=2)
+        self._impress(
+            [{"report_id": UUID_B, "rank": 2}],
+            tab="needs-decision",
+            list_size=2,
+            at=SERVED_AT + datetime.timedelta(seconds=1),
+        )
+        self._impress([{"report_id": UUID_A, "rank": 1}], distinct_id="user-2", list_size=2)
+
+        rows = deduplicate_lists(impression_frame(self._rows(IMPRESSION_LISTS_SQL)))
+
+        assert rows["impression_id"].nunique() == 1
+        assert rows.sort_values("served_rank")["report_id"].tolist() == [UUID_A, UUID_B]
+        assert rows["list_size"].tolist() == [2, 2]
 
     def test_a_report_with_no_usable_rank_cannot_be_placed_in_the_served_order(self):
         # Ranks are client-supplied; the producer contract is 1-based, so 0 is malformed.
@@ -354,7 +430,7 @@ class _FakeS3:
     def get_object(self, Bucket: str, Key: str) -> dict:
         if Key not in self.objects:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
-        return {"Body": io.BytesIO(self.objects[Key])}
+        return {"Body": io.BytesIO(self.objects[Key]), "LastModified": SERVED_AT + datetime.timedelta(hours=1)}
 
 
 def _scores_object(frame: pd.DataFrame) -> bytes:
@@ -386,10 +462,32 @@ def test_load_scores_reads_the_window_and_names_the_family_of_older_objects():
     assert scores["model_name"].tolist() == ["tabular_xgb", "tabular_xgb"]
     # Only the heads this read grades, and each one stamped with when it became servable.
     assert scores["head"].tolist() == ["open", "open"]
-    assert scores["available_at"].tolist() == [
-        pd.Timestamp(old_day, tz="UTC") + SCORE_AVAILABLE_AFTER,
-        pd.Timestamp(new_day, tz="UTC") + SCORE_AVAILABLE_AFTER,
-    ]
+    assert scores["available_at"].tolist() == [SERVED_AT + datetime.timedelta(hours=1)] * 2
+    joined = join_scores(_lists(_served("first", [UUID_A, UUID_B])), scores)
+    assert joined["score"].isna().all()
+
+
+def test_missing_champion_partition_uses_candidate_without_replacing_existing_champion() -> None:
+    old_day, new_day = DAY - datetime.timedelta(days=2), DAY - datetime.timedelta(days=1)
+    shared = _scores([UUID_A], [0.3], snapshot_date=old_day).assign(model_role="candidate")
+    separate = pd.concat(
+        [
+            _scores([UUID_B], [0.7], snapshot_date=new_day),
+            _scores([UUID_B], [0.2], snapshot_date=new_day).assign(model_role="candidate"),
+        ]
+    )
+    client = _FakeS3(
+        {
+            partition_object_key("inbox_ranking", UNSEEN_SCORES_TABLE, old_day.isoformat()): _scores_object(shared),
+            partition_object_key("inbox_ranking", UNSEEN_SCORES_TABLE, new_day.isoformat()): _scores_object(separate),
+        }
+    )
+
+    scores = load_scores(client, "bucket", "inbox_ranking", [old_day, new_day])
+
+    champion = scores.loc[scores["model_role"] == "champion"]
+    assert champion["report_id"].tolist() == [UUID_A, UUID_B]
+    assert champion["score"].tolist() == [0.3, 0.7]
 
 
 def test_a_day_that_graded_nothing_still_reports_a_run():
@@ -420,6 +518,7 @@ def test_a_day_that_graded_nothing_still_reports_a_run():
         "served_lists": 3,
         "run_score_coverage": 0.0,
         "grades": 0,
+        "reason": "no_available_scores",
     }
     # The run event rides alongside the three orders, never instead of them.
     assert [event.event for event in graded] == [SHADOW_RUN_COMPLETED_EVENT, *[SHADOW_RANKING_GRADED_EVENT] * 3]

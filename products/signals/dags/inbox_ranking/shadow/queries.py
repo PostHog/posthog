@@ -2,11 +2,13 @@
 
 Both queries read the dogfood project's client telemetry, the same stream the label assets read,
 and both are bounded by explicit event-time windows so a partition is reproducible for any past
-day. The impression query is the ranking unit, and one `Inbox reports impressed` event is a
-fragment of one: the client sends only the rows a render newly showed, and the merged flat list
-sends one event per state section with ranks taken over the merged list. So a graded list is a
-slice of the list the person saw, at the ranks it served, and nothing here reassembles the slices
-of one render — they carry no shared id. See `shadow/metrics.py` for what that costs.
+day. An impression event contains only newly shown rows, not a complete ranked list. The query
+retains session and list size so `deduplicate_lists` can union absolute ranks within each
+(distinct_id, session_id, scope, normalized tab, five-second UTC bucket). State-section tabs
+normalize to `reports`, because the merged Reports view emits a different tab per section.
+Only reconstructions containing every rank from 1 through the maximum list_size are graded.
+Conflicting rank assignments are excluded. Buckets are an approximation without a render ID:
+pagination crossing a bucket boundary is excluded rather than graded as a separate partial list.
 """
 
 import datetime
@@ -27,16 +29,23 @@ ACTION_TYPES = ("create_pr", "discuss")
 
 _ACTION_TYPES_SQL = ", ".join(f"'{action_type}'" for action_type in ACTION_TYPES)
 
-# One row per (impression event, report). `impression_id` is the event's own uuid, so the grouping
-# key is the event, which is a slice of a render rather than the whole list — the module docstring
-# has the producer contract. `served_rank` is the row's rank in the list as rendered, so within a
-# slice the relative order is the served one.
+# One row per (impression event, report), before reconstruction in `deduplicate_lists`.
 #
 # The GROUP BY is a delivery guard, not an aggregate: analytics capture is at-least-once, so the
 # same event can land twice and would then put a report into its own list twice. `rank` is read
 # through the same 1-based contract guard the labels asset applies, and a report whose rank is
 # missing or malformed cannot be placed in the served order at all, so it is dropped here.
-IMPRESSION_COLUMNS = ("impression_id", "distinct_id", "impressed_at", "tab", "scope", "report_id", "served_rank")
+IMPRESSION_COLUMNS = (
+    "impression_id",
+    "distinct_id",
+    "impressed_at",
+    "tab",
+    "scope",
+    "report_id",
+    "served_rank",
+    "session_id",
+    "list_size",
+)
 IMPRESSION_LISTS_SQL = f"""
 SELECT
     impression_id,
@@ -45,7 +54,9 @@ SELECT
     any(tab) AS tab,
     any(scope) AS scope,
     report_id,
-    any(rank_value) AS served_rank
+    any(rank_value) AS served_rank,
+    any(session_id) AS session_id,
+    max(list_size) AS list_size
 FROM (
     SELECT
         toString(uuid) AS impression_id,
@@ -53,6 +64,8 @@ FROM (
         timestamp,
         toString(properties.tab) AS tab,
         toString(properties.scope) AS scope,
+        toString(properties.$session_id) AS session_id,
+        toInt(properties.list_size) AS list_size,
         JSONExtractString(imp, 'report_id') AS report_id,
         {IMPRESSION_RANK_SQL} AS rank_value
     FROM events

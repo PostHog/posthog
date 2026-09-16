@@ -20,6 +20,8 @@ import datetime
 import pandas as pd
 import dagster
 import pyarrow as pa
+import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
@@ -32,7 +34,6 @@ from products.signals.dags.inbox_ranking.common import (
     owner_tags,
     partition_def,
     partition_object_key,
-    read_parquet_if_exists,
     s3_client,
     skip_unconfigured,
     snapshot_bounds,
@@ -47,7 +48,6 @@ from products.signals.dags.inbox_ranking.shadow.metrics import (
     deduplicate_lists,
     grade_lists,
     join_scores,
-    score_available_at,
     score_coverage,
     with_outcomes,
 )
@@ -130,23 +130,44 @@ def outcome_frame(rows: list[tuple[object, ...]]) -> pd.DataFrame:
 
 def load_scores(client, bucket: str, prefix: str, dates: list[datetime.date]) -> pd.DataFrame:
     """Every graded head's scores from the partitions in `dates`, with the instant each one became
-    servable. Missing partitions are ordinary: a day the training job did not run scored nobody."""
+    servable. Use LastModified from the same GET as the data, so rewrites and backfills cannot
+    backdate scores. A rewrite conservatively loses coverage before that write. Missing champion
+    rows for a partition/family/head fall back to its candidate, including shared-version days;
+    this fallback does not establish which version historically held the champion pointer.
+    Missing partitions are ordinary: a day the training job did not run scored nobody."""
     frames: list[pd.DataFrame] = []
     for date in dates:
         key = date.isoformat()
         # Read whole rather than by column list: an object written before `model_name` existed
         # has no such column, and `with_model_names` is what fills it in.
-        table = read_parquet_if_exists(client, bucket, partition_object_key(prefix, UNSEEN_SCORES_TABLE, key))
-        if table is None or table.num_rows == 0:
+        try:
+            response = client.get_object(Bucket=bucket, Key=partition_object_key(prefix, UNSEEN_SCORES_TABLE, key))
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                continue
+            raise
+        with response["Body"] as body:
+            table = pq.read_table(pa.BufferReader(body.read()))
+        if table.num_rows == 0:
             continue
         # Down to the graded heads before the frame is kept: a partition holds a row per readable
         # head, this read grades two of the seven, and the whole lookback window is held at once.
         frame = with_model_names(table.to_pandas())[list(SCORE_JOIN_COLUMNS)]
-        frames.append(frame.loc[frame["head"].isin(OUTCOMES)])
+        frame = frame.loc[frame["head"].isin(OUTCOMES)].assign(
+            available_at=pd.to_datetime(response["LastModified"], utc=True)
+        )
+        partition_columns = ["snapshot_date", "model_name", "head"]
+        champions = frame.loc[frame["model_role"] == "champion", partition_columns].drop_duplicates()
+        candidates = frame.loc[frame["model_role"] == "candidate"].merge(
+            champions, on=partition_columns, how="left", indicator=True
+        )
+        fallback = (
+            candidates.loc[candidates["_merge"] == "left_only"].drop(columns="_merge").assign(model_role="champion")
+        )
+        frames.extend([frame, fallback])
     if not frames:
         return pd.DataFrame(columns=[*SCORE_JOIN_COLUMNS, "available_at"])
-    scores = pd.concat(frames, ignore_index=True)
-    return scores.assign(available_at=score_available_at(scores["snapshot_date"]))
+    return pd.concat(frames, ignore_index=True)
 
 
 def grade_rows(

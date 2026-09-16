@@ -36,6 +36,15 @@ def shadow_grade_events(
     join. Each grade also carries its own `score_coverage`, which is the one to filter a single
     line on.
     """
+    reason = None
+    if not grades:
+        reason = (
+            "no_complete_lists"
+            if not served_lists
+            else "no_available_scores"
+            if not run_score_coverage
+            else "no_gradeable_outcomes"
+        )
     run: dict[str, object] = {
         "run_id": run_id,
         "served_rows": served_rows,
@@ -43,6 +52,6 @@ def shadow_grade_events(
         "run_score_coverage": run_score_coverage,
     }
     return [
-        TrainingEvent(event=SHADOW_RUN_COMPLETED_EVENT, properties={**run, "grades": len(grades)}),
+        TrainingEvent(event=SHADOW_RUN_COMPLETED_EVENT, properties={**run, "grades": len(grades), "reason": reason}),
         *(TrainingEvent(event=SHADOW_RANKING_GRADED_EVENT, properties={**grade.as_dict(), **run}) for grade in grades),
     ]
