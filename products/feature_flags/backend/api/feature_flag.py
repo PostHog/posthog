@@ -2556,9 +2556,9 @@ class FeatureFlagSerializer(
         # filters object for a change that never mentioned targeting.
         if not getattr(request, "skip_opportunistic_filter_cleanup", False):
             previous_filters = validated_data.get("filters") or instance.filters
-            if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
+            if previous_filters and LEGACY_UNKNOWN_FILTER_KEYS & previous_filters.keys():
                 validated_data["filters"] = {
-                    k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
+                    k: v for k, v in previous_filters.items() if k not in LEGACY_UNKNOWN_FILTER_KEYS
                 }
 
     def _update_filters(self, validated_data):
@@ -3289,7 +3289,10 @@ def flag_lifecycle_responses(
             "decide the change against its current definition."
         )
     if approval_gated:
-        conflicts.append("An approval policy gates this change. A change request was opened; the flag is unchanged.")
+        conflicts.append(
+            "An approval policy gates this change. A change request was opened, or an open one was returned "
+            "if the same action was already pending; the flag is unchanged."
+        )
     if conflicts:
         # The two 409 reasons render different bodies, so the schema names both rather than
         # picking one and describing the other in prose.
@@ -3307,12 +3310,18 @@ def flag_lifecycle_responses(
     # plain response rather than raised, so it renders a different body from the exception
     # envelope the other 400s use. The schema names both rather than picking one.
     reasons = ["The flag is deleted."]
+    bad_request_bodies: list[Any] = [FlagActionErrorSerializer, FlagDeletedRejectionSerializer]
+    if approval_gated:
+        # A change matching several policies cannot be gated by one change request, so the gate
+        # refuses it with a third body.
+        reasons.append("The change matches more than one approval policy.")
+        bad_request_bodies.append(FlagPolicyConflictSerializer)
     if bad_request is not None:
         reasons.append(bad_request)
     responses[400] = OpenApiResponse(
         response=PolymorphicProxySerializer(
             component_name="FeatureFlagActionBadRequest",
-            serializers=[FlagActionErrorSerializer, FlagDeletedRejectionSerializer],
+            serializers=bad_request_bodies,
             resource_type_field_name=None,
         ),
         description=" ".join(reasons),
@@ -3350,6 +3359,19 @@ class FlagDeletedRejectionSerializer(serializers.Serializer):
     )
 
 
+class FlagPolicyConflictSerializer(serializers.Serializer):
+    """The 400 body a change matching several approval policies produces.
+
+    Raised through the approvals mixin rather than the exception handler, so it carries the
+    policies that matched instead of the `type`/`attr` envelope.
+    """
+
+    code = serializers.CharField(help_text="Always `policy_conflict`.")
+    error = serializers.CharField(help_text="Human-readable reason the change could not be gated.")
+    conflicting_policies = serializers.JSONField(help_text="The approval policies that matched this change.")
+    guidance = serializers.CharField(help_text="How to split the change so each policy applies on its own.")
+
+
 class FlagApprovalConflictSerializer(serializers.Serializer):
     """The 409 body an approval policy produces, which differs from every other error here.
 
@@ -3357,7 +3379,10 @@ class FlagApprovalConflictSerializer(serializers.Serializer):
     change request it opened instead of the `type`/`attr` envelope.
     """
 
-    code = serializers.CharField(help_text="Always `approval_required`.")
+    code = serializers.CharField(
+        help_text="`approval_required` when this call opened the change request, "
+        "`change_request_pending` when one was already open for the same action."
+    )
     status = serializers.CharField(help_text="Always `approval_required`.")
     detail = serializers.CharField(help_text="Human-readable description of the policy that gated the change.")
     message = serializers.CharField(help_text="Same text as `detail`.")
@@ -4177,9 +4202,9 @@ class FeatureFlagViewSet(
     ) -> Response:
         """Apply one rollout transform to the flag this request names.
 
-        Both actions run this sequence. It was revised twice during review, and a revision that
-        landed in only one of them would leave the two endpoints with different concurrency
-        guarantees while both still passed their own tests.
+        Both actions run this sequence, so their concurrency guarantees cannot drift apart. A
+        change made to one copy of it would leave the other endpoint weaker while both still
+        passed their own tests.
         """
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
@@ -4198,6 +4223,9 @@ class FeatureFlagViewSet(
             # it can compare equal to filters that no longer exist, which would answer 200 for a
             # change that was never applied.
             locked_flag = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+            # Both answers below serialize this row, and a bare `get()` carries none of the
+            # prefetches, annotations and select_related caches the request already loaded.
+            _carry_loaded_state(feature_flag, locked_flag)
             # A bulk delete leaves `version` untouched, so the precondition cannot see one that
             # landed since the read. Without this check the write rewrites a deleted flag's
             # filters, and the change takes effect the moment anyone restores it.

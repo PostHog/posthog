@@ -17,7 +17,13 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.services import ChangeRequestService
-from products.feature_flags.backend.api.feature_flag import FeatureFlagViewSet, FlagRolloutWriteRequest
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagViewSet,
+    FlagActionErrorSerializer,
+    FlagApprovalConflictSerializer,
+    FlagDeletedRejectionSerializer,
+    FlagRolloutWriteRequest,
+)
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -217,6 +223,9 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "control, test" in response.json()["detail"]
+        # The declared shape reaches the generated clients and the MCP tools, where a key that is
+        # not there is read as missing rather than as a schema error.
+        assert set(response.json()) == set(FlagActionErrorSerializer().fields)
         flag.refresh_from_db()
         assert flag.filters == TARGETING
 
@@ -252,6 +261,21 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["groups"] == BOOLEAN_TARGETING["groups"]
 
+    def test_indexed_rollout_is_allowed_on_a_flag_gated_on_early_access_enrollment(self):
+        # The refusal above belongs to `roll_out_to_everyone`, which promises everyone the flag.
+        # Changing one condition's percentage makes no such promise, so it goes through.
+        gated = {**BOOLEAN_TARGETING, "feature_enrollment": True}
+        flag = self._flag(filters=gated)
+
+        response = self._act(
+            flag, "set_release_condition_rollout", {"condition_index": 0, "rollout_percentage": 25, "version": 1}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out("set_release_condition_rollout", gated))
+        assert flag.filters["feature_enrollment"] is True
+
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_refuses_a_version_that_is_no_longer_current(self, action, body):
         flag = self._flag()
@@ -282,7 +306,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
-        assert flag.filters != TARGETING
+        assert flag.filters == persisted(rolled_out(action, TARGETING))
         assert flag.name == "renamed"
 
     @parameterized.expand(ROLLOUT_ACTIONS)
@@ -308,6 +332,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "has been deleted" in response.json()["error"]
+        assert set(response.json()) == set(FlagDeletedRejectionSerializer().fields)
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_requires_the_feature_flag_write_scope(self, action, body):
@@ -338,6 +363,7 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         response = self._act(flag, action, {**body, "version": flag.version})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert set(response.json()) == set(FlagApprovalConflictSerializer().fields)
         change_request = ChangeRequest.objects.get(team=self.team)
         assert change_request.resource_id == str(flag.id)
         # Approving replays these filters verbatim, so anything short of the exact transform

@@ -1241,7 +1241,24 @@ export interface FlagDeletedRejectionApi {
     error: string
 }
 
-export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRejectionApi
+/**
+ * The 400 body a change matching several approval policies produces.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * policies that matched instead of the `type`/`attr` envelope.
+ */
+export interface FlagPolicyConflictApi {
+    /** Always `policy_conflict`. */
+    code: string
+    /** Human-readable reason the change could not be gated. */
+    error: string
+    /** The approval policies that matched this change. */
+    conflicting_policies: unknown
+    /** How to split the change so each policy applies on its own. */
+    guidance: string
+}
+
+export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRejectionApi | FlagPolicyConflictApi
 
 /**
  * The 409 body an approval policy produces, which differs from every other error here.
@@ -1250,7 +1267,7 @@ export type FeatureFlagActionBadRequestApi = FlagActionErrorApi | FlagDeletedRej
  * change request it opened instead of the `type`/`attr` envelope.
  */
 export interface FlagApprovalConflictApi {
-    /** Always `approval_required`. */
+    /** `approval_required` when this call opened the change request, `change_request_pending` when one was already open for the same action. */
     code: string
     /** Always `approval_required`. */
     status: string
