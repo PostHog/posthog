@@ -187,7 +187,6 @@ MIDDLEWARE = [
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
-    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -621,6 +620,8 @@ SPECTACULAR_SETTINGS = {
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
+            "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
+            "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
@@ -1325,6 +1326,14 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Weekly (7-day) event-volume floor below which a team gets neither precompute
+# reads nor warming — their live path is sub-second and always fresh, while
+# bucket builds cost more than they save. 0 disables the floor. Enforced
+# fail-open: reads fall back to precompute when the volume set is unpublished.
+WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS", 100_000, type_cast=int
+)
 
 # Dogfooding list for the precompute-backed web analytics trends path — teams
 # here take it regardless of the `web-analytics-trends-precompute` rollout flag.

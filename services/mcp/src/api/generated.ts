@@ -859,7 +859,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -1342,9 +1342,68 @@ export namespace Schemas {
       time_elapsed: number;
     }
 
+    export type QueryScanFindingKind = typeof QueryScanFindingKind[keyof typeof QueryScanFindingKind];
+
+
+    export const QueryScanFindingKind = {
+      NoEventFilter: 'no_event_filter',
+      NoStartDate: 'no_start_date',
+      PersonsJoin: 'persons_join',
+    } as const;
+
+    export type QueryScanFindingReason = typeof QueryScanFindingReason[keyof typeof QueryScanFindingReason];
+
+
+    export const QueryScanFindingReason = {
+      InOr: 'in_or',
+      Wrapped: 'wrapped',
+      Negated: 'negated',
+      Dynamic: 'dynamic',
+      NotPruned: 'not_pruned',
+      Filters: 'filters',
+    } as const;
+
+    export interface QueryScanWarning {
+      /** The one fact the finding rests on. */
+      evidence?: string | null;
+      /** What "Fix with AI" and the assistant are told to do. */
+      fix: string;
+      kind: QueryScanFindingKind;
+      /** Shown to the person: what happened and what to do. */
+      message: string;
+      /** Only with `no_event_filter` and `no_start_date`. */
+      reason?: QueryScanFindingReason | null;
+    }
+
+    export interface QueryScanAnalysis {
+      /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+      assistant_prompt?: string | null;
+      /** Empty when the analysis found nothing to fix. */
+      findings: QueryScanWarning[];
+      /** How much of all the project's events the query read, 0 to 1. */
+      project_share?: number | null;
+      /** How much of the project's events in the query's date range the query read, 0 to 1. */
+      range_share?: number | null;
+    }
+
+    export interface QueryScanSummary {
+      /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+      analysis?: QueryScanAnalysis | null;
+      /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+      analysis_requested?: boolean | null;
+      /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+      duration_ms: number;
+      /** True when ClickHouse stopped the run instead of finishing it. */
+      killed?: boolean | null;
+      /** Rows ClickHouse read for the last fresh run, all tables included. */
+      rows_read: number;
+    }
+
     export interface QueryStatus {
       budget_remaining_bytes?: number | null;
       bytes_read?: number | null;
+      /** Cache key of the run that failed, so clients can ask for its query scan. */
+      cache_key?: string | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
       dashboard_id?: number | null;
@@ -1364,6 +1423,7 @@ export namespace Schemas {
       /** ONLY async queries use QueryStatus. */
       query_async?: true;
       query_progress?: ClickhouseQueryProgress | null;
+      query_scan?: QueryScanSummary | null;
       results?: unknown;
       /** When was query execution task enqueued. */
       start_time?: string | null;
@@ -2808,6 +2868,7 @@ export namespace Schemas {
 
     export interface ActionConversionGoal {
       actionId: number;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
     export interface ActionReference {
@@ -3666,6 +3727,7 @@ export namespace Schemas {
 
     export interface CustomEventConversionGoal {
       customEventName: string;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
     export type DaysOfWeekEnum = typeof DaysOfWeekEnum[keyof typeof DaysOfWeekEnum];
@@ -3685,7 +3747,7 @@ export namespace Schemas {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
        * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
-      /** End of the date range. Same format as date_from. Omit or null for "now". */
+      /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
       date_to?: string | null;
       /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
       daysOfWeek?: DaysOfWeekEnum[] | null;
@@ -5145,6 +5207,7 @@ export namespace Schemas {
       includeHost?: boolean | null;
       includeRevenue?: boolean | null;
       includeScrollDepth?: boolean | null;
+      includeTrafficMetrics?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: 'WebStatsTableQuery';
@@ -9335,6 +9398,8 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan: unknown;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -11135,6 +11200,229 @@ export namespace Schemas {
       P3: 'P3',
       P4: 'P4',
     } as const;
+
+    /**
+     * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
+     */
+    export type AutoresearchPipelineTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Population used for training. Defines which users can appear as training examples.
+     */
+    export type AutoresearchPipelineTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population scored daily. Typically broader than the training population.
+     */
+    export type AutoresearchPipelineInferencePopulation = { [key: string]: unknown };
+
+    /**
+     * * `draft` - Draft
+     * * `bootstrapping` - Bootstrapping
+     * * `running` - Running
+     * * `converged` - Converged
+     * * `paused` - Paused
+     * * `archived` - Archived
+     */
+    export type AutoresearchPipelineStatusEnum = typeof AutoresearchPipelineStatusEnum[keyof typeof AutoresearchPipelineStatusEnum];
+
+
+    export const AutoresearchPipelineStatusEnum = {
+      Draft: 'draft',
+      Bootstrapping: 'bootstrapping',
+      Running: 'running',
+      Converged: 'converged',
+      Paused: 'paused',
+      Archived: 'archived',
+    } as const;
+
+    export interface AutoresearchPipeline {
+      /** Unique UUID of this pipeline. */
+      readonly id: string;
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * @maxLength 255
+         */
+      target_event: string;
+      /** Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}. */
+      target_definition: AutoresearchPipelineTargetDefinition;
+      /**
+         * Prediction horizon in days. The model predicts whether the target event occurs within this window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples. Larger windows give more data but may include stale behavior.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      training_lookback_days?: number;
+      /** Population used for training. Defines which users can appear as training examples. */
+      training_population: AutoresearchPipelineTrainingPopulation;
+      /** Population scored daily. Typically broader than the training population. */
+      inference_population: AutoresearchPipelineInferencePopulation;
+      /**
+         * Re-score the inference population every N days.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /** Iterations remaining in the current budget. */
+      readonly iteration_budget_remaining: number;
+      /**
+         * Target AUC threshold. Training stops early if this score is reached.
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no AUC improvement is seen in this many consecutive iterations.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+      /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
+       *
+       * * `draft` - Draft
+       * * `bootstrapping` - Bootstrapping
+       * * `running` - Running
+       * * `converged` - Converged
+       * * `paused` - Paused
+       * * `archived` - Archived */
+      readonly status: AutoresearchPipelineStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /**
+         * Timestamp of the most recent completed inference run.
+         * @nullable
+         */
+      readonly last_scored_at: string | null;
+      /**
+         * Offline holdout AUC of the current champion model (predictive accuracy on held-out training data).
+         * @nullable
+         */
+      readonly champion_holdout_auc: number | null;
+      /**
+         * Realized online AUC of the current champion model, computed from mature predictions against actual outcomes.
+         * @nullable
+         */
+      readonly champion_realized_auc: number | null;
+    }
+
+    /**
+     * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
+     */
+    export type AutoresearchPipelineCreateTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type AutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type AutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface AutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
+         * @maxLength 255
+         */
+      target_event?: string;
+      /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
+      target_definition?: AutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: AutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: AutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days (1-365). Default: 1.
+         * @minimum 1
+         * @maximum 365
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+    }
 
     /**
      * Discovered detail fields and their value distributions.
@@ -15152,7 +15440,7 @@ export namespace Schemas {
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
       /**
-         * Tag names to add, remove, or set.
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
          * @maxItems 100
          * @items.maxLength 255
          */
@@ -15167,7 +15455,7 @@ export namespace Schemas {
     export interface BulkUpdateTagsUUIDError {
       /** UUID of the object that was skipped. */
       id: string;
-      /** Why the object was skipped, e.g. 'Not found'. */
+      /** Why the object was skipped, e.g. 'Not found or no edit access'. */
       reason: string;
     }
 
@@ -15194,7 +15482,7 @@ export namespace Schemas {
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
       /**
-         * Tag names to add, remove, or set.
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
          * @maxItems 100
          * @items.maxLength 255
          */
@@ -15409,6 +15697,8 @@ export namespace Schemas {
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
+      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+      inconclusive: number;
       /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
       failing_workflows?: string[];
     }
@@ -23661,8 +23951,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -25511,6 +25804,7 @@ export namespace Schemas {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26855,6 +27149,7 @@ export namespace Schemas {
       Smartlead: 'Smartlead',
       Substack: 'Substack',
       ElectricityMaps: 'ElectricityMaps',
+      Amplemarket: 'Amplemarket',
     } as const;
 
     /**
@@ -28212,7 +28507,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28568,6 +28864,75 @@ export namespace Schemas {
       include_posthog_hint?: boolean;
     }
 
+    export interface DurationDistribution {
+      /** Pull requests in the distribution. Every statistic is null when this is 0. */
+      pr_count: number;
+      /**
+         * Fastest duration, in seconds.
+         * @nullable
+         */
+      min_seconds: number | null;
+      /**
+         * 5th percentile, in seconds: the lower whisker.
+         * @nullable
+         */
+      p05_seconds: number | null;
+      /**
+         * 25th percentile, in seconds: the box's lower edge.
+         * @nullable
+         */
+      p25_seconds: number | null;
+      /**
+         * Median, in seconds.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * Mean, in seconds.
+         * @nullable
+         */
+      mean_seconds: number | null;
+      /**
+         * 75th percentile, in seconds: the box's upper edge.
+         * @nullable
+         */
+      p75_seconds: number | null;
+      /**
+         * 95th percentile, in seconds: the upper whisker.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * Slowest duration, in seconds.
+         * @nullable
+         */
+      max_seconds: number | null;
+    }
+
+    export interface ScopeRepoDistribution {
+      /** The deployed pull requests in scope. */
+      scope: DurationDistribution;
+      /** Every deployed pull request in the repository. */
+      repo: DurationDistribution;
+    }
+
+    export interface DeliveryLeadTime {
+      /** Open to the first successful deploy containing the merge, over PRs deployed in the window. */
+      open_to_deploy: ScopeRepoDistribution;
+      /** Open to merge over the same deployed PRs, so it composes with merge_to_deploy. Includes draft time. */
+      open_to_merge: ScopeRepoDistribution;
+      /** Merge to deploy over the same deployed PRs. */
+      merge_to_deploy: ScopeRepoDistribution;
+      /** False when the deployments and deployment statuses tables aren't synced. The distributions are then empty. */
+      deploy_data_available: boolean;
+      /** The deploy environments lead time was scoped to: production by default. Empty when deploy data is not available. */
+      environment_scope: string;
+      /** PRs in scope merged in the window (bots and drafts excluded). */
+      merged_pr_count: number;
+      /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+      deployed_merged_pr_count: number;
+    }
+
     /**
      * * `open_to_gate` - OPEN_TO_GATE
      * * `gate_to_merge` - GATE_TO_MERGE
@@ -28605,6 +28970,96 @@ export namespace Schemas {
       stages: DeliveryStageTiming[];
       /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
       merged_pr_count: number;
+    }
+
+    /**
+     * * `author` - AUTHOR
+     * * `github_team` - GITHUB_TEAM
+     * * `pull_request` - PULL_REQUEST
+     */
+    export type DeliveryScopeKindEnum = typeof DeliveryScopeKindEnum[keyof typeof DeliveryScopeKindEnum];
+
+
+    export const DeliveryScopeKindEnum = {
+      Author: 'author',
+      GithubTeam: 'github_team',
+      PullRequest: 'pull_request',
+    } as const;
+
+    export interface ScopeRepoFigure {
+      /**
+         * The figure over the pull requests in scope. Null when the scope has nothing to measure.
+         * @nullable
+         */
+      scope: number | null;
+      /**
+         * The same figure over every non-bot pull request in the repository, the scope included. Null when the repository has nothing to measure.
+         * @nullable
+         */
+      repo: number | null;
+    }
+
+    export interface DeliverySummary {
+      /** Median estimated CI cost per merged PR, in USD, over every run linked to the PR (merge-queue gate runs included) that started up to 30 days before the window. Null when the jobs table isn't synced. */
+      cost_per_merged_pr_usd: ScopeRepoFigure;
+      /** Median billable runner minutes per merged PR, on the billed clock. Null when the jobs table isn't synced. */
+      billable_minutes_per_merged_pr: ScopeRepoFigure;
+      /** Total CI cost divided by total pushes over the merged PRs: the price of one iteration. A push is a distinct head commit that triggered CI. */
+      cost_per_push_usd: ScopeRepoFigure;
+      /** Median seconds from the last ready_for_review to merge. Null when issue events aren't synced. */
+      median_ready_to_merge_seconds: ScopeRepoFigure;
+      /** 90th percentile of the ready-to-merge seconds. */
+      p90_ready_to_merge_seconds: ScopeRepoFigure;
+      /** Median seconds from ready to the first approval. An approval given while the PR was a draft counts as 0. PRs merged without an approval are left out. Null when reviews aren't synced. */
+      median_ready_to_first_approval_seconds: ScopeRepoFigure;
+      /** Median seconds from the first approval to merge. This median and the one before it do not add up to the ready-to-merge median. */
+      median_first_approval_to_merge_seconds: ScopeRepoFigure;
+      /** Share (0 to 1) of all ready-to-merge hours spent before the first approval, summed over the PRs, so long PRs weigh more. The rest came after the approval. */
+      before_first_approval_share: ScopeRepoFigure;
+      /** Mean pushes after the first approval per merged PR, over PRs with an approval. */
+      pushes_after_approval_per_merged_pr: ScopeRepoFigure;
+      /** Mean merge-queue gate attempts per merged PR that went through the queue. A bisection probe folds into its attempt. */
+      merge_queue_attempts_per_merged_pr: ScopeRepoFigure;
+      /** Share (0 to 1) of queue-landed merged PRs with at least one failed gate attempt. A failure caused by another PR ahead in the queue also counts, because the queue history is not in the warehouse. */
+      failed_merge_queue_share: ScopeRepoFigure;
+      /** Lead time to deploy for the scope against the repository. */
+      lead_time: DeliveryLeadTime;
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login or GitHub team slug the summary is for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it matches no pull requests, so every scope figure is empty rather than the whole repository. */
+      has_membership_data: boolean;
+      /** True when the workflow jobs table is synced, which cost needs. */
+      jobs_available: boolean;
+      /** True when the reviews table is synced, which the approval split needs. */
+      review_data_available: boolean;
+      /** True when issue events are synced, which ready-to-merge time needs. */
+      ready_data_available: boolean;
+      /** PRs in scope opened in the window, drafts included, bots excluded. */
+      opened_pr_count: number;
+      /** PRs in scope merged in the window (bots and drafts excluded): the population of every per-merged-PR figure. */
+      merged_pr_count: number;
+      /** PRs in scope that are open and not drafts right now. Ignores the window. */
+      open_pr_count: number;
+      /** PRs in scope that are open drafts right now. Ignores the window. */
+      draft_pr_count: number;
+      /**
+         * Estimated CI cost summed over the merged PRs in scope. Null when nothing was costable.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /**
+         * Billable minutes summed over the merged PRs in scope. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      total_billable_minutes: number | null;
+      /** Pushes summed over the merged PRs in scope. */
+      push_count: number;
     }
 
     export interface DependentFlag {
@@ -30261,7 +30716,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -36136,6 +36592,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -36221,6 +36683,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface ExperimentExposureCriteria {
@@ -36480,6 +36948,13 @@ export namespace Schemas {
       uses_stamped_fallback: boolean;
     }
 
+    export interface ExperimentMatchingIdsResponse {
+      /** IDs of all experiments matching the current list filters that the user can edit. */
+      ids: number[];
+      /** Number of matching editable experiments. */
+      total: number;
+    }
+
     /**
      * * `manual` - Manual
      * * `agent_mcp` - Agent (MCP)
@@ -36690,6 +37165,15 @@ export namespace Schemas {
       config?: ExperimentResultsWidgetConfig;
     }
 
+    export interface ExperimentSavedMetricLinkedExperiment {
+      /** Experiment ID. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** True when the experiment is launched and not yet stopped. */
+      is_running: boolean;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -36717,6 +37201,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+      readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperiment[];
     }
 
     /**
@@ -36970,7 +37456,7 @@ export namespace Schemas {
     export interface ExperimentWatchHighlight {
       /** The recording to open. Always one of the card's own session_ids. */
       session_id: string;
-      /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
+      /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts run from the moment the person was exposed to the end of the session, so friction before they met the variant is left out; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
       reason: string;
     }
 
@@ -37020,9 +37506,9 @@ export namespace Schemas {
     export interface ExperimentWatchVariant {
       /** The variant key. */
       key: string;
-      /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
+      /** Exposed people the comparison read for this variant: the most recently exposed people, each read from their first session after being exposed. Someone selected who had no session in that horizon is not counted here, so this sits at or below the variant's enrollment between date_from and date_to. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. One session each, from the moment of exposure on, so every variant gets the same amount of behavior per person. */
       persons: number;
-      /** Exposed sessions those people were seen in, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+      /** Sessions those people had within 24 hours of being exposed, and before the experiment ended or this request was made, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
       sessions: number;
     }
 
@@ -37075,15 +37561,15 @@ export namespace Schemas {
       multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
       /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
       metric_events: string[];
-      /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days, but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+      /** When the earliest compared person was first exposed. The comparison takes the most recently exposed people, newest first, until it has as many as one comparison covers or their first sessions span 14 days of events, so on a busy experiment this is hours rather than days before date_to, and on an experiment that stopped enrolling it can be long before the experiment's end. Display this, not the experiment's own dates. Equal to date_to when nobody has been exposed yet. */
       date_from: string;
-      /** End of what was compared: the experiment's end date, or now while it runs. */
+      /** One minute past the newest compared person's first exposure. Nobody first exposed between date_from and date_to was passed over, so the pair is a stretch of enrollment rather than a hull around scattered people. It bounds who was selected, not who was read: variants[].persons counts only those who then had a session. While an experiment runs this sits about an hour before now, because the newest hour of enrollment is held back until those people's first sessions have finished rather than read half-way through. Sessions reach past it, up to 24 hours after each person's own exposure, so this is not the end of the events that were read. */
       date_to: string;
       /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
       filter_test_accounts: boolean;
       /** Always false. The compared population is the exposed population the experiment's results count, matched to sessions by person, so no stamped-property fallback exists any more. The field stays for compatibility with existing readers. */
       used_exposure_fallback: boolean;
-      /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
+      /** True when more people were exposed than one comparison covers, so the most recently exposed were used and people exposed before date_from were left out. Every variant is still covered over the same stretch of enrollment. Named for the session ceiling it used to report; the name is kept for existing readers. */
       sessions_truncated: boolean;
       /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
       events_truncated: boolean;
@@ -37093,9 +37579,9 @@ export namespace Schemas {
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time does not fix on its own. */
+      /** True when fewer than two variants have min_variant_persons exposed people, so no comparison exists and cards is empty. Show the variants' counts alongside it: an empty shelf presented without them would read as 'the variants behaved identically'. Read empty_reason and sessions_truncated before telling anyone to check back: this is also true when the variants are empty because the people exposed have no sessions we can see, which empty_reason reports as 'no_session_linked_exposures' and which more time fixes only while those people were exposed less than a day ago. And when sessions_truncated is true, only people exposed between date_from and date_to were compared, so more time helps only if more people are exposed within a stretch that long. */
       too_early: boolean;
-      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet and the answer can still change. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the experiment has exposed people and none of them has a session we can see between date_from and date_to, so there was nothing to compare. Who counts as exposed is read over the whole run, so the exposures themselves can predate that window: date the claim to the window instead of reporting when anyone was exposed. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people were last active before the window. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
+      /** Why cards is empty, and null whenever cards is not empty. Report which of the four happened rather than reporting an empty shelf, because they ask different things of the reader. 'too_early': fewer than two variants have min_variant_persons exposed people, so nothing was compared yet. The answer can still change unless sessions_truncated is true, in which case only the people exposed between date_from and date_to were compared and more time helps only if more people are exposed within a stretch that long; a rollout split that changed during the run lands here too, and the experiment's exposure chart is where that shows. 'no_separation': the variants were compared and no event told them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants apart, but no recording behind them can be opened, so the project's session replay sampling and retention are what decide whether this surface can ever show anything. 'no_session_linked_exposures': the people exposed between date_from and date_to had no session we can see since being exposed, looking up to 24 hours after each exposure, so there was nothing to compare. Two things reach this state, and they ask for different answers: no browser or mobile SDK is capturing events, because sessions exist nowhere else, or the exposed people have not come back. While the experiment runs the read stops at the time of the request, so people exposed less than a day ago are judged on less than a day and can still return. Check which one before telling anyone to check back, because more exposures captured the same way yield more of the same. Never fill an empty shelf with the experiment's metrics: shortcut cards to those metrics' events are withheld here for exactly that reason.
        *
        * * `too_early` - too_early
        * * `no_separation` - no_separation
@@ -37235,6 +37721,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
@@ -39267,7 +39759,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40645,7 +41138,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -46279,6 +46773,27 @@ export namespace Schemas {
       quantile?: number | null;
     }
 
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
     export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
 
 
@@ -46288,6 +46803,13 @@ export namespace Schemas {
       Total: 'total',
     } as const;
 
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
     export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
 
 
@@ -46296,6 +46818,10 @@ export namespace Schemas {
       Area: 'area',
       Bar: 'bar',
       Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
     } as const;
 
     export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
@@ -46318,16 +46844,27 @@ export namespace Schemas {
 
     export interface MetricsDisplaySettings {
       goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
       type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
       yAxis?: MetricsYAxisSettings | null;
     }
 
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
-      value: number;
+      /** The bucket's aggregate; null when it isn't representable (a gap). */
+      value: number | null;
     }
 
     /**
@@ -46342,6 +46879,8 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
+      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      unit?: string | null;
     }
 
     export interface MetricsQueryResponse {
@@ -48977,20 +49516,6 @@ export namespace Schemas {
     }
 
     /**
-     * One bucket of a provider's sending history.
-     */
-    export interface IspDailyPoint {
-      /** Bucket date, as an ISO 8601 calendar date. */
-      readonly date: string;
-      /** Emails sent to this provider on this date. */
-      readonly emails_sent: number;
-      /** Emails this provider accepted on this date, divided by emails sent to it (0-1). */
-      readonly delivery_rate: number;
-      /** Hard bounces at this provider on this date, divided by emails sent to it (0-1). */
-      readonly bounce_rate: number;
-    }
-
-    /**
      * How one mailbox provider treated this project's email, from AWS SES's own delivery data.
      */
     export interface IspSendingHealth {
@@ -49009,14 +49534,19 @@ export namespace Schemas {
          */
       readonly bounce_rate: number | null;
       /**
+         * Soft (transient) bounces at this provider, divided by emails sent to it (0-1). These are deferrals the provider may accept on a retry, such as a full mailbox, greylisting or rate limiting, so they are counted apart from permanent bounces. Null when the underlying metric could not be loaded from AWS.
+         * @nullable
+         */
+      readonly transient_bounce_rate: number | null;
+      /**
          * Spam complaints from this provider, divided by the deliveries it reports complaints for (0-1). Null when there is no rate to state — the provider runs no feedback loop, or nothing was delivered — and also when the metric could not be loaded from AWS.
          * @nullable
          */
       readonly complaint_rate: number | null;
-      /** Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
+      /** Deliveries the provider reports complaints for, which is what `complaint_rate` divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate rests on enough volume has to weigh it against this. Zero when there is no base. */
+      readonly complaint_base: number;
+      /** Rates AWS did not return for this provider, from `delivery`, `bounce`, `transient_bounce` and `complaint`. A rate named here is missing, not zero, and the UI says so rather than showing a number. */
       readonly unavailable: readonly string[];
-      /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
-      readonly daily: readonly IspDailyPoint[];
     }
 
     export interface JiraIssueSignalExtra {
@@ -54482,7 +55012,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -54651,7 +55181,7 @@ export namespace Schemas {
       allowed_cpu_cores: number[];
       /** Memory sizes in GB the kernel config endpoint accepts. */
       allowed_memory_gb: number[];
-      /** Idle timeouts in seconds the kernel config endpoint accepts. */
+      /** Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts. */
       allowed_idle_timeout_seconds: number[];
     }
 
@@ -54660,7 +55190,7 @@ export namespace Schemas {
       cpu_cores?: number;
       /** Memory in GB for the notebook's sandbox kernel; must be a supported option. */
       memory_gb?: number;
-      /** Seconds of inactivity before the sandbox kernel shuts down. */
+      /** Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while in use. A running kernel keeps its current lifetime until it restarts. */
       idle_timeout_seconds?: number;
     }
 
@@ -54676,7 +55206,7 @@ export namespace Schemas {
          */
       memory_gb?: number | null;
       /**
-         * Configured idle timeout in seconds; null means the default.
+         * Configured maximum sandbox lifetime in seconds; null means the default.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -54707,7 +55237,7 @@ export namespace Schemas {
          */
       memory_gb?: number | null;
       /**
-         * Seconds of inactivity before the sandbox shuts down.
+         * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -54779,7 +55309,7 @@ export namespace Schemas {
          */
       disk_size_gb?: number | null;
       /**
-         * Seconds of inactivity before the sandbox shuts down.
+         * Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.
          * @nullable
          */
       idle_timeout_seconds?: number | null;
@@ -55695,20 +56225,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
-     */
-    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
-
-
-    export const OperationEnum = {
-      Quarantine: 'quarantine',
-      Extend: 'extend',
-      Remove: 'remove',
-    } as const;
-
-    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -56400,6 +56916,102 @@ export namespace Schemas {
       metric_quality?: MetricQualityEnum;
     }
 
+    /**
+     * * `draft` - DRAFT
+     * * `waiting_for_review` - WAITING_FOR_REVIEW
+     * * `changes_requested` - CHANGES_REQUESTED
+     * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+     * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+     * * `ci_running` - CI_RUNNING
+     * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+     * * `red_master_broken` - RED_MASTER_BROKEN
+     * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+     * * `red_not_provable` - RED_NOT_PROVABLE
+     * * `merge_queue` - MERGE_QUEUE
+     * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE
+     */
+    export type PRTimelineSegmentKindEnum = typeof PRTimelineSegmentKindEnum[keyof typeof PRTimelineSegmentKindEnum];
+
+
+    export const PRTimelineSegmentKindEnum = {
+      Draft: 'draft',
+      WaitingForReview: 'waiting_for_review',
+      ChangesRequested: 'changes_requested',
+      ApprovedNotEnqueued: 'approved_not_enqueued',
+      ReviewStateUnknown: 'review_state_unknown',
+      CiRunning: 'ci_running',
+      RedPassedOnRerun: 'red_passed_on_rerun',
+      RedMasterBroken: 'red_master_broken',
+      RedFixedByPush: 'red_fixed_by_push',
+      RedNotProvable: 'red_not_provable',
+      MergeQueue: 'merge_queue',
+      OutOfMergeQueue: 'out_of_merge_queue',
+    } as const;
+
+    export interface PRTimelineSegment {
+      /** What the PR waited on: draft; waiting_for_review (no approval yet, or re-review after a push); changes_requested (no push since); approved_not_enqueued (approved, with no failing or running check); review_state_unknown (reviews not synced); ci_running; red_passed_on_rerun (the failed workflows passed a re-run of the same commit); red_master_broken (the failed jobs also failed on the default branch within 12 hours); red_fixed_by_push (a later commit arrived); red_not_provable; merge_queue (every queue state collapsed); out_of_merge_queue (open PR, Trunk says failed or cancelled).
+       *
+       * * `draft` - DRAFT
+       * * `waiting_for_review` - WAITING_FOR_REVIEW
+       * * `changes_requested` - CHANGES_REQUESTED
+       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+       * * `ci_running` - CI_RUNNING
+       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+       * * `red_master_broken` - RED_MASTER_BROKEN
+       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+       * * `red_not_provable` - RED_NOT_PROVABLE
+       * * `merge_queue` - MERGE_QUEUE
+       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+      kind: PRTimelineSegmentKindEnum;
+      /** Segment start. */
+      started_at: string;
+      /** Segment end: the next segment's start, the merge or close, or now. */
+      ended_at: string;
+    }
+
+    export interface PRTimeline {
+      /** The repository the pull request belongs to. */
+      repo: RepoRef;
+      /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
+      segments: PRTimelineSegment[];
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** The pull request's author. */
+      author: Author;
+      /** open, merged, or closed. Author and team scopes list open and merged PRs only; a pull_request scope returns the PR whatever its state.
+       *
+       * * `open` - OPEN
+       * * `closed` - CLOSED
+       * * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True when the PR is a draft right now. */
+      is_draft: boolean;
+      /** When the PR was opened. */
+      created_at: string;
+      /** Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read. */
+      started_at: string;
+      /**
+         * Merge time; null when not merged.
+         * @nullable
+         */
+      merged_at: string | null;
+      /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
+      pushes: number;
+      /**
+         * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /**
+         * Billable minutes over the PR's runs. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      billable_minutes: number | null;
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -56551,6 +57163,15 @@ export namespace Schemas {
       previous?: string | null;
       count?: number;
       results?: AsyncDeletionStatus[];
+    }
+
+    export interface PaginatedAutoresearchPipelineList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchPipeline[];
     }
 
     export interface PaginatedBatchExportBackfillList {
@@ -61581,6 +62202,24 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum = typeof PrStateEnum[keyof typeof PrStateEnum];
+
+
+    export const PrStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface TaskRunSummary {
       /** ID of the latest run. */
       id: string;
@@ -61591,6 +62230,19 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed
+       * * `unknown` - unknown */
+      pr_state: PrStateEnum | null;
     }
 
     /**
@@ -63711,6 +64363,93 @@ export namespace Schemas {
     }
 
     /**
+     * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
+     */
+    export type PatchedAutoresearchPipelineCreateTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type PatchedAutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type PatchedAutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface PatchedAutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
+         * @maxLength 255
+         */
+      target_event?: string;
+      /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
+      target_definition?: PatchedAutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: PatchedAutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: PatchedAutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days (1-365). Default: 1.
+         * @minimum 1
+         * @maximum 365
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+    }
+
+    /**
      * Request body for create/partial_update on BatchExportViewSet.
      *
      * Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
@@ -64861,8 +65600,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id?: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -65808,6 +66550,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+      readonly linked_experiments?: readonly ExperimentSavedMetricLinkedExperiment[];
     }
 
     /**
@@ -65941,6 +66685,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface PatchedExternalDataDestination {
@@ -67032,6 +67782,8 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan?: unknown;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -67779,7 +68531,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -73511,6 +74263,23 @@ export namespace Schemas {
     }
 
     /**
+     * The compact envelope returned ahead of the verbose `payload`.
+     *
+     * Both sections are repeated from `payload.inventory`. They lead the response because a
+     * client that truncates a long tool result keeps the prefix, and these are the two things a
+     * scout has to know before it does anything: whether its output can reach the inbox at all,
+     * and what is already there. Read `summary` rather than digging for the same keys inside
+     * `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+     * received.
+     */
+    export interface ProjectProfileSummary {
+      /** The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit. */
+      emit_eligibility: EmitEligibility | null;
+      /** Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed. */
+      existing_inbox_reports: ExistingInboxReports | null;
+    }
+
+    /**
      * One row in either bucket of `inventory.signal_source_configs`.
      */
     export interface SignalSourceConfigEntry {
@@ -74053,8 +74822,14 @@ export namespace Schemas {
      * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
      * latest cached profile or a freshly-built one if the cache was stale or the caller passed
      * `force_refresh=true`.
+     *
+     * `summary` leads the response and `payload` trails it: the inventory runs to tens of
+     * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+     * gate the scout has to read before doing any work.
      */
     export interface ProjectProfile {
+      /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
+      summary: ProjectProfileSummary;
       /** UUID of the `SignalProjectProfile` row. */
       profile_id: string;
       /** ISO-8601 timestamp the profile was built. */
@@ -74063,8 +74838,8 @@ export namespace Schemas {
       expires_at: string;
       /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
       source_version: string;
-      /** Structured profile content. v1 has `inventory` only. */
-      payload: ProjectProfilePayload;
+      /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
+      payload?: ProjectProfilePayload;
     }
 
     export interface Property {
@@ -74339,6 +75114,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `published` - published
+     * * `deprecated` - deprecated
+     */
+    export type PublicationStatusEnum = typeof PublicationStatusEnum[keyof typeof PublicationStatusEnum];
+
+
+    export const PublicationStatusEnum = {
+      Published: 'published',
+      Deprecated: 'deprecated',
+    } as const;
+
+    /**
      * One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
      * status, normalized to a common shape.
      */
@@ -74360,6 +75147,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly url: string | null;
+    }
+
+    /**
+     * Response when the GitHub App cannot read pull request checks.
+     */
+    export interface PullRequestChecksPermissionError {
+      /** Stable code for a missing GitHub Checks permission. */
+      readonly code: string;
+      /** What the GitHub App permission prevents. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
     }
 
     /**
@@ -74662,6 +75461,33 @@ export namespace Schemas {
       readonly reaction: PullRequestCommentReaction;
     }
 
+    export interface PullRequestTimelines {
+      /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
+      items: PRTimeline[];
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login, GitHub team slug, or 'owner/name#number' the timelines are for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it lists no pull requests. */
+      has_membership_data: boolean;
+      /** False when reviews aren't synced: review stretches read review_state_unknown. */
+      review_data_available: boolean;
+      /** False when workflow jobs aren't synced: a check a re-run turned green is not visible, and no red stretch reads red_master_broken. */
+      jobs_available: boolean;
+      /** True when the Trunk merge-queue table is synced, so out_of_merge_queue can appear. */
+      merge_queue_state_available: boolean;
+      /** The now every open PR's timeline ends at. */
+      generated_at: string;
+      /** True when more PRs matched than the limit. */
+      truncated: boolean;
+      /** The maximum number of PRs returned. */
+      limit: number;
+    }
+
     /**
      * * `run` - RUN
      * * `skip` - SKIP
@@ -74766,6 +75592,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
+
+
+    export const QuarantineRequestOperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `pytest` - PYTEST
      * * `jest` - JEST
      * * `playwright` - PLAYWRIGHT
@@ -74785,7 +75625,7 @@ export namespace Schemas {
        * * `quarantine` - QUARANTINE
        * * `extend` - EXTEND
        * * `remove` - REMOVE */
-      operation: OperationEnum;
+      operation: QuarantineRequestOperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -77602,6 +78442,10 @@ export namespace Schemas {
 
     export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112;
 
+    export interface QueryScanResponse {
+      analysis?: QueryScanAnalysis | null;
+    }
+
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
@@ -78745,6 +79589,39 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface RescoreRequest {
+      /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+      organization_id: string;
+    }
+
+    /**
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
+     * * `dispatch_failed` - dispatch_failed
+     */
+    export type RescoreResponseReasonEnum = typeof RescoreResponseReasonEnum[keyof typeof RescoreResponseReasonEnum];
+
+
+    export const RescoreResponseReasonEnum = {
+      Disabled: 'disabled',
+      NoEnrichmentRecord: 'no_enrichment_record',
+      DispatchBacklogFull: 'dispatch_backlog_full',
+      DispatchFailed: 'dispatch_failed',
+    } as const;
+
+    export interface RescoreResponse {
+      /** Whether the re-score workflow was dispatched. */
+      queued: boolean;
+      /** Why nothing was dispatched. Null when queued.
+       *
+       * * `disabled` - disabled
+       * * `no_enrichment_record` - no_enrichment_record
+       * * `dispatch_backlog_full` - dispatch_backlog_full
+       * * `dispatch_failed` - dispatch_failed */
+      reason: RescoreResponseReasonEnum | null;
+    }
+
     export interface ResetPasswordResponse {
       username: string;
       password: string;
@@ -78881,6 +79758,265 @@ export namespace Schemas {
     export interface RetryResponse {
       /** Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
       workflow_id: string;
+    }
+
+    /**
+     * Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows.
+     */
+    export type ReusableWidgetAttachRequestInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface ReusableWidgetAttachRequest {
+      /** Reusable widget to place in this notebook node. */
+      widget_id: string;
+      /**
+         * Version to pin, or null to follow the reusable widget's latest version.
+         * @nullable
+         */
+      version_id?: string | null;
+      /** Notebook-local input mappings keyed by contract slot. Each value names a source dataframe and may include pure Hog source for reshaping its rows. */
+      input_bindings?: ReusableWidgetAttachRequestInputBindings;
+    }
+
+    export interface ReusableWidgetDemoDataRequest {
+      /** Current or draft version whose demo data should be edited. */
+      version_id: string;
+      /**
+         * Logical input slot whose saved rows should be replaced.
+         * @maxLength 200
+         */
+      frame_name: string;
+      /**
+         * Saved demo rows in input-contract column order. Replaces this slot's entire sample, up to 20 rows.
+         * @maxItems 20
+         */
+      rows: unknown[][];
+    }
+
+    export interface WidgetInputContractColumn {
+      /** Column name expected by the reusable widget. */
+      name: string;
+      /** Column type expected by the reusable widget. */
+      type: string;
+    }
+
+    export interface WidgetInputContractItem {
+      /** Stable logical input name used by the reusable widget. */
+      slot: string;
+      /** Original dataframe name when the widget was published. */
+      sourceName: string;
+      /** Columns the notebook-local binding must produce after its optional Hog mapping. */
+      columns?: WidgetInputContractColumn[];
+      /** Hash of the expected column schema. */
+      schemaHash: string;
+    }
+
+    export interface WidgetSecurityFinding {
+      /** Severity of this potential security issue.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: ErrorTrackingIssueSeverityRuleEnum;
+      /** Short description of the potential security issue. */
+      title: string;
+      /** Why the source may be unsafe and what it could do. */
+      details: string;
+    }
+
+    export interface WidgetSecurityReview {
+      /** Highest severity found, or none when the review found no issues.
+       *
+       * * `none` - none
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `critical` - critical */
+      severity: GeneratedWidgetVersionSecurityReviewSeverityEnum;
+      /** Concise result from the automated security review. */
+      summary: string;
+      /** Potential security issues found in the source. */
+      findings: WidgetSecurityFinding[];
+      /** Fast AI model used for the security review. */
+      model: string;
+      /** Version of the security review instructions and parser. */
+      review_version: string;
+      /** When this exact widget source was reviewed. */
+      reviewed_at: string;
+    }
+
+    export interface ReusableWidgetVersionDetail {
+      /** Immutable widget version identifier. */
+      id: string;
+      /** Title stored with this version. */
+      title: string;
+      /** One-based version number. */
+      version: number;
+      /** Action that created this version.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve
+       * * `revert` - revert */
+      operation: GeneratedWidgetVersionOperationEnum;
+      /**
+         * AI model that created this version, or null when none was recorded.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * Short-lived URL for the current widget preview.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /** Preview build state.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * SHA-256 integrity hash for the immutable preview artifact.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Logical dataframe slots accepted by this widget version. */
+      frame_names: string[];
+      /** Dataframe slots and schemas expected by this widget version. */
+      input_contract: WidgetInputContractItem[];
+      /** Automated source review for this version, if available. */
+      security_review: WidgetSecurityReview | null;
+      /** Whether this version has saved demo data. */
+      has_demo_data: boolean;
+      /** When this immutable version was created. */
+      created_at: string;
+    }
+
+    export interface ReusableWidgetDetail {
+      /** Stable reusable widget identifier. */
+      id: string;
+      /** Catalog name of the reusable widget. */
+      name: string;
+      /** Description of the reusable widget. */
+      description: string;
+      /** Searchable widget labels. */
+      tags: string[];
+      /** Catalog lifecycle of the reusable widget.
+       *
+       * * `published` - published
+       * * `deprecated` - deprecated */
+      publication_status: PublicationStatusEnum;
+      /** Current reusable widget version. */
+      current_version: ReusableWidgetVersionDetail;
+      /** Generated draft waiting for manual review, or null when no review is pending. */
+      pending_version: ReusableWidgetVersionDetail | null;
+      /** Number of immutable versions in this widget's history. */
+      version_count: number;
+      /** Number of notebook placements using this widget. */
+      instance_count: number;
+      /** When the widget identity was created. */
+      created_at: string;
+      /** When the widget became reusable. */
+      published_at: string;
+      /** When the reusable widget was last changed. */
+      updated_at: string;
+    }
+
+    export interface ReusableWidgetForkRequest {
+      /**
+         * Immutable version to fork, or null to copy the placement's pinned or latest version.
+         * @nullable
+         */
+      version_id?: string | null;
+    }
+
+    export interface ReusableWidgetSummary {
+      /** Stable reusable widget identifier. */
+      id: string;
+      /** Catalog name of the reusable widget. */
+      name: string;
+      /** Description of the reusable widget. */
+      description: string;
+      /** Searchable widget labels. */
+      tags: string[];
+      /** Catalog lifecycle of the reusable widget.
+       *
+       * * `published` - published
+       * * `deprecated` - deprecated */
+      publication_status: PublicationStatusEnum;
+      /** Current immutable version used by unpinned instances. */
+      current_version_id: string;
+      /** Number of immutable versions in this widget's history. */
+      version_count: number;
+      /** Number of notebook placements using this widget. */
+      instance_count: number;
+      /** When the widget identity was created. */
+      created_at: string;
+      /** When the widget became reusable. */
+      published_at: string;
+      /** When the reusable widget was last changed. */
+      updated_at: string;
+    }
+
+    export interface ReusableWidgetPage {
+      /** Reusable widgets in this page. */
+      results: ReusableWidgetSummary[];
+      /** Total reusable widgets matching the search. */
+      count: number;
+      /**
+         * Offset for the next page, or null when this is the final page.
+         * @nullable
+         */
+      next_offset: number | null;
+    }
+
+    export interface ReusableWidgetPublishRequest {
+      /**
+         * Name shown in the reusable widget catalog.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Short explanation of what the reusable widget shows and when to use it.
+         * @maxLength 2000
+         */
+      description?: string;
+      /**
+         * Searchable labels attached to the reusable widget.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
+    }
+
+    export interface ReusableWidgetRestoreRequest {
+      /** Published version to copy into a new latest version. */
+      version_id: string;
+      /** Latest version observed before restoring. */
+      expected_current_version_id: string;
+    }
+
+    export interface ReusableWidgetReviewRequest {
+      /** Draft version being reviewed. */
+      pending_version_id: string;
+      /** Published version observed when the review action started. */
+      expected_current_version_id: string;
+    }
+
+    export interface ReusableWidgetVersionPage {
+      /** Published versions, newest first. */
+      results: ReusableWidgetVersionDetail[];
+      /** Total number of published versions. */
+      count: number;
+      /**
+         * Next page offset, or null on the final page.
+         * @nullable
+         */
+      next_offset: number | null;
     }
 
     export interface ReviewBlindSpotsConfig {
@@ -83529,7 +84665,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -84923,7 +86060,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -86299,7 +87437,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -90490,6 +91629,10 @@ export namespace Schemas {
          * @nullable
          */
       trunk_url: string | null;
+      /** True when more tests are quarantined than limit. The per-team counts then cover only the returned tests, so treat them as lower bounds. */
+      truncated: boolean;
+      /** Maximum tests returned, oldest quarantine first. */
+      limit: number;
     }
 
     export interface UnquarantineQuery {
@@ -91343,6 +92486,7 @@ export namespace Schemas {
     /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -91357,6 +92501,7 @@ export namespace Schemas {
     export const WatchFeedReasonEnum = {
       SignalEmitted: 'signal_emitted',
       UnusualVerdict: 'unusual_verdict',
+      Notable: 'notable',
       VerdictYes: 'verdict_yes',
       OutlierScore: 'outlier_score',
       RareTag: 'rare_tag',
@@ -91370,10 +92515,11 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
+       * * `notable` - Notable
        * * `verdict_yes` - Verdict Yes
        * * `outlier_score` - Outlier Score
        * * `rare_tag` - Rare Tag
@@ -91397,6 +92543,16 @@ export namespace Schemas {
          * @nullable
          */
       verdict_share?: number | null;
+      /**
+         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+         * @nullable
+         */
+      notability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * @nullable
+         */
+      notability_reason?: string | null;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -91433,7 +92589,7 @@ export namespace Schemas {
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
       results: WatchFeedItem[];
     }
 
@@ -91718,6 +92874,14 @@ export namespace Schemas {
       started_at: string | null;
     }
 
+    export interface WidgetPinRequest {
+      /**
+         * Immutable version to pin, or null to follow the reusable widget's latest version.
+         * @nullable
+         */
+      version_id: string | null;
+    }
+
     export interface WidgetRevertRequest {
       /** Earlier version to restore as a new version. */
       version_id: string;
@@ -91725,45 +92889,18 @@ export namespace Schemas {
       expected_current_version_id: string;
     }
 
-    export interface WidgetSecurityFinding {
-      /** Severity of this potential security issue.
-       *
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `critical` - critical */
-      severity: ErrorTrackingIssueSeverityRuleEnum;
-      /** Short description of the potential security issue. */
-      title: string;
-      /** Why the source may be unsafe and what it could do. */
-      details: string;
-    }
-
-    export interface WidgetSecurityReview {
-      /** Highest severity found, or none when the review found no issues.
-       *
-       * * `none` - none
-       * * `low` - low
-       * * `medium` - medium
-       * * `high` - high
-       * * `critical` - critical */
-      severity: GeneratedWidgetVersionSecurityReviewSeverityEnum;
-      /** Concise result from the automated security review. */
-      summary: string;
-      /** Potential security issues found in the source. */
-      findings: WidgetSecurityFinding[];
-      /** Fast AI model used for the security review. */
-      model: string;
-      /** Version of the security review instructions and parser. */
-      review_version: string;
-      /** When this exact widget source was reviewed. */
-      reviewed_at: string;
-    }
-
     export interface WidgetSource {
       /** Read-only source code for the current widget version. */
       source: string;
     }
+
+    /**
+     * Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform.
+     */
+    export type WidgetStatusInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
 
     export interface WidgetStatus {
       /** Current widget and preview state.
@@ -91799,11 +92936,20 @@ export namespace Schemas {
       artifact_url?: string | null;
       /** Logical dataframe slots available to the selected version. */
       frame_names: string[];
+      /** Notebook-local mapping from each logical widget input slot to a dataframe and optional Hog transform. */
+      input_bindings: WidgetStatusInputBindings;
+      /** Logical dataframe slots and output schemas required by the selected widget version. */
+      input_contract: WidgetInputContractItem[];
       /**
          * Selected immutable widget version.
          * @nullable
          */
       current_version_id: string | null;
+      /**
+         * Version explicitly pinned for this notebook placement, or null when it follows the latest version.
+         * @nullable
+         */
+      pinned_version_id: string | null;
       /**
          * Reusable widget identity.
          * @nullable
@@ -91820,6 +92966,8 @@ export namespace Schemas {
       active_job: WidgetJob | null;
       /** Automated review for the selected source, or null for a legacy unreviewed version. */
       security_review: WidgetSecurityReview | null;
+      /** Whether this widget identity is published in the reusable widget catalog. */
+      is_reusable: boolean;
       /**
          * Hex SHA-256 over the exact immutable artifact manifest selected for display.
          * @nullable
@@ -92242,7 +93390,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+         * Decisive failures over job instances with a pass-or-fail verdict (0-1). Skipped, cancelled, neutral, and action-required instances are excluded. Null if none reached a verdict.
          * @nullable
          */
       failure_rate: number | null;
@@ -92334,6 +93482,8 @@ export namespace Schemas {
          * @nullable
          */
       commit_pr_number: number | null;
+      /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
+      is_merge_queue: boolean;
     }
 
     export interface WorkflowRunnerCost {
@@ -95791,6 +96941,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -95802,6 +96953,8 @@ export namespace Schemas {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -95890,6 +97043,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
@@ -95901,6 +97055,8 @@ export namespace Schemas {
       Survey: 'Survey',
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      ReplayScanner: 'ReplayScanner',
+      VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
       Project: 'Project',
@@ -95975,6 +97131,7 @@ export namespace Schemas {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -95986,6 +97143,8 @@ export namespace Schemas {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -96062,6 +97221,7 @@ export namespace Schemas {
       EventDefinition: 'EventDefinition',
       PropertyDefinition: 'PropertyDefinition',
       Notebook: 'Notebook',
+      GeneratedWidget: 'GeneratedWidget',
       Canvas: 'Canvas',
       Endpoint: 'Endpoint',
       EndpointVersion: 'EndpointVersion',
@@ -96073,6 +97233,8 @@ export namespace Schemas {
       Survey: 'Survey',
       EarlyAccessFeature: 'EarlyAccessFeature',
       SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      ReplayScanner: 'ReplayScanner',
+      VisionAlertConfiguration: 'VisionAlertConfiguration',
       Comment: 'Comment',
       Team: 'Team',
       Project: 'Project',
@@ -96319,6 +97481,17 @@ export namespace Schemas {
     };
 
     export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
      */
@@ -98235,6 +99408,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDeliverySummaryParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsDoraParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -98417,6 +99617,37 @@ export namespace Schemas {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestTimelinesParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * Pull request number: scope the read to this one pull request. Needs repo. Pass exactly one scope.
+     */
+    pr_number?: number;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -98638,6 +99869,10 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.
+     */
+    workflow_name?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];
@@ -99288,6 +100523,10 @@ export namespace Schemas {
      */
     event?: string;
     /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number;
@@ -99315,6 +100554,10 @@ export namespace Schemas {
      * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
     };
 
     export type ExperimentsListStatus = typeof ExperimentsListStatus[keyof typeof ExperimentsListStatus];
@@ -99353,6 +100596,62 @@ export namespace Schemas {
      */
     metric_uuid: string;
     };
+
+    export type ExperimentsMatchingIdsRetrieveParams = {
+    /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean;
+    /**
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string;
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string;
+    /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number;
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string;
+    /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsMatchingIdsRetrieveStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
+    };
+
+    export type ExperimentsMatchingIdsRetrieveStatus = typeof ExperimentsMatchingIdsRetrieveStatus[keyof typeof ExperimentsMatchingIdsRetrieveStatus];
+
+
+    export const ExperimentsMatchingIdsRetrieveStatus = {
+      All: 'all',
+      Complete: 'complete',
+      Draft: 'draft',
+      ExposureFrozen: 'exposure_frozen',
+      Paused: 'paused',
+      Running: 'running',
+      Stopped: 'stopped',
+    } as const;
 
     export type ExperimentsPromptTemplatesRetrieve200Item = {
       key: string;
@@ -103029,6 +104328,40 @@ export namespace Schemas {
     value?: string;
     };
 
+    export type ReusableWidgetsListParams = {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    };
+
+    export type ReusableWidgetsDemoFrameParams = {
+    /**
+     * Immutable version whose saved demo data should be returned.
+     */
+    version_id?: string;
+    };
+
+    export type ReusableWidgetsSourceParams = {
+    /**
+     * Immutable reusable widget version whose source should be returned.
+     */
+    version_id?: string;
+    };
+
+    export type ReusableWidgetsVersionsParams = {
+    /**
+     * Maximum versions to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based version offset.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
     export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
@@ -104198,6 +105531,10 @@ export namespace Schemas {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean;
+    /**
+     * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
+     */
+    summary_only?: boolean;
     };
 
     export type SignalsScoutRunsListParams = {
@@ -104790,6 +106127,13 @@ export namespace Schemas {
      */
     ci_status?: TasksListCiStatus;
     /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance;
+    /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
     commented_by?: number;
@@ -104929,6 +106273,13 @@ export namespace Schemas {
       Failing: 'failing',
       Pending: 'pending',
       None: 'none',
+    } as const;
+
+    export type TasksListClientProvenance = typeof TasksListClientProvenance[keyof typeof TasksListClientProvenance];
+
+
+    export const TasksListClientProvenance = {
+      PosthogDesktop: 'posthog_desktop',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];

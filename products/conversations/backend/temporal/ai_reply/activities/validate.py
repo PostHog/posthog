@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
 
 import structlog
 from temporalio import activity
@@ -14,6 +15,7 @@ from products.conversations.backend.temporal.ai_reply.constants import TICKET_TY
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -26,7 +28,7 @@ logger = structlog.get_logger(__name__)
 async def support_validate_activity(input: ValidateInput) -> ValidateOutput:
     """Validate the draft reply against the source chunks for groundedness and coverage."""
     async with Heartbeater():
-        return await _validate(input)
+        return replace(await _validate(input), llm_attempts=llm_attempts())
 
 
 async def _validate(input: ValidateInput) -> ValidateOutput:

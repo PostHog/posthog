@@ -44,14 +44,15 @@ The authenticated payload also binds the dataset kind and, for images, the objec
 
 Ingestion processes privacy state in batches:
 
-1. Bulk-read session keys, team blocks, month blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
-3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
-4. On a competing write, bulk-read the winning state and retry with its keys.
+3. Write each new key's month index entry, then the key with a conditional put.
+4. Re-read the batch, adopt a competing writer's keys, drop sessions or teams blocked during the batch, then publish replay blocks or image messages.
 
-Conditional writes prevent a deletion from being undone by an in-flight batch.
+A conditional put refuses to recreate a shredded session key.
+A team blocked during a batch is dropped by the batch re-read and refused by every reader, and the deletion worker sweeps the team once more after the reader lease, so a key stored after the block is shredded.
 Kafka offsets advance only after the required writes and publication succeed.
-DynamoDB transactions have at most 100 actions and stay below the request size limit.
+Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
 
 KMS plaintext caches reduce repeated decrypt calls.
@@ -102,14 +103,18 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 ## Monthly key deletion
 
-Key creation writes a month index entry in the same DynamoDB transaction as the wrapped key.
+Key creation writes the month index entry with a plain put, then the wrapped key with a conditional put.
+The index entry comes first, so every stored key has an index entry.
+An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
-Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
+The mirror drops a session whose ID started more than 14 days in the past or more than 1 day in the future, and the command accepts a month from 14 days and one hour after the month ends, so a batch admitted just inside the limit cannot commit a key after its index shard was swept.
+Neither side reads a shared block item for the month, because every commit in the fleet would contend on that one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
-Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
-Readers reject blocked months even when a wrapped key remains during deletion.
+Rerun the command after an interrupted run; it safely repeats completed pages.
+Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
 Existing read leases expire within five minutes.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
