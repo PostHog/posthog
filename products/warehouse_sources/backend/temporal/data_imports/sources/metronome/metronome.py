@@ -461,6 +461,13 @@ def _usage_rows_for_customer(
     `cancel_futures` only drops walks that never started, so a walk already running checks between
     pages for itself. Otherwise it keeps spending the account's request budget after the consumer
     has gone, and the pool's threads hold up the process on their way out.
+
+    The rows are gathered whole rather than streamed, because the checkpoint records whole
+    customers and a partial one must never be mistakable for a finished one. That is bounded rather
+    than open ended: one customer holds the periods in the requested window multiplied by the
+    account's billable metrics, the window is capped by the source's history setting, and only as
+    many of these exist at once as there are workers. Streaming within a customer would need a
+    per-customer resume cursor, which is a larger change than the size of this buffer justifies.
     """
     rows: list[Any] = []
     for page in client.paginate(
