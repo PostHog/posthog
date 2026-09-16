@@ -17,6 +17,7 @@ export enum Scene {
     AIGateway = 'AIGateway',
     Alerts = 'Alerts',
     Annotations = 'Annotations',
+    Autoresearch = 'Autoresearch',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',

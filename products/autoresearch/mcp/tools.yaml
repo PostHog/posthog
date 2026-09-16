@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Autoresearch
 feature: autoresearch
-url_prefix: /
+url_prefix: /autoresearch
 ui_apps: {}
 tools:
     autoresearch-archive-create:
@@ -27,6 +27,7 @@ tools:
     autoresearch-create:
         operation: autoresearch_create
         enabled: true
+        enrich_url: '{id}'
         scopes:
             - autoresearch:write
         annotations:
@@ -205,6 +206,7 @@ tools:
     autoresearch-retrieve:
         operation: autoresearch_retrieve
         enabled: true
+        enrich_url: '{id}'
         scopes:
             - autoresearch:read
         annotations:
