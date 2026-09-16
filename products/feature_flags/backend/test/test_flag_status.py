@@ -358,6 +358,20 @@ class TestRolloutSummary(BaseTest):
                 100,
                 True,
             ),
+            # The multivariate path reads the same null `properties` through
+            # is_group_fully_rolled_out, where `len(None)` used to raise. The boolean case above
+            # reaches is_boolean_flag_fully_rolled_out instead.
+            (
+                "multivariate_null_group_properties",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": None, "rollout_percentage": 100}],
+                },
+                True,
+                False,
+                100,
+                True,
+            ),
             (
                 "multivariate_not_fully_rolled_out",
                 {

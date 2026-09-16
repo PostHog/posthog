@@ -331,6 +331,32 @@ class TestStaleFlagsDetect(BaseTest):
                 None,
                 False,
             ),
+            # The same two conditions the other way round. The matcher stops at the blanket one, so
+            # the override below it is unreachable and the flag really does serve one variant.
+            (
+                "constant_when_the_blanket_condition_comes_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {"properties": [], "rollout_percentage": 100},
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                        ],
+                    },
+                },
+                None,
+                True,
+            ),
             # Variants take cumulative slices in order, so the 40 still owns the low hashes and the
             # flag serves two variants despite the 100.
             (
@@ -367,6 +393,51 @@ class TestStaleFlagsDetect(BaseTest):
                 },
                 None,
                 True,
+            ),
+            # A variant at zero takes no hashes, so the winner owns the whole space from wherever it
+            # is declared. This is the shape a shipped experiment leaves behind.
+            (
+                "constant_when_the_winner_is_not_the_first_variant",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 0},
+                                {"key": "test", "rollout_percentage": 100},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                True,
+            ),
+            # The two escape hatches with no case of their own. Both short-circuit ahead of the
+            # release conditions, the same way the holdout above does.
+            (
+                "constant_and_called_behind_super_groups",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        **FULL_ROLLOUT_FILTERS,
+                        "super_groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                False,
+            ),
+            (
+                "constant_and_called_behind_holdout_groups",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        **FULL_ROLLOUT_FILTERS,
+                        "holdout_groups": [{"properties": [], "rollout_percentage": 10}],
+                    },
+                },
+                None,
+                False,
             ),
             # `early_exit` returns false on a failed rollout check instead of falling through to the
             # blanket group, so the configuration can serve two results.
