@@ -23,11 +23,13 @@ export function RetentionReturnTable({
     dimensionLabel,
     loading,
     compare,
+    onlyNewUsers,
 }: {
     rows: MarketingAnalyticsRetentionSummaryRow[]
     dimensionLabel: string
     loading: boolean
     compare: boolean
+    onlyNewUsers: boolean
 }): JSX.Element {
     const previous = new Map(rows.filter((row) => row.previous).map((row) => [row.breakdownValue, row]))
     const current = rows.filter((row) => !row.previous)
@@ -44,28 +46,24 @@ export function RetentionReturnTable({
             ),
         },
         {
-            title: (
-                <span className="whitespace-normal">
-                    <span className="hidden @min-[40rem]:inline">Acquired users</span>
-                    <span className="@min-[40rem]:hidden">Users</span>
-                </span>
-            ),
+            title: <span className="whitespace-normal">{onlyNewUsers ? 'New users' : 'Users'}</span>,
             key: 'acquired',
             align: 'right',
-            tooltip: 'People acquired in the selected date range, attributed to their first qualifying session.',
+            tooltip: onlyNewUsers
+                ? 'People whose first qualifying session was in the selected date range.'
+                : 'People with a qualifying session in the selected date range.',
             sorter: (a, b) => a.acquired - b.acquired,
             render: (_, row) => (
-                <Tooltip title={`${percentage(total ? row.acquired / total : 0, 1)} of acquired users`}>
-                    <div className="flex flex-col items-end tabular-nums @min-[40rem]:flex-row @min-[40rem]:justify-end @min-[40rem]:gap-3">
-                        <CountCell
-                            value={[row.acquired, row.comparison?.acquired ?? null]}
-                            context={{ compareFilter: { compare: compare && row.comparison !== undefined } }}
-                        />
-                        <span className="text-secondary text-xs w-12 shrink-0 text-right">
-                            {percentage(total ? row.acquired / total : 0, 1)}
-                        </span>
-                    </div>
-                </Tooltip>
+                <div className="flex flex-col items-end tabular-nums @min-[40rem]:flex-row @min-[40rem]:justify-end @min-[40rem]:gap-3">
+                    <CountCell
+                        value={[row.acquired, row.comparison?.acquired ?? null]}
+                        context={{ compareFilter: { compare: compare && row.comparison !== undefined } }}
+                        tooltipContent={`${percentage(total ? row.acquired / total : 0, 1)} of ${onlyNewUsers ? 'new users' : 'users'}`}
+                    />
+                    <span className="text-secondary text-xs w-12 shrink-0 text-right">
+                        {percentage(total ? row.acquired / total : 0, 1)}
+                    </span>
+                </div>
             ),
         },
         ...([7, 30] as const).map(
@@ -89,20 +87,15 @@ export function RetentionReturnTable({
                             <span className="text-muted">–</span>
                         </Tooltip>
                     ) : (
-                        <Tooltip
-                            title={`${humanFriendlyNumber(returned)} returned out of ${humanFriendlyNumber(eligible)} eligible users.`}
-                        >
-                            <div>
-                                <RateCell
-                                    value={[rate, returnRate(row.comparison, days)]}
-                                    context={{
-                                        compareFilter: {
-                                            compare: compare && returnRate(row.comparison, days) !== null,
-                                        },
-                                    }}
-                                />
-                            </div>
-                        </Tooltip>
+                        <RateCell
+                            value={[rate, returnRate(row.comparison, days)]}
+                            context={{
+                                compareFilter: {
+                                    compare: compare && returnRate(row.comparison, days) !== null,
+                                },
+                            }}
+                            tooltipContent={`${humanFriendlyNumber(returned)} returned out of ${humanFriendlyNumber(eligible)} eligible users.`}
+                        />
                     )
                 },
             })
@@ -112,30 +105,22 @@ export function RetentionReturnTable({
             dataIndex: 'medianReturnDays',
             align: 'right',
             tooltip:
-                'Median days from the first to the second session, among people observed returning within 30 days. Recent users have had less time to return.',
+                'Estimated median days from the first to the second session, among people observed returning within 30 days. Recent users have had less time to return.',
             sorter: (a, b) => (a.medianReturnDays ?? Infinity) - (b.medianReturnDays ?? Infinity),
-            render: (_, row) => (
-                <Tooltip
-                    title={
-                        row.returners
-                            ? `Based on ${humanFriendlyNumber(row.returners)} returning users.`
-                            : 'No second sessions observed within 30 days.'
-                    }
-                >
-                    <div>
-                        {row.medianReturnDays === null ? (
-                            <span className="text-muted">–</span>
-                        ) : (
-                            <DaysCell
-                                value={[row.medianReturnDays, row.comparison?.medianReturnDays ?? null]}
-                                context={{
-                                    compareFilter: { compare: compare && row.comparison?.medianReturnDays != null },
-                                }}
-                            />
-                        )}
-                    </div>
-                </Tooltip>
-            ),
+            render: (_, row) =>
+                row.medianReturnDays === null ? (
+                    <Tooltip title="No second sessions observed within 30 days.">
+                        <span className="text-muted">–</span>
+                    </Tooltip>
+                ) : (
+                    <DaysCell
+                        value={[row.medianReturnDays, row.comparison?.medianReturnDays ?? null]}
+                        context={{
+                            compareFilter: { compare: compare && row.comparison?.medianReturnDays != null },
+                        }}
+                        tooltipContent={`Based on ${humanFriendlyNumber(row.returners)} returning users.`}
+                    />
+                ),
         },
     ]
     return (

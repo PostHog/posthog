@@ -77,15 +77,19 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
     )
     activity = parse_select(
         """
-        SELECT events.person_id AS actor_id, events.$session_id AS session_id,
-            min(events.session.$start_timestamp) AS session_start
+        SELECT acquisition.actor_id AS actor_id, acquisition.previous AS previous,
+            min(events.session.$start_timestamp) AS returned_at
         FROM events
+        INNER JOIN acquisition ON events.person_id = acquisition.actor_id
         WHERE events.event = '$pageview' AND notEmpty(events.$session_id)
             AND events.timestamp >= toDateTime({start})
             AND events.timestamp <= toDateTime({end})
-            AND events.person_id IN (SELECT actor_id FROM acquisition)
+            AND events.$session_id != acquisition.first_session_id
+            AND events.session.$start_timestamp > acquisition.first_session_at
+            AND events.session.$start_timestamp <= acquisition.first_session_at + INTERVAL 30 DAY
+            AND events.session.$start_timestamp <= toDateTime(acquisition.observation_end)
             AND {filters}
-        GROUP BY actor_id, session_id
+        GROUP BY actor_id, previous
         """,
         {
             "start": ast.Constant(value=periods[-1]._cohort_window_start_str),
@@ -97,20 +101,18 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
             "filters": ast.And(exprs=runner._event_filters()) if runner._event_filters() else ast.Constant(value=True),
         },
     )
+    assert activity.select_from and activity.select_from.next_join
+    activity.select_from.next_join.join_type = "GLOBAL INNER JOIN"
     ctes["activity"] = ast.CTE(name="activity", expr=activity, cte_type="subquery")
     people = parse_select(
         """
         SELECT acquisition.actor_id AS actor_id, acquisition.breakdown_value AS breakdown_value,
             acquisition.previous AS previous, acquisition.first_session_at AS first_session_at,
             toDateTime(acquisition.observation_end) AS observation_end,
-            minIf(activity.session_start,
-                activity.session_id != acquisition.first_session_id
-                AND activity.session_start > acquisition.first_session_at
-                AND activity.session_start <= acquisition.first_session_at + INTERVAL 30 DAY
-                AND activity.session_start <= toDateTime(acquisition.observation_end)) AS returned_at
+            activity.returned_at AS returned_at
         FROM acquisition
         LEFT JOIN activity ON acquisition.actor_id = activity.actor_id
-        GROUP BY actor_id, breakdown_value, previous, first_session_at, observation_end
+            AND acquisition.previous = activity.previous
         """
     )
     ctes["people"] = ast.CTE(name="people", expr=people, cte_type="subquery", materialized=True)
@@ -132,10 +134,10 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
                 AND returned_at > first_session_at) AS returned30d,
             countIf(returned_at > first_session_at) AS returners,
             if(returners > 0,
-                (medianExactLowIf(dateDiff('second', first_session_at, returned_at) / 86400.0,
-                    returned_at > first_session_at)
-                + medianExactHighIf(dateDiff('second', first_session_at, returned_at) / 86400.0,
-                    returned_at > first_session_at)) / 2,
+                medianDeterministicIf(
+                    dateDiff('second', first_session_at, returned_at) / 86400.0,
+                    cityHash64(actor_id),
+                    returned_at > first_session_at),
                 NULL) AS medianReturnDays
         FROM people
         GROUP BY breakdownValue, previous

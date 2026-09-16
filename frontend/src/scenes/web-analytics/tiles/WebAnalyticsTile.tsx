@@ -227,6 +227,28 @@ type VariationCellProps = {
     neutral?: boolean
     formatValue?: (value: number) => string
 }
+
+export function comparisonTooltipText(
+    current: number,
+    previous: number | null,
+    compare: boolean,
+    formatNumber: (value: number) => string
+): string | null {
+    if (!compare || previous === null) {
+        return null
+    }
+    if (current === previous) {
+        return `No change since last period (${formatNumber(current)})`
+    }
+    if (previous === 0) {
+        return `Increased from ${formatNumber(previous)} to ${formatNumber(current)} since last period`
+    }
+    return `${current > previous ? 'Increased' : 'Decreased'} by ${percentage(
+        Math.abs(current / previous - 1),
+        0
+    )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+}
+
 export const VariationCell = (
     { isPercentage, reverseColors, isDuration, reserveTrendSpace = true, neutral, formatValue }: VariationCellProps = {
         isPercentage: false,
@@ -246,7 +268,15 @@ export const VariationCell = (
         return value?.toLocaleString() ?? '(empty)'
     }
 
-    return function Cell({ value, context }: { value: unknown; context?: QueryContext }) {
+    return function Cell({
+        value,
+        context,
+        tooltipContent,
+    }: {
+        value: unknown
+        context?: QueryContext
+        tooltipContent?: React.ReactNode
+    }) {
         const compareFilter = context?.compareFilter
 
         if (!value) {
@@ -257,23 +287,16 @@ export const VariationCell = (
             return <span>{String(value)}</span>
         }
 
-        const [current, previous] = value as [number, number]
-
-        const pctChangeFromPrevious =
-            previous === 0 && current === 0 // Special case, render as flatline
-                ? 0
-                : current === null || !compareFilter || compareFilter.compare === false
-                  ? null
-                  : previous === null || previous === 0
-                    ? Infinity
-                    : current / previous - 1
+        const [current, previous] = value as [number, number | null]
+        const hasComparison = previous !== null && compareFilter?.compare === true
+        const difference = hasComparison ? current - previous : null
 
         const trend =
-            pctChangeFromPrevious === null
+            difference === null
                 ? null
-                : pctChangeFromPrevious === 0
+                : difference === 0
                   ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                  : pctChangeFromPrevious > 0
+                  : difference > 0
                     ? {
                           Icon: IconTrending,
                           color: reverseColors ? getColorVar('danger') : getColorVar('success'),
@@ -285,14 +308,16 @@ export const VariationCell = (
 
         const trendColor = neutral ? getColorVar('muted') : trend?.color
 
-        // If current === previous, say "increased by 0%"
+        const comparisonTooltip = comparisonTooltipText(current, previous, hasComparison, formatNumber)
         const tooltip =
-            pctChangeFromPrevious !== null
-                ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-                      Math.abs(pctChangeFromPrevious),
-                      0
-                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
-                : null
+            comparisonTooltip && tooltipContent ? (
+                <div className="flex flex-col gap-1">
+                    <div>{comparisonTooltip}</div>
+                    <div>{tooltipContent}</div>
+                </div>
+            ) : (
+                (comparisonTooltip ?? tooltipContent)
+            )
 
         return (
             <div className={clsx({ 'pr-4': !trend && reserveTrendSpace })}>

@@ -25,6 +25,7 @@ from posthog.test.persons import create_person
 from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
     MAX_BREAKDOWN_LIMIT,
     MAX_COHORTS,
+    MAX_SUMMARY_ACQUISITION_DAYS,
     MAX_TOTAL_INTERVALS,
     MarketingAnalyticsRetentionQueryRunner,
 )
@@ -191,6 +192,13 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         response = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
         previous = [row for row in response.summary or [] if row.previous]
         self.assertEqual([(row.breakdownValue, row.acquired) for row in previous], [("newsletter", 1)])
+
+    def test_summary_rejects_acquisition_periods_over_the_limit(self) -> None:
+        query = self._query(date_from="2023-01-01", date_to="2023-04-02")
+        query.summary = True
+
+        with pytest.raises(ValueError, match=f"up to {MAX_SUMMARY_ACQUISITION_DAYS} days"):
+            MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
 
     @staticmethod
     def _rows_by_value(response) -> dict[str, list]:
@@ -491,12 +499,18 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
     def _printed_sql(self, **kwargs) -> str:
-        runner = MarketingAnalyticsRetentionQueryRunner(query=self._query(**kwargs), team=self.team)
+        summary = kwargs.pop("summary", False)
+        compare_previous_period = kwargs.pop("compare_previous_period", False)
+        query = self._query(**kwargs)
+        query.summary = summary
+        query.comparePreviousPeriod = compare_previous_period
+        runner = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team)
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
-        return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+        pretty = pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
+        return "\n".join(line.rstrip() for line in pretty.splitlines()) if summary else pretty
 
     # `test_query_shape` snapshots the HogQL, which cannot show what the printer does with it. These
     # snapshot the ClickHouse the database actually runs, one case per query shape rather than one per
@@ -508,6 +522,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             ("source", {"breakdown": MarketingAnalyticsAttributionBreakdown.SOURCE}),
             ("channel", {"breakdown": MarketingAnalyticsAttributionBreakdown.CHANNEL}),
             ("all_users", {"only_new_users": False}),
+            ("summary", {"summary": True, "compare_previous_period": True}),
         ]
     )
     @pytest.mark.usefixtures("unittest_snapshot")

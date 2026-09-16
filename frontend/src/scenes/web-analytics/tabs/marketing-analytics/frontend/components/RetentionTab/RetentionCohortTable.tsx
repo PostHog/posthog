@@ -100,6 +100,7 @@ export function RetentionCohortTable({
                 dimensionLabel={dimensionLabel}
                 loading={responseLoading || !retentionResponse}
                 compare={query.comparePreviousPeriod ?? false}
+                onlyNewUsers={query.onlyNewUsers ?? true}
             />
         )
     }

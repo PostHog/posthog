@@ -46,6 +46,7 @@ MAX_TOTAL_INTERVALS = 40
 MAX_COHORTS = 60
 MAX_BREAKDOWN_LIMIT = 40
 MAX_NEW_USER_LOOKBACK_DAYS = 365
+MAX_SUMMARY_ACQUISITION_DAYS = 90
 
 # Shared with core retention so both surfaces print the same label for the folded tail.
 _OTHER = BREAKDOWN_OTHER_STRING_LABEL
@@ -634,6 +635,15 @@ class MarketingAnalyticsRetentionQueryRunner(
             # `date_to`, which sits BEFORE `date_to` itself. Running the query would report whoever
             # arrived in that gap, so a range ending before it starts would return real retention data.
             return self._empty_response()
+
+        if (
+            self.query.summary
+            and (self.query_date_range.date_to().date() - self.query_date_range.date_from().date()).days
+            > MAX_SUMMARY_ACQUISITION_DAYS
+        ):
+            raise ValueError(
+                f"Retention summary supports acquisition periods of up to {MAX_SUMMARY_ACQUISITION_DAYS} days."
+            )
 
         query = self.to_query()
 

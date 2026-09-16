@@ -16,6 +16,7 @@ const meta: Meta<typeof RetentionReturnTable> = {
         dimensionLabel: 'Source',
         loading: false,
         compare: true,
+        onlyNewUsers: true,
         rows: [
             {
                 breakdownValue: 'newsletter',
@@ -68,6 +69,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 export const Default: Story = {}
+export const AllUsers: Story = { args: { onlyNewUsers: false } }
 export const Narrow: Story = {
     decorators: [
         (Story) => (
