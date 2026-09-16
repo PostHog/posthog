@@ -6594,6 +6594,7 @@ export type SchemaIncrementalFieldsResponse = {
     supports_webhooks: boolean
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
 }
@@ -6637,6 +6638,7 @@ export interface ExternalDataSourceSyncSchema {
     primary_key_columns: string[] | null
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
+    primary_key_detection_supported?: boolean
     /**
      * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
      * reason this endpoint is currently unreachable. `null`/undefined = endpoint is

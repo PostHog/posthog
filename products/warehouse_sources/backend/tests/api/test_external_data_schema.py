@@ -123,6 +123,7 @@ class TestExternalDataSchema(APIBaseTest):
             "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
+            "primary_key_detection_supported": False,
         }
 
     @parameterized.expand(
@@ -341,6 +342,7 @@ class TestExternalDataSchema(APIBaseTest):
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
             "detected_primary_keys": ["id"],
+            "primary_key_detection_supported": True,
         }
 
     @parameterized.expand(
@@ -603,6 +605,16 @@ class TestExternalDataSchema(APIBaseTest):
             ("columns_unknown", [], None, None, True, ""),
             ("clearing_an_existing_key", [{"name": "amount"}], ["order_id"], [], False, "no primary key"),
             ("key_naming_a_missing_column", [{"name": "amount"}], None, ["nope"], False, "no column named"),
+            (
+                "source_declares_its_key_in_code",
+                [{"name": "amount"}],
+                None,
+                None,
+                True,
+                "",
+                "full_refresh",
+                ExternalDataSourceType.STRIPE,
+            ),
             ("already_incremental_reenable_passes", [{"name": "amount"}], None, None, True, "", "incremental"),
             (
                 "already_incremental_clearing_key_is_refused",
@@ -624,10 +636,11 @@ class TestExternalDataSchema(APIBaseTest):
         expected_ok: bool,
         expected_error: str,
         initial_sync_type: str = "full_refresh",
+        source_type: str = ExternalDataSourceType.POSTGRES,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.STRIPE,
+            source_type=source_type,
             job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
