@@ -1,11 +1,12 @@
 import math
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Model
-from django.db.models.functions import Now, Trim
+from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -1558,7 +1559,7 @@ class ProjectViewSet(
                 "Project deletion is temporarily disabled during database migration. Please try again later."
             )
 
-        if project.is_pending_deletion:
+        if project.is_deletion_pending():
             raise exceptions.ValidationError("This project is already being deleted.")
 
         # Block deletion of the last project in an org with an active subscription (cloud only).
@@ -1625,7 +1626,7 @@ class ProjectViewSet(
                 project_id=project_id,
                 user_id=user.id,
                 project_name=project_name,
-                start_delay=PROJECT_DELETION_DELAY,
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
             )
         except Exception:
             Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
@@ -1682,18 +1683,20 @@ class ProjectViewSet(
         membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
         if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
-        if not project.is_pending_deletion:
+        now = timezone.now()
+        if not project.is_deletion_pending():
             raise exceptions.ValidationError("This project is not pending deletion.")
-        if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():
+        if not project.can_cancel_deletion(at=now):
             raise exceptions.ValidationError("This project deletion has already started.")
 
         deletion_scheduled_at = project.deletion_scheduled_at
+        cancellation_claimed_at = now
         claimed_cancellation = Project.objects.filter(
             pk=project.pk,
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
-            deletion_scheduled_at__gt=Now(),
-        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+            deletion_scheduled_at__gt=now,
+        ).update(deletion_scheduled_at=cancellation_claimed_at)
         if not claimed_cancellation:
             raise exceptions.ValidationError(
                 "This project deletion can no longer be canceled. Refresh the page to see its current status."
@@ -1704,7 +1707,23 @@ class ProjectViewSet(
         try:
             cancel_delete_project_data_workflow(project_id=project.pk)
         except Exception:
+            Project.objects.filter(
+                pk=project.pk,
+                is_pending_deletion=True,
+                deletion_scheduled_at=cancellation_claimed_at,
+            ).update(deletion_scheduled_at=deletion_scheduled_at)
             logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
+            raise exceptions.ValidationError("Project deletion could not be canceled. Please try again.")
+
+        cleared_cancellation = Project.objects.filter(
+            pk=project.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=cancellation_claimed_at,
+        ).update(is_pending_deletion=False, deletion_scheduled_at=None)
+        if not cleared_cancellation:
+            raise exceptions.ValidationError(
+                "This project deletion can no longer be canceled. Refresh the page to see its current status."
+            )
 
         project.is_pending_deletion = False
         project.deletion_scheduled_at = None

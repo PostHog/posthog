@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from django.conf import settings
 
+from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.temporal.common.client import async_connect
@@ -42,7 +43,12 @@ def start_delete_project_data_workflow(
 def cancel_delete_project_data_workflow(*, project_id: int) -> None:
     async def _cancel() -> None:
         client = await async_connect()
-        await client.get_workflow_handle(f"delete-project-{project_id}").cancel()
+        handle = client.get_workflow_handle(f"delete-project-{project_id}")
+        await handle.cancel()
+        try:
+            await handle.result(follow_runs=False)
+        except WorkflowFailureError:
+            pass
 
     asyncio.run(_cancel())
 

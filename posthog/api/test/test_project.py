@@ -525,13 +525,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Project deletion happens async in the Temporal workflow
 
-        mock_delete_task.assert_called_once_with(
-            team_ids=[team_id],
-            project_id=project_id,
-            user_id=self.user.id,
-            project_name=project_name,
-            start_delay=timedelta(hours=48),
-        )
+        mock_delete_task.assert_called_once()
+        call_kwargs = mock_delete_task.call_args.kwargs
+        self.assertEqual(call_kwargs["team_ids"], [team_id])
+        self.assertEqual(call_kwargs["project_id"], project_id)
+        self.assertEqual(call_kwargs["user_id"], self.user.id)
+        self.assertEqual(call_kwargs["project_name"], project_name)
+        self.assertGreater(call_kwargs["start_delay"], timedelta(hours=47))
+        self.assertLessEqual(call_kwargs["start_delay"], timedelta(hours=48))
 
     @parameterized.expand(
         [
@@ -592,7 +593,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             delta=5,
         )
         mock_delete_task.assert_called_once()
-        self.assertEqual(mock_delete_task.call_args.kwargs["start_delay"], timedelta(hours=48))
+        start_delay = mock_delete_task.call_args.kwargs["start_delay"]
+        self.assertGreater(start_delay, timedelta(hours=47))
+        self.assertLessEqual(start_delay, timedelta(hours=48))
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
@@ -657,10 +660,35 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("could not be canceled", response.json()["detail"])
         self.project.refresh_from_db()
-        self.assertFalse(self.project.is_pending_deletion)
-        self.assertIsNone(self.project.deletion_scheduled_at)
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        self.assertFalse(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            ).exists()
+        )
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_can_be_deleted_again_after_cancellation(self, mock_start_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        cancel_response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+        self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
+
+        mock_start_delete_task.reset_mock()
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_start_delete_task.assert_called_once()
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")

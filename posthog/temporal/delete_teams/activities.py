@@ -144,7 +144,8 @@ async def enqueue_clickhouse_deletion_activity(inputs: TeamDataActivityInputs) -
 def _is_project_pending_deletion(project_id: int) -> bool:
     from posthog.models.project import Project
 
-    return Project.objects.filter(pk=project_id, is_pending_deletion=True).exists()
+    project = Project.objects.only("is_pending_deletion").filter(pk=project_id).first()
+    return project is not None and project.is_deletion_pending()
 
 
 @temporalio.activity.defn
