@@ -30,23 +30,6 @@ import type {
     ValidatePipelineResponseApi,
 } from './api.schemas'
 
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
-
 export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -242,11 +225,10 @@ export const getAutoresearchTrainingRunsListUrl = (
 }
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ * List and retrieve training runs for a pipeline.
  *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ * A training run records the agent's search for a model: each iteration's recipe and holdout
+ * score, and the summary of the run once it completes.
  */
 export const autoresearchTrainingRunsList = async (
     projectId: string,
@@ -263,41 +245,15 @@ export const autoresearchTrainingRunsList = async (
     )
 }
 
-export const getAutoresearchTrainingRunsCreateUrl = (projectId: string, pipelineId: string) => {
-    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/`
-}
-
-/**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
- *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
- */
-export const autoresearchTrainingRunsCreate = async (
-    projectId: string,
-    pipelineId: string,
-    autoresearchTrainingRunApi: NonReadonly<AutoresearchTrainingRunApi>,
-    options?: RequestInit
-): Promise<AutoresearchTrainingRunApi> => {
-    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsCreateUrl(projectId, pipelineId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(autoresearchTrainingRunApi),
-    })
-}
-
 export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
     return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/`
 }
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ * List and retrieve training runs for a pipeline.
  *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ * A training run records the agent's search for a model: each iteration's recipe and holdout
+ * score, and the summary of the run once it completes.
  */
 export const autoresearchTrainingRunsRetrieve = async (
     projectId: string,

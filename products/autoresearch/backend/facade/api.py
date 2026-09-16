@@ -212,14 +212,14 @@ def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = Fa
         raise PipelineNotFound("Pipeline not found.")
 
 
-def _training_run_row(team_id: int, training_run_id: str | UUID) -> AutoresearchTrainingRun:
+def _training_run_row(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> AutoresearchTrainingRun:
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).select_related("pipeline").prefetch_related("iterations")
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     try:
-        return (
-            AutoresearchTrainingRun.objects.for_team(team_id)
-            .select_related("pipeline")
-            .prefetch_related("iterations")
-            .get(pk=str(training_run_id))
-        )
+        return qs.get(pk=str(training_run_id))
     except (AutoresearchTrainingRun.DoesNotExist, ValueError, TypeError):
         raise TrainingRunNotFound("Training run not found.")
 
@@ -425,15 +425,18 @@ def validate_definition(
 
 
 def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
-    qs = AutoresearchModel.objects.for_team(team_id).select_related("pipeline").order_by("-created_at")
+    qs = AutoresearchModel.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
 
 
-def get_model(team_id: int, model_id: str | UUID) -> Model | None:
-    row = AutoresearchModel.objects.for_team(team_id).filter(pk=str(model_id)).first()
+def get_model(team_id: int, model_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Model | None:
+    qs = AutoresearchModel.objects.for_team(team_id).filter(pk=str(model_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
     return _model_to_contract(row) if row else None
 
 
@@ -441,15 +444,18 @@ def get_model(team_id: int, model_id: str | UUID) -> Model | None:
 
 
 def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
-    qs = AutoresearchRun.objects.for_team(team_id).select_related("pipeline", "model").order_by("-created_at")
+    qs = AutoresearchRun.objects.for_team(team_id).order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
 
 
-def get_run(team_id: int, run_id: str | UUID) -> Run | None:
-    row = AutoresearchRun.objects.for_team(team_id).filter(pk=str(run_id)).first()
+def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None = None) -> Run | None:
+    qs = AutoresearchRun.objects.for_team(team_id).filter(pk=str(run_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
     return _run_to_contract(row) if row else None
 
 
@@ -459,21 +465,18 @@ def get_run(team_id: int, run_id: str | UUID) -> Run | None:
 def list_training_runs(
     team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int
 ) -> tuple[list[TrainingRun], int]:
-    qs = (
-        AutoresearchTrainingRun.objects.for_team(team_id)
-        .select_related("pipeline")
-        .prefetch_related("iterations")
-        .order_by("-created_at")
-    )
+    qs = AutoresearchTrainingRun.objects.for_team(team_id).prefetch_related("iterations").order_by("-created_at")
     if pipeline_id:
         qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
 
 
-def get_training_run(team_id: int, training_run_id: str | UUID) -> TrainingRun | None:
+def get_training_run(
+    team_id: int, training_run_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> TrainingRun | None:
     try:
-        return _training_run_to_contract(_training_run_row(team_id, training_run_id))
+        return _training_run_to_contract(_training_run_row(team_id, training_run_id, pipeline_id=pipeline_id))
     except TrainingRunNotFound:
         return None
 

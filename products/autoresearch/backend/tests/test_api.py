@@ -449,6 +449,28 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 0
 
+    @parameterized.expand(["models", "runs", "training_runs"])
+    def test_nested_retrieve_is_scoped_to_the_parent_pipeline(self, resource: str):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        training_run = AutoresearchTrainingRun.objects.create(pipeline=pipeline_a, status="completed")
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline_a,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="aaa",
+            holdout_score=0.7,
+            source_training_run=training_run,
+        )
+        run = AutoresearchRun.objects.create(pipeline=pipeline_a, model=model, status="completed", rows_scored=1)
+        row_id = {"models": model.id, "runs": run.id, "training_runs": training_run.id}[resource]
+
+        resp = self.client.get(f"{self.base_url}/{pipeline_b.id}/{resource}/{row_id}/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+        resp = self.client.get(f"{self.base_url}/{pipeline_a.id}/{resource}/{row_id}/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["id"] == str(row_id)
+
     # ──────────────────────────────────────────── templates ────────────────────────────────────────────
 
     def test_list_templates_returns_every_template(self):

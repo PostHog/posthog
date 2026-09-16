@@ -354,7 +354,7 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        model = api.get_model(self.team_id, self.kwargs["pk"])
+        model = api.get_model(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
         if model is None:
             raise NotFound("Model not found.")
         return Response(AutoresearchModelSerializer(instance=model).data)
@@ -386,33 +386,27 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, vie
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        run = api.get_run(self.team_id, self.kwargs["pk"])
+        run = api.get_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
         if run is None:
             raise NotFound("Run not found.")
         return Response(AutoresearchRunSerializer(instance=run).data)
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
     """
-    List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+    List and retrieve training runs for a pipeline.
 
-    The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
-    training run directly — recording each iteration as it completes rather than via a single
-    terminal sandbox output. Recipe validation and champion promotion stay server-side.
+    A training run records the agent's search for a model: each iteration's recipe and holdout
+    score, and the summary of the run once it completes.
     """
 
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
-    # A training run is opened and appended to, never edited or deleted — same surface the
-    # CreateModelMixin + ReadOnlyModelViewSet pairing exposed before the facade move.
-    http_method_names = ["get", "post", "head", "options"]
 
     def _should_skip_parents_filter(self) -> bool:
         return True
@@ -427,7 +421,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = api.get_training_run(self.team_id, self.kwargs["pk"])
+        training_run = api.get_training_run(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
         if training_run is None:
             raise NotFound("Training run not found.")
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
