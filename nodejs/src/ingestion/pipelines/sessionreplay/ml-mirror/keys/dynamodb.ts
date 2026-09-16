@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
 
-import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { TableKey, tableKeyString } from './schema'
 
@@ -19,12 +19,12 @@ export function encodeKey(key: TableKey): DynamoItem {
 
 export function decodeKey(item: DynamoItem): TableKey {
     if (!item.pk?.S || !item.sk?.S) {
-        throw new Error('Invalid ML privacy item key')
+        throw new Error('Invalid ML key manager item key')
     }
     return { pk: item.pk.S, sk: item.sk.S }
 }
 
-export class MlPrivacyDynamoDB {
+export class MlKeyDynamoDB {
     private readonly concurrency = pLimit(4)
     private readonly writeConcurrency = pLimit(32)
 
@@ -64,7 +64,7 @@ export class MlPrivacyDynamoDB {
                         }
                     }
                     if (pending.length) {
-                        throw new Error('ML privacy bulk read exhausted retries')
+                        throw new Error('ML key manager bulk read exhausted retries')
                     }
                 })
             )
@@ -106,12 +106,12 @@ export class MlPrivacyDynamoDB {
         )
     }
 
-    private async timed<T>(request: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+    private async timed<T>(request: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
         const startedAt = performance.now()
         try {
             return await operation()
         } finally {
-            MlMirrorMetrics.observeMlPrivacyRequest(request, performance.now() - startedAt)
+            MlMirrorMetrics.observeMlKeyRequest(request, performance.now() - startedAt)
         }
     }
 
