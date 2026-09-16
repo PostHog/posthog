@@ -24,7 +24,12 @@ from products.customer_analytics.backend.models import (
     AccountRelationshipControl,
     AccountRelationshipDefinition,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_saved_query, enroll_account
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_saved_query,
+    enroll_account,
+    saved_query_columns,
+)
 
 
 class TestConfigureAccountOwnershipCommand(BaseTest):
@@ -45,7 +50,7 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
 
     def _decision_view(self, team_id: int) -> Any:
         return create_saved_query(
-            team_id=team_id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+            team_id=team_id, name="ownership_decisions", columns=saved_query_columns(DECISION_COLUMNS)
         )
 
     def test_controls_definitions_and_binds_claim_views(self):
@@ -70,7 +75,7 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         assert self._state(self.ae_definition) == (False, False, None)
 
     def test_rejects_a_view_without_the_decision_columns(self):
-        view = create_saved_query(team_id=self.team.id, name="partial", columns={"task_id": {}})
+        view = create_saved_query(team_id=self.team.id, name="partial", columns=saved_query_columns(["task_id"]))
 
         with self.assertRaises(CommandError):
             self._configure(
@@ -121,7 +126,7 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
             args = ["--claim-view", definition_id, str(view.id)]
         elif case == "naming_a_definition_twice_with_different_views":
             other = create_saved_query(
-                team_id=self.team.id, name="other_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+                team_id=self.team.id, name="other_decisions", columns=saved_query_columns(DECISION_COLUMNS)
             )
             args = ["--claim-view", definition_id, str(view.id), "--claim-view", definition_id, str(other.id)]
         else:

@@ -1,7 +1,7 @@
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
-from django.apps import apps
 from django.utils import timezone
 
 from posthog.models import User
@@ -24,6 +24,7 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductAreaLink,
     Meeting,
 )
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 def create_account(*, team_id: int, name: str = "Acme Corp", **kwargs: Any) -> Account:
@@ -154,14 +155,15 @@ def create_custom_property_definition(
 
 def create_saved_query(
     *, team_id: int, name: str = "enriched_users", is_materialized: bool = True, **kwargs: Any
-) -> Any:
+) -> DataWarehouseSavedQuery:
     """Create a data-warehouse view for tests. Materialized by default, which is what a view-backed
-    property source binds to.
-
-    Resolved with ``apps.get_model`` because customer_analytics does not depend on data_modeling; the
-    production code reaches the same model the same way.
-    """
-    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-    return saved_query_model.objects.create(
+    property source binds to."""
+    return DataWarehouseSavedQuery.objects.create(
         team_id=team_id, name=name, query={"query": "select 1"}, is_materialized=is_materialized, **kwargs
     )
+
+
+def saved_query_columns(names: Iterable[str]) -> dict[str, dict[str, str]]:
+    """Columns in the shape data_modeling stores after a run. Its facade drops a column with no
+    ``clickhouse`` type, so a bare ``{}`` entry would read back as missing."""
+    return {name: {"clickhouse": "String"} for name in names}

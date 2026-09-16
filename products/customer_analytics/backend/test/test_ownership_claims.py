@@ -45,7 +45,12 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     create_ownership_claims_coordinator_schedule,
     ownership_claims_workflow_id,
 )
-from products.customer_analytics.backend.test.factories import create_account, create_saved_query, enroll_account
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_saved_query,
+    enroll_account,
+    saved_query_columns,
+)
 
 FENCE = datetime(2026, 1, 1, tzinfo=UTC)
 TASK = "example-salesforce-task-17"
@@ -60,7 +65,7 @@ class TestOwnershipClaims(BaseTest):
         self.human = relationships.Actor.human(self.user)
 
     def _claim_bound_definition(self, name: str, view_name: str) -> tuple[AccountRelationshipDefinition, Any]:
-        view = create_saved_query(team_id=self.team.id, name=view_name, columns=dict.fromkeys(DECISION_COLUMNS, {}))
+        view = create_saved_query(team_id=self.team.id, name=view_name, columns=saved_query_columns(DECISION_COLUMNS))
         definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
             team_id=self.team.id, name=name, is_controlled=True, claims_enabled=True, claim_saved_query=view
         )
@@ -465,7 +470,7 @@ class TestOwnershipClaims(BaseTest):
     @parameterized.expand(["missing_columns", "query_error"])
     def test_one_unusable_view_is_counted_and_the_others_still_run(self, fault):
         if fault == "missing_columns":
-            self.view.columns = {"task_id": {}}
+            self.view.columns = saved_query_columns(["task_id"])
             self.view.save(update_fields=["columns"])
         csm_definition, _ = self._claim_bound_definition("CSM", "csm_decisions")
         enroll_account(self.account, csm_definition, controlled_at=FENCE)
@@ -522,7 +527,7 @@ class TestOwnershipClaims(BaseTest):
             name="AE",
             is_controlled=True,
             claim_saved_query=create_saved_query(
-                team_id=claims_off.id, name="decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+                team_id=claims_off.id, name="decisions", columns=saved_query_columns(DECISION_COLUMNS)
             ),
         )
         no_view = Team.objects.create(organization=self.organization, name="no view")

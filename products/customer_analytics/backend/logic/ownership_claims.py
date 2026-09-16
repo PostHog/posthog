@@ -34,7 +34,6 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from django.apps import apps
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
@@ -57,6 +56,7 @@ from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import ownership, relationships
 from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
+from products.data_modeling.backend.facade import api as data_modeling_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -93,9 +93,9 @@ class ClaimReconciliation:
     skipped: bool = False
 
 
-def check_decision_columns(view_name: str, columns: dict | None) -> None:
+def check_decision_columns(view_name: str, columns: dict[str, str]) -> None:
     """Raise unless the view answers every documented decision column."""
-    missing = [column for column in DECISION_COLUMNS if column not in (columns or {})]
+    missing = [column for column in DECISION_COLUMNS if column not in columns]
     if missing:
         raise ClaimSourceMisconfigured(f"View {view_name} has no column(s): {', '.join(missing)}")
 
@@ -149,20 +149,18 @@ def bind_claim_view(team_id: int, definition_id: UUID, saved_query_id: UUID | No
     ``already_applied``."""
     with transaction.atomic():
         definition = _locked_definition(team_id, definition_id)
-        view = None
         if saved_query_id is not None:
             if not definition.is_controlled:
                 raise ClaimSourceMisconfigured(
                     f"{definition.name} is not controlled; a claim can only fill a controlled relationship"
                 )
-            saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-            view = saved_query_model.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+            view = data_modeling_facade.get_saved_query_summary(team_id, saved_query_id)
             if view is None:
                 raise ClaimSourceMisconfigured(f"No warehouse view {saved_query_id} in this project")
-            check_decision_columns(view.name, view.columns)
+            check_decision_columns(view.name, data_modeling_facade.get_saved_query_columns(team_id, saved_query_id))
             elsewhere = (
                 AccountRelationshipDefinition.objects.for_team(team_id)
-                .filter(claim_saved_query=view)
+                .filter(claim_saved_query_id=saved_query_id)
                 .exclude(id=definition.id)
                 .first()
             )
@@ -170,8 +168,8 @@ def bind_claim_view(team_id: int, definition_id: UUID, saved_query_id: UUID | No
                 raise ClaimSourceMisconfigured(
                     f"View {view.name} already fills {elsewhere.name}; a view feeds one definition"
                 )
-        definition.claim_saved_query = view
-        if view is None:
+        definition.claim_saved_query_id = saved_query_id
+        if saved_query_id is None:
             definition.claims_enabled = False
         definition.save(update_fields=["claim_saved_query", "claims_enabled", "updated_at"])
         return definition
@@ -219,7 +217,7 @@ def reconcile_ownership_claims(team: Team, *, should_stop: Callable[[], bool] = 
         # One unusable view must not stop the project's other definitions: it is counted, reported,
         # and read again next tick. A stop request is a different exception and still ends the sweep.
         try:
-            check_decision_columns(view.name, view.columns)
+            check_decision_columns(view.name, data_modeling_facade.get_saved_query_columns(team.id, view.id))
             rows = _read_decision_rows(team, view.name, should_stop)
         except ClaimSourceMisconfigured as error:
             capture_exception(error, {"team_id": team.id, "definition_id": str(definition.id)})
