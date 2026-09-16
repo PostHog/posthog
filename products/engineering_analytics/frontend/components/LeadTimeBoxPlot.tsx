@@ -43,6 +43,9 @@ interface BucketMeta {
     counts: number[]
 }
 
+/** The six numbers a box draws, for the checks that have to cover all of them. */
+const BOX_STATS = ['min', 'p25', 'median', 'mean', 'p75', 'max'] as const
+
 function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum | null {
     if (
         bucket.count === 0 ||
@@ -87,14 +90,6 @@ export function LeadTimeBoxPlot({
 }: LeadTimeBoxPlotProps): JSX.Element {
     const theme = useChartTheme()
     const labels = useMemo(() => buckets.map((bucket) => bucket.label), [buckets])
-    const config = useMemo(
-        () => ({
-            yTickFormatter: formatSeconds,
-            axisOrientation: horizontal ? ('horizontal' as const) : ('vertical' as const),
-            yScaleType: logScale ? ('log' as const) : ('linear' as const),
-        }),
-        [formatSeconds, horizontal, logScale]
-    )
     const series = useMemo<BoxPlotSeries<BucketMeta>[]>(
         () => [
             {
@@ -105,6 +100,20 @@ export function LeadTimeBoxPlot({
             },
         ],
         [seriesKey, seriesLabel, buckets, excludeOutliers]
+    )
+    const hasZeroDuration = useMemo(
+        () => series[0].data.some((datum) => datum != null && BOX_STATS.some((stat) => datum[stat] <= 0)),
+        [series]
+    )
+    const config = useMemo(
+        () => ({
+            yTickFormatter: formatSeconds,
+            axisOrientation: horizontal ? ('horizontal' as const) : ('vertical' as const),
+            // A log axis has no zero: the scale clamps a zero-second stat onto the axis floor, where
+            // it would read as a real duration. Such a bucket falls back to the linear axis.
+            yScaleType: logScale && !hasZeroDuration ? ('log' as const) : ('linear' as const),
+        }),
+        [formatSeconds, horizontal, logScale, hasZeroDuration]
     )
     return (
         // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
