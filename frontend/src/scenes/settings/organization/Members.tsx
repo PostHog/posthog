@@ -23,7 +23,7 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -33,7 +33,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
-import { memberDisplayName } from './memberDisplayName'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
@@ -280,8 +279,8 @@ export function Members(): JSX.Element | null {
                 <div className="flex flex-col py-1">
                     <span className="ph-no-capture font-medium">
                         {member.user.uuid == user.uuid
-                            ? `${memberDisplayName(member)} (you)`
-                            : memberDisplayName(member)}
+                            ? `${fullNameOrEmail(member.user)} (you)`
+                            : fullNameOrEmail(member.user)}
                     </span>
                     {fullName(member.user) && (
                         <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
@@ -299,7 +298,7 @@ export function Members(): JSX.Element | null {
                         )}
                 </div>
             ),
-            sorter: (a, b) => memberDisplayName(a).localeCompare(memberDisplayName(b)),
+            sorter: (a, b) => fullNameOrEmail(a.user).localeCompare(fullNameOrEmail(b.user)),
         },
         {
             title: 'Level',
