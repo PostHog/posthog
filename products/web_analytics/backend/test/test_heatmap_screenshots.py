@@ -480,7 +480,7 @@ class TestHeatmapsAPI(APIBaseTest):
         SavedHeatmap.objects.filter(team=self.team).update(created_at=timestamp, updated_at=timestamp)
 
         query = f"&order={order}" if order else ""
-        seen = []
+        seen: list[str] = []
         for offset in range(5):
             r = self.client.get(f"/api/environments/{self.team.id}/saved/?limit=1&offset={offset}{query}")
             self.assertEqual(r.status_code, 200)
