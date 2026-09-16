@@ -536,7 +536,12 @@ export const InsightViews: Story = {
 export const RecordingViews: Story = {
     parameters: {
         pageUrl: urls.notebook('recording-widget-views'),
-        testOptions: { waitForLoadersToDisappear: false },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            // The player mounts rrweb inside its own frame document. Without this wait the snapshot is
+            // taken as soon as the notebook renders, so it catches whichever frame the replay reached.
+            waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
+        },
     },
 }
 export const RecordingPlaylistViews: Story = {
