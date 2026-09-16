@@ -183,6 +183,59 @@ describe('maxGlobalLogic', () => {
         )
     })
 
+    // A chat and its task are deleted together on the server. Each list only knows about its own
+    // delete, so the other list has to be reloaded or the deleted item resurfaces as the other row.
+    describe('deleting from the merged list', () => {
+        let taskListRequests = 0
+        let conversationListRequests = 0
+        let tasks: ReturnType<typeof tasksLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/tasks/': () => {
+                        taskListRequests += 1
+                        return [200, { results: [], count: 0 }]
+                    },
+                    '/api/environments/:team_id/conversations/': () => {
+                        conversationListRequests += 1
+                        return [200, { results: [] }]
+                    },
+                },
+                delete: {
+                    '/api/environments/:team_id/conversations/:id/': () => [204, null],
+                    '/api/projects/:team_id/tasks/:id/': () => [204, null],
+                },
+            })
+            tasks = tasksLogic()
+            tasks.mount()
+            await expectLogic(tasks).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+            taskListRequests = 0
+            conversationListRequests = 0
+        })
+
+        afterEach(() => {
+            tasks.unmount()
+        })
+
+        it('reloads the chats when a task is deleted', async () => {
+            tasks.actions.deleteTask({ taskId: 'task-id' })
+            await expectLogic(tasks).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(conversationListRequests).toBe(1)
+        })
+
+        it('reloads the tasks when a chat is deleted', async () => {
+            logic.actions.deleteConversation('conversation-id')
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(tasks).toFinishAllListeners()
+
+            expect(taskListRequests).toBe(1)
+        })
+    })
+
     // A chat made on the legacy view is copied into a task while the task list sits unchanged since
     // mount; without this reload the merged list would hide the chat behind a task row it has not loaded.
     describe('switching to the new view', () => {
