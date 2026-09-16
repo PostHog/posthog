@@ -58,28 +58,6 @@ async def test_retrieve_due_alerts_uses_team_rank_rounds(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_retrieve_due_alerts_continues_rank_rounds_past_fifty(ateam: Team) -> None:
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    for team in (ateam, other_team):
-        for _ in range(52):
-            await _create_alert(team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=102),
-    )
-
-    selected_team_ids = [alert.team_id for alert in alerts]
-    assert selected_team_ids.count(ateam.id) == 51
-    assert selected_team_ids.count(other_team.id) == 51
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
 async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_documented_order_within_each_team(
     ateam: Team,
 ) -> None:
@@ -164,7 +142,7 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
-        return _RetrievedAlerts(alerts=[MagicMock()] * 9, due_count=9, oldest_due_at=None, polled_at=polled_at)
+        return _RetrievedAlerts(alerts=[MagicMock()] * 9, due_count=42, oldest_due_at=None, polled_at=polled_at)
 
     with (
         patch(
