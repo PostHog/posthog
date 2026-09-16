@@ -59,6 +59,8 @@ control or a styled `<div>` standing in for one:
   Do not use `h-full` there: a published canvas's artifact shell gives its `html`, `body`, and
   `#root` elements no explicit height, so a percentage root height collapses to content height.
   Nested elements may use `h-full` once their parent establishes a height.
+- Never make the `h-screen` scroll container a flex column with content-bearing direct children.
+  Use separate scroll and layout elements, or add `shrink-0` to every direct child.
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
 - Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.

@@ -151,6 +151,17 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
+_DEFAULT_COMPONENT_ROOT_RE = re.compile(
+    r"\bexport\s+default\s+function\b[\s\S]*?\breturn\s*\(\s*"
+    r"(?:(?:\s+)|(?://[^\n]*(?:\n|$))|(?:/\*[\s\S]*?\*/))*"
+    r"<[A-Za-z][\w.:-]*\b(?P<attributes>[^>]*)>",
+    re.MULTILINE,
+)
+_CLASS_NAME_LITERAL_RE = re.compile(
+    r"\bclassName\s*=\s*(?:\{\s*)?([\"'])(?P<classes>.*?)\1\s*\}?",
+    re.DOTALL,
+)
+
 _FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'`])(https://[^\"'`]+)\1")
 # `object` and `embed` are left out on purpose: the artifact CSP keeps
 # `object-src 'none'`, so a declared origin cannot make them load. Matching
@@ -356,8 +367,34 @@ def _validate_platform_tokens(path: str, content: str) -> list[dict[str, Any]]:
     return diagnostics
 
 
+def _validate_root_layout(path: str, code: str) -> list[dict[str, Any]]:
+    if path != CANVAS_COMPONENT_PATH:
+        return []
+    root_match = _DEFAULT_COMPONENT_ROOT_RE.search(code)
+    if root_match is None:
+        return []
+    class_match = _CLASS_NAME_LITERAL_RE.search(root_match.group("attributes"))
+    if class_match is None:
+        return []
+    classes = set(class_match.group("classes").split())
+    if not ({"h-screen", "h-full"} & classes and {"flex-col", "overflow-y-auto"} <= classes):
+        return []
+    class_position = root_match.start("attributes") + class_match.start("classes")
+    return [
+        diagnostic(
+            "warning",
+            "root_scroll_flex_column",
+            "The root element combines a full-height scroll container with a flex column. "
+            "Direct children can shrink and clip. Use separate scroll and flex-column elements, "
+            "or add shrink-0 to every direct child.",
+            path=path,
+            line=_line_of(code, class_position),
+        )
+    ]
+
+
 def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
-    diagnostics: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = _validate_root_layout(path, code)
 
     for pattern, code_name, message in _FORBIDDEN_PATTERNS:
         for match in pattern.finditer(code):

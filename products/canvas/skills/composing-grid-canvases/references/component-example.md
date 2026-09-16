@@ -99,38 +99,40 @@ export default function WelcomeChecklist() {
   const done = checked ? ITEMS.filter((item) => checked[item.id]).length : 0
 
   return (
-    // The component root must resolve height against its placement iframe viewport.
-    <div className="flex h-screen flex-col gap-2 overflow-y-auto p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <Text weight="medium">Welcome to PostHog</Text>
-        {checked ? (
-          <Text size="sm" className="text-muted-foreground">
-            {done} of {ITEMS.length} done
-          </Text>
-        ) : null}
-      </div>
-      {checked === null ? (
-        <SkeletonText lines={5} className="text-sm" />
-      ) : (
-        <div className="flex flex-col gap-1.5">
-          {ITEMS.map((item) => (
-            <div key={item.id} className="flex items-center gap-2">
-              <Checkbox checked={!!checked[item.id]} onCheckedChange={(value) => toggle(item.id, value === true)} />
-              <Text size="sm" className={checked[item.id] ? 'text-muted-foreground line-through' : ''}>
-                {item.label}
-              </Text>
-              {item.hint ? (
-                <Tooltip>
-                  <TooltipTrigger render={<Info size={13} className="shrink-0 text-muted-foreground" />} />
-                  <TooltipContent>
-                    <div className="max-w-60">{item.hint}</div>
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-          ))}
+    // Keep scrolling separate from the flex column so direct children do not shrink when content exceeds the viewport.
+    <div className="h-screen overflow-y-auto">
+      <div className="flex flex-col gap-2 p-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <Text weight="medium">Welcome to PostHog</Text>
+          {checked ? (
+            <Text size="sm" className="text-muted-foreground">
+              {done} of {ITEMS.length} done
+            </Text>
+          ) : null}
         </div>
-      )}
+        {checked === null ? (
+          <SkeletonText lines={5} className="text-sm" />
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {ITEMS.map((item) => (
+              <div key={item.id} className="flex items-center gap-2">
+                <Checkbox checked={!!checked[item.id]} onCheckedChange={(value) => toggle(item.id, value === true)} />
+                <Text size="sm" className={checked[item.id] ? 'text-muted-foreground line-through' : ''}>
+                  {item.label}
+                </Text>
+                {item.hint ? (
+                  <Tooltip>
+                    <TooltipTrigger render={<Info size={13} className="shrink-0 text-muted-foreground" />} />
+                    <TooltipContent>
+                      <div className="max-w-60">{item.hint}</div>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -142,5 +144,6 @@ export default function WelcomeChecklist() {
 - Imports only from the platform allowlist (`react`, `@posthog/quill`, `lucide-react`, `recharts`, `dayjs`).
 - `ph` is a host-injected global — never import it, and feature-detect optional surfaces like `ph.state` so the widget degrades instead of crashing on an older runtime.
 - Loading state renders a skeleton, never a blank; every async access has a `.catch` that lands in a renderable state.
-- Fill the placement iframe viewport (`h-screen`) and let content scroll; `h-full` cannot resolve
-  on the root because the published artifact shell has no explicit height.
+- Fill the placement iframe viewport with an `h-screen overflow-y-auto` wrapper. Put flex-column
+  layout on a separate child so content does not shrink. `h-full` cannot resolve on the root
+  because the published artifact shell has no explicit height.
