@@ -380,10 +380,14 @@ STATUS_SQL = (
     """
 SELECT
     report_id,
-    nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
-    nullIf(minIf(first_timestamp, outcome = 'dismissed'), fromUnixTimestamp(0)) AS first_dismissed_server_at,
-    nullIf(minIf(first_timestamp, outcome = 'failed'), fromUnixTimestamp(0)) AS first_failed_at,
-    nullIf(minIf(first_timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
+    -- Each restricted to the latest transition's tenant, like the reason and the count below: team_id
+    -- rides on event properties, so an event naming another team would otherwise win these min()
+    -- calls and date an outcome this tenant never had, while still passing the provenance check.
+    -- Claimed is not proven — an event naming the report's real team passes.
+    nullIf(minIf(first_timestamp, outcome = 'resolved' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_resolved_at,
+    nullIf(minIf(first_timestamp, outcome = 'dismissed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_dismissed_server_at,
+    nullIf(minIf(first_timestamp, outcome = 'failed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_failed_at,
+    nullIf(minIf(first_timestamp, outcome = 'snoozed' AND event_team_id = latest_event_team_id), fromUnixTimestamp(0)) AS first_snoozed_at,
     argMax(status, last_timestamp) AS latest_status_event,
     max(last_timestamp) AS latest_status_event_at,
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
@@ -399,11 +403,6 @@ SELECT
     -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
     -- whenever no artefact accompanies the transition, and this column has to describe the earliest
     -- dismissal itself.
-    --
-    -- Caveat until posthog#101565 lands: this reason is restricted to the latest transition's
-    -- tenant while first_dismissed_server_at above is not, so an earlier dismissal naming another
-    -- team can date that column while this one reads a later genuine dismissal. Treat the two as
-    -- separate reads, not as one event.
     nullIf(
         argMinIf(
             bucket_first_dismissal_reason,
