@@ -159,7 +159,7 @@ function createLinearIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: issue.description,
+            description: issue.description ?? '',
             integrationId: integration.id,
             teamIds: [],
         },
