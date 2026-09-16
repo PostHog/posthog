@@ -2,6 +2,7 @@ import json
 import uuid
 import datetime as dt
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -222,23 +223,28 @@ class TestComputeTableStatisticsSync:
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
-        mock_manager = MagicMock()
-        mock_manager.select_related.return_value.only.return_value.get.side_effect = [
-            OperationalError("deadlock detected"),
-            team,
-        ]
+        real_select_related = comp.Team.objects.select_related
+        lookups: list[tuple[Any, ...]] = []
+
+        def select_related_losing_first_deadlock(*fields: Any) -> Any:
+            lookups.append(fields)
+            if len(lookups) == 1:
+                raise OperationalError("deadlock detected")
+            return real_select_related(*fields)
+
         with (
-            patch.object(comp.Team, "objects", mock_manager),
+            patch.object(comp.Team.objects, "select_related", side_effect=select_related_losing_first_deadlock),
             patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.close_old_connections"
             ),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
 
         assert result["status"] == "done"
-        assert mock_manager.select_related.return_value.only.return_value.get.call_count == 2
+        assert len(lookups) == 2
 
     def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
         # job is fetched without select_related("schema"), so job.folder_path() (which reads
