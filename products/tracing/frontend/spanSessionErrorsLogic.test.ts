@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { makeSpan } from './__mocks__/span'
 import { spanSessionErrorsLogic } from './spanSessionErrorsLogic'
@@ -36,6 +37,30 @@ describe('spanSessionErrorsLogic', () => {
 
     const queriesRun = (): string[] => queryHogQLSpy.mock.calls.map((call) => call[0] as string)
 
+    const setErrorTrackingAccess = (level: AccessControlLevel): void => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.ErrorTracking]: level,
+            },
+        } as AppContext
+    }
+
+    // The access level is read from the app context when the flag selector first runs, so a
+    // test that changes it has to build the logics again afterwards.
+    const mountLogics = (): void => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
+            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
+        })
+        dataLogic = tracingDataLogic()
+        dataLogic.mount()
+        logic = spanSessionErrorsLogic()
+        logic.mount()
+    }
+
     beforeEach(() => {
         useMocks({
             get: {
@@ -48,16 +73,9 @@ describe('spanSessionErrorsLogic', () => {
                 ],
             },
         })
-        initKeaTests()
         queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [['session-a', 3]] } as any)
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-        })
-        dataLogic = tracingDataLogic()
-        dataLogic.mount()
-        logic = spanSessionErrorsLogic()
-        logic.mount()
+        setErrorTrackingAccess(AccessControlLevel.Viewer)
+        mountLogics()
     })
 
     afterEach(() => {
@@ -103,8 +121,21 @@ describe('spanSessionErrorsLogic', () => {
         expect(queriesRun()[0]).toContain('isNotNull(properties.$exception_issue_id)')
     })
 
-    it('queries nothing and scans no rows while the feature flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
+    // The count query reads raw exception events, which no backend check ties to Error Tracking
+    // access, so a person who cannot open that product must be stopped here.
+    it.each([
+        ['the feature flag is off', (): void => featureFlagLogic.actions.setFeatureFlags([], {})],
+        [
+            'the person has no Error Tracking access',
+            (): void => {
+                logic.unmount()
+                dataLogic.unmount()
+                setErrorTrackingAccess(AccessControlLevel.None)
+                mountLogics()
+            },
+        ],
+    ])('queries nothing and scans no rows while %s', async (_name, disable) => {
+        disable()
         await loadFirstPage([spanWithSession('span-1', 'session-a')])
 
         expect(queriesRun()).toHaveLength(0)

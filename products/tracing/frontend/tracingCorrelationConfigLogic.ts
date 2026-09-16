@@ -5,7 +5,10 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { PatchedTeamTracingConfigApi, TeamTracingConfigApi } from 'products/tracing/frontend/generated/api.schemas'
 
@@ -127,10 +130,15 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS],
         ],
         // Single owner of the "badge spans whose session hit errors?" rule, for the span list
-        // badge and the trace drawer's Errors tab.
+        // badge and the trace drawer's Errors tab. Error Tracking viewer access is required as well
+        // as the flag, because the counts and the issues are that product's data. The Errors tab's
+        // query enforces that on the backend, but the count query runs over raw events and does
+        // not, so this gate is what keeps the counts from a person who cannot open Error Tracking.
         sessionErrorBadgesEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES] &&
+                userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer),
         ],
         // This config only feeds correlation surfaces, so it is only worth a request when one of
         // them is on. The error badges resolve a session from the same configured keys, so a team

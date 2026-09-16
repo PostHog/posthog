@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { makeSpan } from './__mocks__/span'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
@@ -16,6 +17,13 @@ describe('tracingViewerLogic', () => {
     let getTraceSpy: jest.SpyInstance
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.ErrorTracking]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
         getTraceSpy = jest
             .spyOn(api.tracing, 'getTrace')
