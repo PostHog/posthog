@@ -147,7 +147,9 @@ describe('mergeSplitPersonLogic', () => {
             })
                 // executeSuccess, not executeFailure: the generic loader handler would toast the
                 // raw backend string and report the validation error to error tracking
-                .toDispatchActions(['execute', 'splitRejected', 'executeSuccess'])
+                .toDispatchActions(['execute', 'splitRejected'])
+                .toDispatchActions(eventUsageLogic, [eventUsageLogic.actionCreators.reportPersonSplitRejected(1)])
+                .toDispatchActions(['executeSuccess'])
                 .toFinishListeners()
 
             await expectLogic(logic).toMatchValues({
@@ -175,7 +177,10 @@ describe('mergeSplitPersonLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.execute()
             })
-                .toDispatchActions(['execute', 'splitRejected', 'executeSuccess'])
+                .toDispatchActions(['execute', 'splitRejected'])
+                // Null, not 0: the rejection proves an ID is stale even when the refresh failed
+                .toDispatchActions(eventUsageLogic, [eventUsageLogic.actionCreators.reportPersonSplitRejected(null)])
+                .toDispatchActions(['executeSuccess'])
                 .toFinishListeners()
 
             await expectLogic(logic).toMatchValues({

@@ -82,8 +82,8 @@ export interface mergeSplitPersonLogicActions {
         staleDistinctIds: string[],
         distinctIds: string[] | null
     ) => {
-        staleDistinctIds: string[]
         distinctIds: string[] | null
+        staleDistinctIds: string[]
     }
 }
 
@@ -170,7 +170,9 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                             ? values.distinctIdsToSplit.filter((id) => !distinctIds.includes(id))
                             : []
                         actions.splitRejected(staleDistinctIds, distinctIds)
-                        eventUsageLogic.actions.reportPersonSplitRejected(staleDistinctIds.length)
+                        // Null rather than zero when the refresh failed: the rejection proves at
+                        // least one ID is stale, so a count of zero would misreport it.
+                        eventUsageLogic.actions.reportPersonSplitRejected(distinctIds ? staleDistinctIds.length : null)
                         return false
                     }
                     if (splitAction.success) {
