@@ -19,6 +19,7 @@ export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
 /** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
 export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
+export type MlKeyIdentityMismatchReason = 'wrapped_key_missing'
 export type MlKeyRequest =
     | 'kms_generate'
     | 'kms_decrypt'
@@ -66,6 +67,11 @@ export class MlMirrorMetrics {
     private static readonly mlLegacyEnvelopesDropped = new Counter({
         name: 'recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total',
         help: 'Kafka records still in the sealed envelope shape the ML lanes wrote before they switched to cleartext records. The consumers drop them without dead-lettering, so this counter is the only trace of the backlog draining; once it stays at zero after a rollout, nothing else reads that shape',
+    })
+    private static readonly mlKeyIdentityMismatch = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
+        help: 'Stored ML key rows the mirror could not use: the row has no wrapped key and no tombstone, so its sessions are dropped (ml_key_stored_key_unusable log names the rows)',
+        labelNames: ['reason'],
     })
     private static readonly mlProducedVersion = new Counter({
         name: 'recording_blob_ingestion_v2_ml_produced_version_total',
@@ -177,6 +183,10 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlKeyIdentityMismatch(reason: MlKeyIdentityMismatchReason, count: number): void {
+        this.mlKeyIdentityMismatch.labels(reason).inc(count)
     }
 
     public static incrementMlLegacyEnvelopesDropped(count: number): void {
