@@ -471,8 +471,8 @@ class BatchExportsDebugger:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            if use_new_events_schema(team_id):
-                query = native_events_export_query(query_fields, filters_str, is_backfill=is_backfill)
+            if query_template is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema(team_id):
+                query = native_events_export_query(query_fields, filters_str, is_backfill=True)
             else:
                 if filters_str:
                     filters_str = f"AND {filters_str}"

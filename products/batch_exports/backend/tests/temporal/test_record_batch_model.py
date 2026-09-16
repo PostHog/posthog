@@ -461,11 +461,10 @@ class TestHogQLQueryRecordBatchModel:
             resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
 
 
-@pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("interval_start_is_none", [False, True])
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-async def test_custom_export_runs_without_legacy_events_tables(
-    ateam, clickhouse_client, is_backfill, interval_start_is_none
+async def test_custom_export_backfill_runs_without_legacy_events_tables(
+    ateam, clickhouse_client, interval_start_is_none
 ):
     database = f"native_export_{uuid7().hex}"
     await clickhouse_client.execute_query(f"CREATE DATABASE {database}")
@@ -516,21 +515,20 @@ async def test_custom_export_runs_without_legacy_events_tables(
                 team_id=ateam.pk,
                 values=values,
             )
-            month = "01" if is_backfill else "02"
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(
                     iter_records(
                         client=client,
                         team_id=ateam.pk,
                         use_new_events_schema=True,
-                        interval_start=None if interval_start_is_none else f"2024-{month}-01 00:00:00",
-                        interval_end=f"2024-{month}-02 00:00:00",
+                        interval_start=None if interval_start_is_none else "2024-01-01 00:00:00",
+                        interval_end="2024-01-02 00:00:00",
                         include_events=["purchase"],
                         fields=fields
                         + [{"expression": key, "alias": key} for key in ("properties", "person_properties", "set")],
                         filters_str=predicate,
                         extra_query_parameters=values,
-                        is_backfill=is_backfill,
+                        is_backfill=True,
                     )
                 )
             )()
@@ -543,6 +541,6 @@ async def test_custom_export_runs_without_legacy_events_tables(
             assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
             assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
-            assert rows[0]["_inserted_at"] == dt.datetime(2024, int(month), 1, 12, tzinfo=dt.UTC)
+            assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

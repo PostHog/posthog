@@ -7,8 +7,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -116,10 +114,7 @@ class EventCount:
 async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[EventCount]:
     """Get the total number of events for a given team over a set of time intervals from ClickHouse."""
 
-    use_native = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
-    query = EVENT_COUNT_BY_INTERVAL.safe_substitute(
-        events_table=events_read_table(True) if use_native else "events_recent"
-    )
+    query = EVENT_COUNT_BY_INTERVAL
 
     interval = inputs.interval
     # we check interval is "every 5 minutes" above but double check here

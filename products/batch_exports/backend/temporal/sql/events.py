@@ -474,7 +474,7 @@ SETTINGS
 )
 
 
-EVENT_COUNT_BY_INTERVAL = Template("""
+EVENT_COUNT_BY_INTERVAL = """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,
     interval_start + INTERVAL {interval} AS interval_end,
@@ -483,7 +483,7 @@ FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
         inserted_at AS _inserted_at
     FROM
-        $events_table AS events_recent
+        events_recent
     PREWHERE
         events_recent.inserted_at >= {overall_interval_start}::DateTime64
         AND events_recent.inserted_at < {overall_interval_end}::DateTime64
@@ -497,7 +497,7 @@ ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
-""")
+"""
 
 
 SERIALIZED_EVENTS_JSON_SOURCE = """(

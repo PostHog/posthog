@@ -109,7 +109,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
     elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events"
+        expected_table = "events_json" if use_native_schema else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -142,7 +142,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
-    mock_clickhouse_client.expect_select_from_table("events_json" if use_native_schema else expected_table)
+    mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
         {
             "team_id": insert_inputs.team_id,

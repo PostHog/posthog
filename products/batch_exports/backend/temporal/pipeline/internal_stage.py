@@ -585,43 +585,41 @@ async def _get_query(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-        if await database_sync_to_async(use_new_events_schema)(team_id):
-            query = native_events_export_query(
-                query_fields, filters_str, is_backfill=is_backfill, is_workflows=is_workflows, s3_function=s3_function
+        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+        # may not be able to handle the load from all batch exports
+        if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
+            logger.info("Using events_recent table for 5 min batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
+        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+        # which is a distributed table that sits in front of the `events_recent` table
+        elif (
+            use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
             )
+            and not is_workflows
+        ):
+            logger.info("Using distributed_events_recent table for batch export")
+            query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
+        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+            logger.info("Using unbounded events query for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
+        elif is_workflows:
+            logger.info("Using workflows events query for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
+        elif is_backfill:
+            logger.info("Using events_batch_export_backfill query for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
         else:
-            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-            # may not be able to handle the load from all batch exports
-            if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
-                logger.info("Using events_recent table for 5 min batch export")
-                query_template = EXPORT_TO_S3_FROM_EVENTS_RECENT
-            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-            # which is a distributed table that sits in front of the `events_recent` table
-            elif (
-                use_distributed_events_recent_table(
-                    is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
-                )
-                and not is_workflows
-            ):
-                logger.info("Using distributed_events_recent table for batch export")
-                query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-            elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-                logger.info("Using unbounded events query for batch export")
-                query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
-            elif is_workflows:
-                logger.info("Using workflows events query for batch export")
-                query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
-            elif is_backfill:
-                logger.info("Using events_batch_export_backfill query for batch export")
-                query_template = EXPORT_TO_S3_FROM_EVENTS_BACKFILL
-            else:
-                logger.info("Using events table for batch export")
-                query_template = EXPORT_TO_S3_FROM_EVENTS
-                lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-                    team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
-                )
-                parameters["lookback_days"] = lookback_days
+            logger.info("Using events table for batch export")
+            query_template = EXPORT_TO_S3_FROM_EVENTS
+            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+            parameters["lookback_days"] = lookback_days
 
+        if query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(use_new_events_schema)(
+            team_id
+        ):
+            query = native_events_export_query(query_fields, filters_str, is_backfill=True, s3_function=s3_function)
+        else:
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(

@@ -80,6 +80,13 @@ Given local execution is faster than reading data over the network, ClickHouse w
 Depending on the query, sub-queries executed on other shards might either return already aggregated data or stream entire
 datasets across the network. Being aware of which is done is crucial for performance.
 
+### Batch export sources
+
+Batch exports keep using `events_recent` and `distributed_events_recent` when the existing recent-data routing selects them, including for teams using the native JSON events schema.
+Monitoring continues to count events from `events_recent`.
+Historical backfills that select the legacy `events` backfill query use `events_json` when the native schema is enabled.
+The recent-table queries retain their existing replica freshness settings.
+
 ### Example query - distributed sums
 
 Consider the following tables:

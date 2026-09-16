@@ -277,30 +277,30 @@ def iter_records(
     else:
         is_5_min_batch_export = False
 
-    if use_new_events_schema:
+    # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+    # may not be able to handle the load from all batch exports
+    if is_5_min_batch_export and not is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_RECENT
+    # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+    # which is a distributed table that sits in front of the `events_recent` table
+    elif use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
+        query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+    elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
+    elif is_backfill:
+        query = SELECT_FROM_EVENTS_VIEW_BACKFILL
+    else:
+        query = SELECT_FROM_EVENTS_VIEW
+        lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
+        base_query_parameters["lookback_days"] = lookback_days
+
+    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
         query_str = native_events_export_query(
-            query_fields, filters_str or "", is_backfill=is_backfill, order="ORDER BY _inserted_at, event"
+            query_fields, filters_str or "", is_backfill=True, order="ORDER BY _inserted_at, event"
         )
     else:
-        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-        # may not be able to handle the load from all batch exports
-        if is_5_min_batch_export and not is_backfill:
-            query = SELECT_FROM_EVENTS_VIEW_RECENT
-        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-        # which is a distributed table that sits in front of the `events_recent` table
-        elif use_distributed_events_recent_table(
-            is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
-        ):
-            query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-        elif is_backfill:
-            query = SELECT_FROM_EVENTS_VIEW_BACKFILL
-        else:
-            query = SELECT_FROM_EVENTS_VIEW
-            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-            base_query_parameters["lookback_days"] = lookback_days
-
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(
