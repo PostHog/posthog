@@ -1,6 +1,11 @@
 import { DataModelingJob } from '~/types'
 
-import { computeJobDuration, jobLogsWindow, latestSuccessfulSyncAt } from './materializationJobUtils'
+import {
+    computeJobDuration,
+    fullRefreshReasonCopy,
+    jobLogsWindow,
+    latestSuccessfulSyncAt,
+} from './materializationJobUtils'
 
 const START = '2024-01-10T10:00:00Z'
 const START_PLUS_90S = '2024-01-10T10:01:30Z'
@@ -90,5 +95,16 @@ describe('materializationJobUtils', () => {
         ['nothing has completed yet', [{ status: 'Failed' }, { status: 'Cancelled' }, { status: 'Skipped' }], null],
     ])('latestSuccessfulSyncAt: %s', (_name, jobs, expected) => {
         expect(latestSuccessfulSyncAt(jobs.map(makeJob))).toEqual(expected)
+    })
+
+    it.each([
+        ['first run', 'First run'],
+        ['a reason this build does not know', 'a reason this build does not know'],
+    ])('fullRefreshReasonCopy: %s', (reason, label) => {
+        expect(fullRefreshReasonCopy(reason)?.label).toEqual(label)
+    })
+
+    it('fullRefreshReasonCopy: an incremental run has no reason', () => {
+        expect(fullRefreshReasonCopy(null)).toBeNull()
     })
 })

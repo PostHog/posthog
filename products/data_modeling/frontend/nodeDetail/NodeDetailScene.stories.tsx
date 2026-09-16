@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeDetailScene } from 'scenes/models/NodeDetailScene'
 import { urls } from 'scenes/urls'
 
@@ -183,4 +184,53 @@ export const SuspendedWithRunHistory: Story = {
 export const NarrowSuspendedWithRunHistory: Story = {
     ...SuspendedWithRunHistory,
     decorators: NarrowView.decorators,
+}
+
+const incrementalRuns = [
+    { id: 'run-a', run_mode: 'incremental', full_refresh_reason: null },
+    { id: 'run-b', run_mode: 'full_refresh', full_refresh_reason: 'definition changed' },
+    { id: 'run-c', run_mode: 'full_refresh', full_refresh_reason: 'no usable watermark' },
+    { id: 'run-d', run_mode: 'full_refresh', full_refresh_reason: 'first run' },
+]
+
+export const IncrementalRunHistory: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS],
+        pageUrl: urls.nodeDetail(node.id, 'materialization'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, { ...node, type: 'matview' }],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        {
+                            ...savedQuery,
+                            is_materialized: true,
+                            status: 'Completed',
+                            sync_frequency: '1hour',
+                            incremental: { enabled: true, incremental_key: 'day', unique_key: ['day'] },
+                            incremental_state: { last_run_mode: 'full_refresh', watermark: '2026-09-13T12:00:00Z' },
+                        },
+                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [
+                        200,
+                        {
+                            count: incrementalRuns.length,
+                            next: null,
+                            results: incrementalRuns.map((run) => ({
+                                status: 'Completed',
+                                rows_materialized: 1200,
+                                rows_expected: 1200,
+                                error: null,
+                                created_at: '2026-09-13T12:00:00Z',
+                                last_run_at: '2026-09-13T12:00:00Z',
+                                updated_at: '2026-09-13T12:00:03Z',
+                                ...run,
+                            })),
+                        },
+                    ],
+                },
+            },
+        },
+    },
 }

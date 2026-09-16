@@ -69,3 +69,50 @@ export function jobLogsWindow(job: JobTiming, timezone: string): { dateFrom?: st
             : undefined,
     }
 }
+
+interface FullRefreshReasonCopy {
+    label: string
+    explanation: string
+}
+
+/** Short label and explanation for a run that rebuilt the whole table, keyed by the reason the
+ * backend stored on the job. An unrecognized reason is shown as stored, so a reason added later
+ * still says something.
+ *
+ * Each explanation describes only the run it belongs to. The backend stamps the reason when it
+ * plans the run, so the same copy also has to hold for a run that is still going, for one that
+ * failed without recording a watermark, and for one that ran before the view's current settings. */
+const FULL_REFRESH_REASONS: Record<string, FullRefreshReasonCopy> = {
+    'first run': {
+        label: 'First run',
+        explanation: 'This was the first run, so there were no rows to add to.',
+    },
+    'definition changed': {
+        label: 'Definition changed',
+        explanation: 'The query or the incremental keys changed, so the stored rows no longer matched them.',
+    },
+    'no usable watermark': {
+        label: 'Unusable watermark',
+        explanation:
+            'The saved position for the incremental key could not be read, so this run rebuilt the whole table.',
+    },
+    'table missing': {
+        label: 'Table missing',
+        explanation: 'There was no table to add rows to, so this run built it again.',
+    },
+    'not configured for incremental materialization': {
+        label: 'Not configured',
+        explanation: 'Incremental updates were off for this view when this run started.',
+    },
+    'incremental materialization is not enabled': {
+        label: 'Not available',
+        explanation: 'Incremental updates were not available for this project when this run started.',
+    },
+}
+
+export function fullRefreshReasonCopy(reason: string | null | undefined): FullRefreshReasonCopy | null {
+    if (!reason) {
+        return null
+    }
+    return FULL_REFRESH_REASONS[reason] ?? { label: reason, explanation: reason }
+}

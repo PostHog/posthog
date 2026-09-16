@@ -24,9 +24,10 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, ph_background_capture
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -178,6 +179,21 @@ def _incremental_enabled(team_id: int) -> bool:
         return False
 
 
+class FullRefreshReason:
+    """Why a run rebuilt the whole table instead of updating only new rows.
+
+    Each value is stored on the job and translated into user-facing copy by the runs UI, so a
+    changed string leaves the runs of every older job without an explanation.
+    """
+
+    NOT_CONFIGURED = "not configured for incremental materialization"
+    NOT_ENABLED = "incremental materialization is not enabled"
+    FIRST_RUN = "first run"
+    DEFINITION_CHANGED = "definition changed"
+    NO_WATERMARK = "no usable watermark"
+    TABLE_MISSING = "table missing"
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class WritePlan:
     """Whether this run rebuilds the table or updates it, and why. The reason is surfaced on the
@@ -194,25 +210,29 @@ class WritePlan:
 def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> WritePlan:
     config = get_incremental_config(saved_query)
     if config is None:
-        return WritePlan(incremental=False, reason="not configured for incremental materialization")
+        return WritePlan(incremental=False, reason=FullRefreshReason.NOT_CONFIGURED)
 
     if not _incremental_enabled(team_id):
-        return WritePlan(incremental=False, reason="incremental materialization is not enabled")
+        return WritePlan(incremental=False, reason=FullRefreshReason.NOT_ENABLED)
 
     fingerprint = definition_fingerprint(typing.cast(dict, saved_query.query), config)
     state = get_incremental_state(saved_query)
 
     if state.watermark is None:
-        return WritePlan(incremental=False, reason="first run", fingerprint=fingerprint, config=config)
+        return WritePlan(incremental=False, reason=FullRefreshReason.FIRST_RUN, fingerprint=fingerprint, config=config)
 
     if fingerprint is None or fingerprint != state.definition_fingerprint:
         # The query or its config changed, so existing rows were computed by a definition that no
         # longer applies. Rebuilding is the only way the table still matches the SQL the user sees.
-        return WritePlan(incremental=False, reason="definition changed", fingerprint=fingerprint, config=config)
+        return WritePlan(
+            incremental=False, reason=FullRefreshReason.DEFINITION_CHANGED, fingerprint=fingerprint, config=config
+        )
 
     since = window_start(state, config)
     if since is None:
-        return WritePlan(incremental=False, reason="no usable watermark", fingerprint=fingerprint, config=config)
+        return WritePlan(
+            incremental=False, reason=FullRefreshReason.NO_WATERMARK, fingerprint=fingerprint, config=config
+        )
 
     return WritePlan(
         incremental=True,
@@ -220,6 +240,27 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
         since=since,
         fingerprint=fingerprint,
         config=config,
+    )
+
+
+def _capture_full_refresh_fallback(team: Team, *, saved_query_id: str, job_id: str, reason: str) -> None:
+    """Record how often a view that asked for incremental updates rebuilds anyway, and why.
+
+    A view with no incremental config has nothing to fall back from, so it is not recorded.
+
+    The event id is derived from the job so that one run is counted once. Temporal retries this
+    activity up to three times on a transient failure, and a failed attempt records no watermark,
+    so every attempt resolves the same reason and reports it again.
+    """
+    if reason == FullRefreshReason.NOT_CONFIGURED:
+        return
+    event_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"data_modeling_full_refresh_fallback:{job_id}")
+    ph_background_capture()(
+        distinct_id=str(team.uuid),
+        event="data_modeling_full_refresh_fallback",
+        groups=groups(team=team),
+        properties={"reason": reason, "saved_query_id": saved_query_id, "job_id": job_id},
+        uuid=str(event_uuid),
     )
 
 
@@ -1090,7 +1131,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     plan = await _resolve_write_plan(objects.saved_query, inputs.team_id)
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
-        plan = dataclasses.replace(plan, incremental=False, reason="table missing")
+        plan = dataclasses.replace(plan, incremental=False, reason=FullRefreshReason.TABLE_MISSING)
     await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
 
     # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
@@ -1100,6 +1141,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     )
     objects.job.full_refresh_reason = None if plan.incremental else plan.reason
     await database_sync_to_async_pool(objects.job.save)()
+
+    if not plan.incremental:
+        _capture_full_refresh_fallback(
+            objects.team,
+            saved_query_id=str(objects.saved_query.id),
+            job_id=str(objects.job.id),
+            reason=plan.reason,
+        )
 
     person_property_sink = await _build_person_property_sink(
         objects, inputs.job_id, logger, incremental=plan.incremental

@@ -28,7 +28,7 @@ import { MaterializationRunError } from 'products/data_warehouse/frontend/shared
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { DEFAULT_JOBS_PAGE_SIZE, materializationJobsLogic } from './materializationJobsLogic'
-import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import { computeJobDuration, fullRefreshReasonCopy, jobLogsWindow } from './materializationJobUtils'
 import {
     SyncFrequencySelect,
     SyncFrequencyValue,
@@ -181,6 +181,11 @@ export function MaterializationStatusPanel({
     const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
     const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
+    // The saved query records the mode of the last run that finished, so the reason comes from the
+    // newest run that recorded one rather than from whatever run is at the top of the list.
+    const lastRunFullRefreshReason = fullRefreshReasonCopy(
+        dataModelingJobs?.results?.find((job) => job.full_refresh_reason)?.full_refresh_reason
+    )
     const savedIncremental = savedQuery.incremental
     // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
     // definition fingerprint). A lookback-only change is operational and does not.
@@ -276,6 +281,12 @@ export function MaterializationStatusPanel({
                                     <div className="text-xs text-secondary mt-1">
                                         Updating new rows only, up to{' '}
                                         {formatWatermark(savedQuery.incremental_state?.watermark)}
+                                    </div>
+                                )}
+                                {showIncremental && lastRunMode === 'full_refresh' && lastRunFullRefreshReason && (
+                                    <div className="text-xs text-secondary mt-1">
+                                        <span>Rebuilt the whole table.&nbsp;</span>
+                                        <span>{lastRunFullRefreshReason.explanation}</span>
                                     </div>
                                 )}
                                 {showStatusSummary && isPaused && kind !== 'endpoint' && (
@@ -465,12 +476,26 @@ export function MaterializationStatusPanel({
                             dataIndex: 'run_mode',
                             isHidden:
                                 !showIncremental || !savedQuery.is_materialized || !jobsPageResults?.results?.length,
-                            render: (_, { run_mode }: DataModelingJobApi) =>
-                                run_mode === 'incremental'
-                                    ? 'Incremental'
-                                    : run_mode === 'full_refresh'
-                                      ? 'Full refresh'
-                                      : '-',
+                            render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
+                                if (run_mode === 'incremental') {
+                                    return 'Incremental'
+                                }
+                                if (run_mode !== 'full_refresh') {
+                                    return '-'
+                                }
+                                const reason = fullRefreshReasonCopy(full_refresh_reason)
+                                if (!reason) {
+                                    return 'Full refresh'
+                                }
+                                return (
+                                    <Tooltip title={reason.explanation}>
+                                        <div>
+                                            <div>Full refresh</div>
+                                            <div className="text-xs text-secondary">{reason.label}</div>
+                                        </div>
+                                    </Tooltip>
+                                )
+                            },
                         },
                         {
                             title: 'Error',
