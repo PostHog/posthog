@@ -639,7 +639,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1 or (retry_deadline is not None and time.monotonic() >= retry_deadline):
+                    # The retries exist for an intermittent cluster failure. A refused read is not
+                    # one: the bucket keeps refusing until its credentials are fixed, so the
+                    # remaining attempts add four more denied reads and 15 seconds of sleep to a
+                    # synchronous request, then raise the same error from here anyway.
+                    if (
+                        isinstance(err, CHQueryErrorS3AccessDenied)
+                        or i >= attempts - 1
+                        or (retry_deadline is not None and time.monotonic() >= retry_deadline)
+                    ):
                         capture_exception(err)
                         if safe_expose_ch_error:
                             self._safe_expose_ch_error(err)
