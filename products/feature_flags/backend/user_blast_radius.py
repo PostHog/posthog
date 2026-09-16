@@ -169,6 +169,21 @@ def get_user_blast_radius(
             return _get_person_blast_radius(team, cleaned_filter)
 
 
+def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+    """
+    Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
+
+    The gate is applied by the caller, not inside get_user_blast_radius: workflows shares that
+    function and gates its own audience counts on workflows-audience-query-v2, so a gate in
+    there would move workflows counts outside the workflows rollout.
+    """
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+
+        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
+
+
 def get_user_blast_radius_persons(
     team: Team,
     feature_flag_condition: dict,
@@ -187,10 +202,6 @@ def get_user_blast_radius_persons(
 
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
-
-    if use_blast_radius_query_v2(team):
-        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, filter, query_type=QUERY_TYPE_V2)
 
     properties = filter.property_groups.flat
 
