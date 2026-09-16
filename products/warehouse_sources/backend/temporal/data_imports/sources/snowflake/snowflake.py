@@ -53,9 +53,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
+    "SNOWFLAKE_RESULT_CAP_MARKER",
+    "SNOWFLAKE_TOO_WIDE_MESSAGE",
     "SnowflakeImplementation",
     "filter_snowflake_incremental_fields",
 ]
+
+
+# Snowflake error 000709: an `information_schema` query matched more rows than the account's result
+# cap allows. Blank-schema discovery reads every column of every non-system schema, so a wide
+# account trips this before anything else. The query id in the message is volatile, so we match the
+# stable leading phrase.
+SNOWFLAKE_RESULT_CAP_MARKER = "Information schema query returned too much data"
+
+# The Schema field is the only control that narrows the scan, and its placeholder ("Leave blank to
+# import all schemas") steers people onto the widest path by default. One schema can still hold more
+# columns than the cap allows, and no narrower control exists, so that case ends at support rather
+# than at the same instruction again.
+SNOWFLAKE_TOO_WIDE_MESSAGE = (
+    "This Snowflake database has too many tables for PostHog to list in one go. "
+    "Enter a single schema name in the Schema field to list only that schema, then try again. "
+    "You can connect the other schemas as separate sources. "
+    "If you already entered a schema, contact support so we can help you connect this account."
+)
 
 
 def filter_snowflake_incremental_fields(

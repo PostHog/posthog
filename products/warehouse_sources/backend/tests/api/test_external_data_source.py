@@ -3,6 +3,7 @@ import time
 import uuid
 import typing as t
 from datetime import date, timedelta
+from threading import BoundedSemaphore, Event
 from typing import Any, cast
 
 import time_machine
@@ -17,8 +18,10 @@ from django.utils import timezone
 
 import psycopg
 import requests
+import structlog
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -5370,6 +5373,163 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # Snowflake has a Schema field, so its own guidance names it.
+            ("source_with_a_narrowing_field", "Snowflake", ["Schema field"], []),
+            # Stripe has no schema or database, so the default must not ask the user to narrow one.
+            ("source_without_a_narrowing_field", "Stripe", ["contact support"], ["schema", "database"]),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_answers_slow_discovery_with_the_source_guidance(
+        self, _name, source_type, expected_phrases, forbidden_phrases, mock_get_source, mock_capture_exception
+    ):
+        # Discovery on a wide account used to outlive the gateway, which killed the request with no
+        # body — the wizard could not say what went wrong or what to change. Own the deadline so the
+        # caller gets the source's own guidance instead.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source import SnowflakeSource
+
+        source = SnowflakeSource() if source_type == "Snowflake" else StripeSource()
+        mock_get_source.return_value = source
+
+        def _never_returns(*args, **kwargs):
+            time.sleep(1)
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=_never_returns),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.DISCOVERY_DEADLINE_SECONDS",
+                0.1,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": source_type},
+            )
+
+        assert response.status_code == 400
+        message = response.json()["message"]
+        for phrase in expected_phrases:
+            assert phrase in message
+        for phrase in forbidden_phrases:
+            assert phrase not in message.lower()
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_discovery_keeps_the_request_log_context(self, mock_get_source):
+        # The legs run on a pool thread, which starts with an empty context. The lines they write
+        # about the customer's host are the ones a slow discovery has to be diagnosed from, so they
+        # still have to carry the request's ids.
+        source = StripeSource()
+        mock_get_source.return_value = source
+        seen: dict[str, Any] = {}
+
+        def _capture_context(*args, **kwargs):
+            seen.update(structlog.contextvars.get_contextvars())
+            return []
+
+        structlog.contextvars.bind_contextvars(discovery_test_marker="bound-on-the-request")
+        try:
+            with (
+                patch.object(source, "validate_config", return_value=(True, [])),
+                patch.object(source, "parse_config", return_value=None),
+                patch.object(source, "validate_credentials", return_value=(True, None)),
+                patch.object(source, "get_schemas", side_effect=_capture_context),
+                patch.object(source, "get_endpoint_permissions", return_value={}),
+            ):
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                    data={"source_type": "Stripe"},
+                )
+        finally:
+            structlog.contextvars.unbind_contextvars("discovery_test_marker")
+
+        assert response.status_code == 200, response.json()
+        assert seen.get("discovery_test_marker") == "bound-on-the-request"
+        assert "request_id" in seen
+
+    def test_database_schema_counts_a_source_error_the_credential_probe_resolved(self):
+        # A SQL source lists the catalog to validate, so a catalog too wide to list comes back as a
+        # rejected credential carrying guidance. That answer left no trace at all: the source maps
+        # it instead of raising, so nothing captured it and nothing counted it either.
+        from snowflake.connector.errors import ProgrammingError
+
+        labels = {"source_type": "Snowflake", "cause": "invalid_credentials"}
+        before = REGISTRY.get_sample_value("warehouse_source_discovery_failures_total", labels) or 0.0
+        error = ProgrammingError(
+            msg="000709 (54000): Information schema query returned too much data. "
+            "Please repeat query with more selective predicates.",
+            errno=709,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.get_schemas",
+            side_effect=error,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Snowflake",
+                    "account_id": "my_account_id",
+                    "database": "my_database",
+                    "warehouse": "my_warehouse",
+                    "auth_type": {
+                        "selection": "password",
+                        "user": "my_username",
+                        "password": "my_password",
+                        "private_key": "",
+                        "passphrase": "",
+                    },
+                    "role": "",
+                    "schema": "",
+                },
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Schema field" in response.json()["message"]
+        after = REGISTRY.get_sample_value("warehouse_source_discovery_failures_total", labels) or 0.0
+        assert after - before == 1.0
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_answers_at_once_when_every_discovery_worker_is_busy(
+        self, mock_get_source, mock_capture_exception
+    ):
+        # The pool's queue only holds work that has not started, so a fully busy pool reads as empty.
+        # A caller admitted on that reading waits out the whole budget for work that never starts.
+        source = StripeSource()
+        mock_get_source.return_value = source
+
+        capacity = BoundedSemaphore(1)
+        assert capacity.acquire(blocking=False)
+
+        def _must_not_run(*args, **kwargs):
+            raise AssertionError("discovery must not start while every worker is busy")
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", side_effect=_must_not_run),
+            patch.object(source, "get_schemas", side_effect=_must_not_run),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source._DISCOVERY_CAPACITY",
+                capacity,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "Stripe"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == source.discovery_timeout_message()
+        mock_capture_exception.assert_not_called()
+
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_database_schema_rejects_source_without_schema_discovery(self, mock_get_source, mock_capture_exception):
@@ -5425,6 +5585,45 @@ class TestExternalDataSource(APIBaseTest):
             by_table = {entry["table"]: entry for entry in response.json()}
             assert by_table["Charge"]["permission_error"] == "Missing rak_charge_read"
             assert by_table["Customer"]["permission_error"] is None
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    def test_database_schema_answers_with_the_listing_when_the_permission_probe_is_slow(self, mock_capture_exception):
+        # The probe is one request per endpoint on some sources, so it can spend as long as the
+        # listing did. Outside the budget it pushed the whole answer past the gateway, which left
+        # the wizard with nothing — the tables it already had included.
+        release_probe = Event()
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials"
+            ) as validate_credentials_mock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.check_stripe_endpoint_permissions"
+            ) as check_perms_mock,
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.DISCOVERY_DEADLINE_SECONDS",
+                1.0,
+            ),
+        ):
+            validate_credentials_mock.return_value = True
+            check_perms_mock.side_effect = lambda *args, **kwargs: release_probe.wait(5)
+
+            try:
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                    data={
+                        "source_type": "Stripe",
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "blah"},
+                        "stripe_account_id": "blah",
+                    },
+                )
+            finally:
+                release_probe.set()
+
+        assert response.status_code == 200
+        entries = response.json()
+        assert len(entries) > 0
+        assert all(entry["permission_error"] is None for entry in entries)
+        mock_capture_exception.assert_not_called()
 
     def test_database_schema_zendesk_credentials(self):
         with patch(
