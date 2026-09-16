@@ -1230,7 +1230,7 @@ export interface WorkflowProposalApi {
     readonly step_id: string | null
     /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
     readonly base_version: number
-    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
     readonly is_stale: boolean
     readonly status: WorkflowProposalStatusEnumApi
     /** How the proposal was created. Derived from the request, never set by the caller.

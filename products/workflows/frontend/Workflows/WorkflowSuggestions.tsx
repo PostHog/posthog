@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
+import { workflowLogic } from './workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
@@ -17,6 +22,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimisationUnreadable,
     } = useValues(workflowProposalsLogic({ id }))
     const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
+    const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
 
@@ -44,14 +50,23 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                     Only the workflows you turn on are read, and nothing changes until you approve a suggestion and
                     publish it.
                 </p>
-                <LemonSwitch
-                    bordered
-                    label="Suggest improvements"
-                    checked={optimisationEnabled}
-                    disabled={optimisationLoading}
-                    onChange={(checked) => setOptimisationEnabled(checked)}
-                    data-attr="workflow-suggestions-enable"
-                />
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Workflow}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={workflowUserAccessLevel ?? undefined}
+                >
+                    {({ disabledReason }) => (
+                        <LemonSwitch
+                            bordered
+                            label="Suggest improvements"
+                            checked={optimisationEnabled}
+                            disabled={optimisationLoading || !!disabledReason}
+                            tooltip={disabledReason}
+                            onChange={(checked) => setOptimisationEnabled(checked)}
+                            data-attr="workflow-suggestions-enable"
+                        />
+                    )}
+                </AccessControlAction>
             </div>
         )
     }

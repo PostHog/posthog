@@ -3815,7 +3815,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
     is_stale = serializers.SerializerMethodField(
         help_text=(
             "Whether approving this would undo an edit made since it was proposed. False while the "
-            "workflow only changed elsewhere, because approving merges per step."
+            "workflow only changed elsewhere, because approving merges only what the proposal changes."
         )
     )
 
@@ -5516,7 +5516,7 @@ class HogFlowViewSet(
             content=content,
             evidence=params.get("evidence") or {},
             step_id=params.get("step_id") or None,
-            base_version=params.get("base_version") or instance.version or 1,
+            base_version=params["base_version"],
             source_id=source_id,
             created_via=self._proposal_created_via(request),
             created_by=request.user if request.user.is_authenticated else None,
