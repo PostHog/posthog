@@ -3668,6 +3668,24 @@ describe('dashboardLogic', () => {
             ])
         })
 
+        it('refreshes with the completed load action when a deferred rename starts a recovery load', async () => {
+            // The recovery load replaces dashboardLoadData, so reading the action after starting it
+            // labels the finished initial load as an update and skips its initial-load reporting.
+            logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                short_id: 'not_already_on_the_dashboard' as InsightShortId,
+            })
+
+            await expectLogic(logic).toDispatchActions([
+                'loadDashboardSuccess',
+                'reapplyInsightRenames',
+                (action) =>
+                    action.type === logic.actionTypes.refreshDashboardItems &&
+                    action.payload.action === DashboardLoadAction.InitialLoad,
+            ])
+        })
+
         it('does not reload when an external rename targets a different dashboard only', async () => {
             const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
             await expectLogic(logic, () => {

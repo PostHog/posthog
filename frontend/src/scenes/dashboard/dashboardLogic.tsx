@@ -3505,6 +3505,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         handleDashboardLoadComplete: () => {
+            // A recovery load below starts a new load, which replaces dashboardLoadData with the
+            // recovery's own context. Read the completed load's action before that can happen.
+            const completedLoadAction = values.dashboardLoadData.action!
+
             // The load answered with the tiles as they were when it started, so a rename that landed
             // while it was in flight has just been overwritten. Patch those names back on.
             const heldRenames = values.deferredInsightRenames
@@ -3525,8 +3529,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)
             if (values.placement !== DashboardPlacement.Export) {
-                const loadAction = values.dashboardLoadData.action!
-                actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
+                actions.refreshDashboardItems({ action: completedLoadAction, forceRefresh: false })
             }
 
             if (values.shouldReportOnAPILoad) {
