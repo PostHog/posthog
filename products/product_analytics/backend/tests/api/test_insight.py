@@ -3085,6 +3085,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+    def test_soft_delete_with_deprecated_dashboards_field_causes_404(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        other_dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+
+        # The list has to add a dashboard: an unchanged list writes no tile row and so misses the bug
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"deleted": True, "dashboards": [dashboard_id, other_dashboard_id]},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
 

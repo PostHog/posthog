@@ -882,14 +882,17 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
+        # Pop `dashboards` before `super().update()` can see it. DRF writes a to-many field through
+        # the m2m manager, which bulk-creates the tile rows and so skips the DashboardTile save()
+        # that copies team_id off the dashboard.
+        dashboard_ids = validated_data.pop("dashboards", None)
+
         if validated_data.get("deleted", False):
             hide_tiles_for_insights([instance.id])
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                self._update_insight_dashboards(dashboard_ids, instance)
+        elif dashboard_ids is not None:
+            self._update_insight_dashboards(dashboard_ids, instance)
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
