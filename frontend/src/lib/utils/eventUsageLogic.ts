@@ -129,6 +129,12 @@ export enum GraphSeriesAddedSource {
  * empty opens nothing, and empty lists are the outcome the in-session scope most affects.
  */
 export interface ExperimentRecordingsTabContext {
+    /**
+     * What put the tab in the state it opened in, when it was not the viewer: 'results_button' or
+     * 'results_menu' for a results-table link. Null when the viewer opened the tab themselves,
+     * which is the ordinary case, so this is what separates the two populations in a report.
+     */
+    entry_point: string | null
     variant_count: number
     metric_count: number
     linkable_metric_count: number
@@ -138,6 +144,10 @@ export interface ExperimentRecordingsTabContext {
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
     in_session_uses_stamped_fallback: boolean | null
+    /** Whether the "What to watch" toggle was on the tab at all: the denominator for opening it. */
+    behavior_comparison_available: boolean
+    /** Why the toggle was shown disabled, null when it was usable. */
+    behavior_comparison_unavailable_reason: string | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
@@ -154,6 +164,12 @@ export interface ExperimentRecordingsFilterContext {
      * This is the success metric for the behavior comparison: opens it drove versus opens the
      * plain list drove. */
     watch_card_kind: string | null
+    /**
+     * What set these facets, when it was not the viewer: 'results_button' or 'results_menu' for a
+     * results-table link. Null once the viewer moves a facet themselves, so an empty list that a
+     * results row produced can be told from one somebody narrowed into by hand.
+     */
+    entry_point: string | null
 }
 
 /**
@@ -247,6 +263,10 @@ export interface ExperimentWatchShelfContext {
     sessions_truncated: boolean
     /** The project has more event names than one comparison ranks, so some were never considered. */
     events_truncated: boolean
+    /** Whether the experiment has stopped enrolling, so waiting cannot fill an empty shelf. */
+    experiment_ended: boolean
+    /** Whole days from the launch to this load, null when the experiment has not launched. */
+    days_since_start: number | null
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */

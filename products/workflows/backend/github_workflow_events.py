@@ -4,8 +4,9 @@ The counterpart to ``products.slack_app.backend.slack_workflow_events``, and del
 the same way: resolve the PostHog projects behind the GitHub installation, then write the delivery
 out as-is. A workflow's trigger config decides what it wants, and the CDP consumer evaluates that.
 
-Registered in the GitHub App webhook fan-out (``posthog.urls.github_webhook``), which verifies the
-signature, parses the body, and dedupes redeliveries before any handler runs.
+Registered by ``products/workflows/backend/webhook_consumers.py`` as the ``workflows`` consumer
+on the GitHub App endpoint, which verifies the signature, parses the body, and dedupes redeliveries
+before any consumer runs.
 """
 
 import json
@@ -17,6 +18,7 @@ from django.conf import settings
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
 
@@ -39,6 +41,11 @@ _MAX_EVENT_PAYLOAD_BYTES = 900_000
 # Associations that mean the actor has, or is granted, write access to the repository. Anyone can
 # open an issue on a public repo, so this is what separates a maintainer from a passer-by.
 TRUSTED_AUTHOR_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+
+# Cap the installation lookup. This runs inside the fan-out's shared per-delivery budget, which
+# cannot interrupt a query already in flight, so a slow lookup costs every other consumer on the
+# delivery too. Same cap as the GitHub attribution lookup in posthog/github/attribution.py.
+_INTEGRATION_LOOKUP_TIMEOUT_MS = 800
 
 
 def _subject(payload: dict[str, Any]) -> dict[str, Any]:
@@ -185,11 +192,21 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
         return
 
     try:
-        integrations = list(
-            Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list("team_id", "id")
-        )
-    except Exception:
-        logger.exception("github_workflow_event_integration_lookup_failed", installation_id=installation_id)
+        with bounded_statement_timeout(_INTEGRATION_LOOKUP_TIMEOUT_MS, models=(Integration,)):
+            integrations = list(
+                Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list(
+                    "team_id", "id"
+                )
+            )
+    except Exception as e:
+        if is_statement_timeout(e):
+            logger.warning(
+                "github_workflow_event_integration_lookup_timed_out",
+                installation_id=installation_id,
+                delivery_id=delivery_id,
+            )
+        else:
+            logger.exception("github_workflow_event_integration_lookup_failed", installation_id=installation_id)
         return
 
     distinct_id = str((payload.get("sender") or {}).get("login") or f"installation:{installation_id}")

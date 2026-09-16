@@ -113,6 +113,13 @@ export interface NodeSuspensionApi {
     job_id: string
 }
 
+export interface NodeEndpointApi {
+    /** Name of the endpoint this node's materialization backs. */
+    name: string
+    /** Endpoint version this node's materialization backs. */
+    version: number
+}
+
 /**
  * Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed.
  */
@@ -153,6 +160,8 @@ export interface NodeApi {
     readonly sync_interval: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended: NodeApiSuspended
+    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    readonly endpoint: NodeEndpointApi | null
 }
 
 export interface PaginatedNodeListApi {
@@ -204,6 +213,8 @@ export interface PatchedNodeApi {
     readonly sync_interval?: string | null
     /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
     readonly suspended?: PatchedNodeApiSuspended
+    /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+    readonly endpoint?: NodeEndpointApi | null
 }
 
 export interface NodeResumeApi {

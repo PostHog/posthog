@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
@@ -639,10 +640,20 @@ class TestHostSafety:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code,expected_valid",
-        [(200, True), (401, False), (403, False), (404, False), (500, False)],
+        "status_code,expected_fragment",
+        [
+            (200, None),
+            (401, "invalid or has been revoked"),
+            (403, "read this workspace"),
+            (404, "no LangSmith API there"),
+            # A rate limit and a LangSmith outage are not a bad key, so both ask for a retry
+            # instead of sending the user to replace a key that works.
+            (429, "Try again in a few minutes"),
+            (500, "Try again in a few minutes"),
+            (418, "valid key from your LangSmith"),
+        ],
     )
-    def test_status_mapping(self, status_code, expected_valid):
+    def test_status_mapping(self, status_code, expected_fragment):
         response = mock.MagicMock()
         response.status_code = status_code
 
@@ -650,9 +661,26 @@ class TestValidateCredentials:
             session.return_value.get.return_value = response
             valid, message = validate_credentials("key", None)
 
-        assert valid is expected_valid
-        if not expected_valid:
-            assert message
+        assert valid is (expected_fragment is None)
+        if expected_fragment is None:
+            assert message is None
+        else:
+            assert message is not None
+            assert expected_fragment in message
+            # The wizard shows this message verbatim, so no status code may reach it.
+            assert str(status_code) not in message
+
+    def test_unreachable_host_does_not_surface_the_raw_exception(self):
+        with mock.patch(_MAKE_SESSION) as session:
+            session.return_value.get.side_effect = requests.ConnectionError(
+                "HTTPSConnectionPool(host='langsmith.example', port=443): Max retries exceeded"
+            )
+            valid, message = validate_credentials("key", None)
+
+        assert valid is False
+        assert message is not None
+        assert "HTTPSConnectionPool" not in message
+        assert "Try again in a few minutes" in message
 
     def test_unsafe_host_fails_before_network_call(self):
         with (

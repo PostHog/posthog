@@ -7,9 +7,9 @@
 //! commit fails at the broker instead of landing.
 //!
 //! Lanes exist because the coordinator holds a producer's next transaction
-//! until its previous commit finishes, so a write takes the lane whose last
-//! commit is oldest. Each write keeps its person's lock through the ack,
-//! so ordering is unchanged.
+//! until its previous commit finishes, so consecutive windows rotate across
+//! lanes; a partition still runs one window at a time. Each write keeps its
+//! person's lock through the ack, so ordering is unchanged.
 //!
 //! Writes are grouped into transaction windows rather than one
 //! transaction each. A transactional producer admits one open
@@ -269,6 +269,8 @@ struct PartitionFence {
     lane: usize,
     /// The commit clock at this lane's last finished commit; zero until then.
     last_commit_end: AtomicU64,
+    /// The partition's turn, shared by its lanes; see [`PartitionLanes::turn`].
+    turn: Arc<Mutex<()>>,
     /// Writers waiting on this lane's window to close.
     #[cfg(any(test, feature = "test-support"))]
     parked: AtomicUsize,
@@ -360,6 +362,10 @@ impl PartitionFence {
 /// takes the lane least likely to be held.
 struct PartitionLanes {
     lanes: Vec<Arc<PartitionFence>>,
+    /// Serializes lane decisions: a writer holds it from reading the gates
+    /// to moving one, and a committer while it clears `committing`, so a
+    /// lane seen idle stays idle until the writer has chosen.
+    turn: Arc<Mutex<()>>,
 }
 
 impl PartitionLanes {
@@ -384,6 +390,7 @@ impl PartitionLanes {
                 return None;
             };
             states.push(LaneState {
+                open: gate.open,
                 committing: gate.committing,
                 last_commit_end: lane.last_commit_end.load(Ordering::Relaxed),
             });
@@ -394,23 +401,28 @@ impl PartitionLanes {
 
 #[derive(Clone, Copy, Debug)]
 struct LaneState {
+    open: bool,
     committing: bool,
     last_commit_end: u64,
 }
 
-/// The lane a write takes: among lanes not mid-commit, the one whose last
-/// commit is oldest; when every lane is committing, the oldest.
+/// One window at a time per partition: join an open one, park behind a
+/// committing one, else open on the lane whose last commit is oldest.
+/// Concurrent commits on one partition stretch the coordinator's hold.
 fn pick_lane(states: &[LaneState]) -> usize {
-    let oldest = |committing: bool| {
+    let oldest = |wanted: fn(&LaneState) -> bool| {
         states
             .iter()
             .enumerate()
-            .filter(|(_, state)| state.committing == committing)
+            .filter(|(_, state)| wanted(state))
             .map(|(index, state)| (state.last_commit_end, index))
             .min()
             .map(|(_, index)| index)
     };
-    oldest(false).or_else(|| oldest(true)).unwrap_or(0)
+    oldest(|state| state.open)
+        .or_else(|| oldest(|state| state.committing))
+        .or_else(|| oldest(|_| true))
+        .unwrap_or(0)
 }
 
 /// One seat in the open window, released on drop.
@@ -527,6 +539,14 @@ impl CommittingMark {
 
 impl Drop for CommittingMark {
     fn drop(&mut self) {
+        // Stamped and cleared in one turn, so a writer that finds this
+        // lane idle also finds it the newest commit.
+        let turn = self
+            .fence
+            .turn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        self.fence.stamp_commit_end();
         // Deliberately tolerant of a poisoned gate: the mark existing is
         // what wedges the partition, so it has to come off even when the
         // lock's last holder panicked.
@@ -541,6 +561,7 @@ impl Drop for CommittingMark {
                 mem::take(&mut gate.waiters)
             }
         };
+        drop(turn);
         // On the ordinary path the committer took the waiters before this
         // drops, so the list is empty. Waiters still here mean the
         // committer unwound between taking the mark and answering anyone
@@ -832,6 +853,7 @@ impl FencedChangelogProducers {
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
         histogram!("personhog_leader_fence_init_ms", "path" => path)
             .record(start.elapsed().as_secs_f64() * 1000.0);
+        let turn = Arc::new(Mutex::new(()));
         let lanes = producers
             .into_iter()
             .enumerate()
@@ -840,6 +862,7 @@ impl FencedChangelogProducers {
                     producer,
                     lane,
                     last_commit_end: AtomicU64::new(0),
+                    turn: Arc::clone(&turn),
                     #[cfg(any(test, feature = "test-support"))]
                     parked: AtomicUsize::new(0),
                     superseded_by_heal: AtomicBool::new(false),
@@ -862,7 +885,7 @@ impl FencedChangelogProducers {
                 })
             })
             .collect();
-        let installed = Arc::new(PartitionLanes { lanes });
+        let installed = Arc::new(PartitionLanes { lanes, turn });
         if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
             // The heal path installs over a still-present condemned
             // fence, and by then the commit task has usually dropped its
@@ -1236,8 +1259,11 @@ impl FencedChangelogProducers {
     #[cfg(any(test, feature = "test-support"))]
     pub fn finish_committing_for_test(&self, partition: u32, lane: usize) {
         if let Some(fence) = self.lane(partition, lane) {
-            fence.gate.lock().unwrap().committing = false;
-            fence.stamp_commit_end();
+            {
+                let _turn = fence.turn.lock().unwrap_or_else(PoisonError::into_inner);
+                fence.stamp_commit_end();
+                fence.gate.lock().unwrap().committing = false;
+            }
             fence.window_closed.notify_waiters();
         }
     }
@@ -1441,6 +1467,9 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 return Err(FencedProduceError::NotAcquired);
             }
+            // Held until this writer has joined, opened, or decided to
+            // park: no lane can open or finish a commit in between.
+            let turn = lanes.turn.lock().unwrap_or_else(PoisonError::into_inner);
             let fence = match &pinned {
                 Some(fence) => Arc::clone(fence),
                 None => match lanes.pick(partition) {
@@ -1493,6 +1522,7 @@ impl FencedChangelogProducers {
                     None
                 }
             };
+            drop(turn);
             if let Some(e) = begin_failed {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 return Err(self.classify(&fence, partition, e));
@@ -2078,7 +2108,6 @@ async fn commit_window_after(
         }
     };
 
-    fence.stamp_commit_end();
     for waiter in waiters {
         // A dropped receiver means the writer's request already ended;
         // nothing to deliver.
@@ -2332,15 +2361,30 @@ mod tests {
     }
 
     #[test]
-    fn a_write_takes_the_lane_that_committed_longest_ago() {
-        let lane = |committing, last_commit_end| LaneState {
-            committing,
+    fn a_partition_runs_one_window_at_a_time_across_its_lanes() {
+        let idle = |last_commit_end| LaneState {
+            open: false,
+            committing: false,
             last_commit_end,
         };
-        assert_eq!(pick_lane(&[lane(false, 5), lane(false, 2)]), 1);
-        assert_eq!(pick_lane(&[lane(true, 1), lane(false, 9)]), 1);
-        assert_eq!(pick_lane(&[lane(true, 4), lane(true, 2)]), 1);
-        assert_eq!(pick_lane(&[lane(false, 0)]), 0);
+        let open = |last_commit_end| LaneState {
+            open: true,
+            committing: false,
+            last_commit_end,
+        };
+        let committing = |last_commit_end| LaneState {
+            open: false,
+            committing: true,
+            last_commit_end,
+        };
+        // Idle partition: the lane that committed longest ago.
+        assert_eq!(pick_lane(&[idle(5), idle(2)]), 1);
+        assert_eq!(pick_lane(&[idle(0)]), 0);
+        // An open window is joined even on the lane that committed last.
+        assert_eq!(pick_lane(&[idle(1), open(9)]), 1);
+        // A committing lane parks the write instead of opening another lane.
+        assert_eq!(pick_lane(&[committing(1), idle(9)]), 0);
+        assert_eq!(pick_lane(&[idle(9), committing(4), committing(2)]), 2);
     }
 
     /// A condemn reason absent from the preregistration list first

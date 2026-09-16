@@ -42,7 +42,8 @@
 #   shadow strips both the gate and the verdict step entirely, both variables are
 #   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
 #   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
-#   does not need a mirrored action)
+#   does not need a mirrored action. Canonical pins Trunk CLI 0.15.4 for JUnit retry
+#   elements; the shadow has no uploader CLI to pin)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
@@ -629,6 +630,9 @@ jobs:
             # the run-ci-backend label. turbo-discover.js reads it too, so a run that never
             # selects reports an empty mode rather than a selector error.
             SELECTION_APPLIES: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
+            # GitHub tests PRs as synthetic merges. The first parent pins the exact integrated
+            # base for ordinary, stacked, and merge-queue PRs.
+            TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('{0}^1', github.sha) || '' }}
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
@@ -651,7 +655,20 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
-            - name: Fetch current PR base for Turbo affected diff
+            - name: Verify PR merge for test selection
+              id: verify-merge
+              if: github.event_name == 'pull_request'
+              env:
+                  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+                  test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
+                  test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+                  git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
+
+            - name: Fetch PR base for schema cache
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -808,13 +825,11 @@ jobs:
               continue-on-error: true
               timeout-minutes: 8
               if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               shell: bash
               run: |
                   set -euo pipefail
                   uv run tools/snob_backend_test_selection_shadow.py \
-                      --base-ref "origin/$BASE_REF" \
+                      --base-ref "$TURBO_SCM_BASE" \
                       > /tmp/selection.json
 
             - name: Discover products to test
@@ -833,7 +848,6 @@ jobs:
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
-                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
@@ -1203,6 +1217,10 @@ jobs:
               shell: bash
               run: |
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      export PYTEST_ADDOPTS="$PYTEST_ADDOPTS --force-reruns 1 --reruns-delay 1 -r fEsxXR"
+                  fi
                   overall=0
                   # The job checks out the PR head while this workflow runs merged with
                   # master. A head that predates the person-on-events default lacks the
@@ -2468,6 +2486,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
@@ -2500,9 +2523,7 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one
-                      # shard, and no --reruns anywhere, mirroring
-                      # canonical: retries mask the raw flake signal Trunk needs (the shadow
-                      # strips the quarantine gate itself).
+                      # shard. One pytest retry mirrors canonical's budget.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -2522,7 +2543,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
                           $PYTEST_ARGS
@@ -2547,7 +2568,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        -r fEsxX \
+                        "${RETRY_ARGS[@]}" -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
                         $PYTEST_ARGS
@@ -2596,6 +2617,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Pick the split algorithm and granularity at runtime (see Run Core tests).
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
@@ -2613,8 +2639,7 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no --reruns — see the core selected branch;
-                      # the full run also skips --reruns, mirroring canonical.
+                      # Selected mode uses the same single-retry budget as the full run.
                       # A selection wide enough to need more than one shard is split like a
                       # full run. Item granularity on purpose: the target list is already
                       # narrow, so pre-import file skipping saves nothing, and the per-segment
@@ -2627,7 +2652,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
@@ -2640,7 +2665,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   fi

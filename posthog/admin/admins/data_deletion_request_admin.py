@@ -94,64 +94,12 @@ def dagster_run_url(run_id: str) -> str | None:
 # Custom widget + field for ArrayField editing
 # ---------------------------------------------------------------------------
 
-# JS template for the live preview/normalizer. All literal `{`/`}` are doubled because
-# we render via format_html(), which uses str.format() semantics. `{id}` is the only
-# substitution slot and gets the widget element id.
-_WIDGET_TEMPLATE = """{html}<div id="{id}_preview" style="margin-top:6px"></div>
-<script>
-(function() {{
-    var ta = document.getElementById('{id}');
-    if (!ta) return;
-    var preview = document.getElementById('{id}_preview');
-
-    function parse(text) {{
-        text = text.trim();
-        if (!text) return [];
-        if (text.startsWith('[')) {{
-            // Try JSON as-is, then with single→double quote swap (Python-style arrays).
-            // Safe here because event/property names don't contain single quotes.
-            var candidates = [text, text.replace(/'/g, '"')];
-            for (var i = 0; i < candidates.length; i++) {{
-                try {{
-                    var arr = JSON.parse(candidates[i]);
-                    if (Array.isArray(arr)) {{
-                        return arr.map(function(s){{return String(s).trim()}}).filter(Boolean);
-                    }}
-                }} catch(e) {{}}
-            }}
-        }}
-        return text.split('\\n').map(function(s){{return s.trim()}}).filter(Boolean);
-    }}
-
-    function render() {{
-        var items = parse(ta.value);
-        if (items.length === 0) {{
-            preview.innerHTML = '<em style="color:#999">No items</em>';
-            return;
-        }}
-        preview.innerHTML = '<strong>' + items.length + ' item(s):</strong> ' +
-            items.map(function(s){{return '<code style="background:#e8e8e8;padding:2px 6px;border-radius:3px;margin:2px">' + s.replace(/</g,'&lt;') + '</code>'}}).join(' ');
-    }}
-
-    function normalizeIfArray() {{
-        // If the current text is an array literal, rewrite it to one-per-line.
-        // Only called on paste/blur to avoid clobbering live editing.
-        var text = ta.value.trim();
-        if (!text.startsWith('[')) return;
-        var items = parse(text);
-        if (items.length > 0) {{
-            ta.value = items.join('\\n');
-            render();
-        }}
-    }}
-
-    ta.addEventListener('input', render);
-    ta.addEventListener('blur', normalizeIfArray);
-    ta.addEventListener('paste', function() {{ setTimeout(normalizeIfArray, 0); }});
-    render();
-}})();
-</script>
-"""
+# The widget renders markup only. Its behaviour lives in a nonce'd block in
+# admin/posthog/datadeletionrequest/change_form.html, because a widget's render() receives no
+# request and so cannot reach {{ request.csp_nonce }}. Admin pages serve a policy whose script-src
+# carries no 'unsafe-inline', so an un-nonced inline script here is refused and the preview never
+# runs. Keeping the script in the template also emits it once rather than once per field.
+_WIDGET_TEMPLATE = '{html}<div class="array-textarea-preview" data-textarea-id="{id}" style="margin-top:6px"></div>'
 
 
 class ArrayTextareaWidget(forms.Textarea):
