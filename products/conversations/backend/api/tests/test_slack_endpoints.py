@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import OperationalError
+from django.db import DatabaseError, OperationalError
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -173,6 +173,25 @@ class TestSupportSlackEventsAPI(BaseTest):
         row = self._event_row()
         assert row.status == ConversationInboundEvent.Status.PENDING
         assert row.source_id == "Ev_broker"
+
+    @patch(WAKE_INBOUND_EVENT)
+    @patch(f"{SLACK_EVENTS_MODULE}.accept_inbound_event")
+    def test_a_receipt_write_that_raises_is_not_acknowledged(self, mock_accept: MagicMock, mock_wake: MagicMock):
+        # The receipt is the product's only durable record of the event, and no sweeper can
+        # recover one that was never written, so the request must not earn Slack's 202.
+        mock_accept.side_effect = DatabaseError("receipt write failed")
+        payload = {
+            "type": "event_callback",
+            "event_id": "Ev_unwritten",
+            "team_id": "T123",
+            "event": {"type": "message", "channel": "C1"},
+        }
+
+        response = self._post_committed(payload)
+
+        assert response.status_code == 502
+        mock_wake.assert_not_called()
+        assert not ConversationInboundEvent.objects.unscoped().filter(source_id="Ev_unwritten").exists()
 
     @patch(WAKE_INBOUND_EVENT)
     def test_oversized_payload_is_tombstoned_and_acknowledged(self, mock_wake: MagicMock):

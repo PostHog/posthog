@@ -30,8 +30,9 @@ SPECS = (ProviderSpec(provider="slack", app="supporthog", event_types=SLACK_EVEN
 
 class SlackProvider(WebhookProvider):
     provider = "slack"
-    # Slack redelivers on a non-2xx, so a failed forward to the owning region must not be receipted.
-    forward_failure_status = 502
+    # Slack redelivers on a non-2xx, so a delivery ingress cannot vouch for must not be receipted:
+    # neither a forward to the owning region that never landed, nor a receipt write that raised.
+    retry_status = 502
 
     def __init__(self, *, app: str = "supporthog", secret_getter: Callable[[], str | None]) -> None:
         self.app = app
