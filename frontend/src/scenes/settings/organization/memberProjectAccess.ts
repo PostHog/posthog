@@ -3,10 +3,26 @@ import { combineUrl } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
+import type { DataFreshnessProjectApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 /** The projects a member can reach, in the order the API returns them (by project name). */
 export function accessibleProjects(entries: MemberProjectAccessEntryApi[]): MemberProjectAccessEntryApi[] {
     return entries.filter((entry) => entry.access_level !== 'none')
+}
+
+/**
+ * Most recently active project first, so the tags a person scans lead with the projects that
+ * matter. Projects without freshness data keep their API order at the end.
+ */
+export function orderByActivity(
+    projects: MemberProjectAccessEntryApi[],
+    freshnessByTeamId: Record<number, DataFreshnessProjectApi>
+): MemberProjectAccessEntryApi[] {
+    const lastDataAt = (project: MemberProjectAccessEntryApi): number => {
+        const at = freshnessByTeamId[project.team_id]?.last_data_at
+        return at ? new Date(at).getTime() : 0
+    }
+    return [...projects].sort((a, b) => lastDataAt(b) - lastDataAt(a))
 }
 
 export function describeProjectAccessSource(entry: MemberProjectAccessEntryApi): string {

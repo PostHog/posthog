@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { projectDataFreshnessLogic } from 'lib/components/Account/projectDataFreshnessLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -32,7 +33,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
-import { accessibleProjects } from './memberProjectAccess'
+import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
 
@@ -198,6 +199,7 @@ const PROJECT_TAGS_SHOWN = 3
 function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { projectAccess, projectAccessLoading } = useValues(memberProjectAccessLogic)
     const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
+    const { freshnessByTeamId } = useValues(projectDataFreshnessLogic)
 
     if (projectAccessLoading) {
         return <LemonSkeleton className="h-5 w-32" />
@@ -207,7 +209,7 @@ function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.
         return <span className="text-muted">–</span>
     }
 
-    const projects = accessibleProjects(projectAccess[member.id] ?? [])
+    const projects = orderByActivity(accessibleProjects(projectAccess[member.id] ?? []), freshnessByTeamId)
     if (projects.length === 0) {
         return <span className="text-muted">No projects</span>
     }

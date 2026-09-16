@@ -1,6 +1,11 @@
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
 
-import { accessibleProjects, describeProjectAccessSource, projectAccessSourceUrl } from './memberProjectAccess'
+import {
+    accessibleProjects,
+    describeProjectAccessSource,
+    orderByActivity,
+    projectAccessSourceUrl,
+} from './memberProjectAccess'
 
 function entry(
     team_name: string,
@@ -62,5 +67,23 @@ describe('memberProjectAccess', () => {
         } else {
             expect(url).toBe(`/project/3/settings/environment-access-control?${expected}`)
         }
+    })
+
+    it('orders tags by most recent data, with unknown projects last in API order', () => {
+        const ordered = orderByActivity([entry('App', 'admin'), entry('Billing', 'member'), entry('Docs', 'member')], {
+            [entry('Billing', 'member').team_id]: {
+                team_id: 7,
+                freshness: 'live',
+                last_data_at: '2026-09-15T00:00:00Z',
+                sources: [],
+            },
+            [entry('Docs', 'member').team_id]: {
+                team_id: 4,
+                freshness: 'stale',
+                last_data_at: '2026-08-01T00:00:00Z',
+                sources: [],
+            },
+        })
+        expect(ordered.map((p) => p.team_name)).toEqual(['Billing', 'Docs', 'App'])
     })
 })
