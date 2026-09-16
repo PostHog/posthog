@@ -2436,6 +2436,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence.'
                     ),
+                overview_metrics: zod
+                    .array(
+                        zod
+                            .enum(['visitors', 'session_duration', 'return_rate_30d', 'conversion_rate', 'revenue'])
+                            .describe(
+                                '\* `visitors` - visitors\n\* `session_duration` - session_duration\n\* `return_rate_30d` - return_rate_30d\n\* `conversion_rate` - conversion_rate\n\* `revenue` - revenue'
+                            )
+                    )
+                    .optional()
+                    .describe(
+                        'Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, which is every metric in that order. Reads always return the effective list.'
+                    ),
             })
             .optional(),
         customer_analytics_config: zod

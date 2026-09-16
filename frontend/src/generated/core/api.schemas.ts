@@ -1773,6 +1773,23 @@ export interface MarketingAnalyticsCampaignFieldPreferencesApi {
     [key: string]: CampaignFieldPreferenceApi
 }
 
+/**
+ * * `visitors` - visitors
+ * * `session_duration` - session_duration
+ * * `return_rate_30d` - return_rate_30d
+ * * `conversion_rate` - conversion_rate
+ * * `revenue` - revenue
+ */
+export type OverviewMetricsEnumApi = (typeof OverviewMetricsEnumApi)[keyof typeof OverviewMetricsEnumApi]
+
+export const OverviewMetricsEnumApi = {
+    Visitors: 'visitors',
+    SessionDuration: 'session_duration',
+    ReturnRate30d: 'return_rate_30d',
+    ConversionRate: 'conversion_rate',
+    Revenue: 'revenue',
+} as const
+
 export interface TeamMarketingAnalyticsConfigApi {
     /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
     sources_map?: MarketingAnalyticsSourceMappingApi
@@ -1800,6 +1817,8 @@ export interface TeamMarketingAnalyticsConfigApi {
     custom_source_mappings?: MarketingAnalyticsCustomSourceMappingsApi
     /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
+    /** Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, which is every metric in that order. Reads always return the effective list. */
+    overview_metrics?: OverviewMetricsEnumApi[]
 }
 
 export interface TeamCustomerAnalyticsConfigApi {

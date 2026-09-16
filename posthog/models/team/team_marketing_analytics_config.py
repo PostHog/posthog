@@ -7,7 +7,7 @@ from django.db import models
 from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
-from posthog.schema_enums import AttributionMode, NodeKind
+from posthog.schema_enums import AttributionMode, MarketingAnalyticsOverviewMetric, NodeKind
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic models)
 # is runtime-imported in the accessors that materialize typed objects.
@@ -279,6 +279,27 @@ def validate_conversion_goals(conversion_goals: list) -> None:
         raise ValidationError(f"Conversion goal names must be unique. Duplicate names: {', '.join(duplicates)}")
 
 
+# Declaration order of the enum is the order the Overview renders its cards in.
+DEFAULT_OVERVIEW_METRICS: list[str] = [metric.value for metric in MarketingAnalyticsOverviewMetric]
+
+
+def validate_overview_metrics(overview_metrics: list) -> None:
+    """Validate overview_metrics: an ordered, duplicate-free list of allow-listed metric keys."""
+    if not isinstance(overview_metrics, list):
+        raise ValidationError("overview_metrics must be a list")
+
+    allowed = {metric.value for metric in MarketingAnalyticsOverviewMetric}
+    seen: set[str] = set()
+    for metric in overview_metrics:
+        if not isinstance(metric, str):
+            raise ValidationError(f"Overview metric '{metric}' must be a string")
+        if metric not in allowed:
+            raise ValidationError(f"Unknown overview metric '{metric}'. Must be one of: {sorted(allowed)}")
+        if metric in seen:
+            raise ValidationError(f"Overview metric '{metric}' is listed more than once")
+        seen.add(metric)
+
+
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.
 class TeamMarketingAnalyticsConfig(models.Model):
@@ -350,6 +371,20 @@ class TeamMarketingAnalyticsConfig(models.Model):
             null=False,
             blank=True,
             help_text="Campaign field matching preferences: defines which field (campaign_name or campaign_id) to match utm_campaign against per integration. Manual mappings always take precedence.",
+        ),
+        "project",
+        "admin",
+    )
+    # db_default because Team.marketing_analytics_config get_or_creates rows, so pods still on the
+    # previous release insert without this column while the migration is rolling out.
+    _overview_metrics = field_access_control(
+        models.JSONField(
+            default=list,
+            db_default=[],
+            db_column="overview_metrics",
+            null=False,
+            blank=True,
+            help_text="Metric cards the marketing analytics Overview shows, in display order. Empty means the default set.",
         ),
         "project",
         "admin",
@@ -443,6 +478,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
             self._campaign_field_preferences = value
         except ValidationError as e:
             raise ValidationError(f"Invalid campaign field preferences: {str(e)}")
+
+    @property
+    def overview_metrics(self) -> list[str]:
+        return self._overview_metrics or list(DEFAULT_OVERVIEW_METRICS)
+
+    @overview_metrics.setter
+    def overview_metrics(self, value: list) -> None:
+        value = value or []
+        try:
+            validate_overview_metrics(value)
+            self._overview_metrics = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid overview metrics: {str(e)}")
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""

@@ -34465,6 +34465,13 @@
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
+                "overview_metrics": {
+                    "description": "Ordered Overview cards. Empty or unset means the default set: every metric, in enum order.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsOverviewMetric"
+                    },
+                    "type": "array"
+                },
                 "sources_map": {
                     "additionalProperties": {
                         "$ref": "#/definitions/SourceMap"
@@ -34542,6 +34549,11 @@
             "maxItems": 2,
             "minItems": 2,
             "type": "array"
+        },
+        "MarketingAnalyticsOverviewMetric": {
+            "description": "Metric cards the marketing analytics Overview can show. Declaration order is the default card order.",
+            "enum": ["visitors", "session_duration", "return_rate_30d", "conversion_rate", "revenue"],
+            "type": "string"
         },
         "MarketingAnalyticsRetentionCell": {
             "additionalProperties": false,
@@ -55229,6 +55241,7 @@
                 "Visitors",
                 "Views",
                 "AvgTimeOnPage",
+                "SessionDuration",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -56485,6 +56498,10 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeSessionDuration": {
+                    "description": "Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal.",
                     "type": "boolean"
                 },
                 "includeTrafficMetrics": {

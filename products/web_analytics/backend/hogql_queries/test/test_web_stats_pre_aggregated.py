@@ -268,20 +268,27 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
         assert not builder.can_use_preaggregated_tables()
 
-    def test_query_with_supported_properties(self):
+    @parameterized.expand(
+        [
+            ("supported", {}, True),
+            # The pre-aggregated tables carry no session duration, so asking for it must fall back
+            # to the raw query rather than silently dropping the column.
+            ("session_duration", {"includeSessionDuration": True}, False),
+        ]
+    )
+    def test_query_with_supported_properties(self, _name: str, query_kwargs: dict, expect_preaggregated: bool):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[EventPropertyFilter(key="$pathname", value="/test", operator=PropertyOperator.EXACT)],
             breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+            **query_kwargs,
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         runner.modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 
-        builder = StatsTablePreAggregatedQueryBuilder(runner)
-        assert builder.can_use_preaggregated_tables()
-
         runner.to_query()
-        assert runner.used_preaggregated_tables
+
+        assert runner.used_preaggregated_tables == expect_preaggregated
 
     def test_query_includes_order_by(self):
         query = WebStatsTableQuery(

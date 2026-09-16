@@ -644,6 +644,15 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell({ isDuration: true }),
             align: 'right',
         },
+        session_duration: {
+            renderTitle: SortableCell(
+                'Avg. session duration',
+                WebAnalyticsOrderByFields.SessionDuration,
+                'The average length of sessions that started here'
+            ),
+            render: VariationCell({ isDuration: true }),
+            align: 'right',
+        },
         views: {
             renderTitle: SortableCell('Views', WebAnalyticsOrderByFields.Views),
             render: VariationCell(),

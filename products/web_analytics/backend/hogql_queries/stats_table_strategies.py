@@ -145,6 +145,14 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
                         self.runner._period_comparison_tuple("is_bounce", "context.columns.bounce_rate", "avg")
                     )
 
+            # Outside the conversion-goal branch above, unlike bounce rate: the Overview table shows
+            # session duration and conversion rate on the same row, and the inner query carries the
+            # sessions join either way.
+            if self.runner.query.includeSessionDuration:
+                selects.append(
+                    self.runner._period_comparison_tuple("session_duration", "context.columns.session_duration", "avg")
+                )
+
             order_by = self.runner._order_by(
                 columns=[select.alias for select in selects if isinstance(select, ast.Alias)]
             )
@@ -225,6 +233,13 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
         if self.runner.conversion_count_expr and self.runner.conversion_person_id_expr:
             query.select.append(ast.Alias(alias="conversion_count", expr=self.runner.conversion_count_expr))
             query.select.append(ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr))
+
+        # Appended here rather than in the SQL constant so queries that don't ask for it keep their
+        # existing shape, and their snapshots with it.
+        if self.runner.query.includeSessionDuration:
+            query.select.append(
+                ast.Alias(alias="session_duration", expr=parse_expr("any(session.`$session_duration`)"))
+            )
 
         return query
 
@@ -317,6 +332,15 @@ class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
             )
             query.select.append(ast.Field(chain=["conversion_count"]))
             query.select.append(ast.Field(chain=["conversion_person_id"]))
+
+        if self.runner.query.includeSessionDuration:
+            assert query.select_from is not None
+            per_session_query = query.select_from.table
+            assert isinstance(per_session_query, ast.SelectQuery)
+            per_session_query.select.append(
+                ast.Alias(alias="session_duration", expr=parse_expr("any(session.`$session_duration`)"))
+            )
+            query.select.append(ast.Field(chain=["session_duration"]))
 
         return query
 

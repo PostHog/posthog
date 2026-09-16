@@ -5146,6 +5146,7 @@ export namespace Schemas {
       Visitors: 'Visitors',
       Views: 'Views',
       AvgTimeOnPage: 'AvgTimeOnPage',
+      SessionDuration: 'SessionDuration',
       Clicks: 'Clicks',
       BounceRate: 'BounceRate',
       AverageScrollPercentage: 'AverageScrollPercentage',
@@ -5235,6 +5236,8 @@ export namespace Schemas {
       includeHost?: boolean | null;
       includeRevenue?: boolean | null;
       includeScrollDepth?: boolean | null;
+      /** Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal. */
+      includeSessionDuration?: boolean | null;
       includeTrafficMetrics?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
@@ -56994,6 +56997,24 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    /**
+     * * `visitors` - visitors
+     * * `session_duration` - session_duration
+     * * `return_rate_30d` - return_rate_30d
+     * * `conversion_rate` - conversion_rate
+     * * `revenue` - revenue
+     */
+    export type OverviewMetricsEnum = typeof OverviewMetricsEnum[keyof typeof OverviewMetricsEnum];
+
+
+    export const OverviewMetricsEnum = {
+      Visitors: 'visitors',
+      SessionDuration: 'session_duration',
+      ReturnRate30d: 'return_rate_30d',
+      ConversionRate: 'conversion_rate',
+      Revenue: 'revenue',
+    } as const;
+
     export interface WorkflowCost {
       /** GitHub Actions workflow name this cost is for. */
       workflow_name: string;
@@ -69268,6 +69289,8 @@ export namespace Schemas {
       custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
       /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
+      /** Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, which is every metric in that order. Reads always return the effective list. */
+      overview_metrics?: OverviewMetricsEnum[];
     }
 
     export interface TeamCustomerAnalyticsConfig {

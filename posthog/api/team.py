@@ -6,6 +6,7 @@ from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -37,6 +38,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
+    MarketingAnalyticsOverviewMetric as OverviewMetric,
     PersonPropertyFilter,
     SourceMap,
 )
@@ -79,6 +81,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.team.team_marketing_analytics_config import (
+    validate_overview_metrics as validate_overview_metrics_list,
+)
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -780,6 +785,16 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "in campaign_name_mappings still take precedence."
         ),
     )
+    overview_metrics = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(metric.value, metric.value) for metric in OverviewMetric]),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Metric cards the marketing analytics Overview shows, in display order. Allowed keys: visitors, "
+            "session_duration, return_rate_30d, conversion_rate, revenue. Send an empty list to restore the default, "
+            "which is every metric in that order. Reads always return the effective list."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -792,6 +807,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
+            "overview_metrics",
         ]
 
     def to_internal_value(self, data):
@@ -806,7 +822,18 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_custom_source_mappings"] = internal_value["custom_source_mappings"]
         if "campaign_field_preferences" in internal_value:
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
+        if "overview_metrics" in internal_value:
+            internal_value["_overview_metrics"] = internal_value["overview_metrics"]
         return internal_value
+
+    def validate_overview_metrics(self, value: list[str]) -> list[str]:
+        # ChoiceField already rejects unknown keys; this adds the duplicate check as a 400 rather
+        # than a 500 from the model setter.
+        try:
+            validate_overview_metrics_list(value)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        return value
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -845,6 +872,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "campaign_field_preferences" in validated_data:
             instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
+
+        if "overview_metrics" in validated_data:
+            instance.overview_metrics = validated_data["overview_metrics"]
 
         instance.save()
         return instance
@@ -2249,6 +2279,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
             "filter_test_accounts": instance.marketing_analytics_config.filter_test_accounts,
+            "overview_metrics": list(instance.marketing_analytics_config.overview_metrics),
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -2270,6 +2301,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
             "filter_test_accounts": validated_data.get("filter_test_accounts"),
+            "overview_metrics": validated_data.get("overview_metrics"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }

@@ -200,7 +200,7 @@ FIELD_VALUES: dict[str, Any] = {
     "capture_dead_clicks": True,
     "default_data_theme": 1,
     "revenue_analytics_config": {"filter_test_accounts": True},
-    "marketing_analytics_config": {"attribution_window_days": 14},
+    "marketing_analytics_config": {"attribution_window_days": 14, "overview_metrics": ["revenue", "visitors"]},
     "customer_analytics_config": {"activity_event": "$pageview"},
     "workflows_config": {"capture_workflows_engagement_events": True},
     "feature_flag_policy_config": {"require_tags": True},

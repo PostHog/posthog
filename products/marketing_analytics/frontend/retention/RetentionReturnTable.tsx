@@ -101,7 +101,7 @@ export function RetentionReturnTable({
             })
         ),
         {
-            title: <span className="whitespace-normal">Days to return</span>,
+            title: <span className="whitespace-normal">Median days to return</span>,
             dataIndex: 'medianReturnDays',
             align: 'right',
             tooltip:
@@ -139,8 +139,8 @@ export function RetentionReturnTable({
                 emptyState='No users match this acquisition period. Widen the date range or turn off "Only new users".'
             />
             <div className="text-secondary text-xs">
-                Return rates include only users who completed each window. Days to return includes observed returns
-                within 30 days and may change as recent users return.
+                Return rates include only users who completed each window. Median days to return includes observed
+                returns within 30 days and may change as recent users return.
             </div>
         </div>
     )

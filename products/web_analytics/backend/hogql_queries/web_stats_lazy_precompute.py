@@ -140,6 +140,10 @@ class ScrollDepthUnsupported(LazyPrecomputeIneligible):
     pass
 
 
+class SessionDurationUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
 class UnsupportedBreakdown(LazyPrecomputeIneligible):
     def __init__(self, breakdown: object):
         self.breakdown = breakdown
@@ -181,6 +185,8 @@ def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
         raise AvgTimeOnPageUnsupported()
     if query.includeScrollDepth:
         raise ScrollDepthUnsupported()
+    if query.includeSessionDuration:
+        raise SessionDurationUnsupported()
 
     if query.breakdownBy not in SUPPORTED_BREAKDOWNS:
         raise UnsupportedBreakdown(query.breakdownBy)

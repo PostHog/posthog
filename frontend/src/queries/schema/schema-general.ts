@@ -3334,6 +3334,7 @@ export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
     AvgTimeOnPage = 'AvgTimeOnPage',
+    SessionDuration = 'SessionDuration',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -3956,6 +3957,8 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     includeAvgTimeOnPage?: boolean
+    /** Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal. */
+    includeSessionDuration?: boolean
     includeHost?: boolean
     limit?: integer
     offset?: integer
@@ -8016,6 +8019,15 @@ export interface CampaignFieldPreference {
     match_field: MatchField
 }
 
+/** Metric cards the marketing analytics Overview can show. Declaration order is the default card order. */
+export enum MarketingAnalyticsOverviewMetric {
+    Visitors = 'visitors',
+    SessionDuration = 'session_duration',
+    ReturnRate30d = 'return_rate_30d',
+    ConversionRate = 'conversion_rate',
+    Revenue = 'revenue',
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
@@ -8025,6 +8037,8 @@ export interface MarketingAnalyticsConfig {
     campaign_name_mappings?: Record<string, Record<string, string[]>>
     custom_source_mappings?: Record<string, string[]>
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
+    /** Ordered Overview cards. Empty or unset means the default set: every metric, in enum order. */
+    overview_metrics?: MarketingAnalyticsOverviewMetric[]
 }
 
 export enum MarketingAnalyticsDrillDownLevel {

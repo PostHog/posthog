@@ -118,6 +118,10 @@ class ScrollDepthUnsupported(LazyPrecomputeIneligible):
     pass
 
 
+class SessionDurationUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
 class UnsupportedOrderBy(LazyPrecomputeIneligible):
     def __init__(self, field: object):
         self.field = field
@@ -159,6 +163,8 @@ def _check_eligible(runner: "WebStatsTableQueryRunner") -> None:
         raise AvgTimeOnPageUnsupported()
     if query.includeScrollDepth:
         raise ScrollDepthUnsupported()
+    if query.includeSessionDuration:
+        raise SessionDurationUnsupported()
     # Refuse order-by fields the lazy response doesn't produce. The in-Python
     # sort otherwise silently rewrites to `visitors`, producing different rows
     # than the raw path's `_order_by` would for the same query.

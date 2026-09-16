@@ -231,6 +231,7 @@ class TestWebStatsTableQueryRunner(
         include_bounce_rate=False,
         include_scroll_depth=False,
         include_avg_time_on_page=False,
+        include_session_duration=False,
         include_host=False,
         properties=None,
         compare_filter=None,
@@ -254,6 +255,7 @@ class TestWebStatsTableQueryRunner(
                 includeBounceRate=include_bounce_rate,
                 includeScrollDepth=include_scroll_depth,
                 includeAvgTimeOnPage=include_avg_time_on_page,
+                includeSessionDuration=include_session_duration,
                 includeHost=include_host,
                 compareFilter=compare_filter,
                 conversionGoal=ActionConversionGoal(actionId=action.id)
@@ -2353,6 +2355,69 @@ class TestWebStatsTableQueryRunner(
             results,
         )
 
+    @parameterized.expand([("no_goal", None), ("with_conversion_goal", "purchase")])
+    def test_session_duration_column(self, _name, custom_event):
+        # The conversion-goal case is the point: unlike bounce rate, session duration has to survive
+        # a conversionGoal, because the marketing Overview table shows both on one row.
+        s1, s2 = str(uuid7("2023-12-02")), str(uuid7("2023-12-02"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02T12:00:00", s1, "/a"), ("2023-12-02T12:00:30", s1, "/b")]),
+                ("p2", [("2023-12-02T12:00:00", s2, "/c")]),
+            ]
+        )
+
+        response = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_session_duration=True,
+            custom_event=custom_event,
+        )
+
+        columns = list(response.columns or [])
+        assert "context.columns.session_duration" in columns
+        # By name, not position: the conversion columns shift everything after them.
+        breakdown_at = columns.index("context.columns.breakdown_value")
+        duration_at = columns.index("context.columns.session_duration")
+        durations = {row[breakdown_at]: row[duration_at] for row in response.results}
+        assert durations == {"/a": (30, None), "/c": (0, None)}
+
+    def test_session_duration_can_compare_and_sort(self):
+        s_prev, s_curr = str(uuid7("2023-12-03")), str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-03T12:00:00", s_prev, "/a"), ("2023-12-03T12:00:10", s_prev, "/a")]),
+                ("p2", [("2023-12-10T12:00:00", s_curr, "/a"), ("2023-12-10T12:00:40", s_curr, "/a")]),
+            ]
+        )
+        self._create_events([("p3", [("2023-12-10T12:00:00", str(uuid7("2023-12-10")), "/b")])])
+
+        def durations_in_order(direction):
+            response = self._run_web_stats_table_query(
+                "2023-12-07",
+                "2023-12-14",
+                breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+                include_session_duration=True,
+                compare_filter=CompareFilter(compare=True),
+                orderBy=(WebAnalyticsOrderByFields.SESSION_DURATION, direction),
+            )
+            columns = list(response.columns or [])
+            breakdown_at = columns.index("context.columns.breakdown_value")
+            duration_at = columns.index("context.columns.session_duration")
+            # A row with no sessions in the compared period averages over nothing, which ClickHouse
+            # returns as nan rather than NULL, the same as bounce rate does.
+            return [
+                (
+                    row[breakdown_at],
+                    (row[duration_at][0], None if math.isnan(row[duration_at][1]) else row[duration_at][1]),
+                )
+                for row in response.results
+            ]
+
+        assert durations_in_order(WebAnalyticsOrderByDirection.DESC) == [("/a", (40.0, 10.0)), ("/b", (0.0, None))]
+        assert durations_in_order(WebAnalyticsOrderByDirection.ASC) == [("/b", (0.0, None)), ("/a", (40.0, 10.0))]
+
     def test_time_on_page_caps_at_24_hours(self):
         page_views = [
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
@@ -2934,9 +2999,19 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
                 False,
             ),
+            # Session duration is read off the sessions join, so it has to keep it.
+            (
+                "session_duration",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [],
+                False,
+                {"includeSessionDuration": True},
+            ),
         ]
     )
-    def test_simple_breakdown_no_join_selection(self, _name, breakdown_by, properties, expect_no_join):
+    def test_simple_breakdown_no_join_selection(
+        self, _name, breakdown_by, properties, expect_no_join, query_kwargs=None
+    ):
         # No allowlist: the simple-breakdown no-join path is shape-gated only,
         # and filtered queries are eligible (single scan, filters inline).
         runner = WebStatsTableQueryRunner(
@@ -2945,6 +3020,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                 dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-29"),
                 properties=properties,
                 breakdownBy=breakdown_by,
+                **(query_kwargs or {}),
             ),
         )
         is_no_join = runner.query_strategy() == "stats_table_no_join_simple_breakdown"

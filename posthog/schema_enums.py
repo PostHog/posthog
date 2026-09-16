@@ -1887,6 +1887,14 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsOverviewMetric(StrEnum):
+    VISITORS = "visitors"
+    SESSION_DURATION = "session_duration"
+    RETURN_RATE_30D = "return_rate_30d"
+    CONVERSION_RATE = "conversion_rate"
+    REVENUE = "revenue"
+
+
 class MarketingAnalyticsRetentionInterval(StrEnum):
     DAY = "day"
     WEEK = "week"
@@ -2975,6 +2983,7 @@ class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
     AVG_TIME_ON_PAGE = "AvgTimeOnPage"
+    SESSION_DURATION = "SessionDuration"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"

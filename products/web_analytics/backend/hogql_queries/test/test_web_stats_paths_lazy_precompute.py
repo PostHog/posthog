@@ -119,6 +119,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         include_bounce_rate: bool = True,
         include_avg_time_on_page: bool = False,
         include_scroll_depth: bool = False,
+        include_session_duration: bool = False,
         include_host: bool = False,
         do_path_cleaning: bool = False,
         sampling: WebAnalyticsSampling | None = None,
@@ -133,6 +134,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             includeBounceRate=include_bounce_rate,
             includeAvgTimeOnPage=include_avg_time_on_page,
             includeScrollDepth=include_scroll_depth,
+            includeSessionDuration=include_session_duration,
             includeHost=include_host,
             doPathCleaning=do_path_cleaning,
             useWebAnalyticsPrecompute=opt_in_precompute,
@@ -368,6 +370,14 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_avg_time_on_page_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(include_avg_time_on_page=True))
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_session_duration_falls_through(self):
+        # INITIAL_PAGE + bounce rate runs live as a simple breakdown but precomputes through this
+        # family, which stores no session duration, so the gate has to live here too.
+        with self._enable_lazy():
+            self._run(self._build_query(include_session_duration=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
