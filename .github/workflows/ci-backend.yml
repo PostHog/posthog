@@ -3670,7 +3670,9 @@ jobs:
                   # artifact, and the timing reporter needs both to pair a re-run recovery
                   # (attempt-N pass) with the attempt-1 failure it proves flaky.
                   name: junit-results-backend-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
-                  path: junit-*.xml
+                  path: |
+                      junit-*.xml
+                      !junit-*-retry-failures.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
@@ -3688,9 +3690,9 @@ jobs:
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
-                  junit-paths: junit-core.xml
+                  junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
@@ -3700,9 +3702,9 @@ jobs:
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
-                  junit-paths: junit-temporal.xml
+                  junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
