@@ -3,6 +3,7 @@ package analysis
 import (
 	"iter"
 	"slices"
+	"sort"
 	"strings"
 
 	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
@@ -36,6 +37,8 @@ type TableReference struct {
 
 type Bindings struct {
 	relations map[string]Relation
+	scope     *queryScope
+	position  int
 }
 
 func Analyze(schema *catalog.PreparedCatalog, query string) (*Document, error) {
@@ -83,6 +86,9 @@ func (s *Statement) analyze() {
 		if !ok {
 			return true
 		}
+		if bindSubquery(expr, s.scopes, s.budget) {
+			return true
+		}
 		name, alias, start, end, ok := tableReference(expr)
 		if !ok {
 			return true
@@ -116,6 +122,10 @@ func (s *Statement) Tables() iter.Seq[TableReference] {
 	return slices.Values(s.tables)
 }
 
+func (s *Statement) ContainsPosition(position int) bool {
+	return int(s.expr.Pos()) <= position && position <= int(s.expr.End())
+}
+
 func (s *Statement) BindingsAt(start, end int) Bindings {
 	scope := innermostScope(s.scopes, start, end)
 	if scope == nil {
@@ -124,7 +134,18 @@ func (s *Statement) BindingsAt(start, end int) Bindings {
 	if scope.visible == nil {
 		scope.visible = visibleBindings(scope)
 	}
-	return Bindings{relations: scope.visible}
+	return Bindings{relations: scope.visible, scope: scope, position: start}
+}
+
+// Qualified completion can refer to a visible CTE before the user has typed FROM.
+func (s *Statement) RelationAt(name string, position int) (Relation, bool) {
+	if relation, ok := s.BindingsAt(position, position).Relation(name); ok {
+		return relation, true
+	}
+	if cte := resolveCTE(innermostScope(s.scopes, position, position), name, position); cte != nil {
+		return Relation{name: cte.name, cte: cte}, true
+	}
+	return Relation{}, false
 }
 
 func (b Bindings) Len() int {
@@ -147,8 +168,19 @@ func (b Bindings) All() iter.Seq2[string, Relation] {
 }
 
 func (b Bindings) PropertyNamespace(parts []string) (string, bool) {
+	if len(parts) > 2 {
+		if _, bound := b.Relation(parts[0]); !bound && resolveCTE(b.scope, parts[0], b.position) != nil {
+			return "", false
+		}
+	}
 	names := make(map[string]string, len(b.relations))
 	for name, relation := range b.relations {
+		if relation.cte != nil {
+			if (len(parts) > 2 && strings.EqualFold(parts[0], name)) || len(parts) == 2 {
+				return "", false
+			}
+			continue
+		}
 		names[name] = relation.name
 	}
 	return propertyresolver.Resolve(parts, names)
@@ -165,4 +197,22 @@ func (r Relation) Field(name string) (catalog.Entry, bool) {
 // Fields yields values without copying catalog indexes or exposing their backing slices.
 func (r Relation) Fields() iter.Seq[catalog.Entry] {
 	return slices.Values(bindingFields(r))
+}
+
+// Physical prefixes borrow the catalog index; derived projections have a request-wide size bound.
+func (r Relation) Prefix(prefix string) iter.Seq[catalog.Entry] {
+	if r.table != nil {
+		return slices.Values(r.table.Fields.Prefix(prefix))
+	}
+	var fields []catalog.Entry
+	seen := map[string]bool{}
+	for field := range r.Fields() {
+		name := strings.ToLower(field.Name)
+		if strings.HasPrefix(name, prefix) && !seen[name] {
+			fields = append(fields, field)
+			seen[name] = true
+		}
+	}
+	sort.Slice(fields, func(i, j int) bool { return strings.ToLower(fields[i].Name) < strings.ToLower(fields[j].Name) })
+	return slices.Values(fields)
 }

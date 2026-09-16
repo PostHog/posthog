@@ -179,6 +179,31 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	return name, alias, int(identifier.Pos()), int(identifier.End()), true
 }
 
+func bindSubquery(expr *clickhouse.TableExpr, scopes []*queryScope, budget *projectionBudget) bool {
+	node := expr.Expr
+	var alias string
+	if aliased, ok := node.(*clickhouse.AliasExpr); ok {
+		node = aliased.Expr
+		if ident, ok := aliased.Alias.(*clickhouse.Ident); ok {
+			alias = ident.Name
+		}
+	}
+	subquery, ok := node.(*clickhouse.SubQuery)
+	if !ok {
+		return false
+	}
+	inner := innermostScope(scopes, int(subquery.Select.Pos()), int(subquery.Select.End()))
+	if inner != nil && inner.parent != nil {
+		// FROM subqueries do not inherit the containing query's table bindings.
+		inner.cteRoot = true
+		if alias != "" {
+			derived := &cteBinding{name: alias, query: subquery.Select, scope: inner, budget: budget}
+			addBinding(inner.parent, alias, "", Relation{name: alias, cte: derived})
+		}
+	}
+	return true
+}
+
 func bindingField(binding Relation, name string) (catalog.Entry, bool) {
 	if binding.table != nil {
 		return binding.table.Fields.Exact(name)

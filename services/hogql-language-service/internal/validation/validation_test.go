@@ -112,6 +112,8 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT uuid FROM events WHERE event = '$pageview' AND timestamp > now() - interval 1 month", tableName: "events"},
 		{query: "SELECT extract(month FROM timestamp) FROM events", tableName: "events"},
 		{query: "SELECT properties.$GEO_CITY FROM events", tableName: "events"},
+		{query: "SELECT s.kind FROM (SELECT event AS kind FROM events) AS s", tableName: "events"},
+		{query: "WITH t AS (SELECT event AS kind FROM events) SELECT s.kind FROM (SELECT * FROM t) AS s", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -192,12 +194,18 @@ func TestValidateCommonTableExpressions(t *testing.T) {
 }
 
 func TestValidateRejectsUnknownCommonTableExpressionField(t *testing.T) {
-	result := Validate(schema(), "WITH x AS (SELECT event AS kind FROM events) SELECT x.timestamp FROM x")
-	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
-		t.Fatalf("table names = %#v", result.TableNames)
+	for _, query := range []string{
+		"WITH x AS (SELECT event AS kind FROM events) SELECT x.timestamp FROM x",
+		"SELECT x.timestamp FROM (SELECT event AS kind FROM events) AS x",
+		"SELECT timestamp FROM (SELECT event AS kind FROM events) AS x",
+	} {
+		result := Validate(schema(), query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+			t.Fatalf("query %q: result = %#v", query, result)
+		}
+		if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
+			t.Fatalf("table names = %#v", result.TableNames)
+		}
 	}
 }
 
