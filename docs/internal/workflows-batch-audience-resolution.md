@@ -29,7 +29,8 @@ This keeps an allowed slow fetch from reporting the worker as unhealthy while it
 
 ## Observing
 
-- Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Watch the p99 against the budget before tuning either.
+- Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Watch the p99 against the budget before tuning either. `CdpBatchAudienceFetchSlow` alerts while the p99 climbs toward the budget, before any fetch aborts.
+- Timeouts: `cdp_batch_hog_flow_audience_fetch_timeout{endpoint}` counts each fetch that used its full budget and aborted. A timeout raises `AudienceFetchTimeoutError`, which is a separate type from a transport failure, so the retry logs and the customer-visible failure reason name the timeout. `CdpBatchAudienceFetchTimingOut` alerts on a sustained rate. Both alerts live in [PostHog/charts `alerts/specs/cdp.yaml`](https://github.com/PostHog/charts/blob/main/alerts/specs/cdp.yaml).
 - Failures: `cdp_batch_hog_flow_resolver_pages_processed{outcome="fetch_failure"}`, and a `Batch resolver failed: <reason>` row in ClickHouse `log_entries` with `log_source = 'hog_flow'` and `log_source_id` = the **batch job id** (not the workflow id).
 
 ## Known gap: the failure reason is not visible in the app

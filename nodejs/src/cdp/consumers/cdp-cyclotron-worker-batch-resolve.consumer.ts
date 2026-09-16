@@ -16,7 +16,10 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
-import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
+import {
+    AudienceFetchTimeoutError,
+    HogFlowBatchPersonQueryService,
+} from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
@@ -27,6 +30,21 @@ import {
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
+
+/**
+ * Reason text for a permanently failed audience fetch. The text goes on the batch run's log
+ * stream, so a timeout says what the customer can change. Any other error stays generic,
+ * because its text describes our internals.
+ */
+const audienceFailureReason = (error: unknown): string => {
+    if (error instanceof AudienceFetchTimeoutError) {
+        return (
+            `Audience query timed out after ${Math.round(error.timeoutMs / 1000)}s on each of ` +
+            `${MAX_RESOLVER_ATTEMPTS} attempts. Use fewer or simpler audience filters, or a smaller audience.`
+        )
+    }
+    return `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
+}
 
 const RETRY_BACKOFF_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 10_000
@@ -293,11 +311,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         error: serializeError(err),
                     }
                 )
-                await this.transitionToFailedTerminal(
-                    job,
-                    state,
-                    `Audience fetch failed permanently after ${MAX_RESOLVER_ATTEMPTS} attempts`
-                )
+                await this.transitionToFailedTerminal(job, state, audienceFailureReason(err))
                 return
             }
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {
