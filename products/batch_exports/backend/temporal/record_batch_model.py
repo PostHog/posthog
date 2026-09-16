@@ -16,6 +16,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -441,7 +442,7 @@ def resolve_batch_exports_model(
         filters = None
 
     schema = batch_export_schema or (batch_export_model.schema if batch_export_model is not None else None)
-    if schema is not None and (query := schema.get("hogql_query")):
+    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
         context = HogQLContext(
             team_id=team_id,
             enable_select_queries=True,

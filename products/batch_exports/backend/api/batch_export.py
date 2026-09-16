@@ -835,7 +835,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
 # S3-family destinations that may authenticate via an Integration, mapped to
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
 # first-class GCS-via-S3 type) is a one-line addition here.
-S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
+S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, str] = {
     BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
     BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
@@ -1030,11 +1030,15 @@ class HogQLSelectQueryField(serializers.Field):
                     personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
                 ),
             )
+            use_native_schema = context.uses_new_events_schema()
             prepared_select_query = cast(
                 ast.SelectQuery,
-                prepare_ast_for_printing(parsed_query, context=context, dialect="hogql"),
+                prepare_ast_for_printing(
+                    parsed_query, context=context, dialect="hogql" if use_native_schema else "clickhouse"
+                ),
             )
-            resolve_types(clone_expr(parsed_query, clear_types=True), context=context, dialect="clickhouse")
+            if use_native_schema:
+                resolve_types(clone_expr(parsed_query, clear_types=True), context=context, dialect="clickhouse")
         except errors.ExposedHogQLError as e:
             raise serializers.ValidationError(f"Invalid HogQL query: {e}")
 
@@ -1647,9 +1651,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
             limit_top_select=False,
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                materializationMode=MaterializationMode.DISABLED,
             ),
         )
+        if context.uses_new_events_schema():
+            context.modifiers.materializationMode = MaterializationMode.DISABLED
         try:
             return serialize_batch_export_query(hogql_query, context)
         except errors.ExposedHogQLError:

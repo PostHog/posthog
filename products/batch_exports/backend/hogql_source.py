@@ -144,15 +144,27 @@ def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContex
 
 
 def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
-    hogql = print_prepared_ast(query, context=context, dialect="hogql")
-    prepared = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
+    if context.uses_new_events_schema():
+        hogql = print_prepared_ast(query, context=context, dialect="hogql")
+        query = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
+        stack = [query]
+    else:
+        print_prepared_ast(query, context=context, dialect="clickhouse")
+        context = HogQLContext(
+            team_id=context.team_id,
+            enable_select_queries=True,
+            limit_top_select=False,
+            use_new_events_schema=False,
+        )
+        stack = []
+        hogql = print_prepared_ast(query, context=context, dialect="hogql")
     fields: list[BatchExportField] = []
-    for field in prepared.select:
+    for field in query.select:
         if isinstance(field, ast.Alias):
-            expression = print_prepared_ast(field.expr, context=context, dialect="clickhouse", stack=[prepared])
+            expression = print_prepared_ast(field.expr, context=context, dialect="clickhouse", stack=stack)
             alias = escape_clickhouse_identifier(field.alias)
         else:
-            expression = print_prepared_ast(field, context=context, dialect="clickhouse", stack=[prepared])
+            expression = print_prepared_ast(field, context=context, dialect="clickhouse", stack=stack)
             # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
             # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
             alias = escape_clickhouse_identifier(

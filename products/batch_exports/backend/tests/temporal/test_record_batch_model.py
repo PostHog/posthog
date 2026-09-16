@@ -478,9 +478,13 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
 
     assert fields is not None
     assert [field["alias"] for field in fields] == ["`lower(e.event)`", "browser"]
-    assert fields[0]["expression"] == "lower(events.event)"
-    assert "mat_removed_column" not in fields[1]["expression"]
-    assert values == {"hogql_val_0": "$browser"}
+    if use_new_events_schema:
+        assert fields[0]["expression"] == "lower(events.event)"
+        assert "mat_removed_column" not in fields[1]["expression"]
+        assert values == {"hogql_val_0": "$browser"}
+    else:
+        assert fields == schema["fields"]
+        assert values == schema["values"]
     assert schema["fields"][0]["expression"] == "lower(e.event)"
 
 

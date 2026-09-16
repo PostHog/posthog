@@ -5,6 +5,8 @@ HogQL, and this turns them into a printed ClickHouse boolean clause plus the pla
 to send alongside it.
 """
 
+import typing
+
 from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
@@ -12,7 +14,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -120,8 +122,17 @@ def compose_filters_clause(
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=and_expr,
     )
-    prepared_select_query = prepare_serialized_export_query(select_query, context)
-    prepared_and_expr = prepared_select_query.where
+    if context.uses_new_events_schema():
+        prepared_select_query = prepare_serialized_export_query(select_query, context)
+        prepared_and_expr = prepared_select_query.where
+    else:
+        prepared_select_query = typing.cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query]),
+        )
+        prepared_and_expr = prepare_ast_for_printing(
+            and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
+        )
 
     try:
         printed = print_prepared_ast(
