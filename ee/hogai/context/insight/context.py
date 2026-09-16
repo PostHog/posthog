@@ -101,7 +101,7 @@ class InsightContext:
                 include_prompt_framing=include_prompt_framing,
                 event_source=self.event_source,
             )
-        except MaxToolTransientError as e:
+        except (MaxToolRetryableError, MaxToolTransientError) as e:
             if return_exceptions:
                 results = f"Error executing query: {str(e)}"
             else:

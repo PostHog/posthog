@@ -1,5 +1,6 @@
+import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -7,6 +8,19 @@ from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
+
+
+@patch("ee.hogai.context.insight.context.execute_and_format_query")
+async def test_execute_and_format_preserves_retryable_error(mock_execute: MagicMock) -> None:
+    retryable_error = MaxToolRetryableError("Query failed")
+    mock_execute.side_effect = retryable_error
+    query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
+    context = InsightContext(team=MagicMock(), query=query, user=MagicMock())
+
+    with pytest.raises(MaxToolRetryableError) as exc:
+        await context.execute_and_format()
+
+    assert exc.value is retryable_error
 
 
 class TestInsightContext(BaseTest):

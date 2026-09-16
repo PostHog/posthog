@@ -733,6 +733,55 @@ class TestPersistAiQueryPlan(APIBaseTest):
         assert persisted is written
         assert sub.ai_query_plan == (plan if written else None)
 
+    @parameterized.expand(
+        [
+            (
+                "matching_plan_persists",
+                {"version": 6, "plan": {"steps": [{"hogql": "SELECT broken"}]}},
+                {"version": 6, "plan": {"steps": [{"hogql": "SELECT broken"}]}},
+                True,
+            ),
+            (
+                "concurrent_repair_noops",
+                {"version": 6, "plan": {"steps": [{"hogql": "SELECT concurrent"}]}},
+                {"version": 6, "plan": {"steps": [{"hogql": "SELECT original"}]}},
+                False,
+            ),
+        ]
+    )
+    def test_persist_is_conditional_on_plan_read_at_generation_start(
+        self,
+        _name: str,
+        current_plan: dict,
+        expected_plan: dict,
+        written: bool,
+    ) -> None:
+        sub = Subscription.objects.create(
+            team=self.team,
+            prompt="original prompt?",
+            ai_query_plan=current_plan,
+            delivery_config={"include_images": False},
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        repaired = {"version": 6, "plan": {"steps": [{"hogql": "SELECT repaired"}]}}
+
+        persisted = _persist_ai_query_plan(
+            sub.id,
+            self.team.id,
+            "original prompt?",
+            repaired,
+            expected_plan=expected_plan,
+            expected_include_images=False,
+        )
+
+        sub.refresh_from_db()
+        assert persisted is written
+        assert sub.ai_query_plan == (repaired if written else current_plan)
+
 
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
     def _delivery(
@@ -1003,30 +1052,6 @@ class TestFreezePlanPersistence:
 
         mock_clear.assert_called_once_with(sub.id, sub.team_id, sub.prompt, frozen)
         assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
-
-    @patch(f"{_DELIVERY}.Subscription.objects.filter")
-    def test_persist_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:
-        frozen = {"version": 6, "plan": {"overall_intent": "i", "steps": []}}
-        repaired = {"version": 6, "plan": {"overall_intent": "i", "steps": [{"hogql": "SELECT 1"}]}}
-        mock_filter.return_value.filter.return_value.update.return_value = 1
-
-        persisted = _persist_ai_query_plan(
-            42,
-            7,
-            "how are exports doing?",
-            repaired,
-            expected_plan=frozen,
-            expected_include_images=True,
-        )
-
-        mock_filter.assert_called_once_with(
-            id=42,
-            team_id=7,
-            prompt="how are exports doing?",
-            ai_query_plan=frozen,
-        )
-        mock_filter.return_value.filter.return_value.update.assert_called_once_with(ai_query_plan=repaired)
-        assert persisted is True
 
     @patch(f"{_DELIVERY}.Subscription.objects.filter")
     def test_clear_matches_the_plan_read_at_generation_start(self, mock_filter: MagicMock) -> None:

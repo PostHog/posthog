@@ -204,18 +204,15 @@ def _persist_ai_query_plan(
     expected_include_images: bool,
 ) -> bool:
     image_state = Q(delivery_config__include_images=expected_include_images)
+    expected_plan_state = Q(ai_query_plan__isnull=True) if expected_plan is None else Q(ai_query_plan=expected_plan)
     if expected_include_images:
         # Existing subscriptions omit this key and default to including images.
         image_state |= ~Q(delivery_config__has_key="include_images")
 
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
     return bool(
-        Subscription.objects.filter(
-            id=subscription_id,
-            team_id=team_id,
-            prompt=prompt,
-            ai_query_plan=expected_plan,
-        )
+        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt)
+        .filter(expected_plan_state)
         .filter(image_state)
         .update(ai_query_plan=plan)
     )
