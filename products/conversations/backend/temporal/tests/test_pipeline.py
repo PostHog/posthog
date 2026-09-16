@@ -1579,6 +1579,9 @@ class TestReviewReplyActivity:
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
                     verdict="answerable",
+                    investigation_summary="User email is alice@co.com and the key is sk-live-secret.",
+                    unknowns=["internal host 10.0.0.1"],
+                    clarifying_questions=["What is the API key in use?"],
                 ),
             ),
             patch(
@@ -1592,7 +1595,7 @@ class TestReviewReplyActivity:
                 return_value=ReviewReplyOutput(safe=False, reason="reply dumps raw emails"),
             ),
             patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync") as mock_persist,
-            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync"),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
@@ -1621,6 +1624,16 @@ class TestReviewReplyActivity:
 
             assert result == "blocked_unsafe_reply"
             mock_persist.assert_not_called()
+            last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+            assert last_triage["result"] == "blocked_unsafe_reply"
+            assert last_triage["investigation_summary"] == ""
+            assert last_triage["unknowns"] == []
+            assert last_triage["clarifying_questions"] == []
+            triage_blob = str(last_triage)
+            assert "alice@co.com" not in triage_blob
+            assert "sk-live-secret" not in triage_blob
+            assert "10.0.0.1" not in triage_blob
+            assert "API key" not in triage_blob
 
 
 class TestCreateMessage:

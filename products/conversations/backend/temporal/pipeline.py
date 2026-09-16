@@ -261,9 +261,6 @@ class SupportReplyWorkflow:
                 return {
                     "verdict": draft.verdict,
                     "blocker": validate.blocker,
-                    "unknowns": list(draft.unknowns),
-                    "clarifying_questions": list(draft.clarifying_questions),
-                    "investigation_summary": draft.investigation_summary,
                     "draft_confidence": draft.confidence,
                     "validator_confidence": validate.confidence,
                     "coverage": validate.coverage,
@@ -399,6 +396,9 @@ class SupportReplyWorkflow:
                             outcome = {
                                 **_base_triage(),
                                 **_judge_triage(draft_output, validate_output),
+                                "investigation_summary": "",
+                                "unknowns": [],
+                                "clarifying_questions": [],
                                 "result": "blocked_unsafe_reply",
                                 "confidence": validate_output.confidence,
                                 "attempts": attempt + 1,
@@ -581,6 +581,9 @@ class SupportReplyWorkflow:
                         outcome = {
                             **_base_triage(),
                             **_judge_triage(last_draft, last_validate),
+                            "investigation_summary": last_draft.investigation_summary,
+                            "unknowns": list(last_draft.unknowns),
+                            "clarifying_questions": list(last_draft.clarifying_questions),
                             "result": "escalated_with_findings",
                             "confidence": last_validate.confidence,
                             "attempts": attempts_used,
