@@ -69,6 +69,7 @@ def record_scan(
                 files=list(draft.files),
                 reference_count=draft.reference_count,
                 line_count=draft.line_count,
+                owner=draft.owner,
                 first_seen_at=now,
                 last_seen_at=now,
             )
@@ -86,6 +87,7 @@ def record_scan(
             cluster.files = list(draft.files)
             cluster.reference_count = draft.reference_count
             cluster.line_count = draft.line_count
+            cluster.owner = draft.owner
             cluster.last_seen_at = now
             cluster.save()
         for hit in draft.hits:
