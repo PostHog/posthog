@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -255,20 +255,6 @@ export const AutoresearchSuggestionsCreateBody = () => zod.object({
 })
 
 /**
- * Get details for a specific suggestion including its status and agent_response.
- * @summary Get suggestion
- */
-export const AutoresearchSuggestionsRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch suggestion.'),
-    pipeline_id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
  * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
  * @summary Respond to a suggestion
  */
@@ -363,31 +349,6 @@ export const AutoresearchTrainingRunsArtifactsRetrieveParams = () => zod.object(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-/**
- * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
- * @summary Delete an artifact bundle file
- */
-export const AutoresearchTrainingRunsArtifactsDeleteCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch training run.'),
-    pipeline_id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax = 500
-
-export const AutoresearchTrainingRunsArtifactsDeleteCreateBody = () => zod
-    .object({
-        path: zod
-            .string()
-            .max(autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax)
-            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
-    })
-    .describe('Input for fetching or deleting one bundle file by path.')
 
 /**
  * Fetch one file from this training run's artifact bundle, base64-encoded.
@@ -705,62 +666,6 @@ export const AutoresearchTrainCreateBody = () => zod.object({
         .max(autoresearchTrainCreateBodyIterationBudgetMax)
         .optional()
         .describe('Override the pipeline iteration budget for this training run.'),
-})
-
-/**
- * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
- * @summary Run online validation
- */
-export const AutoresearchValidateOnlineCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
- * @summary Resolve a template
- */
-export const AutoresearchResolveTemplateCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const autoresearchResolveTemplateCreateBodyHorizonDaysMax = 365
-
-export const AutoresearchResolveTemplateCreateBody = () => zod.object({
-    template_key: zod
-        .enum([
-            'likely_active_soon',
-            'at_risk_of_inactivity',
-            'return_after_first_use',
-            'feature_adoption',
-            'repeat_key_behavior',
-        ])
-        .describe(
-            '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
-        )
-        .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
-        ),
-    target_event: zod
-        .string()
-        .optional()
-        .describe(
-            "Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving."
-        ),
-    horizon_days: zod
-        .number()
-        .min(1)
-        .max(autoresearchResolveTemplateCreateBodyHorizonDaysMax)
-        .optional()
-        .describe("Override the template's default prediction horizon in days."),
 })
 
 /**
