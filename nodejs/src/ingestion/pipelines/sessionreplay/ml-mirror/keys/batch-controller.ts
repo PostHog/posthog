@@ -30,8 +30,8 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
         private readonly encryption: MlKeyEncryption
     ) {}
 
-    public async start(): Promise<void> {
-        await this.encryption.start()
+    public start(): Promise<void> {
+        return Promise.resolve()
     }
 
     public stop(): void {

@@ -7,7 +7,7 @@ import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { MlKeyBatchController } from './keys/batch-controller'
-import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './keys/transport'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
@@ -83,8 +83,8 @@ export function createProduceCollectedImagesStep<
                 ML_IMAGE_SCRUB_OUTPUT,
                 fresh.map((image) => {
                     validateImageOwner(image.ref, key)
-                    const encrypted = encryptedKafkaValue(key, 'image-source', image.bytes, image.ref)
-                    return { key: image.ref, value: encrypted.value, headers: { ...headers, ...encrypted.headers } }
+                    const record = mlKafkaRecord(mlWireVersion(key), image.bytes)
+                    return { key: image.ref, value: record.value, headers: { ...headers, ...record.headers } }
                 })
             )
             .then(() => {

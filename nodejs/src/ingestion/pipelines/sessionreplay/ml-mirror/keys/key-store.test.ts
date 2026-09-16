@@ -23,7 +23,7 @@ import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
 import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
-import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
+import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
     teamId: 7,
@@ -78,7 +78,7 @@ describe('ML session key batches', () => {
     let reader: MlKeyReader
     let generated: number
 
-    beforeEach(async () => {
+    beforeEach(() => {
         boundary = new DynamoBoundary()
         generated = 0
         encryption = new MlKeyEncryption(
@@ -97,7 +97,6 @@ describe('ML session key batches', () => {
             8,
             1_000_000_000
         )
-        await encryption.start()
         const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)
@@ -391,16 +390,15 @@ describe('ML session key batches', () => {
         expect(committed).toBe(true)
     })
     it.each(['invalid-json', 'oversized-session', 'invalid-session', 'invalid-month'])(
-        'reports accepted, malformed (%s) and deleted encrypted metadata separately',
+        'reports accepted, malformed (%s) and deleted metadata rows separately',
         async (malformed) => {
             register.resetMetrics()
             const deleted = { ...session, sessionId: '01994569-4380-7000-8000-000000000008' }
             const batch = await store.prepare([session, deleted])
             await batch.commit()
             const messages = [session, deleted].map((identity, offset) => {
-                const encoded = encryptedKafkaValue(
-                    batch.get(identity.teamId, identity.sessionId)!.session,
-                    'metadata',
+                const encoded = mlKafkaRecord(
+                    '2',
                     Buffer.from(
                         JSON.stringify({
                             ...toBlockMetadataRow(
@@ -425,8 +423,8 @@ describe('ML session key batches', () => {
                 } as Message
             })
             boundary.items.delete(tableKeyString(sessionKeyId(deleted.teamId, deleted.sessionId)))
-            const invalidEnvelope = parseJSON(messages[0].value!.toString())
-            invalidEnvelope.context.sessionId =
+            const invalidRow = parseJSON(messages[0].value!.toString())
+            invalidRow.session_id =
                 malformed === 'oversized-session'
                     ? 'a'.repeat(1025)
                     : malformed === 'invalid-month'
@@ -435,7 +433,14 @@ describe('ML session key batches', () => {
             messages.push({
                 ...messages[0],
                 offset: 2,
-                value: Buffer.from(malformed === 'invalid-json' ? 'invalid' : JSON.stringify(invalidEnvelope)),
+                value: Buffer.from(malformed === 'invalid-json' ? 'invalid' : JSON.stringify(invalidRow)),
+            })
+            messages.push({
+                ...messages[0],
+                offset: 3,
+                value: Buffer.from(
+                    JSON.stringify({ v: 2, context: { teamId: 7 }, nonce: 'AwMD', ciphertext: 'J7ZDxBv0xIHU' })
+                ),
             })
             const upload = jest.fn().mockResolvedValue({})
             const offsetsStore = jest.fn()
@@ -449,18 +454,22 @@ describe('ML session key batches', () => {
                 { offsetsStore },
                 { flushIntervalMs: 1000, maxRows: 1 },
                 0,
-                new MlKafkaEncryption(reader)
+                new MlKafkaTransport(reader)
             )
             await batcher.handleBatch(messages, 0)
             expect(upload).toHaveBeenCalledTimes(1)
-            expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 3 }])
+            expect(offsetsStore).toHaveBeenCalledWith([{ topic: 'metadata', partition: 0, offset: 4 }])
+            const legacy = await register
+                .getSingleMetric('recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total')!
+                .get()
+            expect(legacy.values[0].value).toBe(1)
             const accepted = await register.getSingleMetric('ml_mirror_parquet_sink_rows_parsed_total')!.get()
             expect(accepted.values[0].value).toBe(1)
             const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
             expect(rejected.values).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({ labels: { reason: 'key_missing' }, value: 1 }),
-                    expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'invalid_record' }, value: 1 }),
                 ])
             )
         }
