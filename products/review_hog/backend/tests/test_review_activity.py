@@ -10,6 +10,8 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
+    FLASH_ARM,
+    REVIEW_MODE_FLASH,
     ReviewArm,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
@@ -143,6 +145,39 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
 
 
 @pytest.mark.asyncio
+async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps_the_cache() -> None:
+    # A flash turn overrides the report's persisted arm for the turn only, and its cached result
+    # must carry the flash model: a full turn at the same commit resumes only its own model's rows,
+    # so a missing or wrong stamp would hand Sol's turn GLM's findings and skip Sol entirely.
+    mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
+    mock_persist = MagicMock()
+    mock_prepare = MagicMock(return_value="review-prompt")
+    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
+    env = ActivityEnvironment()
+    with (
+        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
+        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
+        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        assert await env.run(review_chunk_activity, _review_input(review_mode=REVIEW_MODE_FLASH)) is True
+
+    kwargs = mock_review.call_args.kwargs
+    assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
+        FLASH_ARM.runtime_adapter,
+        FLASH_ARM.model,
+        FLASH_ARM.reasoning_effort,
+    )
+    # The resume lookup and the write both key on the turn's model, and the prompt gets the pinned
+    # skill body inline: GLM cannot reach `skill-get`, so a flash prompt without it reviews blind.
+    assert mock_prepare.call_args.args[-2:] == (FLASH_ARM.model, "INLINE SKILL BODY")
+    mock_skill_body.assert_called_once_with(1, "s-logic", 1)
+    assert mock_persist.call_args.kwargs["review_model"] == FLASH_ARM.model
+
+
+@pytest.mark.asyncio
 async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None:
     # The arm plumbing's core contract: the perspective-review sandbox turn runs on the REPORT's
     # persisted arm. The pin kwargs default to None, so dropping them at this one call site would
@@ -157,15 +192,22 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
         initial_permission_mode=None,
     )
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
+    mock_prepare = MagicMock(return_value="review-prompt")
+    mock_skill_body = MagicMock(return_value="INLINE SKILL BODY")
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.Heartbeater"),
-        patch(f"{_MODULE}._prepare_review_prompt", return_value="review-prompt"),
+        patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=arm),
+        patch(f"{_MODULE}.load_skill_body", mock_skill_body),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
         assert await env.run(review_chunk_activity, _review_input()) is True
+
+    # A full turn keeps the MCP pull: no body is loaded or embedded.
+    mock_skill_body.assert_not_called()
+    assert mock_prepare.call_args.args[-1] is None
 
     kwargs = mock_review.call_args.kwargs
     assert (

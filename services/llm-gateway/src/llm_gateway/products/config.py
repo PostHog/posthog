@@ -117,7 +117,9 @@ RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
-    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    # background_agents is the slug ReviewHog sandboxes fall back to when the Go-gateway token
+    # mint fails; flash-mode reviews run on this model there too.
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog", "background_agents"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -171,6 +173,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
                 "gpt-6-astra",
+                "zai-org/glm-5.3-flash",
             }
             | BEDROCK_MODELS
         ),

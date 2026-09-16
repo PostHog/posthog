@@ -27,7 +27,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import (
@@ -246,10 +246,12 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
 
 
 # What the trigger runs. The default 'review' includes the resolution stage when the requesting
-# user's `resolve_comments` setting is on; the other two are the split button's explicit variants.
+# user's `resolve_comments` setting is on; the others are the split button's explicit variants.
+# 'flash' is the cheap review (GLM in both sandbox seats) and never resolves: flash must not write code.
 RUN_MODE_REVIEW = "review"
 RUN_MODE_REVIEW_ONLY = "review_only"
 RUN_MODE_RESOLVE_ONLY = "resolve_only"
+RUN_MODE_FLASH = "flash"
 
 
 class ReviewTriggerRequestSerializer(serializers.Serializer):
@@ -260,12 +262,13 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     run_mode = serializers.ChoiceField(
         required=False,
         default=RUN_MODE_REVIEW,
-        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY],
+        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH],
         help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
         "requesting user's resolve_comments setting is on, chains the resolution stage; "
         "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
         "the review and only runs the resolution stage on the PR's existing unresolved review "
-        "threads.",
+        "threads; 'flash' runs the cheaper Flash review (a fast, lower-cost model in every review "
+        "step) and never resolves comments.",
     )
 
 
@@ -852,8 +855,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             publish=True,
             acting_user_id=requester_id,
             trigger_source=TRIGGER_UI,
-            # None = the requester's resolve_comments setting decides; review_only pins it off.
-            resolve_comments=False if run_mode == RUN_MODE_REVIEW_ONLY else None,
+            # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
+            resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
+            review_mode=REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL,
         )
         if joins_running_review:
             lifted = lift_review_tier_for_joined_trigger(team_id=team_id, repository=repository, pr_number=pr_number)

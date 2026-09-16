@@ -236,6 +236,42 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   400). Watch the next dogfood resolution run for drift after a long in-sandbox investigation, which the one-shot
   cannot reproduce.
 
+### ✅ BUILT 2026-09-16 — Flash mode: the same pipeline on GLM 5.3 Flash in both sandbox seats, as a per-turn switch
+
+- **What.** A fourth `run_mode` on the UI trigger, `flash`, runs the unchanged pipeline with the reviewer arm
+  (perspective wave + blind-spot sweep) and the validator both on `FLASH_ARM` (`zai-org/glm-5.3-flash` @ high;
+  `reviewer/constants.py`) for that turn only, publishes like any UI review, and never chains the resolution stage.
+  The mode rides the workflow input (`review_mode`) into every stage input; `review_arm_for_mode` /
+  `validation_arm_for_mode` are the two places the seats are chosen, and `review_routing_properties` reads the
+  same helpers so the started / completed / failed events say GLM (plus a `review_mode` property). Every GitHub
+  message of a flash turn opens with `FLASH MODE` + newline. Chunking, selection, and dedup stay on the Sonnet
+  one-shots. The review and validation prompts of a flash turn embed the pinned skill body (`load_skill_body`,
+  `PERSPECTIVE_SKILL_BODY` / `VALIDATION_SKILL_BODY`) instead of the `skill-get` instruction — the first local run
+  proved GLM still cannot bridge the single-`exec` MCP surface (it searches for `skill-get`, finds only `exec`,
+  and reviews blind); full turns keep the MCP pull unchanged.
+- **Why.** The 2026-08 GLM experiment (`eval/experiments/2026-08-model-glm53-flash/`) showed GLM is far cheaper
+  than Sol/Opus and worse, as expected. The question now is whether a Flash review is worth running on every PR
+  the way Greptile / CodeRabbit are, with the full review kept for the PRs that matter — answered by reviewing
+  ~100 real PRs by hand (`eval/experiments/2026-09-flash-mode/`), before any product integration.
+- **Rules that were grilled (2026-09-16):** the shape is the existing pipeline, not a sandbox-free one-shot (a
+  different product); GLM at `high`, its only level below `max`; a **per-turn switch, not a tier** — a sticky
+  flash tier would fight the human-trigger lift (the flash button is a human trigger) and could never be reached
+  from a PR that already had a full review; **one review per commit, whichever came first** — the existing
+  join-on-running and already-reviewed rules cover flash in both directions, so no new gate; the per-commit
+  `perspective_result` cache is **stamped with its model and reused only by the same model**, because an empty
+  flash turn leaves the commit unreviewed and the next full trigger would otherwise resume GLM's rows and never run
+  Sol (one write-side stamp, one read-side filter; the alternative of skipping the cache in flash touched six
+  sites); the UI dropdown is the only trigger (no CLI flag — reviews are not run from the CLI; the MCP trigger
+  tool inherits the choice); the prefix goes on all four message kinds, the never-edited promo comment included;
+  telemetry stays per-turn with nothing stored on the report, and the finding-outcome event (classified hours
+  later without the turn's mode) reports the stored arm; prod plumbing = GLM added to the worker's `review_hog`
+  scoped-token pin (`ai_gateway_token.py`) AND to the Python gateway's `background_agents` allowlist, the
+  mint-failure fallback ("just in case", the frozen service justified as an active-caller fallback).
+- **Settled by the local runs (2026-09-16):** GLM does not fetch its skill on the single-`exec` MCP surface (the
+  August finding holds), hence the inline delivery above. **Open until the first prod run:** whether prod's Go
+  ai-gateway serves the model (a served-but-unpinned model is denied with no fallback; an unserved entry is
+  dropped from the pin by a current binary or fails the whole mint on an older one).
+
 ### ✅ BUILT 2026-09-03 — comment layout back to description-first (reverses the 2026-07-17 validation-first order)
 
 User call: the issue description reads first, the validator's verdict second.

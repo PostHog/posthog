@@ -109,6 +109,10 @@ _PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
         "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-6-astra",
+        # ReviewHog's flash mode runs both sandbox seats on this Baseten-served model. The gateway
+        # resolves the bare `zai-org/` spelling of its served models, so the entry pins rather than
+        # fails the mint; keep it the only slash-namespaced entry.
+        "zai-org/glm-5.3-flash",
     ],
 }
 

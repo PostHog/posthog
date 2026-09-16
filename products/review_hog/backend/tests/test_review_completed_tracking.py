@@ -11,6 +11,9 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_REVIEW_ARM,
+    FLASH_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     REVIEW_MODEL,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
@@ -90,7 +93,12 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
     def _tracking_input(
-        self, report_id: str, *, published: bool = True, turn_trigger_source: str = "manual"
+        self,
+        report_id: str,
+        *,
+        published: bool = True,
+        turn_trigger_source: str = "manual",
+        review_mode: str = REVIEW_MODE_FULL,
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -100,6 +108,7 @@ class TestTrackReviewCompleted(BaseTest):
             published=published,
             workflow_started_at=(datetime.now(UTC) - timedelta(seconds=90)).isoformat(),
             turn_trigger_source=turn_trigger_source,
+            review_mode=review_mode,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -155,6 +164,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["findings_must_fix"] == 0  # downgraded by the validator's adjusted_priority
         assert props["findings_should_fix"] == 1
         assert props["findings_consider"] == 0
+        assert props["review_mode"] == "full"
         assert props["review_model"] == REVIEW_MODEL
         assert props["review_runtime_adapter"] == DEFAULT_REVIEW_ARM.runtime_adapter.value
         assert props["review_reasoning_effort"] == DEFAULT_REVIEW_ARM.reasoning_effort.value
@@ -305,6 +315,42 @@ class TestTrackReviewCompleted(BaseTest):
         # Three events per turn, three uuid namespaces: a shared one would dedupe a start or a
         # failure against the completion of the same turn.
         assert len({call.kwargs["uuid"] for call in (completed, failed, started)}) == 3
+
+    def test_flash_turn_events_name_the_flash_arm_in_both_seats(self) -> None:
+        # The cost comparison splits on review_mode and reads the reviewer and validator models off
+        # the same events; a flash turn reporting the stored Sol/Opus pins would price every flash
+        # review as a full one and contaminate the per-arm dashboards.
+        report_id = self._review_report()
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(self._tracking_input(report_id, review_mode=REVIEW_MODE_FLASH))
+            _track_review_failed(
+                TrackReviewFailedInput(
+                    team_id=self.team.id, report_id=report_id, run_index=1, review_mode=REVIEW_MODE_FLASH
+                )
+            )
+            _track_review_started(
+                TrackReviewStartedInput(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    head_sha="sha1",
+                    run_index=1,
+                    turn_trigger_source="ui",
+                    review_mode=REVIEW_MODE_FLASH,
+                )
+            )
+
+        for call in capture.call_args_list:
+            props = call.kwargs["properties"]
+            assert props["review_mode"] == "flash"
+            assert props["review_model"] == FLASH_ARM.model
+            assert props["review_reasoning_effort"] == FLASH_ARM.reasoning_effort.value
+            assert props["validator_model"] == FLASH_ARM.model
+            assert props["validator_reasoning_effort"] == FLASH_ARM.reasoning_effort.value
+            # The stored arm resolved fine; the mode override is not a fallback.
+            assert props["review_arm_fallback"] is False
+            # The tier stays the report's: flash is a per-turn switch, not a tier.
+            assert props["review_tier"] == "human"
 
     @parameterized.expand(
         [

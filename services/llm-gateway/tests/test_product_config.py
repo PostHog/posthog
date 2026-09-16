@@ -388,6 +388,7 @@ class TestCheckProductAccess:
             "gpt-5.6-luna",
             "gpt-5.6-sol",
             "gpt-6-astra",
+            "zai-org/glm-5.3-flash",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):

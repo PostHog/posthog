@@ -4,6 +4,7 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
+from products.review_hog.backend.reviewer.tools.issue_validation import build_validation_prompt
 from products.review_hog.backend.reviewer.tools.issues_review import _covered_findings_for_chunk, build_review_prompt
 
 
@@ -177,3 +178,28 @@ def test_review_prompt_gives_regular_perspectives_no_cross_perspective_context()
     assert "ALREADY reviewed this exact chunk" not in prompt
     assert "go DEEPER" not in prompt
     assert "without worrying about what the other perspectives might report" in prompt
+
+
+def test_inline_skill_body_replaces_the_mcp_pull_in_both_prompts() -> None:
+    # A flash turn's model cannot reach `skill-get`, so its prompts carry the pinned body instead.
+    # Keeping the pull instruction next to the body would send GLM hunting for a tool it cannot find
+    # (the exact blind-review failure the inline path exists to fix), and a full turn must never
+    # embed a body it did not ask for.
+    review = _render_prompt(skill_body="INLINE PERSPECTIVE BODY")
+    assert "INLINE PERSPECTIVE BODY" in review
+    assert "skill-get(" not in review
+    assert "review-hog-perspective-logic-correctness v2" in review
+    assert "skill-get(" in _render_prompt()
+
+    validation_kwargs: dict = {
+        "issue": _issue("a.py", "problem"),
+        "chunk": _chunk("a.py"),
+        "skill_name": "review-hog-validation-criteria",
+        "skill_version": 4,
+        "pr_metadata": _pr_metadata(),
+        "pr_files": [],
+    }
+    validation = build_validation_prompt(**validation_kwargs, skill_body="INLINE CRITERIA BODY")
+    assert "INLINE CRITERIA BODY" in validation
+    assert "skill-get(" not in validation
+    assert "skill-get(" in build_validation_prompt(**validation_kwargs)

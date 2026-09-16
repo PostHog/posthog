@@ -780,16 +780,33 @@ class TestWorkingState(BaseTest):
 
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
-    def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_chunk_and_model(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
         }
-        persist_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
-        loaded = load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        persist_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results, review_model="sol"
+        )
+        loaded = load_perspective_results(
+            team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="sol"
+        )
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
-        assert load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb", review_model="sol"
+            )
+            == {}
+        )
+        # A flash turn and a full turn can share a commit: the full turn must not resume the flash
+        # turn's rows (it would skip its own reviewer entirely), and the reverse holds too.
+        assert (
+            load_perspective_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", review_model="glm"
+            )
+            == {}
+        )
 
 
 class TestPersistCommitSnapshot(BaseTest):

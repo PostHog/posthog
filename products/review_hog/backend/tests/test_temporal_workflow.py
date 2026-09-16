@@ -41,6 +41,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    StatusCommentInput,
     SyncReviewSkillsInput,
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
@@ -113,6 +114,7 @@ async def _run_full_review_pr_workflow(
     fail_review_units: frozenset[tuple[int, int]] = frozenset(),
     resolve_comments_setting: bool = False,
     input_resolve_comments: bool | None = None,
+    review_mode: str = "full",
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -213,8 +215,16 @@ async def _run_full_review_pr_workflow(
         load_user_ids.append(input.acting_user_id)
         return LoadedBlindSpotsSkillDTO(skill_name="s-blind", version=1)
 
+    # The mode every consumer received, keyed by stage: the arms, the prefix, and the events all key
+    # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
+    mode_calls: dict[str, set[str]] = {}
+
+    def _saw_mode(stage: str, mode: str) -> None:
+        mode_calls.setdefault(stage, set()).add(mode)
+
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
+        _saw_mode("review", input.review_mode)
         review_calls.append(
             (
                 input.pass_number,
@@ -242,6 +252,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        _saw_mode("validate", input.review_mode)
         validate_calls.append(input.chunk_id)
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issue_ids))
 
@@ -253,6 +264,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="publish_review_activity")
     async def publish_act(input: PublishInput) -> PublishResult:
+        _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
@@ -267,11 +279,13 @@ async def _run_full_review_pr_workflow(
         return None
 
     @activity.defn(name="post_status_comment_activity")
-    async def post_status(input) -> None:
+    async def post_status(input: StatusCommentInput) -> None:
+        _saw_mode("status", input.review_mode)
         return None
 
     @activity.defn(name="finalize_status_comment_activity")
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
+        _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
         return None
 
@@ -293,11 +307,13 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="track_review_completed_activity")
     async def track_completed(input: TrackReviewCompletedInput) -> None:
+        _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
         return None
 
     @activity.defn(name="track_review_started_activity")
     async def track_started(input: TrackReviewStartedInput) -> None:
+        _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
         return None
 
@@ -357,6 +373,7 @@ async def _run_full_review_pr_workflow(
                         signal_report_id=signal_report_id,
                         head_branch=input_head_branch,
                         resolve_comments=input_resolve_comments,
+                        review_mode=review_mode,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -391,6 +408,7 @@ async def _run_full_review_pr_workflow(
         "track_completed": track_completed_calls,
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
+        "modes": mode_calls,
     }
 
 
@@ -531,6 +549,20 @@ async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
         assert recorded["resolve_dispatches"] == [(7, 3, "manual")]
     else:
         assert recorded["resolve_dispatches"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_resolution():
+    # Flash must not write code even with the strongest opt-in (an explicit True override on a
+    # publishing run), and every stage that picks an arm, labels a GitHub message, or emits an
+    # event has to receive the mode — a consumer that falls back to the default runs or labels a
+    # flash turn as a full one.
+    recorded = await _run_full_review_pr_workflow(
+        publish=True, resolve_comments_setting=True, input_resolve_comments=True, review_mode="flash"
+    )
+    assert recorded["publish"] == [7]
+    assert recorded["resolve_dispatches"] == []
+    assert recorded["modes"] == {stage: {"flash"} for stage in ("review", "validate", "publish", "status", "track")}
 
 
 @pytest.mark.asyncio
@@ -708,6 +740,8 @@ def test_review_pr_workflow_inputs_deserialize_old_payloads():
     # in-flight review with a Non Deterministic Error on deploy.
     assert inputs.resolve_comments is None
     assert ResolveActingUserResult(acting_user_id=3).resolve_comments is False
+    # A pre-field payload is a full review: defaulting to flash would silently cheapen in-flight turns.
+    assert inputs.review_mode == "full"
 
 
 async def _run_validate_workflow(*, issue_ids: list[str], validate_chunk) -> int:

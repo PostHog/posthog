@@ -168,6 +168,7 @@ class TestMintScopedToken:
             "gpt-5.6-luna",
             "gpt-5.6-terra",
             "gpt-6-astra",
+            "zai-org/glm-5.3-flash",
         ]
 
     def test_review_hog_pin_covers_every_registry_arm_model(self):
@@ -185,6 +186,15 @@ class TestMintScopedToken:
         arm_models = {model for model in registry if "/" not in model}
         missing = arm_models - set(_PRODUCT_ALLOWED_MODELS["review_hog"])
         assert not missing, f"registry arm models absent from the review_hog pin: {sorted(missing)}"
+
+    def test_review_hog_pin_covers_the_flash_arm(self):
+        """ReviewHog's flash mode (`FLASH_ARM` in its reviewer constants) runs both sandbox seats
+        on a served, slash-namespaced model the exemption above skips; a pin without it denies
+        every flash unit with no gateway fallback. Spelled literally: Tasks must not import
+        ReviewHog."""
+        from products.tasks.backend.temporal.process_task.ai_gateway_token import _PRODUCT_ALLOWED_MODELS
+
+        assert "zai-org/glm-5.3-flash" in _PRODUCT_ALLOWED_MODELS["review_hog"]
 
     def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:

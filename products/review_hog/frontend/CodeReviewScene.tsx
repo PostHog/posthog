@@ -677,7 +677,7 @@ function RecentReviewsSection(): JSX.Element | null {
  * "Review a pull request": paste any PR URL the project's GitHub App installation can access and
  * start a publishing review, acting as the requesting user. A review resolves the PR's comment
  * threads afterwards when the user's resolve_comments setting is on; the split button's side
- * actions are the per-run variants (review without resolving / resolve only). Hidden unless the
+ * actions are the per-run variants (review without resolving / resolve only / flash). Hidden unless the
  * backend says this project can trigger reviews (limited to the designated ReviewHog team while
  * in alpha).
  */
@@ -741,6 +741,13 @@ function TriggerReviewSection(): JSX.Element | null {
                                         tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
                                     >
                                         Only resolve existing comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
+                                        tooltip="A faster, cheaper review that never resolves comments. Every message it posts is marked FLASH MODE."
+                                    >
+                                        Review in Flash mode
                                     </LemonButton>
                                 </>
                             ),

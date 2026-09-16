@@ -30,12 +30,19 @@ Return your assessment as a JSON object that conforms to the provided schema.
 
 <your_validation_criteria>
 ## Your validation criteria
+{% if VALIDATION_SKILL_BODY %}
+The bar for what counts as a valid, worth-keeping issue is the skill below ({{ VALIDATION_SKILL_NAME }} v{{ VALIDATION_SKILL_VERSION }}). It defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Read it first and apply it as the standard for your `is_valid` decision.
 
+<validation_skill>
+{{ VALIDATION_SKILL_BODY | safe }}
+</validation_skill>
+{% else %}
 The bar for what counts as a valid, worth-keeping issue lives in a skill you MUST read before judging. As your first step, call this over the PostHog MCP:
 
     skill-get(skill_name="{{ VALIDATION_SKILL_NAME }}", version={{ VALIDATION_SKILL_VERSION }})
 
 Pin to version {{ VALIDATION_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill defines what this team considers worth flagging and what to drop (overengineering, speculative edge cases, defensive paranoia, style, and the like). Apply it as the standard for your `is_valid` decision. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not decide before you have read it.
+{% endif %}
 </your_validation_criteria>
 
 <output_format>

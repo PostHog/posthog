@@ -65,6 +65,7 @@ def build_review_prompt(
     dig_deeper: bool = False,
     blind_spot_check: bool = False,
     wave_perspectives: dict[str, str] | None = None,
+    skill_body: str | None = None,
 ) -> str:
     """Render one (perspective, chunk) review prompt — also the blind-spot check's, via the same shape.
 
@@ -72,7 +73,9 @@ def build_review_prompt(
     perspectives is resolved downstream by deduplication. The reviewer reconstructs the chunk's intent
     itself from the diff + `<pr_intent>` (its mandated investigation step), so no separate analysis
     pass is fed in. The skill's focus isn't spliced in — the prompt instructs the agent to `skill-get`
-    it over MCP — so we pass the skill name and pinned version, not its body. `prior_findings` are
+    it over MCP — so we pass the skill name and pinned version, not its body; a flash turn passes
+    `skill_body` and the prompt embeds it instead, because its model cannot reach the MCP tool.
+    `prior_findings` are
     problems earlier turns already found on this chunk's files; surfacing them tells the agent not to
     re-investigate already-covered ground.
 
@@ -93,4 +96,5 @@ def build_review_prompt(
         OUTPUT_SCHEMA=output_schema,
         PERSPECTIVE_SKILL_NAME=skill_name,
         PERSPECTIVE_SKILL_VERSION=skill_version,
+        PERSPECTIVE_SKILL_BODY=skill_body,
     )

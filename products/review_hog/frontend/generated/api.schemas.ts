@@ -473,6 +473,7 @@ export interface ReviewPerspectiveStatsApi {
  * * `review` - review
  * * `review_only` - review_only
  * * `resolve_only` - resolve_only
+ * * `flash` - flash
  */
 export type ReviewTriggerRequestRunModeEnumApi =
     (typeof ReviewTriggerRequestRunModeEnumApi)[keyof typeof ReviewTriggerRequestRunModeEnumApi]
@@ -481,16 +482,18 @@ export const ReviewTriggerRequestRunModeEnumApi = {
     Review: 'review',
     ReviewOnly: 'review_only',
     ResolveOnly: 'resolve_only',
+    Flash: 'flash',
 } as const
 
 export interface ReviewTriggerRequestApi {
     /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
     pr_url: string
-    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+    /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' runs the cheaper Flash review (a fast, lower-cost model in every review step) and never resolves comments.
      *
      * * `review` - review
      * * `review_only` - review_only
-     * * `resolve_only` - resolve_only */
+     * * `resolve_only` - resolve_only
+     * * `flash` - flash */
     run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
 

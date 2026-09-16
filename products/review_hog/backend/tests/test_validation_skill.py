@@ -13,7 +13,9 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_VALIDATION_SKILL_NAMES,
     REVIEW_HOG_VALIDATION_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
+    SkillBodyNotFoundError,
     ValidationSkillNotFoundError,
+    load_skill_body,
     load_validation_skill_for_run,
     register_missing_validation_config,
 )
@@ -205,3 +207,23 @@ class TestColdStartSyncSeedsValidation(BaseTest):
         # Guards that the run path's syncer list includes validation, not only perspectives.
         _sync_review_skills(self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True).exists()
+
+
+class TestLoadSkillBody(BaseTest):
+    def test_returns_the_pinned_version_not_the_latest(self) -> None:
+        # A flash prompt embeds the version the turn was planned against; returning the latest body
+        # would let a mid-run publish change a turn's criteria, the race the version pin exists for.
+        sync_canonical_validation(self.team)
+        v1 = LLMSkill.objects.get(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True)
+        publish_skill_version(
+            self.team,
+            user=self.user,
+            skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME,
+            body="v2 criteria body",
+            base_version=1,
+        )
+
+        assert load_skill_body(self.team.id, REVIEW_HOG_VALIDATION_SKILL_NAME, 1) == v1.body
+        assert load_skill_body(self.team.id, REVIEW_HOG_VALIDATION_SKILL_NAME, 2) == "v2 criteria body"
+        with pytest.raises(SkillBodyNotFoundError):
+            load_skill_body(self.team.id, REVIEW_HOG_VALIDATION_SKILL_NAME, 3)

@@ -58,6 +58,35 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 )
 
 
+# REVIEW MODE
+# What a single turn runs on, chosen per trigger and carried in the workflow input, never persisted on
+# the report: a flash turn must not change what the PR's next normal review runs on. Plain strings so
+# Temporal payloads stay forward/backward-compatible across deploys, like the trigger sources.
+REVIEW_MODE_FULL = "full"
+REVIEW_MODE_FLASH = "flash"
+
+# The one arm a flash turn runs both sandbox seats on (perspectives + blind-spot sweep, and the
+# validator). GLM only exposes `high` and `max`; the 2026-08 experiment ran `max`, this ships `high`.
+FLASH_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CLAUDE,
+    model="zai-org/glm-5.3-flash",
+    reasoning_effort=ReasoningEffort.HIGH,
+)
+
+# Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
+# starts with this, so a reader can tell a flash review from a full one at a glance.
+FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE\n"
+
+
+def message_prefix_for_mode(review_mode: str) -> str:
+    return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
+
+
+def review_arm_for_mode(review_mode: str, persisted: ReviewArm) -> ReviewArm:
+    """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
+    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else persisted
+
+
 class ReviewTier(StrEnum):
     """The routing bucket a report's reviewer arm is chosen from; persisted as `ReviewReport.review_tier`.
 
@@ -183,12 +212,25 @@ def resolve_review_arm(
 
 
 # VALIDATION MODEL
-# Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
-# default effort (the behavior before this knob existed); set all three to pin, like the review pins.
-VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-5"
-VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
+# Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
+# the whole seat at once.
+VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+VALIDATION_MODEL = "claude-opus-5"
+VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
+
+DEFAULT_VALIDATION_ARM = ReviewArm(
+    runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
+    model=VALIDATION_MODEL,
+    reasoning_effort=VALIDATION_REASONING_EFFORT,
+    initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+)
+
+
+def validation_arm_for_mode(review_mode: str) -> ReviewArm:
+    """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
+    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).

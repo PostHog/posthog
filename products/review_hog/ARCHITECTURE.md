@@ -343,13 +343,18 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
+    Every message a **flash** turn writes — the status comment in each of its states, the promo comment, the
+    review body, and each inline comment — opens with `FLASH MODE` + newline (`message_prefix_for_mode`), applied
+    in `_post_github_review` and the status-comment renderers before redaction.
     The workflow captures one **`reviewhog_review_started`** product-analytics event per turn that passed every
     gate (`track_review_started_activity`) and, after the publish stage, one **`reviewhog_review_completed`** per
     finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size properties
     (`track_review_completed_activity`); a dead turn gets `reviewhog_review_failed` instead. All three, and the
     per-finding `reviewhog_finding_outcome`, carry `review_routing_properties` (`reviewer/telemetry.py`): the tier,
-    the reviewer arm as resolved for that report, and the validator / resolver pins, so every event says which
-    model and effort the review spent. Started carries the arm as the turn began; completed the arm at the end,
+    the reviewer arm as resolved for that report, the validator / resolver pins, and the turn's `review_mode`, so
+    every event says which model and effort the review spent (a flash turn's three per-turn events name the flash
+    arm in both seats; the outcome event, classified later without the turn's mode, names the stored arm).
+    Started carries the arm as the turn began; completed the arm at the end,
     which differs when a person's trigger lifted the tier mid-turn or, rarely, when the registry dropped the
     arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
 
@@ -416,7 +421,14 @@ cheaper arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood ga
 but run the default arm. `load_review_arm` → `resolve_review_arm` honors a persisted arm only while it stays a
 registry-supported combo — anything else falls back to the default (full-strength) pins and stamps
 `review_arm_fallback` on the run's analytics events. Chunking, dedup, and the validator stay on Claude at fixed
-pins; the resolution stage runs the validator's model (`claude-opus-5` @ xhigh). See [DECISIONS.md](./DECISIONS.md)
+pins; the resolution stage runs the validator's model (`claude-opus-5` @ xhigh). One per-turn override sits on top
+of all of this: **Flash mode** (`review_mode` on the workflow input, `REVIEW_MODE_FLASH`; the UI trigger's
+`run_mode=flash`) runs both sandbox seats — the perspective wave with its blind-spot sweep, and the validator — on
+one cheap arm, `FLASH_ARM` (`zai-org/glm-5.3-flash` @ high), for that turn only. The report's tier and arm are
+untouched, so the PR's next normal trigger reviews normally; `review_arm_for_mode` / `validation_arm_for_mode`
+are the two helpers the activities and the analytics events both read, so a flash turn's events name the flash
+arm in both seats. A flash turn never chains the resolution stage, and its review and validation prompts carry
+the pinned skill bodies inline instead of the MCP pull (see [Prompts](#prompts)). See [DECISIONS.md](./DECISIONS.md)
 for the Sonnet-vs-Sol production A/B that picked Sol (and the `full-access` permission-mode gotcha headless Codex
 needs) and for the tier decision, and [Selecting the sandbox model & reasoning
 effort](#selecting-the-sandbox-model--reasoning-effort) below for the path that applies these knobs.
@@ -538,7 +550,10 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 - `issues_review/prompt.jinja` — the core review prompt, run once per perspective per chunk; 10-step process
   with mandatory codebase investigation. The per-perspective focus is **no longer spliced in** — the
   `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
-  MCP and apply that perspective's focus (pull delivery). → `IssuesReview`. The perspective focuses themselves
+  MCP and apply that perspective's focus (pull delivery). A **flash** turn is the one exception: its model cannot
+  bridge to the single-`exec` MCP surface, so the activity loads the same pinned body (`load_skill_body`) and the
+  template embeds it (`PERSPECTIVE_SKILL_BODY`); the validation prompt does the same (`VALIDATION_SKILL_BODY`).
+  → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
   `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
@@ -573,8 +588,10 @@ Per-run state by kind:
   (re-fetchable from GitHub). The reviewed unified `diff` rides back as a string and becomes the per-turn
   **`commit`** artefact (the durable point-in-time snapshot).
 - **Working state** (the resume substrate, head_sha-scoped): `chunk_set`, `perspective_result`, and the
-  `pr_snapshot` artefacts. The raw/cleaned/combined issue sets are in-process values down the
-  combine→clean→dedup chain.
+  `pr_snapshot` artefacts. A `perspective_result` is stamped with the reviewer model that wrote it and is only
+  reused by a turn running that model: a flash turn and a full turn can share a commit, and a full turn must never
+  resume GLM's results in place of running Sol (rows from before the stamp are never reused). The
+  raw/cleaned/combined issue sets are in-process values down the combine→clean→dedup chain.
 - **Outputs:** `issue_finding` + `validation_verdict` artefacts (the canonical findings/verdicts) and
   `ReviewReport.report_markdown` (the rendered review body) + the `head_sha` / `last_seen_comment_id`
   watermark.
@@ -648,7 +665,9 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 
 **Triggers.** Five entry points drive the same `ReviewPRWorkflow`: the `run_review` CLI (manual / eval), the
 `reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
-"Review this PR" field in the Code review scene (any installation-accessible PR), an **inbox** trigger (a
+"Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
+also carries the review-without-resolving, resolve-only, and **flash** variants — flash is the only trigger of
+the cheap mode, and it pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
 whoever controls the run, the sandbox agent included), and **MCP tools**

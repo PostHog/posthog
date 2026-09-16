@@ -65,22 +65,33 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             trigger_source="ui",
             # None = the requester's resolve_comments setting decides whether resolution chains.
             resolve_comments=None,
+            review_mode="full",
         )
 
+    @parameterized.expand(
+        [
+            # (run_mode, expected review_mode)
+            ("review_only", "full"),
+            ("flash", "flash"),
+        ]
+    )
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START_RESOLUTION)
     @patch(_START, return_value="wf-ui-1")
-    def test_review_only_mode_pins_resolution_off_for_the_run(
-        self, mock_start, mock_start_resolution, _mock_access, _mock_meta
+    def test_review_only_and_flash_modes_pin_resolution_off_for_the_run(
+        self, run_mode, expected_review_mode, mock_start, mock_start_resolution, _mock_access, _mock_meta
     ):
-        # The split button's "review without resolving": the per-run override must reach the
-        # workflow as an explicit False — passing None would fall back to the user's setting.
+        # The split button's "review without resolving" and "flash": the per-run override must reach
+        # the workflow as an explicit False — passing None would fall back to the user's setting, and
+        # a flash review that resolved would write code. Flash must also carry its mode, or the
+        # workflow runs the full pipeline under a flash label.
         with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="review_only")
+            resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
+        self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
 
     @patch(_META, return_value=_pr_meta(head_sha="abc123"))

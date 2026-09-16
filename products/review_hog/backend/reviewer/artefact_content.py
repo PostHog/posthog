@@ -245,12 +245,18 @@ class PerspectiveSelectionArtefact(BaseModel):
 
 
 class PerspectiveResultArtefact(BaseModel):
-    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
+    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn.
+
+    `review_model` keys the resume: the cache is per commit, and a flash turn and a full turn can run at
+    the same commit, so a result is only reused by a turn running the model that wrote it. Rows from
+    before the field carry None and are never reused.
+    """
 
     head_sha: str = Field(description="PR head commit this review was computed for.")
     pass_number: int = Field(description="The review perspective (1=Logic, 2=Contracts, 3=Performance).")
     chunk_id: int = Field(description="The chunk this perspective reviewed.")
     review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
+    review_model: str | None = Field(default=None, description="The reviewer model that produced this result.")
 
 
 class PRSnapshotArtefact(BaseModel):

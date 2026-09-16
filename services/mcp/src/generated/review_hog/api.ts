@@ -76,10 +76,12 @@ export const ReviewHogReviewsTriggerCreateBody = () => zod.object({
             "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
         ),
     run_mode: zod
-        .enum(['review', 'review_only', 'resolve_only'])
-        .describe('\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only')
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
+        .describe(
+            '\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash'
+        )
         .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only"
+            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' runs the cheaper Flash review (a fast, lower-cost model in every review step) and never resolves comments.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash"
         ),
 })

@@ -408,3 +408,24 @@ def load_resolution_skill_for_run(team_id: int, acting_user_id: int | None) -> L
 # only needs to exist as a synced team `LLMSkill` so any agent can `skill-get` it.
 REVIEW_HOG_AUTHORING_PREFIX = "review-hog-authoring"
 REVIEW_HOG_AUTHORING_SKILL_NAME = REVIEW_HOG_AUTHORING_PREFIX
+
+
+class SkillBodyNotFoundError(LookupError):
+    """The pinned skill version has no live row on the team."""
+
+
+def load_skill_body(team_id: int, skill_name: str, version: int) -> str:
+    """The body of one pinned skill version, for a turn that carries the skill in its prompt.
+
+    Full turns pull the skill over MCP (`skill-get`); a flash turn's model cannot bridge to the
+    single-`exec` MCP surface, so its prompts embed the same pinned body instead. Same content,
+    same version pin, no tool round trip.
+    """
+    body = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, version=version, deleted=False)
+        .values_list("body", flat=True)
+        .first()
+    )
+    if body is None:
+        raise SkillBodyNotFoundError(f"No live skill '{skill_name}' v{version} on team {team_id}")
+    return body

@@ -653,7 +653,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         submitAdoptSkillFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
         // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
-        // setting), a review without resolving, or a resolve-only run — the split button's variants.
+        // setting), a review without resolving, a resolve-only run, or a flash review — the split
+        // button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
         submitTriggerReview: (

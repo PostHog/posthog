@@ -388,9 +388,14 @@ def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -
 
 
 def persist_perspective_results(
-    *, team_id: int, report_id: str, head_sha: str, results: dict[tuple[int, int], IssuesReview]
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    results: dict[tuple[int, int], IssuesReview],
+    review_model: str,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk) reviewed this turn."""
+    """Append one `perspective_result` artefact per (pass, chunk) reviewed this turn, stamped with its model."""
     if not results:
         return
     with transaction.atomic():
@@ -399,19 +404,32 @@ def persist_perspective_results(
                 team_id=team_id,
                 report_id=report_id,
                 content=PerspectiveResultArtefact(
-                    head_sha=head_sha, pass_number=pass_number, chunk_id=chunk_id, review=review
+                    head_sha=head_sha,
+                    pass_number=pass_number,
+                    chunk_id=chunk_id,
+                    review=review,
+                    review_model=review_model,
                 ),
                 attribution=ArtefactAttribution.system(),
             )
 
 
-def load_perspective_results(*, team_id: int, report_id: str, head_sha: str) -> dict[tuple[int, int], IssuesReview]:
-    """The (pass, chunk) perspective reviews already computed for this turn (latest wins per key)."""
+def load_perspective_results(
+    *, team_id: int, report_id: str, head_sha: str, review_model: str
+) -> dict[tuple[int, int], IssuesReview]:
+    """The (pass, chunk) reviews already computed for this turn by `review_model` (latest wins per key).
+
+    The cache is per commit, so results another model wrote at the same commit (a flash turn before a
+    full one, or the reverse) are skipped: reusing them would hand this turn findings its own reviewer
+    never produced.
+    """
     out: dict[tuple[int, int], IssuesReview] = {}
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
     ):
         assert isinstance(content, PerspectiveResultArtefact)
+        if content.review_model != review_model:
+            continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
 

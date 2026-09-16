@@ -86,11 +86,19 @@ This repository is checked out at this PR's branch, so read any file in full and
 
 <your_review_perspective>
 ## Your review perspective
+{% if PERSPECTIVE_SKILL_BODY %}
+Your specific focus for this review is the skill below ({{ PERSPECTIVE_SKILL_NAME }} v{{ PERSPECTIVE_SKILL_VERSION }}). It is the brain of this review: it tells you what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Read it first and apply it as your lens for this entire review.
+
+<review_skill>
+{{ PERSPECTIVE_SKILL_BODY | safe }}
+</review_skill>
+{% else %}
 Your specific focus for this review lives in a skill you MUST read before analyzing. As your first step, call this over the PostHog MCP:
 
     skill-get(skill_name="{{ PERSPECTIVE_SKILL_NAME }}", version={{ PERSPECTIVE_SKILL_VERSION }})
 
 Pin to version {{ PERSPECTIVE_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill body is the brain of this review: it tells you what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Apply it as your lens for this entire review. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not start analyzing before you have read it.
+{% endif %}
 {% if WAVE_PERSPECTIVES %}
 
 These review perspectives have each ALREADY reviewed this exact chunk — their lenses already ran:
