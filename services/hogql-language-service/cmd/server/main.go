@@ -284,7 +284,17 @@ func (s *server) putCatalog(w http.ResponseWriter, r *http.Request, authorizatio
 	if !decodeJSON(w, r, 64<<20, &input) {
 		return
 	}
-	if err := s.catalogs.Put(authorization, input.Revision, &input.Catalog); err != nil {
+	if err := catalog.ValidateRevision(input.Revision); err != nil {
+		setRequestResult(r, "catalog_rejected")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := catalog.ValidateCatalog(&input.Catalog); err != nil {
+		setRequestResult(r, "catalog_rejected")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.catalogs.Put(authorization, input.Revision, catalog.Prepare(&input.Catalog)); err != nil {
 		setRequestResult(r, "catalog_rejected")
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
