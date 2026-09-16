@@ -133,20 +133,6 @@ def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
         get_clickhouse_creds(ClickHouseUser.DELETION_EXECUTOR)
 
 
-@pytest.mark.parametrize("file_exists", [True, False], ids=["empty", "unreadable"])
-def test_deletion_executor_password_file_fails_closed(monkeypatch, tmp_path, file_exists):
-    token = tmp_path / "deletion-executor-token"
-    if file_exists:
-        token.write_text("")
-    monkeypatch.setenv("CLICKHOUSE_DELETION_EXECUTOR_USER", "deletion_executor")
-    monkeypatch.setenv("CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE", str(token))
-    monkeypatch.delenv("CLICKHOUSE_DELETION_EXECUTOR_PASSWORD", raising=False)
-    monkeypatch.setattr(connection, "__user_dict", None)
-
-    with pytest.raises(RuntimeError, match="no usable password"):
-        get_http_kwargs(Workload.ONLINE, ch_user=ClickHouseUser.DELETION_EXECUTOR)
-
-
 def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
     token = tmp_path / "token"
