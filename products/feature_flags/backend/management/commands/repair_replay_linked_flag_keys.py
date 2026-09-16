@@ -47,6 +47,9 @@ from products.feature_flags.backend.session_recording_links import (
 class Outcome(StrEnum):
     REPAIRED = "repaired"
     ALREADY_CORRECT = "already_correct"
+    # The stored reference moved between the scan and the locked write, so this run neither
+    # repaired it nor checked what now stands in its place.
+    CHANGED_MID_SCAN = "changed_mid_scan"
     FLAG_SOFT_DELETED = "flag_soft_deleted"
     FLAG_IN_OTHER_PROJECT = "flag_in_other_project"
     FLAG_MISSING = "flag_missing"
@@ -360,7 +363,9 @@ class Command(BaseCommand):
 
         A reference an admin has edited since the scan is left for the next run: the finding was
         classified from a copy that is no longer what the column holds, so rewriting it would put
-        the pre-edit reference back and publish it to the SDKs.
+        the pre-edit reference back and publish it to the SDKs. It is reported as
+        `changed_mid_scan` rather than counted correct, because the reference now stored has been
+        read against no flag key, and can be as stale as the one the scan classified.
         """
         repairs = [
             (index, finding, finding.flag_id)
@@ -395,10 +400,19 @@ class Command(BaseCommand):
                 # Only these two locations are ever classified repairable; a whole malformed
                 # trigger groups column is reported, never rewritten.
                 if finding.location is Location.LINKED_FLAG:
+                    # Asked here rather than left to `rewritten_linked_flag`, which declines both
+                    # a column naming another flag and one already holding the new key. Only the
+                    # second is healthy, and collapsing them hides the edited column from the
+                    # report altogether.
+                    if stored_flag_id(locked.session_recording_linked_flag) != flag_id:
+                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
+                        continue
                     rewritten = rewritten_linked_flag(
                         locked.session_recording_linked_flag, flag_id=flag_id, new_key=current_key
                     )
                     if rewritten is None:
+                        # Same flag, and the key is already the current one: the relink got here
+                        # first.
                         written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
                     linked_flag = rewritten
@@ -408,12 +422,11 @@ class Command(BaseCommand):
                     # group added, removed or reordered since the scan cannot shift a rewrite onto
                     # its neighbour, even one holding a byte-identical reference. Neither field
                     # stands alone: a group can store no id, and two can hold the same reference.
-                    if (
-                        ref is None
-                        or ref.group_id != finding.group_id
-                        or ref.stored_flag != finding.stored_flag
-                        or ref.key == current_key
-                    ):
+                    if ref is None or ref.group_id != finding.group_id or ref.stored_flag != finding.stored_flag:
+                        written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
+                        continue
+                    if ref.key == current_key:
+                        # A rename has moved the flag back onto the key this group already holds.
                         written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
                     renames[ref.group_index] = current_key
