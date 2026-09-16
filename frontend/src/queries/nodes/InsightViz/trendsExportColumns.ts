@@ -26,6 +26,10 @@ export function trendsExportColumns(results: TrendResult[], breakdownFilter?: Br
 
     add('series')
 
+    // When comparing periods, the previous series is indexed with an offset, so its own labels are
+    // the wrong ones.
+    const currentLabels = results.find((result) => result.compare_label === 'current')?.labels
+
     for (const result of results) {
         if (result.action?.custom_name) {
             add('custom name')
@@ -46,9 +50,7 @@ export function trendsExportColumns(results: TrendResult[], breakdownFilter?: Br
         if (result.aggregated_value != null) {
             add('Total Sum')
         } else if (result.data?.length) {
-            // When comparing periods, the previous series is indexed with an offset, so its own
-            // labels are the wrong ones.
-            const labels = results.find((other) => other.compare_label === 'current')?.labels ?? result.labels ?? []
+            const labels = currentLabels ?? result.labels ?? []
             result.data.forEach((_, index) => {
                 if (index < labels.length) {
                     add(labels[index])
