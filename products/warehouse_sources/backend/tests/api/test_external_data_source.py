@@ -18,6 +18,7 @@ from django.utils import timezone
 
 import psycopg
 import requests
+import structlog
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -5418,6 +5419,39 @@ class TestExternalDataSource(APIBaseTest):
         for phrase in forbidden_phrases:
             assert phrase not in message.lower()
         mock_capture_exception.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_discovery_keeps_the_request_log_context(self, mock_get_source):
+        # The legs run on a pool thread, which starts with an empty context. The lines they write
+        # about the customer's host are the ones a slow discovery has to be diagnosed from, so they
+        # still have to carry the request's ids.
+        source = StripeSource()
+        mock_get_source.return_value = source
+        seen: dict[str, Any] = {}
+
+        def _capture_context(*args, **kwargs):
+            seen.update(structlog.contextvars.get_contextvars())
+            return []
+
+        structlog.contextvars.bind_contextvars(discovery_test_marker="bound-on-the-request")
+        try:
+            with (
+                patch.object(source, "validate_config", return_value=(True, [])),
+                patch.object(source, "parse_config", return_value=None),
+                patch.object(source, "validate_credentials", return_value=(True, None)),
+                patch.object(source, "get_schemas", side_effect=_capture_context),
+                patch.object(source, "get_endpoint_permissions", return_value={}),
+            ):
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                    data={"source_type": "Stripe"},
+                )
+        finally:
+            structlog.contextvars.unbind_contextvars("discovery_test_marker")
+
+        assert response.status_code == 200, response.json()
+        assert seen.get("discovery_test_marker") == "bound-on-the-request"
+        assert "request_id" in seen
 
     def test_database_schema_counts_a_source_error_the_credential_probe_resolved(self):
         # A SQL source lists the catalog to validate, so a catalog too wide to list comes back as a

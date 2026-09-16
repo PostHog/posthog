@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import contextvars
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import (
@@ -272,8 +273,12 @@ class _DiscoveryDeadline:
             finally:
                 connections.close_all()
 
+        # A pool thread starts with an empty context, so the request id, the team and the active
+        # span would not reach the lines this leg writes about the customer's host. Carry the
+        # request's context across, the way the other request-path pools in this repo do.
+        request_context = contextvars.copy_context()
         try:
-            future = _DISCOVERY_EXECUTOR.submit(_work_and_release)
+            future = _DISCOVERY_EXECUTOR.submit(request_context.run, _work_and_release)
         except Exception:
             _DISCOVERY_CAPACITY.release()
             raise
