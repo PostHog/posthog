@@ -900,7 +900,9 @@ def _resolve_finding_response(
     if isinstance(response, SignalFindingUpdate):
         if response.previous_finding_correct and previous_finding is not None:
             return previous_finding, False
-        if response.finding is None:  # unreachable: the model validator requires it
+        if response.finding is None:
+            # The validator only requires `finding` when previous_finding_correct is false, so a
+            # reply that confirms a previous finding the report does not have arrives empty.
             raise ValueError("SignalFindingUpdate carried no finding")
         return _enforce_signal_id(response.finding, expected_id), True
     return _enforce_signal_id(response, expected_id), True
@@ -1052,11 +1054,12 @@ async def run_multi_turn_research(
                     SignalFindingUpdate,
                     label=f"signal_{i}_of_{total}",
                 )
+                finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             except ValueError as e:
-                # Every extraction and schema failure is a ValueError, so keep the loss to this
-                # signal: drop its finding, or keep the previous one. A dead session (empty turn,
-                # poll timeout) is a RuntimeError and still ends the run, since no later turn can
-                # succeed either.
+                # Every extraction and schema failure is a ValueError, and so is a reply that
+                # validates but carries no finding, so keep the loss to this signal: drop its
+                # finding, or keep the previous one. A dead session (empty turn, poll timeout) is a
+                # RuntimeError and still ends the run, since no later turn can succeed either.
                 logger.warning(
                     "research: signal %d of %d returned no usable finding (%s)", i, total, _rejection_reason(e)
                 )
@@ -1065,7 +1068,6 @@ async def run_multi_turn_research(
                 if output_fn:
                     output_fn(f"Signal {i}/{total} returned no usable finding, continuing without it")
                 continue
-            finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
             (new_artefacts if is_new else old_artefacts).append(finding)
             if output_fn:
                 output_fn(

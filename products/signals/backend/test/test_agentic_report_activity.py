@@ -1211,6 +1211,46 @@ async def test_run_multi_turn_research_still_fails_when_the_first_signal_reply_i
 
 
 @pytest.mark.asyncio
+async def test_run_multi_turn_research_keeps_the_report_when_a_signal_reply_carries_no_finding():
+    signals = _build_signals()
+    first_finding = SignalFinding(
+        signal_id="sig-1", relevant_code_paths=["example.py"], data_queried="Queried the events.", verified=True
+    )
+    presentation = ReportPresentationOutput(
+        title="fix(onboarding): restore completion tracking",
+        summary="Users cannot complete the tracked onboarding flow.",
+    )
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            # `finding` is only required when previous_finding_correct is false, so this passes the
+            # schema. On a first run the report has no previous finding to confirm, which leaves
+            # the reply with nothing in it.
+            SignalFindingUpdate(previous_finding_correct=True),
+            _actionability("The research found a concrete code path and measured impact."),
+            _priority("The measured impact supports this."),
+            presentation,
+            FixVerificationOutput(current_state="Run query-trends.", outcome="Confirm the volume recovers."),
+        ]
+    )
+
+    with (
+        patch(
+            "products.tasks.backend.facade.agents.MultiTurnSession.start",
+            AsyncMock(return_value=(session, first_finding)),
+        ),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(signals, Mock(team_id=1), signal_report_id="report-id")
+
+    assert result.effective_findings() == [first_finding]
+    assert result.title == presentation.title
+    session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_run_multi_turn_research_ends_session_when_followup_fails():
     signals = _build_signals()
 

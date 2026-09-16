@@ -66,7 +66,7 @@ Fix verification is best-effort. Generation failures do not fail completed resea
 
 ### A per-signal finding degrades on its own
 
-A signal turn whose reply cannot be extracted or validated (`ValueError`, which covers `ValidationError` and every extraction failure) costs that signal only: its finding is dropped, or the report's previous finding for it is kept, and the run continues through the remaining signals and the judgments. A dead session is a `RuntimeError` — an empty turn, a poll timeout, an agent error — and still ends the run, because the turns after it cannot succeed either.
+A signal turn whose reply cannot be extracted or validated (`ValueError`, which covers `ValidationError`, every extraction failure, and a reply that validates but carries no finding) costs that signal only: its finding is dropped, or the report's previous finding for it is kept, and the run continues through the remaining signals and the judgments. A dead session is a `RuntimeError` — an empty turn, a poll timeout, an agent error — and still ends the run, because the turns after it cannot succeed either.
 
 Signal 1 is the exception. Its reply is parsed inside `MultiTurnSession.start`, which raises before the session reaches this module, so an invalid first finding still costs the whole report. The metrics note below describes the same failure on the presentation turn, where a rejected item has no degrade path of its own. Charts are not in that position, because the presentation model drops a malformed chart and keeps the rest.
 
