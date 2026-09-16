@@ -5,6 +5,7 @@ import contextlib
 from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -17,6 +18,10 @@ from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_KEYS_UNAVAILABLE_ERROR,
@@ -24,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
     _build_query,
+    _get_avg_document_size,
+    _get_partition_settings,
     _get_rows_to_sync,
     _list_importable_collection_names,
     _make_safe_server_selector,
@@ -51,16 +58,20 @@ class TestSafeServerSelector(SimpleTestCase):
         assert result[0].address == ("8.8.8.8", 27017)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_returns_empty_when_all_servers_internal(self):
+    def test_raises_when_all_servers_internal(self):
+        # Returning an empty selection would let pymongo time out with the same text a cluster
+        # outage produces, which is classified retryable — so the schedule would keep probing a
+        # host the policy already refused. The raised error disables the sync instead.
         selector = _make_safe_server_selector(team_id=999)
         servers = [
             ServerDescription(("10.0.0.1", 27017)),
             ServerDescription(("192.168.1.1", 27017)),
         ]
 
-        result = selector(servers)
+        with pytest.raises(HostNotAllowedError) as excinfo:
+            selector(servers)
 
-        assert result == []
+        assert DATABASE_HOST_NOT_ALLOWED_ERROR in str(excinfo.value)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_allows_all_public_servers(self):
@@ -86,9 +97,8 @@ class TestSafeServerSelector(SimpleTestCase):
         selector = _make_safe_server_selector(team_id=999)
         servers = [ServerDescription((host, 27017))]
 
-        result = selector(servers)
-
-        assert result == []
+        with pytest.raises(HostNotAllowedError):
+            selector(servers)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_whitelisted_team_allows_internal_ips(self):
@@ -599,9 +609,7 @@ class TestGetRowsToSync(SimpleTestCase):
 
     def test_pymongo_error_returns_zero_without_capture(self):
         coll = MagicMock()
-        coll.count_documents.side_effect = ServerSelectionTimeoutError(
-            "atlas-sql.query.mongodb.net:27017: connection closed, Timeout: 10.0s"
-        )
+        coll.count_documents.side_effect = OperationFailure("count command not supported on this view")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.capture_exception"
         ) as capture:
@@ -616,6 +624,40 @@ class TestGetRowsToSync(SimpleTestCase):
         ) as capture:
             assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
             capture.assert_called_once()
+
+
+class TestProbesFailFastOnUnreachableCluster(SimpleTestCase):
+    """The metadata probes are best-effort and swallow their errors. Each one runs its own server
+    selection, so swallowing an unreachable cluster spends another full selection window before
+    the extraction read fails the attempt anyway."""
+
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_rows_to_sync_propagates(self, _name, error):
+        coll = MagicMock()
+        coll.count_documents.side_effect = error
+
+        with pytest.raises(type(error)):
+            _get_rows_to_sync(coll, {}, MagicMock())
+
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_collstats_probes_propagate(self, _name, error):
+        coll = MagicMock()
+        coll.database.command.side_effect = error
+
+        with pytest.raises(type(error)):
+            _get_partition_settings(coll, "orders")
+        with pytest.raises(type(error)):
+            _get_avg_document_size(coll, MagicMock())
 
 
 class TestListImportableCollectionNames(SimpleTestCase):

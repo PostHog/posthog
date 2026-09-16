@@ -12,7 +12,11 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    ValidateDatabaseHostMixin,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -351,6 +355,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except HostNotAllowedError:
+            # An SRV URI skips the host check above, so a cluster whose members resolve to private
+            # addresses is only refused once `_make_safe_server_selector` sees them. Report the same
+            # guidance the sync path stores for this condition, and don't capture it: the host is
+            # the user's to fix, never our bug.
+            return False, DATABASE_HOST_NOT_ALLOWED_GUIDANCE
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,
