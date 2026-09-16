@@ -1,4 +1,4 @@
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -8,7 +8,7 @@ class TestFilter(BaseTest):
     maxDiff = None
 
     def test_fill_date_from_and_date_to(self):
-        with freeze_time("2020-10-01T12:00:00Z"):
+        with time_machine.travel("2020-10-01T12:00:00Z", tick=False):
             filter = RetentionFilter(data={}, team=self.team)
             self.assertEqual(filter.date_from.isoformat(), "2020-09-21T00:00:00+00:00")
             self.assertEqual(filter.date_to.isoformat(), "2020-10-02T00:00:00+00:00")
@@ -59,7 +59,7 @@ class TestFilter(BaseTest):
             "sampling_factor": "",
         }
 
-        with freeze_time("2020-10-01T12:00:00Z"):
+        with time_machine.travel("2020-10-01T12:00:00Z", tick=False):
             filter = RetentionFilter(data={"date_to": "2020-08-01"}, team=self.team)
         self.assertEqual(filter.date_from.isoformat(), "2020-07-22T00:00:00+00:00")
         self.assertEqual(filter.date_to.isoformat(), "2020-08-02T00:00:00+00:00")

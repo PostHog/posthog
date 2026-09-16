@@ -59,6 +59,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsInSessionExposureRetrieve,
     experimentsSessionBucketsCreate,
@@ -156,6 +157,13 @@ export interface ExperimentSessionBucket {
  */
 export type ExperimentReplayRecording = Pick<SessionRecordingType, 'id' | 'recording_duration' | 'person'>
 
+/**
+ * Why the behavior comparison cannot run for this experiment, known before any request is sent.
+ * `group_aggregated` is the backend's refusal: the comparison matches exposures to persons'
+ * recordings, and a flag that aggregates by group exposes groups instead of persons.
+ */
+export type ExperimentBehaviorComparisonUnavailableReason = 'group_aggregated'
+
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
 export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
 
@@ -183,6 +191,8 @@ export interface ExperimentRecordingsListEmptyContext {
     retentionWindowDays: number
     /** Null when the list holds every variant. */
     variantKey: string | null
+    /** End of the window the applied metric filter scanned. Null when no filter is applied. */
+    scannedWindowEnd: string | null
 }
 
 /**
@@ -296,6 +306,7 @@ export interface experimentReplayTabLogicValues {
     appliedDurationFilterCount: number
     behaviorComparisonAvailable: boolean
     behaviorComparisonOpen: boolean
+    behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
     bucketSessionIds: string[] | undefined
     durationFilterActive: boolean
     durationFilterCustomized: boolean
@@ -320,6 +331,7 @@ export interface experimentReplayTabLogicValues {
     playlistFilters: RecordingUniversalFilters | null
     playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
+    scannedWindowEnd: string | null
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
     selectedWatchCard: ExperimentWatchCardApi | null
@@ -329,6 +341,7 @@ export interface experimentReplayTabLogicValues {
     sessionBucketRequest: ExperimentSessionBucketRequest | null
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
+    sessionEventDeltasErrorStatus: number | null
     sessionEventDeltasLoading: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
@@ -579,6 +592,7 @@ export interface experimentReplayTabLogicMeta {
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        behaviorComparisonUnavailableReason: (arg: any) => ExperimentBehaviorComparisonUnavailableReason | null
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
         effectiveExposureScope: (
@@ -612,6 +626,10 @@ export interface experimentReplayTabLogicMeta {
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
         ) => boolean
+        scannedWindowEnd: (
+            bucketSessionIds: string[] | undefined,
+            sessionBucket: ExperimentSessionBucket | null
+        ) => string | null
         listEmptyReason: (
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
@@ -620,11 +638,13 @@ export interface experimentReplayTabLogicMeta {
             recordingsFilters: RecordingUniversalFilters,
             effectiveVariantKey: string | null,
             effectiveExposureScope: ExperimentReplayExposureScope,
+            scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
             effectiveVariantKey: string | null,
+            scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -639,7 +659,9 @@ export interface experimentReplayTabLogicMeta {
             variantKeys: string[],
             metricOptions: ExperimentReplayMetricOption[],
             effectiveExposureScope: ExperimentReplayExposureScope,
-            inSessionExposure: ExperimentInSessionExposureApi | null
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            behaviorComparisonAvailable: boolean,
+            behaviorComparisonUnavailableReason: 'group_aggregated' | null
         ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -832,6 +854,24 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         dropped_duplicate_cards: response.dropped_duplicate_cards,
                         used_exposure_fallback: response.used_exposure_fallback,
                         duration_ms: Math.round(performance.now() - startedAt),
+                        compared_persons: response.variants.reduce((total, variant) => total + variant.persons, 0),
+                        // The same floor the shelves apply, so a reported count of one matches the
+                        // one-sided copy the viewer saw.
+                        compared_variants: response.variants.filter(
+                            (variant) => variant.persons >= response.min_variant_persons
+                        ).length,
+                        compared_enrollment_hours: dayjs(response.date_to).diff(
+                            dayjs(response.date_from),
+                            'hour',
+                            true
+                        ),
+                        sessions_truncated: response.sessions_truncated,
+                        events_truncated: response.events_truncated,
+                        // An empty shelf on a young experiment is a different answer from the same
+                        // shelf on one that has stopped enrolling, so the age of the run is read
+                        // next to `empty_reason` rather than inferred from the event's timestamp.
+                        experiment_ended: hasEnded(props.experiment),
+                        days_since_start: daysSince(props.experiment.start_date),
                     })
                     return response
                 },
@@ -995,6 +1035,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 loadSessionEventDeltasFailure: (_, { error, errorObject }) => errorObject?.detail || error || 'unknown',
             },
         ],
+        // Kept beside the message because the two are read together: the backend states a refusal
+        // as a 400, which no retry can change, while every other failure is worth retrying.
+        sessionEventDeltasErrorStatus: [
+            null as number | null,
+            {
+                loadSessionEventDeltas: () => null,
+                loadSessionEventDeltasSuccess: () => null,
+                loadSessionEventDeltasFailure: (_, { errorObject }) =>
+                    typeof errorObject?.status === 'number' ? errorObject.status : null,
+            },
+        ],
         // The card whose recordings the playlist is showing, kept apart from the metric
         // selection: its session set comes from the shelf rather than from the experiment's
         // metrics.
@@ -1030,6 +1081,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         behaviorComparisonAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        ],
+        // Read off the feature flag's filters rather than the experiment's, because the flag's
+        // aggregation is what the backend checks before it refuses the comparison.
+        behaviorComparisonUnavailableReason: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): ExperimentBehaviorComparisonUnavailableReason | null =>
+                experiment.feature_flag?.filters?.aggregation_group_type_index != null ? 'group_aggregated' : null,
         ],
         effectiveVariantKey: [
             (s) => [s.selectedVariantKey, s.variantKeys],
@@ -1153,6 +1211,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     !!playlistFilters.filter_test_accounts !== !!recordingsFilters.filter_test_accounts),
         ],
         /**
+         * The end of the window the applied metric filter scanned, and null when no filter narrows
+         * the list. The endpoint anchors that window on the last exposure captured in a session, so
+         * on an experiment whose exposures stopped it sits well behind the end of the run.
+         */
+        scannedWindowEnd: [
+            (s) => [s.bucketSessionIds, s.sessionBucket],
+            (bucketSessionIds: string[] | undefined, sessionBucket: ExperimentSessionBucket | null): string | null =>
+                bucketSessionIds !== undefined ? (sessionBucket?.response.date_to ?? null) : null,
+        ],
+        /**
          * The cause to name when the list comes back with nothing, first match wins. The order is
          * cheapest-and-most-certain first: a project with replay off can have no recordings at all,
          * while the window and retention reasons only say that the recordings the window would have
@@ -1170,6 +1238,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.recordingsFilters,
                 s.effectiveVariantKey,
                 s.effectiveExposureScope,
+                s.scannedWindowEnd,
                 (_, props) => props.experiment,
             ],
             (
@@ -1180,6 +1249,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 recordingsFilters: RecordingUniversalFilters,
                 effectiveVariantKey: string | null,
                 effectiveExposureScope: ExperimentReplayExposureScope,
+                scannedWindowEnd: string | null,
                 experiment: Experiment
             ): ExperimentReplayListEmptyReason => {
                 if (!currentTeam?.session_recording_opt_in) {
@@ -1192,16 +1262,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // nothing, because it must never widen the list back out. Told apart here rather
                 // than left to a join against `experiment recordings bucket failed`, so a broken
                 // endpoint can't inflate the count of filters that legitimately match nothing.
-                if (bucketSessionIds?.length === 0) {
-                    return sessionBucketError !== null
-                        ? ExperimentReplayListEmptyReason.MetricFilterFailed
-                        : ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
+                if (bucketSessionIds?.length === 0 && sessionBucketError !== null) {
+                    return ExperimentReplayListEmptyReason.MetricFilterFailed
                 }
                 const retention = retentionDays(currentTeam.session_recording_retention_period)
                 const daysSinceStart = dayjs().diff(dayjs(experiment.start_date), 'day')
-                const daysSinceEnd = daysSince(experiment.end_date)
-                if (daysSinceEnd !== null && daysSinceEnd > retention) {
+                // Read against the window the list covers rather than the run: a metric filter
+                // stops at the last in-session exposure, so on an experiment whose exposures
+                // stopped every session it finds can predate retention, which no filter can fix.
+                const daysSinceWindowEnd = daysSince(scannedWindowEnd ?? experiment.end_date)
+                if (daysSinceWindowEnd !== null && daysSinceWindowEnd > retention) {
                     return ExperimentReplayListEmptyReason.EndedPastRetention
+                }
+                if (bucketSessionIds?.length === 0) {
+                    return ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
                 }
                 if (daysSinceStart < TOO_EARLY_DAYS) {
                     return ExperimentReplayListEmptyReason.TooEarly
@@ -1228,16 +1302,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, s.scannedWindowEnd, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 effectiveVariantKey: string | null,
+                scannedWindowEnd: string | null,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
+                scannedWindowEnd,
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
@@ -1270,12 +1346,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
         // report and the beforeUnmount flush send the same shape.
         tabViewContext: [
-            (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
+            (s) => [
+                s.variantKeys,
+                s.metricOptions,
+                s.effectiveExposureScope,
+                s.inSessionExposure,
+                s.behaviorComparisonAvailable,
+                s.behaviorComparisonUnavailableReason,
+            ],
             (
                 variantKeys: string[],
                 metricOptions: ExperimentReplayMetricOption[],
                 effectiveExposureScope: ExperimentReplayExposureScope,
-                inSessionExposure: ExperimentInSessionExposureApi | null
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                behaviorComparisonAvailable: boolean,
+                behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
             ): ExperimentRecordingsTabContext => ({
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
@@ -1286,6 +1371,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 in_session_available: inSessionExposure?.available ?? null,
                 in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
                 in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
+                behavior_comparison_available: behaviorComparisonAvailable,
+                behavior_comparison_unavailable_reason: behaviorComparisonUnavailableReason,
             }),
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
@@ -1374,9 +1461,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         /**
-         * Null whenever the client-side event filters express the question exactly, so the list
-         * keeps its uncapped path: no metric selected, and any "fired all" of several metrics
-         * (ANDing filters is the one thing a recordings query can do).
+         * Null whenever the tab has no server-side set to ask for, so the list keeps its uncapped
+         * path: no metric selected in any mode, and any "fired all" of several metrics (ANDing
+         * filters is the one thing a recordings query can do).
          *
          * One selected metric is the interesting case. "Fired all of it" and "fired any of it"
          * are the same question, so both take the same path — the client filter when the metric
@@ -1400,13 +1487,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (metricFilterMode === 'funnel_dropoff') {
                     return effectiveMetricUuids.length === 1 ? request('funnel_dropoff') : null
                 }
-                if (metricFilterMode === 'no_metric_activity') {
-                    // Absence without a selection legitimately means every matchable metric.
-                    return request('no_metric_activity')
-                }
                 if (effectiveMetricUuids.length === 0) {
-                    // "Fired any of nothing" has no answer.
+                    // No mode narrows the list on an empty selection. The endpoint does read an
+                    // empty metric list as "every matchable metric", but the checkboxes stay
+                    // unticked while it does, so the list would answer a question the menu never
+                    // shows.
                     return null
+                }
+                if (metricFilterMode === 'no_metric_activity') {
+                    // Absence is the one question a recordings query can't express at all, however
+                    // few events the selected metrics count.
+                    return request('no_metric_activity')
                 }
                 if (effectiveMetricUuids.length > 1) {
                     return metricFilterMode === 'fired_any' ? request('fired_any') : null
@@ -1593,7 +1684,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // finish rather than firing a duplicate; the server-side cache covers a deliberate reload.
         toggleBehaviorComparison: () => {
             actions.reportExperimentBehaviorComparisonToggled(props.experiment.id, values.behaviorComparisonOpen)
-            if (values.behaviorComparisonOpen && !values.sessionEventDeltas && !values.sessionEventDeltasLoading) {
+            // The backend refuses a comparison this experiment cannot have, so asking for it only
+            // costs a request and returns the same refusal every time.
+            if (values.behaviorComparisonUnavailableReason !== null) {
+                return
+            }
+            // A 400 is a refusal for a reason the client cannot foresee, and it leaves no deltas
+            // behind, so reopening the shelf would otherwise send the same doomed request again.
+            if (
+                values.behaviorComparisonOpen &&
+                !values.sessionEventDeltas &&
+                !values.sessionEventDeltasLoading &&
+                values.sessionEventDeltasErrorStatus !== 400
+            ) {
                 actions.loadSessionEventDeltas()
             }
         },

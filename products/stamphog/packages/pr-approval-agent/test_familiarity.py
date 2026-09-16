@@ -200,6 +200,44 @@ def test_capped_flag_set_when_file_exceeds_line_bound(tmp_path: Path, monkeypatc
     assert fam.modified_lines_total == 0
 
 
+def test_failed_blame_counts_its_lines_as_not_owned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _commit(repo, "src/mine.py", _numbered_lines("mine", 4), "feat: mine (#1)", "authora")
+    _commit(repo, "src/theirs.py", _numbered_lines("theirs", 4), "feat: theirs (#2)", "authorb")
+    base_sha = _head(repo)
+    (repo / "src/mine.py").write_text(_numbered_lines("mine", 4).replace("mine 2\n", "mine 2 changed\n"))
+    (repo / "src/theirs.py").write_text(_numbered_lines("theirs", 4).replace("theirs 2\n", "theirs 2 changed\n"))
+    diff_path = tmp_path / "pr.diff"
+    diff_path.write_text(_git(repo, "diff", base_sha).stdout)
+
+    real_run = familiarity.subprocess.run
+
+    def fail_blame_of_theirs(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "blame"] and "src/theirs.py" in cmd:
+            raise OSError("blame could not read a missing object")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(familiarity.subprocess, "run", fail_blame_of_theirs)
+    _patch_gh(monkeypatch, pr_numbers={1})
+    fam = compute_familiarity(
+        author_login="authora",
+        diff_path=diff_path,
+        base_sha=base_sha,
+        head_sha="HEAD",
+        repo="PostHog/posthog",
+        repo_root=repo,
+        thresholds=_THRESHOLDS,
+    )
+
+    assert fam is not None
+    assert fam.blame_incomplete_files == 1
+    # One line owned out of two changed lines, not one out of one.
+    assert fam.modified_lines_owned == 1
+    assert fam.modified_lines_total == 2
+    assert fam.blame_overlap_pct == 50.0
+
+
 def test_files_previously_modified_counts_renamed_file_by_old_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -361,6 +399,7 @@ def _fam(band: str, top_authors: tuple[str, ...]) -> AuthorFamiliarity:
         files_prev_count=0,
         files_total=3,
         capped=False,
+        blame_incomplete_files=0,
         top_prior_authors=top_authors,
     )
 

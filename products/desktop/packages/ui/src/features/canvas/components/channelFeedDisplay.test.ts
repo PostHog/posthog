@@ -63,6 +63,10 @@ describe("channelFeedDisplay", () => {
       name: "PostHog app context blocks",
       text: "<posthog_trusted_context>\n- act with tools\n</posthog_trusted_context>\n<posthog_untrusted_context>\n- dashboard 1\n</posthog_untrusted_context>\n\nfix the bug",
     },
+    {
+      name: "a truncated channel context block",
+      text: 'fix the bug\n<channel_context channel="growth">\nprivate context',
+    },
   ])("strips $name from the feed text", ({ text }) => {
     expect(stripContextBlocks(text)).toBe("fix the bug");
   });

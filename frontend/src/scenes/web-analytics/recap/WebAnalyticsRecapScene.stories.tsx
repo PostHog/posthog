@@ -95,3 +95,14 @@ export default meta
 export function WeeklyRecap(): JSX.Element {
     return <App />
 }
+
+export function LoadFailed(): JSX.Element {
+    return <App />
+}
+LoadFailed.decorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/web_analytics/recap/': () => [500, { detail: 'Query timed out' }],
+        },
+    }),
+]

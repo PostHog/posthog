@@ -2,9 +2,8 @@ import re
 
 import pytest
 
-from posthog.schema import SourceFieldInputConfig
-
 import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 ALL_SOURCES = SourceRegistry.get_all_sources()
@@ -38,7 +37,7 @@ DESCRIPTIONS_NOT_IN_SCHEMAS = {
 
 # Static-catalog sources with no curated descriptions at all: every table falls back to LLM
 # enrichment. Adding descriptions is an improvement, so drop the entry when one does.
-SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "ApifyDataset", "PgAnalyze"}
+SOURCES_WITHOUT_CURATED_DESCRIPTIONS = {"ActiveCampaign", "Airtable", "PgAnalyze"}
 
 CREDENTIAL_FIELD = re.compile(r"api[_-]?key|access[_-]?key|token|secret|password|passphrase|private[_-]?key", re.I)
 

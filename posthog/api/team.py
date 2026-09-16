@@ -59,7 +59,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import (
     EventIngestionRestrictionConfig,
@@ -75,7 +75,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -120,12 +119,20 @@ from products.customer_analytics.backend.facade.team_extension import TeamCustom
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
+from products.tasks.backend.facade.workflow_tasks import (
+    MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+)
 from products.tracing.backend.facade.team_extension import TeamTracingConfig
 from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
     compiled_patterns as compiled_custom_bot_patterns,
-    validate_definition as validate_custom_bot_definition,
+    parse_rules as parse_custom_bot_rules,
+    validate_rule as validate_custom_bot_rule,
+    validate_rule_set as validate_custom_bot_rule_set,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -801,7 +808,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
         return internal_value
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        instance.refresh_from_db(from_queryset=TeamMarketingAnalyticsConfig.objects.select_for_update())
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
             new_sources_map = validated_data["sources_map"]
@@ -861,10 +870,75 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "Transactional emails are exempt from consent enforcement."
         ),
     )
+    workflow_task_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many AI tasks one workflow can create in a rolling 24 hours. "
+            f"Null uses the default of {WORKFLOW_TASK_RATE_CAP_PER_DAY}; zero pauses task creation "
+            f"for every workflow in the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY}."
+        ),
+    )
+    workflow_task_team_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many AI tasks all workflows in the project can create together in a rolling "
+            f"24 hours. Null uses the default of {WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}; zero pauses "
+            f"task creation for the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
+        fields = [
+            "capture_workflows_engagement_events",
+            "email_tracking_consent_mode",
+            "workflow_task_rate_limit_per_day",
+            "workflow_task_team_rate_limit_per_day",
+        ]
+
+    def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
+        # As a nested field there is no stored row to compare against; the parent serializer
+        # re-runs this serializer bound to the row in validate_workflows_config.
+        if self.parent:
+            return value
+        # Support raises a project past the ceiling in Django admin; clients that echo the whole
+        # config must be able to send that value back unchanged. Read the row fresh: the
+        # `Team.workflows_config` accessor is cached per process and can be stale.
+        if value is not None and value > ceiling:
+            stored = (
+                TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values_list(field, flat=True).first()
+                if self.instance is not None
+                else None
+            )
+            if stored != value:
+                raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
+        return value
+
+    def validate_workflow_task_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY
+        )
+
+    def validate_workflow_task_team_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+        )
+
+
+def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+
+    serializer = TeamWorkflowsConfigSerializer(team.workflows_config if team else None, data=value)
+    if not serializer.is_valid():
+        raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+    return serializer.validated_data
 
 
 class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -1143,23 +1217,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
-    event_retention_months = serializers.IntegerField(
-        read_only=True,
-        help_text=(
-            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months. "
-            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
-            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
-            "https://github.com/PostHog/posthog/issues/17031"
-        ),
-    )
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text=(
-            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
-            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
-            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
-        )
-    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1198,8 +1255,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
-            "event_retention_months",
-            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -1254,11 +1309,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             group_types = cached_group_types_for_team(team)
             self._group_types_cache = group_types
         return group_types
-
-    @extend_schema_field(serializers.BooleanField())
-    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
-    def get_events_retention_enforced(self, team: Team) -> bool:
-        return should_enforce_events_retention(team.id)
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
@@ -1339,15 +1389,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
-    @staticmethod
-    def validate_workflows_config(value):
-        if value is None:
-            return None
-
-        serializer = TeamWorkflowsConfigSerializer(data=value)
-        if not serializer.is_valid():
-            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
-        return serializer.validated_data
+    def validate_workflows_config(self, value):
+        return validate_team_workflows_config(self.instance, value)
 
     @staticmethod
     def validate_feature_flag_policy_config(value):
@@ -1841,6 +1884,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if value is None:
             return value
 
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("logs_settings must be an object or null.")
+
+        if "json_parse_logs_attribute_key" in value:
+            attribute_key = value["json_parse_logs_attribute_key"]
+            # Length is measured after trimming, matching CharField(trim_whitespace=True,
+            # max_length=200) on the logs_config key lists.
+            if not isinstance(attribute_key, str) or len(attribute_key.strip()) > 200:
+                raise exceptions.ValidationError(
+                    "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+                    "Use an empty string to disable parsing."
+                )
+            value["json_parse_logs_attribute_key"] = attribute_key.strip()
+
         new_retention = value.get("retention_days")
         if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
             raise exceptions.ValidationError(
@@ -1903,26 +1960,44 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
                     )
 
+        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # Cap before parsing, so an oversized list is rejected without instantiating a model
+            # per entry.
+            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            # Strict, so a malformed rule is rejected with a specific error rather than the
+            # generic "Invalid modifier key.", and the stored list is normalized.
+            try:
+                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
+
         try:
             modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
 
         if "customBotDefinitions" in value:
-            definitions = modifiers.customBotDefinitions or []
-            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+            rules = modifiers.customBotDefinitions or []
+            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
                 raise exceptions.ValidationError(
                     {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
                 )
-            for definition in definitions:
+            for rule in rules:
                 # An unusable pattern would break every query that reads $virt_is_bot for this
                 # project, so it is rejected here rather than dropped silently at query time.
                 try:
-                    validate_custom_bot_definition(definition)
+                    validate_custom_bot_rule(rule)
                 except ValueError as error:
-                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+                    # An empty name would render as an orphaned leading colon.
+                    message = f"{rule.name}: {error}" if rule.name else str(error)
+                    raise exceptions.ValidationError({"customBotDefinitions": message})
             try:
-                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
+                validate_custom_bot_rule_set(rules)
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
@@ -2606,6 +2681,18 @@ class TeamViewSet(
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamLogsConfigSerializer,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
@@ -2694,8 +2781,7 @@ class TeamViewSet(
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         team = self.get_object()
 
@@ -2703,10 +2789,10 @@ class TeamViewSet(
             scope="Team",
             team_id=team.pk,
             item_ids=[str(team.pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:

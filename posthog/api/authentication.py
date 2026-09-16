@@ -98,6 +98,20 @@ class WebauthnCredentialPrecheck(TypedDict):
     transports: list[str]
 
 
+def sso_enforcement_for_login_address(email: str, user: User | None) -> str | None:
+    """
+    Return the SSO enforcement for a typed address or for the account it resolves to.
+
+    The account lookup folds case in Postgres, so a typed domain can differ from the domain on the account it
+    reaches: Postgres lowercases `İ` (U+0130) to `i`. Checking only the typed domain would let an address that
+    reaches an account on an enforced domain skip SSO, so the account's own address is checked too.
+    """
+    sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
+    if sso_enforcement or user is None:
+        return sso_enforcement
+    return OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
+
+
 @require_http_methods(["POST"])
 def logout(request):
     clear_two_factor_session_flags(request)
@@ -135,6 +149,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
+    sso_providers["oidc"] = settings.EE_AVAILABLE
 
     is_reauth = is_sso_reauth_begin(request)
 
@@ -147,8 +162,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if connect_from:
-        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+    if connect_from and backend == "github":
+        # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
@@ -276,8 +291,10 @@ class LoginSerializer(serializers.Serializer):
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        existing_user = EmailLookupHandler.get_user_by_email(validated_data["email"], is_active=None)
+
         # Check SSO enforcement (which happens at the domain level)
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        sso_enforcement = sso_enforcement_for_login_address(validated_data["email"], existing_user)
         if sso_enforcement:
             raise serializers.ValidationError(
                 f"You can only login with SSO for this account ({sso_enforcement}).",
@@ -286,7 +303,6 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
 
-        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,
             email=validated_data["email"],
@@ -410,6 +426,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
 
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         credentials = WebauthnCredential.objects.get_verified_for_email(email)
         webauthn_credentials = [
@@ -422,16 +439,18 @@ class LoginPrecheckSerializer(serializers.Serializer):
         ]
 
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
+        oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
         return {
-            "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
+            "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
+            "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
-            **self._available_local_methods(email, saml_available=saml_available),
+            **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
 
     @staticmethod
-    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+    def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
         Report whether this account can log in with a password, and which of its linked social
         identities are actually usable on this instance, so the login form can stop offering a
@@ -442,8 +461,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
         that are genuinely passwordless.
         """
         # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
-        # describe a different account than the one a password would authenticate: exact case first,
-        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        # describe a different account than the one a password would authenticate: case-insensitive,
+        # and deterministic (active first, then last logged in) if case variations coexist.
         user = EmailLookupHandler.get_user_by_email(email)
         if user is None:
             return {"password_login_available": True, "social_providers": []}
@@ -459,6 +478,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
             # SAML is domain-configured rather than instance-configured, so it isn't covered above.
             usable_providers.add("saml")
         linked_providers = set(user.social_auth.values_list("provider", flat=True))
+        if oidc_available:
+            usable_providers.add("oidc")
 
         return {
             "password_login_available": password_login_available,
@@ -589,9 +610,8 @@ class DevLoginSerializer(serializers.Serializer):
             return self._create_fresh_account()
 
         request = self.context["request"]
-        try:
-            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
-        except User.DoesNotExist:
+        user = EmailLookupHandler.get_user_by_email(validated_data["email"])
+        if user is None:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -1115,9 +1135,12 @@ class PasswordResetSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         email = validated_data.pop("email")
+        # Same lookup login uses, so a reset link can never reach a different account than the
+        # password it replaces.
+        user = EmailLookupHandler.get_user_by_email(email)
 
         # Check SSO enforcement (which happens at the domain level)
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(email):
+        if sso_enforcement_for_login_address(email, user):
             raise serializers.ValidationError(
                 "Password reset is disabled because SSO login is enforced for this domain.",
                 code="sso_enforced",
@@ -1128,14 +1151,6 @@ class PasswordResetSerializer(serializers.Serializer):
                 "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
                 code="email_not_available",
             )
-
-        try:
-            user = User.objects.filter(is_active=True).get(email__iexact=email)
-        except User.DoesNotExist:
-            user = None
-        except User.MultipleObjectsReturned:
-            # If multiple users share the same email (different casing), use the exact match
-            user = User.objects.filter(is_active=True, email=email).first()
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
@@ -1279,6 +1294,34 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
         return None
 
     return request
+
+
+def social_identity_matches_session(
+    strategy: DjangoStrategy,
+    backend: Any,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs: Any,
+) -> None:
+    request = strategy.request
+    if not request or not request.user.is_authenticated or social is not None:
+        return
+
+    is_github_account_link = getattr(backend, "name", "") == "github" and (
+        strategy.session_get("next") or ""
+    ).startswith("/account-connected/github-login")
+    if is_github_account_link:
+        return
+
+    identity_email = ((details or {}).get("email") or "").lower()
+    if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
+        logger.warning(
+            "SSO identity mismatch for authenticated session",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
 
 
 def social_reauth(

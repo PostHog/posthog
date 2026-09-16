@@ -1,7 +1,14 @@
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
-import { nextRunAt, scoutCadenceLabel, scoutGroup, ScoutGroupKey, scoutSubtitle } from './scoutGroups'
+import {
+    nextRunAt,
+    scoutCadenceLabel,
+    scoutCadenceNamesClockTime,
+    scoutGroup,
+    ScoutGroupKey,
+    scoutSubtitle,
+} from './scoutGroups'
 import { computeScoutRollups, ScoutRollup } from './scoutRunsWindow'
 
 const NOW = new Date('2026-06-27T22:00:00Z')
@@ -164,6 +171,16 @@ describe('scoutGroups', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutCadenceLabel(makeConfig(overrides))).toEqual(expected)
+        })
+    })
+
+    describe('scoutCadenceNamesClockTime', () => {
+        it.each<[string, Partial<SignalScoutConfig>, boolean]>([
+            ['a rolling interval states no clock time', { run_interval_minutes: 60 }, false],
+            ['a plain daily cron states one', { run_cron_schedule: '0 9 * * *' }, true],
+            ['a richer cron states one', { run_cron_schedule: '35 8 * * 1-5' }, true],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutCadenceNamesClockTime(makeConfig(overrides))).toBe(expected)
         })
     })
 

@@ -671,6 +671,10 @@ export class PiAgentServer {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
         apiKey: this.config.apiKey,
+        interactionOrigin:
+          process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
+          process.env.CODE_INTERACTION_ORIGIN ??
+          process.env.TWIG_INTERACTION_ORIGIN,
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,

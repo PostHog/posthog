@@ -5,8 +5,8 @@ from posthog.models.utils import UUIDTModel
 
 class TicketAssignment(UUIDTModel):
     ticket = models.OneToOneField("conversations.Ticket", on_delete=models.CASCADE, related_name="assignment")
-    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
-    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE)
+    user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE, related_name="+")
+    role = models.ForeignKey("ee.Role", null=True, on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

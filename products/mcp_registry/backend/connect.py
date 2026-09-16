@@ -25,6 +25,8 @@ Method taxonomy, most to least automated:
 - ``remote_api_key``: the human must mint a key on the vendor's site; the agent
   tells them exactly where and takes over from paste onward.
 - ``local_package``: no hosted remote; the agent runs the published package locally.
+  Always human-gated: the package is publisher-controlled code, so a person approves
+  the exact package (and version) before the agent installs and runs it.
 
 Values that a registry publisher controls (a remote URL, a package identifier) are
 shell-quoted before they reach a ``command`` string. An agent is told to run these
@@ -263,36 +265,42 @@ def _derived_methods(server: MCPRegistryServer) -> list[dict[str, Any]]:
     if package:
         version = str(package.get("version") or "")
         spec = f"{package['identifier']}@{version}" if version else str(package["identifier"])
+        # A local package is always human-gated, pinned or not. The package identifier and
+        # version are both publisher-controlled: pinning stops the publisher swapping the
+        # code after listing it, but says nothing about whether the pinned version itself is
+        # trustworthy. So a person confirms the package identity before the agent runs it,
+        # and an unpinned spec (which resolves whatever is latest at run time) gets an
+        # explicit extra warning on top.
         steps: list[dict[str, Any]] = [
+            {
+                "actor": "human",
+                "description": (
+                    "Approve running this package: it is publisher-controlled code from the npm registry. "
+                    + (
+                        f"Confirm you want `{spec}` before the agent installs it."
+                        if version
+                        else f"The registry published no version, so this resolves whatever the publisher "
+                        f"has made latest. Confirm the package `{spec}` and pin a version before the agent installs it."
+                    )
+                ),
+                "command": None,
+            },
             {
                 "actor": "agent",
                 "description": "Add the server as a local process.",
                 "command": f"claude mcp add {slug} -- npx -y {shlex.quote(spec)}",
-            }
+            },
         ]
-        if not version:
-            # An unpinned spec resolves whatever is latest when the agent runs it, so a
-            # publisher can list something benign and replace it later. Nobody should run
-            # that unattended.
-            steps.insert(
-                0,
-                {
-                    "actor": "human",
-                    "description": "Approve the package first: the registry published no version, so this "
-                    "resolves whatever the publisher has made latest.",
-                    "command": None,
-                },
-            )
         methods.append(
             {
                 "method": "local_package",
-                "automation": "full" if version else "human_required",
+                "automation": "human_required",
                 "summary": (
-                    "Run the published package locally, pinned to the listed version (auth requirements may "
-                    "still apply at runtime)."
+                    "Run the published package locally, pinned to the listed version, after a person approves it "
+                    "(auth requirements may still apply at runtime)."
                     if version
-                    else "Run the published package locally. The registry listed no version, so a human "
-                    "approves before it runs."
+                    else "Run the published package locally. The registry listed no version, so a person approves "
+                    "and pins a version before it runs."
                 ),
                 "steps": steps,
             }

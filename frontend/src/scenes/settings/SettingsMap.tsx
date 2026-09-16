@@ -25,7 +25,7 @@ import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
-import { CustomBotDefinitions } from 'scenes/settings/environment/CustomBotDefinitions'
+import { CustomBotRules } from 'scenes/settings/environment/CustomBotRules'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -52,6 +52,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -76,6 +77,7 @@ import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -122,6 +124,8 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsJsonParseAttributeSettings } from './environment/LogsJsonParseAttributeSettings'
+import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -329,7 +333,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add your own crawlers and scripts to the bots PostHog already detects, so you can tell them apart from real visitors.',
                 docsUrl: 'https://posthog.com/docs/web-analytics/bot-detection',
-                component: <CustomBotDefinitions />,
+                component: <CustomBotRules />,
                 keywords: ['bot', 'crawler', 'spider', 'scraper', 'user agent', 'ai'],
             },
             {
@@ -909,6 +913,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['json', 'parse', 'structured', 'format'],
             },
             {
+                id: 'logs-json-parse-attribute',
+                title: 'JSON parse log attribute',
+                description:
+                    'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
+                docsUrl: 'https://posthog.com/docs/logs/logs-config',
+                component: <LogsJsonParseAttributeSettings />,
+                flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
+                keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
+            },
+            {
                 id: 'logs-pii-scrub',
                 title: 'PII scrubbing',
                 description:
@@ -932,6 +946,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "The log attributes PostHog reads to identify which person a log belongs to. A log is linked when any of these attributes matches one of the person's distinct IDs. Defaults to posthogDistinctId, the key the JavaScript and React Native SDKs auto-attach. Add keys only if your backend pipeline emits the person identifier under different attributes.",
                 component: <LogsDistinctIdAttributeKeys />,
                 keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'logs-pattern-message-keys',
+                title: 'Pattern message extraction',
+                description:
+                    'Choose which JSON keys provide the message used to group logs into patterns. Keys are matched literally at the top level, in order. This does not change the stored log body.',
+                component: <LogsPatternMessageKeys />,
+                keywords: ['log', 'pattern', 'message', 'extract', 'json', 'group'],
             },
             {
                 id: 'logs-session-id-attribute-keys',
@@ -1338,6 +1360,24 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-business-knowledge',
+        title: 'Business knowledge',
+        group: 'Products',
+        flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
+        settings: [
+            {
+                id: 'business-knowledge-learn-from-support',
+                title: 'Self-learning',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSetting />,
+                docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-surveys',
         title: 'Surveys',
         group: 'Products',
@@ -1536,6 +1576,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-in',
                     'opt-out',
                 ],
+            },
+            {
+                id: 'workflows-ai-task-limits',
+                title: 'AI task limits',
+                description:
+                    'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: <WorkflowsTaskLimitsSettings />,
+                flag: 'WORKFLOW_AI_TASK_ACTION',
+                keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },
@@ -1946,6 +1995,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
                 flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'oidc-configuration',
+                title: 'OIDC single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
             },
             {
                 id: 'scim-configuration',

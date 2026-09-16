@@ -1,15 +1,13 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -73,7 +71,7 @@ class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FRESHDESK,
+            name=ExternalDataSourceType.FRESHDESK,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Freshdesk",
             caption="""Enter your Freshdesk domain and API key to pull your Freshdesk support data into the PostHog Data warehouse.
@@ -83,7 +81,7 @@ Your **domain** is the subdomain in your Freshdesk URL — e.g. `acme` for `acme
 Your **API key** is on your Freshdesk profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshdesk.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshdesk",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
