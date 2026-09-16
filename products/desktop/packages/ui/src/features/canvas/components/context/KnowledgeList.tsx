@@ -1,38 +1,33 @@
 import {
   ArrowSquareOutIcon,
-  BugIcon,
   CaretRightIcon,
-  ChartBarIcon,
-  ChatsCircleIcon,
-  CursorClickIcon,
   FileMdIcon,
   FileTextIcon,
-  FlagIcon,
-  FlaskIcon,
-  LightningIcon,
   LinkIcon,
-  NotebookIcon,
   PencilSimpleIcon,
-  PlayCircleIcon,
   PlusIcon,
-  SquaresFourIcon,
-  UserIcon,
-  UsersThreeIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
   CONTEXT_OBJECT_KIND_LABELS,
   type ContextLink,
   type ContextObject,
-  type ContextObjectKind,
   isHttpUrl,
-  parsePostHogObjectUrl,
 } from "@posthog/core/canvas/contextDocument";
-import { Button, cn, Input, Text } from "@posthog/quill";
+import { parseContextSourceInput } from "@posthog/core/canvas/contextSources";
+import { Button, cn, Text } from "@posthog/quill";
+import {
+  type ContextSources,
+  useContextSources,
+} from "@posthog/ui/features/canvas/hooks/useContextSources";
 import { useWatchedObjectPreview } from "@posthog/ui/features/canvas/hooks/useWatchedObjectPreview";
+import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
+import { AddContextPanel } from "./AddContextPanel";
 import { KnowledgeBriefing } from "./KnowledgeBriefing";
+import { KIND_ICONS } from "./kindIcons";
 
 interface KnowledgeListProps {
   knowledge: string;
@@ -67,6 +62,7 @@ export function KnowledgeList({
   const [briefing, setBriefing] = useState<Briefing>(
     startWriting ? "edit" : "closed",
   );
+  const sources = useContextSources();
   const hasKnowledge = knowledge.trim().length > 0;
   const sections = useMemo(() => sectionHeadings(knowledge), [knowledge]);
   const briefingOpen = briefing !== "closed";
@@ -85,7 +81,7 @@ export function KnowledgeList({
             onClick={() => setAdding(true)}
           >
             <PlusIcon size={12} />
-            Add doc or link
+            Add context
           </Button>
         )}
       </div>
@@ -145,29 +141,18 @@ export function KnowledgeList({
           ) : null}
         </li>
 
-        {links.map((link, index) => {
-          const external = isHttpUrl(link.target);
-          return (
-            <li key={`${link.target}-${index}`}>
-              <KnowledgeRow
-                icon={
-                  external ? <LinkIcon size={15} /> : <FileTextIcon size={15} />
-                }
-                title={link.title}
-                meta={
-                  link.note || (external ? hostOf(link.target) : link.target)
-                }
-                mono={!external && !link.note}
-                onOpen={external ? () => openExternalUrl(link.target) : null}
-                onRemove={() =>
-                  onLinksChange(links.filter((_, i) => i !== index))
-                }
-                trailing={external ? <OpenGlyph /> : null}
-                disabled={isSaving}
-              />
-            </li>
-          );
-        })}
+        {links.map((link, index) => (
+          <li key={`${link.target}-${index}`}>
+            <LinkRow
+              link={link}
+              sources={sources}
+              onRemove={() =>
+                onLinksChange(links.filter((_, i) => i !== index))
+              }
+              disabled={isSaving}
+            />
+          </li>
+        ))}
 
         {objects.map((object, index) => (
           <li key={`${object.url}-${index}`}>
@@ -184,7 +169,7 @@ export function KnowledgeList({
 
       {adding ? (
         <div className="pt-3">
-          <AddKnowledgeForm
+          <AddContextPanel
             isSaving={isSaving}
             onAddLink={async (link) => {
               await onLinksChange([...links, link]);
@@ -199,6 +184,95 @@ export function KnowledgeList({
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * A doc, a file, or a link. A link from a known source shows that source's
+ * icon and what it is; when the source's server is not connected, the row
+ * offers to connect it, because agents cannot read the link until then.
+ */
+function LinkRow({
+  link,
+  sources,
+  onRemove,
+  disabled,
+}: {
+  link: ContextLink;
+  sources: ContextSources;
+  onRemove: () => void;
+  disabled: boolean;
+}) {
+  const navigate = useNavigate();
+  const external = isHttpUrl(link.target);
+  const parsed = external ? parseContextSourceInput(link.target, null) : null;
+  const state = parsed ? sources.byId(parsed.source.id) : undefined;
+  const unconnected = state !== undefined && state.status !== "connected";
+  const kind = parsed?.item.label ?? null;
+  const name = state?.source.name ?? "";
+  const warning = !state
+    ? null
+    : state.needsCredentials
+      ? `${name} is not connected. It needs an API key, so it connects from the MCP servers page.`
+      : state.status === "needs_reauth"
+        ? `${name} needs to be authorized again before agents can read this.`
+        : state.status === "pending_oauth"
+          ? `Authorization for ${name} was not finished, so agents cannot read this yet.`
+          : `${name} is not connected, so agents cannot read this yet.`;
+  const action = !state
+    ? null
+    : state.connecting
+      ? "Waiting"
+      : state.needsCredentials
+        ? "Open MCP servers"
+        : state.status === "needs_reauth"
+          ? `Reconnect ${name}`
+          : state.status === "pending_oauth"
+            ? "Finish authorizing"
+            : `Connect ${name}`;
+  return (
+    <KnowledgeRow
+      icon={
+        parsed ? (
+          <ServerIcon iconDomain={parsed.source.iconDomain} size={15} />
+        ) : external ? (
+          <LinkIcon size={15} />
+        ) : (
+          <FileTextIcon size={15} />
+        )
+      }
+      title={link.title}
+      meta={
+        unconnected && warning ? (
+          <span className="text-warning-foreground">{warning}</span>
+        ) : (
+          [kind, link.note || (external && !kind ? hostOf(link.target) : null)]
+            .filter(Boolean)
+            .join(" · ") || (external ? null : link.target)
+        )
+      }
+      mono={!external && !link.note}
+      onOpen={external ? () => openExternalUrl(link.target) : null}
+      onRemove={onRemove}
+      actions={
+        unconnected && state ? (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={state.connecting}
+            onClick={() =>
+              state.needsCredentials
+                ? void navigate({ to: "/mcp-servers" })
+                : sources.connect(state)
+            }
+          >
+            {action}
+          </Button>
+        ) : null
+      }
+      trailing={external ? <OpenGlyph /> : null}
+      disabled={disabled}
+    />
   );
 }
 
@@ -361,142 +435,6 @@ function OpenGlyph() {
 
 type Briefing = "closed" | "read" | "edit";
 
-type Detected = "object" | "link" | "file";
-
-/**
- * One box for everything: a PostHog URL becomes a live object, any other URL
- * a link, and anything else a repository path. The second line is the short
- * description a reader sees under the row.
- */
-function AddKnowledgeForm({
-  onAddLink,
-  onAddObject,
-  onCancel,
-  isSaving,
-}: {
-  onAddLink: (link: ContextLink) => Promise<void>;
-  onAddObject: (object: ContextObject) => Promise<void>;
-  onCancel: () => void;
-  isSaving: boolean;
-}) {
-  const [target, setTarget] = useState("");
-  const [note, setNote] = useState("");
-  const trimmed = target.trim();
-  const parsed = useMemo(() => parsePostHogObjectUrl(trimmed), [trimmed]);
-  const detected: Detected | null = !trimmed
-    ? null
-    : parsed
-      ? "object"
-      : isHttpUrl(trimmed)
-        ? "link"
-        : "file";
-  const detectedLabel =
-    detected === "object" && parsed
-      ? CONTEXT_OBJECT_KIND_LABELS[parsed.kind]
-      : detected === "link"
-        ? "Link"
-        : detected === "file"
-          ? "Repository file"
-          : null;
-  const canAdd = detected !== null && !isSaving;
-
-  const submit = async () => {
-    if (!canAdd) return;
-    if (parsed) {
-      await onAddObject({
-        kind: parsed.kind,
-        url: trimmed,
-        title:
-          note.trim() ||
-          `${CONTEXT_OBJECT_KIND_LABELS[parsed.kind]} ${parsed.id}`,
-      });
-      return;
-    }
-    await onAddLink({
-      target: trimmed,
-      title: titleFromTarget(trimmed),
-      note: note.trim(),
-    });
-  };
-
-  return (
-    <form
-      className="flex flex-col gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <span className="flex size-[18px] shrink-0 items-center justify-center text-muted-foreground">
-          {detected === "object" && parsed ? (
-            KIND_ICONS[parsed.kind]
-          ) : detected === "file" ? (
-            <FileTextIcon size={15} />
-          ) : (
-            <LinkIcon size={15} />
-          )}
-        </span>
-        <Input
-          value={target}
-          onChange={(e) => setTarget(e.target.value)}
-          placeholder="Paste a PostHog URL, a link, or a repository path"
-          aria-label="PostHog URL, link, or repository path"
-          autoFocus
-          className="min-w-0 flex-1 font-mono text-xs"
-        />
-        {detectedLabel ? (
-          <Text size="xxs" variant="muted" className="shrink-0">
-            {detectedLabel}
-          </Text>
-        ) : null}
-        <Button type="submit" variant="primary" size="xs" disabled={!canAdd}>
-          Add
-        </Button>
-      </div>
-      <div className="flex items-center gap-2 pl-[26px]">
-        <Input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder={
-            parsed ? "Name (optional)" : "What it is, in a few words (optional)"
-          }
-          aria-label={parsed ? "Name" : "Short description"}
-          className="min-w-0 flex-1"
-        />
-        <Button
-          type="button"
-          variant="link-muted"
-          size="xs"
-          onClick={onCancel}
-          disabled={isSaving}
-        >
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-const KIND_ICONS: Record<ContextObjectKind, ReactNode> = {
-  insight: <ChartBarIcon size={15} />,
-  dashboard: <SquaresFourIcon size={15} />,
-  flag: <FlagIcon size={15} />,
-  experiment: <FlaskIcon size={15} />,
-  survey: <ChatsCircleIcon size={15} />,
-  error: <BugIcon size={15} />,
-  replay: <PlayCircleIcon size={15} />,
-  notebook: <NotebookIcon size={15} />,
-  cohort: <UsersThreeIcon size={15} />,
-  action: <CursorClickIcon size={15} />,
-  person: <UserIcon size={15} />,
-  event: <LightningIcon size={15} />,
-  link: <LinkIcon size={15} />,
-};
-
 function sectionHeadings(markdown: string): string[] {
   return [...markdown.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]);
 }
@@ -514,16 +452,5 @@ function hostOf(url: string): string {
     return new URL(url).host.replace(/^www\./, "");
   } catch {
     return url;
-  }
-}
-
-function titleFromTarget(target: string): string {
-  if (!isHttpUrl(target)) return target;
-  try {
-    const url = new URL(target);
-    const last = url.pathname.split("/").filter(Boolean).pop();
-    return last ? decodeURIComponent(last).replace(/[-_]+/g, " ") : url.host;
-  } catch {
-    return target;
   }
 }
