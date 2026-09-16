@@ -1,5 +1,7 @@
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import {
     ExperimentMetric,
     isExperimentMeanMetric,
@@ -16,7 +18,7 @@ import {
     isCupedAdjusted,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 
-import { CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
+import { CUPED_ADJUSTED_EXPLANATION, CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
 
 type NotebookCompactTableProps = {
     result: NewExperimentQueryResponse
@@ -57,7 +59,14 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
                                 >
                                     {delta}
                                 </span>
-                                {isCupedAdjusted(item) && <CupedAdjustedTag />}
+                                {isCupedAdjusted(item) && (
+                                    <Tooltip title={CUPED_ADJUSTED_EXPLANATION}>
+                                        {/* Tooltip attaches its handlers to this element, because CupedAdjustedTag forwards no props. */}
+                                        <span className="flex">
+                                            <CupedAdjustedTag />
+                                        </span>
+                                    </Tooltip>
+                                )}
                             </span>
                         )}
                         {item.isBaseline && <span className="text-xs text-muted">Baseline</span>}
