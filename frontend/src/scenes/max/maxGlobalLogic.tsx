@@ -20,6 +20,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { conversationsDestroy } from 'products/posthog_ai/frontend/generated/api'
+import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { OrganizationType, PreflightStatus } from '../../types'
@@ -391,6 +392,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setPhaiViewMode: ({ mode }) => {
+            // The task list only loads on mount. A chat made on the legacy view has a task copy by the
+            // time the user switches, and the merged list shows it as that task once it is loaded.
+            const tasks = tasksLogic.findMounted()
+            if (mode === 'new' && tasks) {
+                tasks.actions.loadTasks(tasks.values.taskListParams)
+            }
+        },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
         },

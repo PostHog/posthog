@@ -10,6 +10,8 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
+
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
 import { STATIC_TOOLS, maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
@@ -179,5 +181,34 @@ describe('maxGlobalLogic', () => {
                 await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
             }
         )
+    })
+
+    // A chat made on the legacy view is copied into a task while the task list sits unchanged since
+    // mount; without this reload the merged list would hide the chat behind a task row it has not loaded.
+    describe('switching to the new view', () => {
+        it.each([
+            { mode: 'new', reloads: 1 },
+            { mode: 'legacy', reloads: 0 },
+        ] as const)('reloads the task list $reloads time(s) when switching to $mode', async ({ mode, reloads }) => {
+            let taskListRequests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/tasks/': () => {
+                        taskListRequests += 1
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            const tasks = tasksLogic()
+            tasks.mount()
+            await expectLogic(tasks).toFinishAllListeners()
+            taskListRequests = 0
+
+            logic.actions.setPhaiViewMode(mode)
+            await expectLogic(tasks).toFinishAllListeners()
+
+            expect(taskListRequests).toBe(reloads)
+            tasks.unmount()
+        })
     })
 })

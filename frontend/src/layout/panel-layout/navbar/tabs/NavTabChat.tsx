@@ -79,18 +79,19 @@ export interface AiHistoryGroup {
 export function groupAiHistory(
     conversationHistory: Conversation[],
     tasks: Task[],
-    filter: TaskAssigneeFilter = 'for_you',
-    tasksMerged: boolean = false
+    filter: TaskAssigneeFilter = 'for_you'
 ): AiHistoryGroup[] {
     const items: AiHistoryItem[] = []
+    const loadedTaskIds = new Set(tasks.map((task) => task.id))
 
     const showConversations = filter === 'for_you' || filter === 'posthog_ai' || filter === 'all_team'
     for (const conversation of showConversations ? conversationHistory : []) {
         if (!conversation) {
             continue
         }
-        // A chat that has a task is in the task list too, so it would show twice once tasks are merged in.
-        if (tasksMerged && conversation.task) {
+        // A chat copied into a task shows as that task once the task list holds it. Until the task list
+        // catches up, the chat row stays, so the chat is never missing from the list.
+        if (conversation.task && loadedTaskIds.has(conversation.task.id)) {
             continue
         }
         const title = conversation.title || 'Untitled conversation'
@@ -297,13 +298,7 @@ export function NavTabChat({
             : (location.pathname.match(/\/tasks\/([^/]+)/)?.[1] ?? null)
 
     const historyGroups = useMemo(
-        () =>
-            groupAiHistory(
-                conversationHistory,
-                tasksEnabled ? tasks : [],
-                tasksEnabled ? assigneeFilter : 'for_you',
-                tasksEnabled
-            ),
+        () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : [], tasksEnabled ? assigneeFilter : 'for_you'),
         [conversationHistory, tasks, tasksEnabled, assigneeFilter]
     )
     const initialLoading = historyGroups.length === 0 && (conversationHistoryLoading || (tasksEnabled && tasksLoading))

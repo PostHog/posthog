@@ -106,13 +106,21 @@ describe('groupAiHistory', () => {
         expect(items.map((item) => item.key)).toEqual(['task:task-id', 'conversation:conversation-id'])
     })
 
-    it('shows a chat that has a task only as its task once tasks are merged in', () => {
-        const chatWithTask = { ...conversation, task: { id: 'task-id', latest_run: null } }
+    it('shows a chat that has a task as the task once the task list holds it, and as the chat until then', () => {
+        // Older than the task rows, so the order below does not depend on same-millisecond timestamps.
+        const chatWithTask = {
+            ...conversation,
+            updated_at: new Date(Date.now() - 2_000).toISOString(),
+            task: { id: 'task-id', latest_run: null },
+        }
+        const otherTask = { ...baseTask, id: 'other-task-id' }
 
-        const merged = groupAiHistory([chatWithTask], [baseTask], 'for_you', true).flatMap((group) => group.items)
+        const withTask = groupAiHistory([chatWithTask], [baseTask]).flatMap((group) => group.items)
+        const taskNotLoadedYet = groupAiHistory([chatWithTask], [otherTask]).flatMap((group) => group.items)
         const chatsOnly = groupAiHistory([chatWithTask], []).flatMap((group) => group.items)
 
-        expect(merged.map((item) => item.key)).toEqual(['task:task-id'])
+        expect(withTask.map((item) => item.key)).toEqual(['task:task-id'])
+        expect(taskNotLoadedYet.map((item) => item.key)).toEqual(['task:other-task-id', 'conversation:conversation-id'])
         expect(chatsOnly.map((item) => item.key)).toEqual(['conversation:conversation-id'])
     })
 })
