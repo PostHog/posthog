@@ -361,6 +361,16 @@ describe("ChannelsList", () => {
       );
     });
 
+    it("offers a new space when nothing matches", async () => {
+      const user = userEvent.setup();
+      renderList();
+
+      await user.type(screen.getByLabelText("Search spaces"), "zzz");
+      await user.click(screen.getByRole("button", { name: "New space" }));
+
+      expect(screen.getByRole("dialog")).toHaveTextContent("New space dialog");
+    });
+
     it("says so when nothing matches", async () => {
       const user = userEvent.setup();
       renderList();

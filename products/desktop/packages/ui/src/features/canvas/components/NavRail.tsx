@@ -230,8 +230,7 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
-  // The create button files into the space you are in, the same as the
-  // sidebar's own button and the new-task shortcut.
+  // So the create button files into the space you are in, like the shortcut.
   const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const pick =
@@ -317,9 +316,8 @@ function NavRailImpl() {
         {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {bottomDestinations.map(renderDestination)}
-          {/* The rail is the one column every destination keeps, sidebar or
-              not, so the create button lives here to be reachable from all
-              of them. */}
+          {/* Every destination keeps the rail, sidebar or not, so the create
+              button is reachable from all of them here. */}
           <ChannelsFab
             channelId={currentChannelId ?? undefined}
             placement="rail"

@@ -1690,30 +1690,45 @@ const CHANNELS_SECTION_ID = "channels:all";
 /** A heading's identity in the flat list, kept clear of any channel's id. */
 const sectionValue = (sectionId: string) => `section:${sectionId}`;
 
-// The Spaces heading's "+": the same outline plus a space row shows for a new
-// task, here starting a new space. It owns the create dialog so the heading
-// stays a plain toggle.
-function NewSpaceButton() {
+// Starts a new space. On the Spaces heading it is the same hover-revealed
+// plus a space row shows; inline (the no-match state) it is a labelled button.
+function NewSpaceButton({
+  appearance = "heading",
+}: {
+  appearance?: "heading" | "inline";
+}) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="outline"
-              size="icon-xs"
-              aria-label="New space"
-              className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/group-row:opacity-100"
-              onClick={() => setOpen(true)}
-            >
-              <PlusIcon size={12} weight="bold" />
-            </Button>
-          }
-        />
-        <TooltipContent side="top">New space</TooltipContent>
-      </Tooltip>
+      {appearance === "inline" ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={() => setOpen(true)}
+        >
+          <PlusIcon size={12} weight="bold" />
+          New space
+        </Button>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon-xs"
+                aria-label="New space"
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover/group-row:opacity-100"
+                onClick={() => setOpen(true)}
+              >
+                <PlusIcon size={12} weight="bold" />
+              </Button>
+            }
+          />
+          <TooltipContent side="top">New space</TooltipContent>
+        </Tooltip>
+      )}
       <CreateChannelModal open={open} onOpenChange={setOpen} />
     </>
   );
@@ -1740,11 +1755,8 @@ function ChannelGroup({
   sectionId: string;
   label: string;
   className?: string;
-  /**
-   * A control on the heading's right, shown on hover like a row's own. Sits
-   * beside the trigger rather than in it: the heading is a button, and a
-   * button can't hold another.
-   */
+  /** A control on the heading's right. Beside the trigger, not in it: the
+   *  heading is a button, and a button can't hold another. */
   trailing?: ReactNode;
   /** Layout-only: removes the legacy tree indent; rows apply their own inset. */
   flat?: boolean;
@@ -1833,9 +1845,8 @@ function ChannelGroup({
 // The channel list is the list pane of the sidebar slider. The personal channel
 // is pinned at the top; starred channels surface in their own section
 // so the ones you use most stay in reach; the rest sit under a "Channels"
-// label. Creating anything goes through the create button: in the nav rail on
-// the spaces layout, otherwise the floating ChannelsFab the sidebar mounts
-// outside this scroll region.
+// label. Creating a task goes through the create button in the nav rail (off
+// the layout, the floating ChannelsFab the sidebar mounts outside this list).
 export function ChannelsList() {
   const { channels: allChannels, isLoading } = useChannels();
   // ChannelHotkeys owns the keys these slots describe; sharing the derivation
@@ -2090,10 +2101,13 @@ export function ChannelsList() {
         />
       ))}
       {noMatches && (
-        <Empty className="px-2 py-1 text-subtle-foreground text-xs">
+        <Empty className="items-start gap-2 px-2 py-1 text-subtle-foreground text-xs">
           <EmptyHeader className="text-left">
             No {channelsLayout ? "spaces" : "channels"} match “{query.trim()}”.
           </EmptyHeader>
+          {/* Filtering hides the Spaces heading and its "+", so the space you
+              searched for and didn't find can still be made from here. */}
+          <NewSpaceButton appearance="inline" />
         </Empty>
       )}
     </>
@@ -2162,17 +2176,19 @@ export function ChannelsList() {
     </>
   );
 
-  // Off the layout, bottom padding clears the floating create button
-  // (ChannelsFab) so the last channel stays reachable at full scroll. The
-  // layout keeps that button in the rail, so the list needs no room for it.
-  const scrollClass = `scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-2 pt-2 ${channelsLayout ? "pb-2" : "pb-16"}`;
+  // Bottom padding clears the floating create button (ChannelsFab), so the last
+  // channel stays reachable at full scroll.
+  const scrollClass =
+    "scroll-mask-8 min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-16";
   // quill sizes its list as a popup — a ~250px cap and its own 4px padding —
   // and ships it unlayered, so plain utilities lose to it however they're
   // ordered. Here the list *is* the pane, so the cap has to go and the pane's
   // own padding has to win: `!` is what outranks an unlayered rule.
   const listClass = cn(
     "sidebar-autocomplete-tree flex flex-col gap-px",
-    "!max-h-none !px-2 !pt-2 !pb-16 scroll-py-8",
+    // The layout keeps the create button in the rail, so nothing floats over
+    // the list's end and it needs no clearance there.
+    "!max-h-none !px-2 !pt-2 !pb-2 scroll-py-8",
     scrollClass,
   );
 
