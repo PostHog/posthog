@@ -81,6 +81,19 @@ def get_active_referencing_parent_names(team_id: int, child_name: str) -> list[s
     )
 
 
+def get_active_parents_referencing_label(team_id: int, prompt_name: str, label_name: str) -> list[str]:
+    """Prompts whose latest or labeled version references `prompt_name` through this label."""
+    return sorted(
+        LLMPromptDependency.objects.filter(
+            team_id=team_id, child_name=prompt_name, child_label=label_name, prompt__deleted=False
+        )
+        .filter(Q(prompt__is_latest=True) | Q(prompt__labels__isnull=False))
+        .exclude(parent_name=prompt_name)
+        .values_list("parent_name", flat=True)
+        .distinct()
+    )
+
+
 def _reference_error(message: str, code: str) -> serializers.ValidationError:
     return serializers.ValidationError(message, code=code)
 
