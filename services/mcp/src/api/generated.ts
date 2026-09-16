@@ -62469,7 +62469,7 @@ export namespace Schemas {
        * * `github` - GitHub
        * * `zendesk` - Zendesk
        * * `posthog` - PostHog */
-      readonly source: MessageSourceEnum | null;
+      readonly message_source: MessageSourceEnum | null;
       /** Edit count. 0 means never edited. */
       readonly version: number;
       readonly created_at: string;

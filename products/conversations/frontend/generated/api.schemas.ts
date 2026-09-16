@@ -434,7 +434,7 @@ export interface TicketMessageApi {
      * * `github` - GitHub
      * * `zendesk` - Zendesk
      * * `posthog` - PostHog */
-    readonly source: MessageSourceEnumApi | null
+    readonly message_source: MessageSourceEnumApi | null
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string

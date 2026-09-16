@@ -139,7 +139,7 @@ class TicketMessageSerializer(serializers.Serializer):
     has_full_email_content = serializers.BooleanField(
         read_only=True, help_text="True when the complete inbound email body can be retrieved."
     )
-    source = serializers.ChoiceField(
+    message_source = serializers.ChoiceField(
         choices=MessageSource.choices,
         read_only=True,
         allow_null=True,
@@ -1450,7 +1450,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
-            "source": _message_source(comment, item_context),
+            "message_source": _message_source(comment, item_context),
             "version": comment.version,
             "created_at": comment.created_at,
         }
