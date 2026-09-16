@@ -71,7 +71,12 @@ USAGE_COALESCE_ROWS = 20_000
 # hundreds of thousands of requests. Customers are independent, so walk several at once. The
 # endpoint sits in Metronome's default rate tier, 8 requests a second shared with every other table
 # on the same account, so take well under it and leave the rest for the account's other syncs.
-USAGE_CUSTOMER_CONCURRENCY = 4
+# Two, not more: the pacer below is what governs throughput, and at the latency this endpoint
+# answers in, two workers already saturate it. Each worker holds one customer's rows while it walks
+# them, so a third would buy no request rate and cost another customer's worth of memory. More
+# workers only pay off if the endpoint slows enough for the workers, rather than the rate, to become
+# the limit.
+USAGE_CUSTOMER_CONCURRENCY = 2
 USAGE_REQUESTS_PER_SECOND = 5.0
 # Metronome documents its limit per second and documents no Retry-After, so a throttled pool only
 # has to stand down for a second or two, and it has to decide that for itself. The pacer's own
