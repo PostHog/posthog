@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { createGitClient, type GitClient } from "../client";
+import {
+  createGitClient,
+  DIFF_NORMALIZATION_ARGS,
+  type GitClient,
+} from "../client";
 import { GitSaga, type GitSagaInput } from "../git-saga";
 import { type GitBusyState, inspectGitBusyState } from "../queries";
 
@@ -340,7 +344,13 @@ export class DiffCheckpointSaga extends GitSaga<
     });
 
     const diff = await this.readOnlyStep("diff_trees", () =>
-      this.git.raw(["--no-pager", "diff", "--no-color", fromTree, toTree]),
+      this.git.raw([
+        "--no-pager",
+        "diff",
+        ...DIFF_NORMALIZATION_ARGS,
+        fromTree,
+        toTree,
+      ]),
     );
 
     return {
