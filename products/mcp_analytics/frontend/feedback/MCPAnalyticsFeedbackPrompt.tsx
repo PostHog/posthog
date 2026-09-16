@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { SurveyQuestionType } from 'posthog-js'
 import { useId } from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
@@ -7,12 +6,12 @@ import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/le
 
 import { userLogic } from 'scenes/userLogic'
 
-import { MCPAnalyticsFeedbackPromptConfig } from './constants'
+import { MCPAnalyticsFeedbackPromptConfig, MCP_ANALYTICS_FEEDBACK_RATINGS } from './constants'
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
 
 const thumbRatings = [
-    { value: '1', label: 'Thumbs up', icon: <IconThumbsUp /> },
-    { value: '2', label: 'Thumbs down', icon: <IconThumbsDown /> },
+    { value: MCP_ANALYTICS_FEEDBACK_RATINGS.UP, label: 'Thumbs up', icon: <IconThumbsUp /> },
+    { value: MCP_ANALYTICS_FEEDBACK_RATINGS.DOWN, label: 'Thumbs down', icon: <IconThumbsDown /> },
 ]
 
 export function MCPAnalyticsFeedbackPrompt({
@@ -34,12 +33,7 @@ export function MCPAnalyticsFeedbackPrompt({
     const { visible, survey, prompt, answer, detail, completed, submitting, error } = useValues(logic)
     const { dismissPrompt, setDetail, submitResponse } = useActions(logic)
 
-    if (
-        !visible ||
-        !survey ||
-        survey.questions[0].type !== SurveyQuestionType.Rating ||
-        survey.questions[0].scale !== 2
-    ) {
+    if (!visible || !survey) {
         return null
     }
 
@@ -96,6 +90,7 @@ export function MCPAnalyticsFeedbackPrompt({
                                     tooltip={rating.label}
                                     onClick={() => submitResponse(rating.value, false)}
                                     data-attr="mcp-analytics-feedback-answer"
+                                    data-feedback-rating={rating.value}
                                 />
                             ))}
                         </div>

@@ -12,6 +12,7 @@ import {
 describe('mcpAnalyticsFeedbackLogic', () => {
     let logic: ReturnType<typeof mcpAnalyticsFeedbackLogic.build>
     let surveysLoaded: Parameters<typeof posthog.onSurveysLoaded>[0]
+    let flagsLoaded: Parameters<typeof posthog.onFeatureFlags>[0]
     let unmount: () => void
 
     const survey: Survey = {
@@ -58,6 +59,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         posthog.is_capturing = jest.fn(() => true)
         posthog.getActiveMatchingSurveys = jest.fn((callback) => callback([]))
         jest.mocked(posthog.onFeatureFlags).mockImplementation((callback) => {
+            flagsLoaded = callback
             callback([], {})
             return () => {}
         })
@@ -124,6 +126,23 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
         }
     )
+
+    it('keeps the reading delay across flag reloads and uses the latest survey metadata', () => {
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2)
+        const refreshedSurvey = { ...survey, name: 'Updated usefulness survey' }
+        jest.mocked(posthog.getActiveMatchingSurveys).mockImplementation((callback) => callback([refreshedSurvey]))
+        flagsLoaded([], {})
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2 - 1)
+        expect(logic.values.visible).toBe(false)
+        flagsLoaded([], {})
+        jest.advanceTimersByTime(1)
+        expect(logic.values.visible).toBe(true)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'survey shown',
+            expect.objectContaining({ $survey_name: refreshedSurvey.name })
+        )
+    })
 
     it.each([
         { ending: 'complete', detail: '' },

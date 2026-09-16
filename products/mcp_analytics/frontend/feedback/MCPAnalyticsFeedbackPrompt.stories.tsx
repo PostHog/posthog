@@ -49,6 +49,14 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
     title: 'Products/MCP Analytics/Feedback prompt',
     component: MCPAnalyticsFeedbackPrompt,
     args: { contextKey: 'example-session', prompt: MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT },
+    beforeEach: () => {
+        const { capture, onSurveysLoaded } = posthog
+        posthog.capture = () => ({ uuid: 'example-event' }) as ReturnType<typeof posthog.capture>
+        posthog.onSurveysLoaded = () => () => {}
+        return () => {
+            Object.assign(posthog, { capture, onSurveysLoaded })
+        }
+    },
     decorators: [
         (Story, context) => {
             const { user } = useValues(userLogic)
@@ -60,13 +68,6 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
             })
             useValues(logic)
             useEffect(() => {
-                const onSurveysLoaded = posthog.onSurveysLoaded
-                const capture = posthog.capture
-                posthog.capture = () => ({ uuid: 'example-event' }) as ReturnType<typeof posthog.capture>
-                posthog.onSurveysLoaded = (callback) => {
-                    callback([], { isLoaded: true })
-                    return () => {}
-                }
                 logic.actions.showPrompt(survey, Date.now(), 'example-submission')
                 if (context.parameters.feedbackStage === 'followup') {
                     logic.actions.responseQueued('2', false)
@@ -78,10 +79,6 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
                 }
                 if (context.parameters.feedbackStage === 'thanks') {
                     logic.actions.responseQueued('1', true)
-                }
-                return () => {
-                    posthog.onSurveysLoaded = onSurveysLoaded
-                    posthog.capture = capture
                 }
             }, [logic, context.parameters.feedbackStage])
             return <Story />
