@@ -17,3 +17,9 @@ Verification:
 - Append text to a displayed task and another task; status-only views must not render again.
 - Change permissions, completion, or run identity; the displayed status must update.
 - Mount two file-summary consumers and verify that they share results, including after tool updates, history replacement, a same-length reconcile, and eviction.
+
+## Task cost
+
+The session cost control fetches estimated model and compute costs for user-created tasks and for loop tasks, including workflow-backed loops.
+It uses the existing task usage query and polls once per minute while the session is focused.
+The task cost visibility flag controls the inline amount; when the flag is off, cost stays in the context breakdown.
