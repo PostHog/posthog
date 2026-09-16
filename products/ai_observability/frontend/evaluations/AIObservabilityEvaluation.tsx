@@ -20,10 +20,12 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -37,6 +39,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
+import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
@@ -62,10 +65,13 @@ import {
     DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
     DEFAULT_TRACE_WINDOW_SECONDS,
     LLMEvaluationLogicProps,
+    hasUnsetConditionRollout,
     llmEvaluationLogic,
 } from './llmEvaluationLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationSettleStrategy, EvaluationTarget, EvaluationType } from './types'
+
+const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
 export function AIObservabilityEvaluation(): JSX.Element {
     const {
@@ -77,6 +83,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
         formValid,
         isNewEvaluation,
         runsSummary,
+        runsBackfillId,
+        runsBackfill,
         evaluationProviderKeyIssue,
         activeTab,
         canEnable,
@@ -86,6 +94,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
+    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -198,11 +207,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const hasSelectedJudgeModel = !modelSelectionRequired || Boolean(evaluation.model_configuration?.model.trim())
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
-    const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
+    const percentageUnset = hasUnsetConditionRollout(evaluation.conditions)
     const percentageOutOfRange = evaluation.conditions.some(
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
+    // The save writes the evaluation configuration and then returns to the evaluations list. Runs
+    // edits nothing, and Backfills holds a setup this save does not carry, plus its own Start
+    // button, so leaving the page from either tab only does what the user did not ask for.
+    const showSaveAction = activeTab !== 'runs' && activeTab !== 'backfills'
     const saveButtonDisabledReason = !hasName
         ? 'Add a name for this evaluation'
         : !configValid
@@ -326,7 +339,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    {activeTab !== 'runs' && (
+                    {showSaveAction && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -402,6 +415,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </>
                                             )}
                                         </p>
+
                                         {isReportableEvaluation && (
                                             <EvaluationReportsCallout
                                                 evaluationId={evaluation.id}
@@ -439,10 +453,51 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="text-muted">Errors</div>
                                                 </div>
                                             </div>
-                                            <div className="text-muted text-xs">Across all runs, all time</div>
+                                            <div className="text-muted text-xs">
+                                                {runsBackfillId ? 'From this backfill' : 'Across all runs, all time'}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
+                                {runsBackfillId && (
+                                    <LemonBanner
+                                        type="info"
+                                        className="mb-4"
+                                        action={{
+                                            children: 'Show all runs',
+                                            onClick: () =>
+                                                router.actions.push(
+                                                    router.values.location.pathname,
+                                                    { ...router.values.searchParams, backfill_id: undefined },
+                                                    router.values.hashParams
+                                                ),
+                                        }}
+                                    >
+                                        <span className="font-semibold">Showing runs from one backfill.</span>
+                                        {runsBackfill && (
+                                            <>
+                                                {' '}
+                                                It covered {pluralize(
+                                                    runsBackfill.total_count,
+                                                    runsBackfill.target
+                                                )}{' '}
+                                                between{' '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_start}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                {' and '}
+                                                <TZLabel
+                                                    time={runsBackfill.window_end}
+                                                    timestampStyle="absolute"
+                                                    {...RUNS_BACKFILL_TIME_FORMAT}
+                                                />
+                                                .
+                                            </>
+                                        )}
+                                    </LemonBanner>
+                                )}
                                 <EvaluationRunsTable />
                             </div>
                         ),
@@ -457,6 +512,19 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     evaluationId={evaluation.id}
                                     userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
+                                />
+                            ),
+                        },
+                    !isNewEvaluation &&
+                        backfillsEnabled && {
+                            key: 'backfills',
+                            label: 'Backfills',
+                            'data-attr': 'llma-evaluation-backfills-tab',
+                            content: (
+                                <EvaluationBackfillsTab
+                                    evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
+                                    onConfigurationClick={() => setActiveTab('configuration')}
                                 />
                             ),
                         },
@@ -776,9 +844,40 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
                                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
                                         <p className="text-muted text-sm mb-4">
-                                            Configure when this evaluation should run on your LLM generations.
+                                            The evaluation runs on generations that match any one of these condition
+                                            sets. Within a set, all filters must match, and sampling decides how many of
+                                            the matching generations get evaluated.
+                                            {evaluation.target === 'trace' && (
+                                                <>
+                                                    {' '}
+                                                    Conditions match individual generations. The whole trace is
+                                                    evaluated once any of its generations matches, and sampling applies
+                                                    per trace.
+                                                </>
+                                            )}
                                         </p>
                                         <EvaluationTriggers />
+                                        <div className="bg-bg-light border rounded p-3 text-sm mt-6">
+                                            <h4 className="font-semibold mb-2">Examples:</h4>
+                                            <ul className="space-y-1 text-muted list-disc list-inside">
+                                                <li>
+                                                    <strong>10% of all generations:</strong> Set 10% sampling with no
+                                                    filter conditions
+                                                </li>
+                                                <li>
+                                                    <strong>5% of GPT-4 generations:</strong> Set 5% sampling with
+                                                    $ai_model = "gpt-4o"
+                                                </li>
+                                                <li>
+                                                    <strong>Exclude internal users:</strong> Set 100% sampling with
+                                                    person property is_internal ≠ true
+                                                </li>
+                                                <li>
+                                                    <strong>High-cost generations:</strong> Set 100% sampling with
+                                                    $ai_total_cost_usd &gt; 0.01
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
