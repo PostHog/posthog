@@ -341,6 +341,7 @@ def doctor_disk(
             estimate=_estimate_nix_store,
             cleanup=_cleanup_nix_store,
             confirmation_prompt="Collect garbage in the Nix store?",
+            default_confirm=False,
             dry_run_message="Would run: nix-store --gc",
         ),
         CleanupCategory(
@@ -910,12 +911,46 @@ def _sccache_cache_dir() -> Path | None:
     return None
 
 
+def _holds_more_than_a_cache(path: Path) -> bool:
+    """True when deleting *path* would take the home directory or the checkout with it.
+
+    `SCCACHE_DIR` is the one directory this command deletes that an environment variable
+    names outright, so a value one level too high turns a cache clear into `rm -rf` over
+    unrelated work.
+    """
+
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError):
+        return True
+
+    if resolved == Path(resolved.anchor):
+        return True
+
+    for protected in (Path.home().resolve(), REPO_ROOT.resolve()):
+        if resolved == protected or resolved in protected.parents:
+            return True
+
+    return False
+
+
 def _estimate_sccache(repo_root: Path) -> CleanupEstimate:
     """Measure the sccache cache that the Flox env wires into every Rust build."""
 
     cache_dir = _sccache_cache_dir()
     if cache_dir is None or not cache_dir.is_dir():
         return CleanupEstimate(total_size=0.0, items=[], details=["   No sccache cache directory found."])
+
+    if _holds_more_than_a_cache(cache_dir):
+        return CleanupEstimate(
+            total_size=0.0,
+            items=[],
+            details=[
+                f"   SCCACHE_DIR points at {cache_dir}, which holds more than a cache.",
+                "   Refusing to delete it. Point SCCACHE_DIR at a directory of its own.",
+            ],
+            available=False,
+        )
 
     size, _ = _get_dir_size(cache_dir)
     if size <= 0:
@@ -995,12 +1030,25 @@ def _cleanup_uv_cache(_: CleanupEstimate, __: Path) -> CleanupStats:
 # once the process directory is gone, so most of the store sits unreachable but on disk.
 _NIX_QUERY_CHUNK = 500
 _NIX_INVALID_PATH_ERROR = "is not valid"
+
+# Both probes run before the command prints anything, and either waits behind another
+# process holding the store lock. The collection itself stays unbounded; it earns its time.
+_NIX_PROBE_TIMEOUT = 120
 _NIX_FREED_PATTERN = re.compile(r"([0-9]*\.?[0-9]+)\s*(B|KiB|MiB|GiB|TiB)\s+freed", re.IGNORECASE)
 _NIX_FREED_UNITS = {"b": 1, "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4}
 
 
 def _nix_dead_paths() -> list[str]:
-    result = subprocess.run(["nix-store", "--gc", "--print-dead"], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            ["nix-store", "--gc", "--print-dead"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=_NIX_PROBE_TIMEOUT,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.startswith("/nix/store/")]
@@ -1026,7 +1074,16 @@ def _nix_chunk_size(chunk: Sequence[str]) -> float:
     remaining = list(chunk)
 
     while remaining:
-        result = subprocess.run(["nix-store", "-q", "--size", *remaining], capture_output=True, text=True, check=False)
+        try:
+            result = subprocess.run(
+                ["nix-store", "-q", "--size", *remaining],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_NIX_PROBE_TIMEOUT,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            break
         answered = result.stdout.split()
         for token in answered:
             try:

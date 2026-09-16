@@ -30,6 +30,7 @@ from hogli_commands.doctor import (
     _container_mounts,
     _copy_volume,
     _docker_reclaimable,
+    _estimate_sccache,
     _find_service_container,
     _find_volume_mount,
     _format_kv_block,
@@ -1927,6 +1928,43 @@ def test_nix_chunk_size_gives_up_on_a_failure_that_is_not_an_invalid_path(
 
     assert _nix_chunk_size([f"/nix/store/{index}" for index in range(50)]) == 0.0
     assert calls == 1
+
+
+@pytest.mark.parametrize("target", ["home", "home_parent", "root", "repo_root"])
+def test_estimate_sccache_refuses_a_cache_dir_that_holds_more_than_a_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str
+) -> None:
+    # SCCACHE_DIR is the only directory this command rmtree's that an environment
+    # variable names outright, so a value one level too high would erase real work.
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    (home / "documents").mkdir(parents=True)
+    (repo / "posthog").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
+
+    paths = {"home": home, "home_parent": tmp_path, "root": Path(tmp_path.anchor), "repo_root": repo}
+    monkeypatch.setenv("SCCACHE_DIR", str(paths[target]))
+
+    estimate = _estimate_sccache(repo)
+
+    assert estimate.items == []
+    assert estimate.available is False
+
+
+def test_estimate_sccache_accepts_a_directory_of_its_own(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    cache = home / ".cache" / "sccache"
+    cache.mkdir(parents=True)
+    (cache / "entry").write_bytes(b"x" * 2048)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", tmp_path / "repo")
+    monkeypatch.setenv("SCCACHE_DIR", str(cache))
+
+    estimate = _estimate_sccache(tmp_path / "repo")
+
+    assert [item.path for item in estimate.items] == [cache]
+    assert estimate.total_size == 2048
 
 
 def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
