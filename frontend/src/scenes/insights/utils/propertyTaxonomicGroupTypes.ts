@@ -22,6 +22,7 @@ export function getInsightPropertyFilterGroupTypes({
         TaxonomicFilterGroupType.MCPProperties,
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.PersonMetadata,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
         ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),

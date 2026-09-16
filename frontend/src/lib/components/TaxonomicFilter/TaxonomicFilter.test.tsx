@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
@@ -229,6 +230,25 @@ describe('TaxonomicFilter', () => {
 
             expect(screen.getByText('Categories')).toBeInTheDocument()
         })
+
+        it('offers the persons-table "First seen" column in an insight picker', async () => {
+            renderFilter({
+                taxonomicGroupTypes: getInsightPropertyFilterGroupTypes({
+                    groupsTaxonomicTypes: [],
+                    hasPageview: false,
+                    hasScreen: false,
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-person_metadata')).toBeInTheDocument()
+            })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'first seen')
+
+            const matches = await screen.findAllByText('First seen', undefined, { timeout: 6000 })
+            expect(matches.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
 
         it('renders category tabs when multiple group types are provided', async () => {
             renderFilter({
