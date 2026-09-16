@@ -237,6 +237,21 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
     return _match(context, audience_key, ChannelResolutionSource.SLACK_NAME_MATCH, allow_shared=False)
 
 
+def opted_out(context: RoutingContext, audience_key: str) -> bool:
+    """True when the registry of every repository in ``context`` silences this audience.
+
+    ``resolve_destination`` returns None for an opt-out and for a routing gap alike. Only a gap needs
+    somebody to act, so the caller reports the two differently.
+    """
+    if audience_key.startswith(REPO_AUDIENCE_PREFIX) or not context.registry_by_repo:
+        return False
+    for repository in context.registry_by_repo:
+        answer = _registry_answer(context, audience_key, repository)
+        if not answer.declared or answer.channel is not None:
+            return False
+    return True
+
+
 def _match(
     context: RoutingContext, channel_name: str, source: ChannelResolutionSource, *, allow_shared: bool
 ) -> Destination | None:
