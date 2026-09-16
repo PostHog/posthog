@@ -180,19 +180,20 @@ def score_available_at(snapshot_date: pd.Series) -> pd.Series:
     return pd.to_datetime(snapshot_date, utc=True) + SCORE_AVAILABLE_AFTER
 
 
-def _first_render_of_each_visit(per_list: pd.DataFrame) -> set[str]:
-    """The earliest render of each visit. A render repeats the last kept one when the same list
-    came back inside an attribution window of it."""
-    keep: set[str] = set()
-    last_kept: dict[tuple[Any, ...], pd.Timestamp] = {}
+def _first_render_of_each_visit(per_list: pd.DataFrame) -> dict[str, str]:
+    """Each render mapped to the first render of its visit. A render repeats the last one kept when
+    the same list came back inside an attribution window of it."""
+    visit_of: dict[str, str] = {}
+    last_kept: dict[tuple[Any, ...], tuple[str, pd.Timestamp]] = {}
     for impression_id, render in per_list.sort_values("impressed_at").iterrows():
         key = (render["distinct_id"], render["tab"], render["scope"], render["reports"], render["ranks"])
         previous = last_kept.get(key)
-        if previous is not None and render["impressed_at"] - previous < ATTRIBUTION_WINDOW:
+        if previous is not None and render["impressed_at"] - previous[1] < ATTRIBUTION_WINDOW:
+            visit_of[str(impression_id)] = previous[0]
             continue
-        last_kept[key] = render["impressed_at"]
-        keep.add(str(impression_id))
-    return keep
+        last_kept[key] = (str(impression_id), render["impressed_at"])
+        visit_of[str(impression_id)] = str(impression_id)
+    return visit_of
 
 
 def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
@@ -209,6 +210,11 @@ def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
     has made a second observation, and folding it into the morning's render loses the open
     entirely: the engagement falls outside that render's window, and the render is then dropped
     for having no outcome at all.
+
+    Outcomes are attributed per render before this runs, and a repeat brings its own with it: the
+    renders of one visit are one viewing, so an engagement that followed the second belongs to the
+    visit the first one opened. Collapsing first would have dropped it, because it lands outside
+    the window of the render that survives.
     """
     if impressions.empty:
         return impressions
@@ -224,7 +230,18 @@ def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
             ranks=("served_rank", tuple),
         )
     )
-    return impressions.loc[impressions["impression_id"].isin(_first_render_of_each_visit(per_list))]
+    visit_of = _first_render_of_each_visit(per_list)
+    collapsed = impressions.assign(impression_id=impressions["impression_id"].map(visit_of))
+    return collapsed.groupby(["impression_id", "report_id"], as_index=False, sort=False).agg(
+        distinct_id=("distinct_id", "first"),
+        impressed_at=("impressed_at", "min"),
+        tab=("tab", "first"),
+        scope=("scope", "first"),
+        # Identical across a visit by construction: the ranks are part of what makes two renders
+        # the same list.
+        served_rank=("served_rank", "first"),
+        **{outcome_column(outcome): (outcome_column(outcome), "max") for outcome in OUTCOMES},
+    )
 
 
 def with_outcomes(impressions: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:

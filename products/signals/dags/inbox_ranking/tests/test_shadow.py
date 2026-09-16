@@ -107,11 +107,15 @@ def test_repeated_renders_of_one_list_count_once():
             # lands outside the morning render's attribution window and would be lost with it.
             *_served("revisit", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(hours=5)),
         ]
-    )
+    ).assign(outcome_open=[False, False, True, False, False, False, False, False], outcome_action=False)
 
     kept = deduplicate_lists(rows)
 
     assert sorted(kept["impression_id"].unique()) == ["first", "reordered", "revisit"]
+    # The open followed the second render of the morning visit, and a visit is one viewing, so it
+    # belongs to the render that stands for it.
+    opened = kept.loc[kept["outcome_open"], ["impression_id", "report_id"]]
+    assert opened.to_numpy().tolist() == [["first", UUID_A]]
 
 
 def test_an_engagement_counts_for_the_list_that_preceded_it():

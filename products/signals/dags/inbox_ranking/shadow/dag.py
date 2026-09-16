@@ -224,7 +224,7 @@ def inbox_ranking_shadow_eval(context: dagster.AssetExecutionContext) -> None:
         )
     )
 
-    lists = with_outcomes(deduplicate_lists(impressions), outcomes)
+    lists = deduplicate_lists(with_outcomes(impressions, outcomes))
     scores = load_scores(
         client,
         bucket,
