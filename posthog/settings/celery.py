@@ -19,7 +19,6 @@ CELERY_IMPORTS: list[str] = [
     "ee.tasks.quota_limiting",
     "posthog.api.oauth.cimd",
     "posthog.caching.warming",
-    "posthog.cdp.workflow_step_resume",
     "posthog.email",
     "posthog.models.product_intent.product_intent",
     "posthog.models.scoping",
