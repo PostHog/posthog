@@ -64,13 +64,13 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         if throttled is not None:
             return throttled
 
-        outcome = provider.verify(request)
-        if outcome is VerificationOutcome.NOT_CONFIGURED:
+        verification = provider.verify(request)
+        if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
             logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
             reason = "Webhook not configured" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.unconfigured_status)
-        if outcome is not VerificationOutcome.VERIFIED:
+        if verification.outcome is not VerificationOutcome.VERIFIED:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_signature")
             reason = "Invalid signature" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.invalid_signature_status)
@@ -96,7 +96,7 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             return handshake
 
         dispatcher = get_dispatcher()
-        deliveries = provider.deliveries(request, payload)
+        deliveries = provider.deliveries(request, payload, verification.facts)
         # One budget for the whole request, not one per delivery: PandaDoc turns a batched body
         # into many deliveries, and a budget each would hold the request open for the sum. It
         # starts before the ownership lookups, which read the database and forward on the same

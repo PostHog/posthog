@@ -58,7 +58,10 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass with `scheme()` (from `posthog/ingress/verify/`), `deliveries()` (how to read the event type, delivery id and context off the verified request), and any status codes the provider's protocol fixes. Defaults are 403 on a bad signature, 500 when unconfigured, 202 on success.
+- A `WebhookProvider` subclass with `scheme()` (from `posthog/ingress/verify/`), `deliveries(request, payload, facts)` (how to read the event type, delivery id and context off the verified request), and any status codes the provider's protocol fixes. Defaults are 403 on a bad signature, 500 when unconfigured, 202 on success.
+  - `verify(request)` answers a `Verification`: the outcome, plus `facts`, whatever the scheme proved on the way. A scheme that validates a signed token puts its verified claims there and `deliveries` cross-checks the body against them; an HMAC scheme leaves it empty and `deliveries` ignores it.
+  - `parse(request)` decodes the body, and defaults to JSON. Override it for a provider that posts a form, and raise `InvalidPayload` for a body it cannot read. Verification runs first and must, because reading `request.POST` consumes the request stream under ASGI.
+  - `throttle_class` names a DRF throttle from `posthog.rate_limit`, run in front of verification. Set one when the endpoint is public and its verification is expensive, such as a JWT signing-key lookup.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
 
 Then:

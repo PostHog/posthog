@@ -24,10 +24,10 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 
 1. **Method** — anything but `POST` is 405, before any secret is read.
 2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
-3. **Verify** — `provider.verify(request)` over the raw body. A bad signature never reaches a consumer.
+3. **Verify** — `provider.verify(request)` over the raw body, answering a `Verification`. A bad signature never reaches a consumer.
 4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
-6. **Dispatch** — ownership, the forward, then the consumers, all inside one wall-clock budget.
+6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
 
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
@@ -36,6 +36,10 @@ The throttle sits **in front of** verification, because on a provider that signs
 An unsigned request buys a signing-key lookup, so the cap has to be reached first or it caps nothing worth capping.
 `throttle_class` takes a DRF throttle from `posthog.rate_limit`, which is where every other rate belongs.
 A provider whose verification is a local HMAC leaves it at `None`.
+
+A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
+A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
 ## Endpoints
 

@@ -9,7 +9,7 @@ one of these on the first delivery.
 import json
 import importlib
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse
@@ -17,7 +17,7 @@ from django.http import HttpRequest, HttpResponse
 from rest_framework.throttling import BaseThrottle
 
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.verify.schemes import SignatureScheme, VerificationOutcome
+from posthog.ingress.verify.schemes import SignatureScheme, Verification
 
 # Every incarnation module, imported lazily. An incarnation exposes `SPECS` (what it accepts)
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
@@ -70,10 +70,14 @@ class WebhookProvider(ABC):
         """The signature scheme for this app's secret."""
 
     @abstractmethod
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
-        """Read zero or more deliveries out of one verified, parsed request."""
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        """Read zero or more deliveries out of one verified, parsed request.
 
-    def verify(self, request: HttpRequest) -> VerificationOutcome:
+        `facts` is what the signature scheme proved on the way, such as a signed token's
+        verified claims. It is empty for a scheme that only checks an HMAC.
+        """
+
+    def verify(self, request: HttpRequest) -> Verification:
         return self.scheme().verify(body=request.body, headers=request.headers)
 
     def parse(self, request: HttpRequest) -> Any:

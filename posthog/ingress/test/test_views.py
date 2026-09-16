@@ -1,5 +1,7 @@
 import hmac
 import json
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -23,6 +25,7 @@ from posthog.ingress.github.provider import GitHubProvider, build_github_provide
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
 
@@ -47,6 +50,16 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     forward_failure_status = 502
+
+
+class _ClaimsGitHubProvider(GitHubProvider):
+    # Stands in for a scheme that checks a signed token, which names the sender before the body
+    # is parsed. The claims land in the delivery's context so the test can read them back.
+    def verify(self, request: HttpRequest) -> Verification:
+        return Verification(outcome=VerificationOutcome.VERIFIED, facts={"tenant_id": "t-1"})
+
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        return [replace(delivery, context=dict(facts)) for delivery in super().deliveries(request, payload, facts)]
 
 
 class _StubThrottle(BaseThrottle):
@@ -187,6 +200,15 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(delivery.event_type, "pull_request")
         self.assertEqual(delivery.delivery_id, "delivery-1")
         self.assertEqual(delivery.context, {"installation_id": "42"})
+
+    def test_what_the_signature_check_proved_reaches_deliveries(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-GitHub-Event": "issues"})
+
+        response = build_webhook_view(_ClaimsGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.dispatcher.dispatch.call_args.args[0].context, {"tenant_id": "t-1"})
 
     def test_a_batched_body_becomes_several_deliveries_that_share_one_budget(self) -> None:
         body = json.dumps([{"event": "document_state_changed"}, {"event": "document_state_changed"}]).encode()
