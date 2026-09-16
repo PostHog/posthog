@@ -446,7 +446,7 @@ def set_prompt_label(
         # row, so a publish that is about to reference this label either
         # commits its dependency row first (the guard sees it) or waits.
         existing = (
-            LLMPromptLabel.objects.select_for_update()
+            LLMPromptLabel.objects.select_for_update(of=("self",))
             .select_related("prompt")
             .filter(team=team, prompt_name=prompt_name, name=label_name)
             .first()
