@@ -9,7 +9,8 @@ from posthog.slo.types import SloConfig
 
 # Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
 DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN = 500
-DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE = 100
+DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE = 500
+DEFAULT_SUBSCRIPTIONS_SCHEDULER_MAX_CONCURRENT = 100
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
 # exist, they are available to query-access owners; this mask only governs the legacy fallback that
@@ -426,6 +427,7 @@ class SnapshotInsightsResult:
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
     subscriptions_page_size: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE
+    subscriptions_max_concurrent: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_MAX_CONCURRENT
     # Internal Continue-As-New state. The Schedule action only sets the public fields above.
     due_before: str | None = None
     cursor: SubscriptionSchedulerCursor | None = None
@@ -438,6 +440,7 @@ class ScheduleAllSubscriptionsWorkflowInputs:
         return {
             "buffer_minutes": self.buffer_minutes,
             "subscriptions_page_size": self.subscriptions_page_size,
+            "subscriptions_max_concurrent": self.subscriptions_max_concurrent,
             "due_before": self.due_before,
             "cursor": dataclasses.asdict(self.cursor) if self.cursor else None,
             "total_count": self.total_count,

@@ -244,6 +244,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             await self._run_legacy(inputs)
             return
 
+        if inputs.subscriptions_max_concurrent <= 0:
+            raise ApplicationError("subscriptions_max_concurrent must be greater than zero", non_retryable=True)
+
         due_before = (
             inputs.due_before or (temporalio.workflow.now() + dt.timedelta(minutes=inputs.buffer_minutes)).isoformat()
         )
@@ -266,20 +269,22 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         failed_ids: list[int] = []
         started_count = 0
         already_running_count = 0
-        child_tasks = []
-        for sub in page.subscriptions:
+        semaphore = asyncio.Semaphore(inputs.subscriptions_max_concurrent)
+
+        async def execute_subscription(sub: DueSubscription) -> None:
             workflow, child_id = _subscription_child_workflow(sub)
-            child_tasks.append(
-                temporalio.workflow.execute_child_workflow(
+            async with semaphore:
+                await temporalio.workflow.execute_child_workflow(
                     workflow,
                     _tracked_subscription_inputs(sub),
                     id=child_id,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
                 )
-            )
 
-        child_results = await asyncio.gather(*child_tasks, return_exceptions=True)
+        child_results = await asyncio.gather(
+            *(execute_subscription(sub) for sub in page.subscriptions), return_exceptions=True
+        )
         for sub, result in zip(page.subscriptions, child_results):
             if isinstance(result, BaseException) and is_cancelled_exception(result):
                 raise result
@@ -341,6 +346,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 ScheduleAllSubscriptionsWorkflowInputs(
                     buffer_minutes=inputs.buffer_minutes,
                     subscriptions_page_size=inputs.subscriptions_page_size,
+                    subscriptions_max_concurrent=inputs.subscriptions_max_concurrent,
                     due_before=due_before,
                     cursor=page.next_cursor,
                     total_count=total_count,

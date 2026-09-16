@@ -154,7 +154,8 @@ def test_scheduler_parse_inputs_restores_continue_as_new_cursor() -> None:
             json.dumps(
                 {
                     "buffer_minutes": 15,
-                    "subscriptions_page_size": 100,
+                    "subscriptions_page_size": 500,
+                    "subscriptions_max_concurrent": 25,
                     "due_before": "2026-09-11T12:15:00+00:00",
                     "cursor": {
                         "next_delivery_date": "2026-09-11T12:00:00+00:00",
@@ -172,10 +173,42 @@ def test_scheduler_parse_inputs_restores_continue_as_new_cursor() -> None:
         next_delivery_date="2026-09-11T12:00:00+00:00",
         subscription_id=100,
     )
+    assert parsed.subscriptions_max_concurrent == 25
 
 
 @pytest.mark.asyncio
-async def test_scheduler_waits_for_concurrent_page_before_continuing_with_progress() -> None:
+@pytest.mark.parametrize("max_concurrent", [0, -1])
+async def test_scheduler_rejects_non_positive_child_concurrency(max_concurrent: int) -> None:
+    execute_activity = AsyncMock(
+        return_value=FetchDueSubscriptionsPageActivityResult(
+            subscriptions=[],
+            next_cursor=None,
+            total_count=0,
+            remaining_count=0,
+        )
+    )
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.patched",
+            return_value=True,
+        ),
+    ):
+        with pytest.raises(ApplicationError) as error:
+            await ScheduleAllSubscriptionsWorkflow().run(
+                ScheduleAllSubscriptionsWorkflowInputs(subscriptions_max_concurrent=max_concurrent)
+            )
+
+    assert error.value.non_retryable is True
+    execute_activity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_uses_sliding_child_concurrency_before_continuing_with_progress() -> None:
     subscriptions = [
         DueSubscription(
             subscription_id=subscription_id,
@@ -184,34 +217,40 @@ async def test_scheduler_waits_for_concurrent_page_before_continuing_with_progre
             next_delivery_date="2026-09-11T12:00:00+00:00",
             resource_type="insight",
         )
-        for subscription_id in range(1, 101)
+        for subscription_id in range(1, 6)
     ]
     next_cursor = SubscriptionSchedulerCursor(
         next_delivery_date="2026-09-11T12:00:00+00:00",
-        subscription_id=100,
+        subscription_id=5,
     )
     execute_activity = AsyncMock(
         return_value=FetchDueSubscriptionsPageActivityResult(
             subscriptions=subscriptions,
             next_cursor=next_cursor,
-            total_count=250,
-            remaining_count=150,
+            total_count=7,
+            remaining_count=2,
         )
     )
-    all_starts_submitted = asyncio.Event()
+    first_wave_started = asyncio.Event()
     release_children = asyncio.Event()
     submitted_count = 0
+    active_count = 0
+    max_active_count = 0
 
-    async def execute_after_all_submitted(*_args, **_kwargs):
-        nonlocal submitted_count
+    async def execute_with_bounded_slots(*_args, **_kwargs):
+        nonlocal active_count, max_active_count, submitted_count
         submitted_count += 1
-        if submitted_count == len(subscriptions):
-            all_starts_submitted.set()
-        await all_starts_submitted.wait()
-        await release_children.wait()
+        active_count += 1
+        max_active_count = max(max_active_count, active_count)
+        if submitted_count == 2:
+            first_wave_started.set()
+        try:
+            await release_children.wait()
+        finally:
+            active_count -= 1
 
     start_child = AsyncMock()
-    execute_child = AsyncMock(side_effect=execute_after_all_submitted)
+    execute_child = AsyncMock(side_effect=execute_with_bounded_slots)
     continue_as_new = MagicMock()
     record_progress = MagicMock()
 
@@ -244,28 +283,32 @@ async def test_scheduler_waits_for_concurrent_page_before_continuing_with_progre
     ):
         scheduler_task = asyncio.create_task(
             ScheduleAllSubscriptionsWorkflow().run(
-                ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
+                ScheduleAllSubscriptionsWorkflowInputs(
+                    due_before="2026-09-11T12:15:00+00:00", subscriptions_max_concurrent=2
+                )
             )
         )
-        await asyncio.wait_for(all_starts_submitted.wait(), timeout=1)
+        await asyncio.wait_for(first_wave_started.wait(), timeout=1)
+        assert execute_child.await_count == 2
         continue_as_new.assert_not_called()
         release_children.set()
         await asyncio.wait_for(scheduler_task, timeout=1)
 
-    assert execute_child.await_count == 100
+    assert execute_child.await_count == 5
+    assert max_active_count == 2
     start_child.assert_not_awaited()
     assert execute_activity.await_args is not None
     fetch_inputs = execute_activity.await_args.args[1]
     assert fetch_inputs.due_before == "2026-09-11T12:15:00+00:00"
-    assert fetch_inputs.page_size == 100
+    assert fetch_inputs.page_size == 500
     assert fetch_inputs.cursor is None
     assert execute_child.await_args_list[0].kwargs["id"] == "process-subscription-1"
     record_progress.assert_called_once_with(
-        total_count=250,
-        processed_count=100,
-        remaining_count=150,
+        total_count=7,
+        processed_count=5,
+        remaining_count=2,
         page_number=1,
-        started_count=100,
+        started_count=5,
         already_running_count=0,
         completed=False,
         completed_at=None,
@@ -273,11 +316,12 @@ async def test_scheduler_waits_for_concurrent_page_before_continuing_with_progre
     continue_as_new.assert_called_once_with(
         ScheduleAllSubscriptionsWorkflowInputs(
             buffer_minutes=15,
-            subscriptions_page_size=100,
+            subscriptions_page_size=500,
+            subscriptions_max_concurrent=2,
             due_before="2026-09-11T12:15:00+00:00",
             cursor=next_cursor,
-            total_count=250,
-            processed_count=100,
+            total_count=7,
+            processed_count=5,
             page_number=1,
         )
     )
