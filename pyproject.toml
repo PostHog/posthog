@@ -45,6 +45,7 @@ dependencies = [
     "django-extensions~=4.1.0",
     "django-filter~=26.1",
     "django-loginas==0.3.14",
+    "django-modern-csrf~=1.0.1",
     "django-prometheus~=2.5.0",
     "django-redis==7.0.0",
     "django-structlog[celery]~=10.1.0",

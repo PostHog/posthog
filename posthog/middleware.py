@@ -21,7 +21,6 @@ from django.db import (
 )
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
@@ -32,6 +31,7 @@ import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from modern_csrf.middleware import ModernCsrfViewMiddleware
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
@@ -195,19 +195,15 @@ class OAuthCorsPreflightMiddleware:
         return self.get_response(request)
 
 
-class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
-    """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
+class CsrfOrKeyViewMiddleware(ModernCsrfViewMiddleware):
+    """Middleware accepting requests that either pass the CSRF check or carry a personal API key."""
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
-        # if super().process_view did not find a valid CSRF token, try looking for a personal API key
+        # if super().process_view rejected the request, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
             return self._accept(request)
         return result
-
-    def _accept(self, request):
-        request.csrf_processing_done = True
-        return None
 
 
 # Work around cloudflare by default caching csv files
