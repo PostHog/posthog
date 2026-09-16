@@ -1794,6 +1794,39 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('full screen', () => {
+        it('warns instead of throwing when the document cannot leave full screen', async () => {
+            logic.unmount()
+            const playerElement = document.createElement('div')
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+                playerRef: { current: playerElement },
+            })
+            logic.mount()
+
+            const exitFullscreen = jest
+                .fn()
+                .mockRejectedValue(
+                    new TypeError("Failed to execute 'exitFullscreen' on 'Document': Document not active")
+                )
+            const originalExitFullscreen = document.exitFullscreen
+            document.exitFullscreen = exitFullscreen
+            Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: playerElement })
+
+            try {
+                await logic.asyncActions.setIsFullScreen(false)
+            } finally {
+                document.exitFullscreen = originalExitFullscreen
+                Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null })
+            }
+
+            expect(exitFullscreen).toHaveBeenCalled()
+            expect(mockWarn).toHaveBeenCalledWith('Failed to leave native full-screen mode:', expect.any(TypeError))
+        })
+    })
+
     describe('exportRecording', () => {
         it('uses the player skip-inactivity setting', () => {
             // setRootFrame clears innerHTML, so append the iframe after it runs
