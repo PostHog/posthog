@@ -6,6 +6,8 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
@@ -16,7 +18,7 @@ import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_g
 import { ExceptionTag } from '../../hooks/use-error-tag-renderer'
 import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
-import { exceptionCardLogic } from './exceptionCardLogic'
+import { ExceptionCardTab, exceptionCardLogic } from './exceptionCardLogic'
 
 const meta: Meta = {
     title: 'ErrorTracking/ExceptionCard',
@@ -51,14 +53,14 @@ export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab>
                     <ExceptionCard
                         issueId="issue-id"
                         issueName="Test Issue"
                         loading={false}
                         event={TEST_EVENTS['javascript_resolved'] as any}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -240,9 +242,9 @@ function ExceptionCardSessionTimelineStory({
     return (
         <div className={containerClassName}>
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab>
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -553,15 +555,110 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenTimelineTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
+function OpenTab({
+    children,
+    issueId = 'issue-id',
+    tab = 'timeline',
+}: {
+    children: JSX.Element
+    issueId?: string
+    tab?: ExceptionCardTab
+}): JSX.Element {
     const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
 
     useEffect(() => {
-        setCurrentTab('timeline')
-    }, [setCurrentTab])
+        setCurrentTab(tab)
+    }, [setCurrentTab, tab])
 
     return children
 }
+
+////////////////////// Recording tab
+
+// The mock recording runs from 14:46:20.877Z to 14:46:32.745Z. The exception timestamps below sit
+// before it, inside it, and after it, to cover each position the tab has to resolve.
+const RECORDING_SESSION_ID = 'session-with-recording'
+
+function recordingTabParameters(event: ErrorEventType): Record<string, unknown> {
+    const timelineMocks = (sessionTimelineParameters(event).msw as { mocks: Mocks }).mocks
+
+    return {
+        msw: {
+            mocks: {
+                ...timelineMocks,
+                get: {
+                    '/api/environments/:team_id/session_recordings/:id': () => [
+                        200,
+                        { ...recordingMetaJson, id: RECORDING_SESSION_ID },
+                    ],
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                            return new Response(snapshotsAsJSONLines())
+                        }
+                        return [
+                            200,
+                            {
+                                sources: [
+                                    {
+                                        source: 'blob_v2',
+                                        start_timestamp: recordingMetaJson.start_time,
+                                        end_timestamp: recordingMetaJson.end_time,
+                                        blob_key: '0',
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                    'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
+                },
+                patch: {
+                    // the player marks the recording as viewed on open
+                    '/api/environments/:team_id/session_recordings/:id': () => [200, recordingMetaJson],
+                },
+            },
+        },
+    }
+}
+
+function buildRecordingEvent(timestamp: string): ErrorEventType {
+    const event = buildSessionTimelineEvent(undefined, { sessionId: RECORDING_SESSION_ID })
+    return { ...event, timestamp }
+}
+
+const EXCEPTION_BEFORE_RECORDING = buildRecordingEvent('2023-05-01T14:46:10.000Z')
+const EXCEPTION_AFTER_RECORDING = buildRecordingEvent('2023-05-01T14:47:30.000Z')
+const EXCEPTION_INSIDE_RECORDING = buildRecordingEvent('2023-05-01T14:46:28.000Z')
+
+function RecordingTabStory({ event }: { event: ErrorEventType }): JSX.Element {
+    return (
+        <div className="w-[1000px] h-[700px]">
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
+                <OpenTab tab="recording">
+                    <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
+                </OpenTab>
+            </BindLogic>
+        </div>
+    )
+}
+
+export function ExceptionCardRecordingWithinSession(): JSX.Element {
+    return <RecordingTabStory event={EXCEPTION_INSIDE_RECORDING} />
+}
+ExceptionCardRecordingWithinSession.parameters = recordingTabParameters(EXCEPTION_INSIDE_RECORDING)
+
+export function ExceptionCardRecordingBeforeSessionStart(): JSX.Element {
+    return <RecordingTabStory event={EXCEPTION_BEFORE_RECORDING} />
+}
+ExceptionCardRecordingBeforeSessionStart.parameters = recordingTabParameters(EXCEPTION_BEFORE_RECORDING)
+
+export function ExceptionCardRecordingAfterSessionEnd(): JSX.Element {
+    return <RecordingTabStory event={EXCEPTION_AFTER_RECORDING} />
+}
+ExceptionCardRecordingAfterSessionEnd.parameters = recordingTabParameters(EXCEPTION_AFTER_RECORDING)
 
 //////////////////// All Events
 
@@ -652,14 +749,14 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     return (
         <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
             {(width) => (
-                <OpenTimelineTab issueId={`header-action-${width}`}>
+                <OpenTab issueId={`header-action-${width}`}>
                     <ExceptionCard
                         issueId={`header-action-${width}`}
                         issueName="Test Issue"
                         loading={false}
                         event={event}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             )}
         </HeaderWidthMatrix>
     )

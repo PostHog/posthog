@@ -1,4 +1,6 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -10,7 +12,12 @@ import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/ses
 import { urls } from 'scenes/urls'
 
 import { SubHeader } from '../SubHeader'
-import { sessionTabLogic } from './sessionTabLogic'
+import { RecordingEdge, sessionTabLogic } from './sessionTabLogic'
+
+const OUTSIDE_RECORDING_COPY: Record<RecordingEdge, string> = {
+    start: 'This exception happened before the recording starts. Playback begins at the first frame, so you will not see the exception itself.',
+    end: 'This exception happened after the recording ends. Playback stays on the last frame, so you will not see the exception itself.',
+}
 
 export function SessionRecordingTab(): JSX.Element {
     return (
@@ -21,7 +28,16 @@ export function SessionRecordingTab(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
+    const { recordingProps, recordingTimestamp, exceptionOutsideEdge, sessionId } = useValues(sessionTabLogic)
+
+    useEffect(() => {
+        if (exceptionOutsideEdge) {
+            posthog.capture('error_tracking_recording_outside_session', {
+                sessionId,
+                edge: exceptionOutsideEdge,
+            })
+        }
+    }, [exceptionOutsideEdge, sessionId])
 
     const replayUrl = urls.replaySingle(
         sessionId,
@@ -36,10 +52,9 @@ export function SessionRecordingContent(): JSX.Element {
                     <IconExternal />
                 </Button>
             </SubHeader>
-            {isTimestampOutsideRecording && (
+            {exceptionOutsideEdge && (
                 <LemonBanner type="info" className="m-2">
-                    The exception occurred outside the recorded session timeframe. It is attached to a session but not
-                    visible in the recording.
+                    {OUTSIDE_RECORDING_COPY[exceptionOutsideEdge]}
                 </LemonBanner>
             )}
             <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">

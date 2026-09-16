@@ -32,6 +32,34 @@ export type TimelineEvent = {
     timestamp: string
 }
 
+export type RecordingBounds = {
+    start: number
+    end: number
+}
+
+export type RecordingEdge = 'start' | 'end'
+
+export type PlaybackPosition = {
+    timestamp: number | null
+    outsideEdge: RecordingEdge | null
+}
+
+// The player has no frame to render outside the recording, and seeking past the end makes it report
+// end-of-recording before it boots. Land on the nearest edge instead, and report which one, so the
+// tab can say why the frame on screen is not the moment of the exception.
+export function resolvePlaybackPosition(timestamp: number | null, bounds: RecordingBounds | null): PlaybackPosition {
+    if (timestamp === null || bounds === null) {
+        return { timestamp, outsideEdge: null }
+    }
+    if (timestamp < bounds.start) {
+        return { timestamp: bounds.start, outsideEdge: 'start' }
+    }
+    if (timestamp > bounds.end) {
+        return { timestamp: bounds.end, outsideEdge: 'end' }
+    }
+    return { timestamp, outsideEdge: null }
+}
+
 function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
     return {
         playerKey: `session-tab`,
@@ -49,7 +77,9 @@ export interface sessionTabLogicValues {
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
     exceptionTimestamp: number | null
-    isTimestampOutsideRecording: boolean
+    exceptionOutsideEdge: RecordingEdge | null
+    playbackTimestamp: number | null
+    recordingBounds: RecordingBounds | null
     recordingProps: SessionRecordingPlayerProps
     recordingTimestamp: number | null
     sessionId: string
@@ -98,11 +128,15 @@ export interface sessionTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sessionId: (sessionId: string) => string
         recordingProps: (sessionId: string) => SessionRecordingPlayerProps
-        isTimestampOutsideRecording: (
-            exceptionTimestamp: number | null,
+        recordingBounds: (
             sessionPlayerData: SessionPlayerData,
             sessionPlayerMetaDataLoading: boolean
-        ) => boolean
+        ) => RecordingBounds | null
+        playbackTimestamp: (recordingTimestamp: number | null, recordingBounds: RecordingBounds | null) => number | null
+        exceptionOutsideEdge: (
+            exceptionTimestamp: number | null,
+            recordingBounds: RecordingBounds | null
+        ) => RecordingEdge | null
     }
 }
 
@@ -162,26 +196,24 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                 return getRecordingProps(sessionId)
             },
         ],
-        isTimestampOutsideRecording: [
-            (s) => [s.exceptionTimestamp, s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
-            (
-                exceptionTimestamp: number | null,
-                sessionPlayerData: SessionPlayerData,
-                sessionPlayerMetaDataLoading: boolean
-            ): boolean => {
-                if (
-                    sessionPlayerMetaDataLoading ||
-                    exceptionTimestamp === null ||
-                    !sessionPlayerData.start ||
-                    !sessionPlayerData.end
-                ) {
-                    return false
+        recordingBounds: [
+            (s) => [s.sessionPlayerData, s.sessionPlayerMetaDataLoading],
+            (sessionPlayerData: SessionPlayerData, sessionPlayerMetaDataLoading: boolean): RecordingBounds | null => {
+                if (sessionPlayerMetaDataLoading || !sessionPlayerData.start || !sessionPlayerData.end) {
+                    return null
                 }
-                return (
-                    exceptionTimestamp < sessionPlayerData.start.valueOf() ||
-                    exceptionTimestamp > sessionPlayerData.end.valueOf()
-                )
+                return { start: sessionPlayerData.start.valueOf(), end: sessionPlayerData.end.valueOf() }
             },
+        ],
+        playbackTimestamp: [
+            (s) => [s.recordingTimestamp, s.recordingBounds],
+            (recordingTimestamp: number | null, recordingBounds: RecordingBounds | null): number | null =>
+                resolvePlaybackPosition(recordingTimestamp, recordingBounds).timestamp,
+        ],
+        exceptionOutsideEdge: [
+            (s) => [s.exceptionTimestamp, s.recordingBounds],
+            (exceptionTimestamp: number | null, recordingBounds: RecordingBounds | null): RecordingEdge | null =>
+                resolvePlaybackPosition(exceptionTimestamp, recordingBounds).outsideEdge,
         ],
     }),
     listeners(({ actions, values }) => {
@@ -189,8 +221,8 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             if (values.sessionPlayerMetaDataLoading || values.isNotFound) {
                 return
             }
-            if (values.recordingTimestamp) {
-                actions.seekToTimestamp(values.recordingTimestamp)
+            if (values.playbackTimestamp) {
+                actions.seekToTimestamp(values.playbackTimestamp)
             }
             actions.setPlay()
         }
