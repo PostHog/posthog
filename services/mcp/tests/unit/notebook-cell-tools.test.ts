@@ -665,6 +665,94 @@ describe('notebook cell tools', () => {
             ],
         })
     })
+    describe('markdown block anchors', () => {
+        const DOC = '# Doc\n\n\nFirst paragraph.\n\n\nSecond paragraph.\n'
+        // Span of "First paragraph." in DOC, as the backend's block walk reports it.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 8, end: 24 }
+
+        it('places a cell directly after the addressed paragraph', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'sql',
+                code: 'select 1',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted.indexOf('<SQLV2 ')).toBeGreaterThan(inserted.indexOf('First paragraph.'))
+            expect(inserted.indexOf('<SQLV2 ')).toBeLessThan(inserted.indexOf('Second paragraph.'))
+            expect(inserted).toContain(`nodeId="${result.node_id}"`)
+        })
+
+        it('re-locates the paragraph by its text when the read offsets no longer fit', async () => {
+            const state = makeState(DOC)
+            // An edit above the anchor shifts every later span, so the offsets the caller read
+            // point into the wrong place while the block itself is untouched.
+            state.stateCells = [{ ...FIRST, start: FIRST.start + 12, end: FIRST.end + 12 }]
+            const context = createMockContext(state)
+
+            await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'markdown',
+                markdown: 'Inserted note.',
+                after_node_id: FIRST.node_id,
+            })
+
+            const inserted = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(inserted).toBe('# Doc\n\n\nFirst paragraph.\n\n\nInserted note.\n\n\nSecond paragraph.\n')
+        })
+
+        it.each([
+            {
+                label: 'an id that names no block',
+                cells: [],
+                params: { after_node_id: 'mdp-missing-0' },
+                expected: /No block with node_id mdp-missing-0/,
+            },
+            {
+                label: 'an id that names two blocks that read the same',
+                cells: [FIRST, { ...FIRST, start: 27, end: 43 }],
+                params: { after_node_id: FIRST.node_id },
+                expected: /names 2 blocks/,
+            },
+        ])('refuses $label and writes nothing', async ({ cells, params, expected }) => {
+            const state = makeState(DOC)
+            state.stateCells = cells
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    ...params,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('refuses a paragraph that vanished between the read and the write', async () => {
+            const state = makeState('# Doc\n\n\nSecond paragraph.\n')
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Inserted note.',
+                    after_node_id: FIRST.node_id,
+                })
+            ).rejects.toThrow(/no longer in notebook/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+    })
+
     describe('markdown cells', () => {
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.
