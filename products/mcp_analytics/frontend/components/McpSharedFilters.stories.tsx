@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +29,12 @@ const meta: Meta<typeof McpSharedFilters> = {
         pageUrl: urls.mcpAnalyticsDashboard(),
         mockDate: '2026-09-15T12:00:00Z',
     },
+    decorators: [
+        (Story) => {
+            useMountedLogic(mcpAnalyticsFiltersLogic)
+            return <Story />
+        },
+    ],
 }
 export default meta
 
