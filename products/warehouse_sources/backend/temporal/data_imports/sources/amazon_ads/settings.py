@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -21,6 +21,17 @@ class AmazonAdsReportConfig:
     retention_days: int = 95
 
 
+# Page size for the list endpoints that accept one. Amazon caps it per endpoint, so an endpoint
+# whose ceiling is lower carries its own.
+PAGE_SIZE = 500
+# The unified Ads API caps an entity query at 100 results, except for targets.
+ADS_API_PAGE_SIZE = 100
+ADS_API_TARGET_PAGE_SIZE = 5000
+
+SPONSORED_BRANDS = "SPONSORED_BRANDS"
+SPONSORED_DISPLAY = "SPONSORED_DISPLAY"
+
+
 @frozen
 class AmazonAdsEndpointConfig:
     name: str
@@ -36,6 +47,32 @@ class AmazonAdsEndpointConfig:
     # Set for the async reporting endpoints, which build their rows from a generated file
     # rather than from a paginated list response.
     report: Optional[AmazonAdsReportConfig] = None
+    # `maxResults` to send with each list request. None omits it, for an endpoint whose request
+    # schema declares no such field.
+    page_size: Optional[int] = PAGE_SIZE
+    # Request body fields every page of this endpoint repeats, such as the ad product a unified
+    # Ads API query selects on.
+    filters: Optional[dict[str, Any]] = None
+    # The unified Ads API (`/adsApi/v1/query/...`) serves the Sponsored Brands and Sponsored
+    # Display entities. It takes plain JSON, and it reads the client id from its own header.
+    ads_api: bool = False
+
+
+def ads_api_query(
+    name: str, entity: str, ad_product: str, id_field: str, page_size: int = ADS_API_PAGE_SIZE
+) -> AmazonAdsEndpointConfig:
+    """One unified Ads API entity query. Sponsored Brands and Sponsored Display share the paths,
+    so the ad product filter is what selects between them."""
+    return AmazonAdsEndpointConfig(
+        name=name,
+        path=f"/adsApi/v1/query/{entity}",
+        primary_keys=["_profile_id", id_field],
+        profile_scoped=True,
+        data_key=entity,
+        page_size=page_size,
+        filters={"adProductFilter": {"include": [ad_product]}},
+        ads_api=True,
+    )
 
 
 # Sponsored Products campaign performance, one row per campaign per day. `date` is the only
@@ -159,6 +196,45 @@ AMAZON_ADS_ENDPOINTS: dict[str, AmazonAdsEndpointConfig] = {
         profile_scoped=True,
         media_type="application/vnd.spTargetingClause.v3+json",
         data_key="targetingClauses",
+    ),
+    "sp_negative_keywords": AmazonAdsEndpointConfig(
+        name="sp_negative_keywords",
+        path="/sp/negativeKeywords/list",
+        primary_keys=["_profile_id", "keywordId"],
+        profile_scoped=True,
+        media_type="application/vnd.spNegativeKeyword.v3+json",
+        data_key="negativeKeywords",
+    ),
+    "sp_campaign_negative_keywords": AmazonAdsEndpointConfig(
+        name="sp_campaign_negative_keywords",
+        path="/sp/campaignNegativeKeywords/list",
+        primary_keys=["_profile_id", "keywordId"],
+        profile_scoped=True,
+        media_type="application/vnd.spCampaignNegativeKeyword.v3+json",
+        data_key="campaignNegativeKeywords",
+    ),
+    # Portfolios sit above campaigns and resolve the portfolioId the campaign tables carry.
+    # Their list request schema has no `maxResults`, so none is sent.
+    "portfolios": AmazonAdsEndpointConfig(
+        name="portfolios",
+        path="/portfolios/list",
+        primary_keys=["_profile_id", "portfolioId"],
+        profile_scoped=True,
+        media_type="application/vnd.spPortfolio.v3+json",
+        data_key="portfolios",
+        page_size=None,
+    ),
+    "sb_campaigns": ads_api_query("sb_campaigns", "campaigns", SPONSORED_BRANDS, "campaignId"),
+    "sb_ad_groups": ads_api_query("sb_ad_groups", "adGroups", SPONSORED_BRANDS, "adGroupId"),
+    "sb_ads": ads_api_query("sb_ads", "ads", SPONSORED_BRANDS, "adId"),
+    "sb_targets": ads_api_query(
+        "sb_targets", "targets", SPONSORED_BRANDS, "targetId", page_size=ADS_API_TARGET_PAGE_SIZE
+    ),
+    "sd_campaigns": ads_api_query("sd_campaigns", "campaigns", SPONSORED_DISPLAY, "campaignId"),
+    "sd_ad_groups": ads_api_query("sd_ad_groups", "adGroups", SPONSORED_DISPLAY, "adGroupId"),
+    "sd_ads": ads_api_query("sd_ads", "ads", SPONSORED_DISPLAY, "adId"),
+    "sd_targets": ads_api_query(
+        "sd_targets", "targets", SPONSORED_DISPLAY, "targetId", page_size=ADS_API_TARGET_PAGE_SIZE
     ),
     "sp_campaign_reports": AmazonAdsEndpointConfig(
         name="sp_campaign_reports",

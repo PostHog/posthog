@@ -115,6 +115,12 @@ class TestDecagonSource:
                 "401 Client Error: Unauthorized for url: https://api.decagon.ai/conversation/export",
                 "rejected the API key",
             ),
+            (
+                "contract_mismatch_points_at_support_not_the_key",
+                "Decagon imported no rows against a nonzero reported total: articles reports 12 rows "
+                "and the walk kept none. Check the response envelope against the endpoint config.",
+                "Contact support",
+            ),
         ]
     )
     def test_non_retryable_errors_surface_the_most_specific_message(

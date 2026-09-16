@@ -100,7 +100,7 @@ export const manifest: ProductManifest = {
             docsHref: 'https://posthog.com/docs/ai-evals/taggers',
         },
         AIObservabilityTag: {
-            import: () => import('./frontend/tags/AIObservabilityTag'),
+            import: () => import('./frontend/tags/AIObservabilityTagScene'),
             projectBased: true,
             name: 'Tagger',
             activityScope: 'AIObservability',

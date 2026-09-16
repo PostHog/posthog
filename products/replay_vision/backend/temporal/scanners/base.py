@@ -5,10 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
@@ -96,6 +97,12 @@ class SignalsResponse(BaseModel, frozen=True):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
 
 @dataclass(frozen=True)
 class MissionStep:
@@ -153,8 +160,8 @@ class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
-    names it `summary`); the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
+    side mission, when enabled, is always the final turn.
     """
 
     prompt: str
@@ -162,7 +169,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
-    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
@@ -189,6 +196,7 @@ class BaseScanner(BaseModel, frozen=True):
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
+        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -203,6 +211,8 @@ class BaseScanner(BaseModel, frozen=True):
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
+            tool_budget=tool_budget,
+            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
         )
 
     def core_steps(self) -> list[MissionStep]:

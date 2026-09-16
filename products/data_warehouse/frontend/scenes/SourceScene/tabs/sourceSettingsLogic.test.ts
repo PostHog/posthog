@@ -5,6 +5,7 @@ import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import {
     buildBulkEnablePayloads,
+    bulkSyncMethodDisabledReason,
     clonePayloadPreservingFiles,
     effectiveLookbackDays,
     isSensitiveCredentialField,
@@ -228,6 +229,27 @@ describe('schemasEligibleForSync', () => {
 
     it('returns an empty list when nothing is eligible', () => {
         expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('bulkSyncMethodDisabledReason', () => {
+    it.each([
+        ['full_refresh' as const, [{ sync_type: 'incremental' }], undefined],
+        ['append' as const, [{ sync_type: 'incremental', incremental_field: 'updated_at' }], undefined],
+        [
+            'append' as const,
+            [{ sync_type: 'incremental', incremental_field: 'updated_at' }, { sync_type: 'full_refresh' }],
+            'Append needs an incremental field, which some selected tables have not got',
+        ],
+        [
+            'full_refresh' as const,
+            [{ sync_type: 'incremental' }, { sync_type: 'cdc' }],
+            'Deselect the CDC and webhook tables first',
+        ],
+        ['full_refresh' as const, [{ sync_type: 'webhook' }], 'Deselect the CDC and webhook tables first'],
+    ])('%s over %j', (syncType, overrides, expected) => {
+        const schemas = overrides.map((override) => makeSchema(override as Partial<ExternalDataSourceSchema>))
+        expect(bulkSyncMethodDisabledReason(schemas, syncType)).toEqual(expected)
     })
 })
 

@@ -33,8 +33,8 @@ EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
 DATASET_EXPORT_KIND = "dataset"
 
 SEVEN_DAYS = timedelta(days=7)
+THIRTY_DAYS = timedelta(days=30)
 SIX_MONTHS = timedelta(days=180)
-TWELVE_MONTHS = timedelta(days=365)
 
 
 # The rasterizer interpolates this id into an internal recording API path, so anything that could
@@ -166,12 +166,15 @@ class ExportedAsset(models.Model):
         if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX, cls.ExportFormat.JSONL):
             return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
-            return TWELVE_MONTHS
+            # Matches the bucket's `exports-video` lifecycle rule, which drops the file at 30 days.
+            return THIRTY_DAYS
         return SIX_MONTHS
 
     @classmethod
     def compute_expires_after(cls, export_format: str) -> datetime:
-        expiry_datetime = now() + cls.get_expiry_delta(export_format)
+        # Rounded up, because S3 rounds a lifecycle rule up to the next UTC midnight; rounding down
+        # retires the row while the object it points at is still there.
+        expiry_datetime = now() + cls.get_expiry_delta(export_format) + timedelta(days=1)
         return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
 
     @property

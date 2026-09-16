@@ -21,7 +21,8 @@ from django.db import (
     transaction,
 )
 from django.db.models import Count, Exists, F, IntegerField, Max, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce, Substr
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
 import structlog
@@ -65,6 +66,7 @@ from .constants import (
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
+    MAX_LEARNED_SOURCES_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
@@ -93,11 +95,16 @@ from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
 
-GENERATED_SOURCE_NAME = "Learned from support"
 GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
+GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
+GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
+    "This learned source has more than one document, so it cannot be edited. "
+    "Delete it, then let PostHog learn from the ticket again."
+)
 MAX_ANALYSIS_VERSION_LENGTH = 128
 MAX_PROVIDER_LENGTH = 64
 MAX_GENERATED_DOCUMENT_TITLE_LENGTH = 512
+MAX_GENERATED_SOURCE_NAME_LENGTH = 255
 
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
 # across data — so don't. Generated once via uuid.uuid4() and frozen.
@@ -106,6 +113,10 @@ _CHUNK_NAMESPACE = UUID("4b7b0b50-5e2f-4a9f-8a8b-8b8d5f6f4a3e")
 
 class QuotaExceededError(Exception):
     """Raised when creating the source would exceed a per-team cap."""
+
+
+class LearnedSourceCapReached(QuotaExceededError):
+    """Raised when a team already has MAX_LEARNED_SOURCES_PER_TEAM generated sources."""
 
 
 class TextTooLargeError(Exception):
@@ -130,6 +141,10 @@ class GeneratedSourceReadOnlyError(Exception):
 
 class InvalidGeneratedKnowledgeDocument(ValueError):
     """The generated document violates the internal write contract."""
+
+
+class GeneratedSourceHasMultipleDocuments(Exception):
+    """A learned source with several documents cannot be edited in place."""
 
 
 @frozen
@@ -160,6 +175,12 @@ class _ValidatedGeneratedDocumentInput:
     analysis_version: str
     title: str
     content: str
+
+
+@frozen
+class _LearnedSourceCreateStatus:
+    status: SourceStatus
+    error_message: str
 
 
 class EmptyContentError(Exception):
@@ -272,9 +293,32 @@ def _count_sources(team_id: int) -> int:
     return KnowledgeSource.objects.filter(team_id=team_id, is_generated=False).count()
 
 
+def _count_learned_sources(team_id: int) -> int:
+    return KnowledgeSource.objects.filter(team_id=team_id, is_generated=True).count()
+
+
 def _ensure_user_managed_source(source: KnowledgeSource) -> None:
     if source.is_generated:
         raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
+
+
+def _ensure_editable_text_source(source: KnowledgeSource) -> None:
+    if source.is_generated and source.source_type != SourceType.TEXT:
+        raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
+
+
+def _require_single_generated_document(*, team_id: int, source_id: UUID) -> KnowledgeDocument:
+    documents = list(KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2])
+    if not documents:
+        raise InvalidGeneratedKnowledgeDocument("generated source is missing its document")
+    if len(documents) > 1:
+        # Saving into the first row would drop the other documents from search.
+        raise GeneratedSourceHasMultipleDocuments()
+    return documents[0]
+
+
+def _is_generated_source_disabled(source: KnowledgeSource) -> bool:
+    return source.is_generated and source.error_message == GENERATED_SOURCE_DISABLED_MESSAGE
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -425,50 +469,83 @@ def has_pending_embeddings(source_id: UUID) -> bool:
     )
 
 
-@with_team_scope(canonical=True)
-def list_for_team(team_id: int) -> list[KnowledgeSource]:
-    # Annotate counts in one round-trip so the serializer doesn't N+1.
-    return list(
-        KnowledgeSource.objects.filter(team_id=team_id)
-        .annotate(
-            _document_count=_document_count_subquery(),
-            _chunk_count=_chunk_count_subquery(),
-            _has_unsafe_documents=_unsafe_documents_subquery(),
-            _has_pending_embeddings=_pending_embedding_documents_subquery(),
-            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
-        )
-        .order_by("-created_at")
+def _first_learned_document_qs() -> QuerySet[KnowledgeDocument]:
+    return KnowledgeDocument.objects.filter(
+        source_id=OuterRef("pk"),
+        team_id=OuterRef("team_id"),
+        metadata__origin=GENERATED_KNOWLEDGE_ORIGIN,
     )
+
+
+def _learned_ticket_number_subquery() -> Subquery:
+    return Subquery(
+        _first_learned_document_qs()
+        .annotate(_ticket_number=Cast(KeyTextTransform("ticket_number", "metadata"), IntegerField()))
+        .order_by("created_at")
+        .values("_ticket_number")[:1],
+        output_field=IntegerField(),
+    )
+
+
+def _learned_source_team_id_subquery() -> Subquery:
+    return Subquery(
+        _first_learned_document_qs()
+        .annotate(_source_team_id=Cast(KeyTextTransform("source_team_id", "metadata"), IntegerField()))
+        .order_by("created_at")
+        .values("_source_team_id")[:1],
+        output_field=IntegerField(),
+    )
+
+
+def _source_list_annotations() -> dict[str, object]:
+    return {
+        "_document_count": _document_count_subquery(),
+        "_chunk_count": _chunk_count_subquery(),
+        "_has_unsafe_documents": _unsafe_documents_subquery(),
+        "_has_pending_embeddings": _pending_embedding_documents_subquery(),
+        "_ai_processing_approved": F("team__organization__is_ai_data_processing_approved"),
+        "_learned_ticket_number": _learned_ticket_number_subquery(),
+        "_learned_source_team_id": _learned_source_team_id_subquery(),
+    }
+
+
+@with_team_scope(canonical=True)
+def list_for_team(
+    team_id: int,
+    *,
+    search: str | None = None,
+    source_type: str | None = None,
+) -> list[KnowledgeSource]:
+    # Annotate counts in one round-trip so the serializer doesn't N+1.
+    queryset = KnowledgeSource.objects.filter(team_id=team_id)
+    if source_type:
+        queryset = queryset.filter(source_type=source_type)
+    if search:
+        term = search.strip()
+        if term:
+            queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
+    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at"))
 
 
 @with_team_scope(canonical=True)
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
-        return KnowledgeSource.objects.annotate(
-            _document_count=_document_count_subquery(),
-            _chunk_count=_chunk_count_subquery(),
-            _has_unsafe_documents=_unsafe_documents_subquery(),
-            _has_pending_embeddings=_pending_embedding_documents_subquery(),
-            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
-        ).get(id=source_id, team_id=team_id)
+        return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
 
 
 @with_team_scope(canonical=True)
 def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
-    """
-    Return source text for the edit modal.
-
-    Generated sources can contain many documents, so callers must use the
-    bounded document-window API to inspect them.
-    """
+    """Return concatenated document text for the edit modal."""
 
     try:
-        source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+        source = KnowledgeSource.objects.only("is_generated", "source_type").get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
-    _ensure_user_managed_source(source)
+    _ensure_editable_text_source(source)
+    if source.is_generated:
+        return _require_single_generated_document(team_id=team_id, source_id=source_id).content
     documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
     return "\n\n".join(d.content for d in documents)
 
@@ -495,6 +572,9 @@ def _validate_generated_document_input(
         raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
     if not title or len(title) > MAX_GENERATED_DOCUMENT_TITLE_LENGTH:
         raise InvalidGeneratedKnowledgeDocument("title is invalid")
+    # Source.name is CharField(max_length=255). Keep the document title on the same
+    # bound so the row name, editor, and citations stay in sync after the first save.
+    title = title[:MAX_GENERATED_SOURCE_NAME_LENGTH]
     if not content.strip():
         raise InvalidGeneratedKnowledgeDocument("content is empty")
     if len(content.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -516,54 +596,80 @@ def _validate_generated_document_input(
     )
 
 
-def _generated_source_id(team_id: int) -> UUID:
-    return uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{team_id}.generated.business-knowledge.posthog")
+def _learned_source_namespace(team_id: int) -> UUID:
+    return uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{team_id}.learned-source.business-knowledge.posthog")
 
 
-def _generated_document_stable_id(
-    document_input: CreateGeneratedKnowledgeDocument,
-    validated_input: _ValidatedGeneratedDocumentInput,
+def _learned_source_id(team_id: int, stable_id: str) -> UUID:
+    return uuid.uuid5(_learned_source_namespace(team_id), stable_id)
+
+
+def _generated_stable_id(
+    *,
+    provider: str,
+    ticket_id: UUID,
+    resolution_comment_id: UUID,
+    analysis_version: str,
 ) -> str:
     # stable_id is readable by anyone with business_knowledge:read (system table), so it must not
     # carry the raw ticket or comment ids; those need ticket:read and live in metadata only.
-    identity = (
-        f"{GENERATED_KNOWLEDGE_ORIGIN}:{validated_input.provider}:"
-        f"{document_input.ticket_id}:{document_input.resolution_comment_id}:{validated_input.analysis_version}"
-    )
+    identity = f"{GENERATED_KNOWLEDGE_ORIGIN}:{provider}:{ticket_id}:{resolution_comment_id}:{analysis_version}"
     return f"{GENERATED_KNOWLEDGE_ORIGIN}:{sha256_of(identity)}"
 
 
-def _validate_existing_generated_document(
-    document: KnowledgeDocument,
+def learned_source_id_for(
     *,
-    expected_id: UUID,
-    source: KnowledgeSource,
-    stable_id: str,
     team_id: int,
-) -> None:
-    if (
-        document.id != expected_id
-        or document.team_id != team_id
-        or document.source_id != source.id
-        or document.stable_id != stable_id
-    ):
-        raise InvalidGeneratedKnowledgeDocument("generated document identity is already in use")
+    provider: str,
+    ticket_id: UUID,
+    resolution_comment_id: UUID,
+    analysis_version: str,
+) -> UUID:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    return _learned_source_id(
+        canonical_team_id,
+        _generated_stable_id(
+            provider=provider.strip(),
+            ticket_id=ticket_id,
+            resolution_comment_id=resolution_comment_id,
+            analysis_version=analysis_version.strip(),
+        ),
+    )
+
+
+def can_publish_learned_source(*, team_id: int, source_id: UUID) -> bool:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        if KnowledgeSource.objects.filter(id=source_id, team_id=canonical_team_id).exists():
+            return True
+        return _count_learned_sources(canonical_team_id) < MAX_LEARNED_SOURCES_PER_TEAM
+
+
+def _learned_source_status_for_create(team_id: int) -> _LearnedSourceCreateStatus:
+    if KnowledgeSource.objects.filter(
+        team_id=team_id,
+        is_generated=True,
+        error_message=GENERATED_SOURCE_DISABLED_MESSAGE,
+    ).exists():
+        return _LearnedSourceCreateStatus(status=SourceStatus.ERROR, error_message=GENERATED_SOURCE_DISABLED_MESSAGE)
+    return _LearnedSourceCreateStatus(status=SourceStatus.READY, error_message="")
 
 
 def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
     canonical_team_id = resolve_effective_team_id(team_id)
     with team_scope(canonical_team_id, canonical=True):
-        try:
-            source = KnowledgeSource.objects.get(
-                id=_generated_source_id(canonical_team_id),
-                team_id=canonical_team_id,
-                is_generated=True,
-            )
-        except KnowledgeSource.DoesNotExist:
+        sources = KnowledgeSource.objects.filter(team_id=canonical_team_id, is_generated=True)
+        if not sources.exists():
             return False
-        source.status = SourceStatus.READY if ready else SourceStatus.ERROR
-        source.error_message = "" if ready else "Generated source is disabled."
-        source.save(update_fields=["status", "error_message", "updated_at"])
+        now = timezone.now()
+        if ready:
+            sources.update(status=SourceStatus.READY, error_message="", updated_at=now)
+        else:
+            sources.update(
+                status=SourceStatus.ERROR,
+                error_message=GENERATED_SOURCE_DISABLED_MESSAGE,
+                updated_at=now,
+            )
         return True
 
 
@@ -592,72 +698,56 @@ def _create_generated_knowledge_document(
     validated_input = _validate_generated_document_input(document_input)
     _acquire_source_quota_lock(team_id)
 
-    source, _ = KnowledgeSource.objects.get_or_create(
-        id=_generated_source_id(team_id),
-        team_id=team_id,
-        defaults={
-            "created_by_id": None,
-            "name": GENERATED_SOURCE_NAME,
-            "source_type": SourceType.TEXT,
-            "is_generated": True,
-            "status": SourceStatus.READY,
-        },
+    stable_id = _generated_stable_id(
+        provider=validated_input.provider,
+        ticket_id=document_input.ticket_id,
+        resolution_comment_id=document_input.resolution_comment_id,
+        analysis_version=validated_input.analysis_version,
     )
-    if not source.is_generated or source.source_type != SourceType.TEXT:
+    source_id = _learned_source_id(team_id, stable_id)
+    source = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).first()
+    if source is None:
+        if _count_learned_sources(team_id) >= MAX_LEARNED_SOURCES_PER_TEAM:
+            raise LearnedSourceCapReached(f"Team already has {MAX_LEARNED_SOURCES_PER_TEAM} learned sources.")
+        create_status = _learned_source_status_for_create(team_id)
+        source = KnowledgeSource.objects.create(
+            id=source_id,
+            team_id=team_id,
+            created_by_id=None,
+            name=validated_input.title,
+            source_type=SourceType.TEXT,
+            is_generated=True,
+            status=create_status.status,
+            error_message=create_status.error_message,
+        )
+    elif not source.is_generated or source.source_type != SourceType.TEXT:
         raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
+    else:
+        existing = KnowledgeDocument.objects.filter(team_id=team_id, source=source).order_by("created_at").first()
+        if existing is not None:
+            return existing, False
 
-    stable_id = _generated_document_stable_id(document_input, validated_input)
     document_id = uuid.uuid5(source.id, stable_id)
-    existing = KnowledgeDocument.objects.filter(
-        team_id=team_id,
-        source=source,
-        stable_id=stable_id,
-    ).first()
-    if existing is not None:
-        _validate_existing_generated_document(
-            existing,
-            expected_id=document_id,
-            source=source,
-            stable_id=stable_id,
-            team_id=team_id,
-        )
-        return existing, False
-
-    existing = KnowledgeDocument.objects.filter(id=document_id, team_id=team_id).first()
-    if existing is not None:
-        _validate_existing_generated_document(
-            existing,
-            expected_id=document_id,
-            source=source,
-            stable_id=stable_id,
-            team_id=team_id,
-        )
-        return existing, False
-
-    document, created = KnowledgeDocument.objects.get_or_create(
+    document = KnowledgeDocument.objects.create(
         id=document_id,
         team_id=team_id,
         source=source,
         stable_id=stable_id,
-        defaults={
-            "title": validated_input.title,
-            "content": validated_input.content,
-            "metadata": {
-                "source_type": SourceType.TEXT,
-                "origin": GENERATED_KNOWLEDGE_ORIGIN,
-                "provider": validated_input.provider,
-                "ticket_id": str(document_input.ticket_id),
-                "ticket_number": document_input.ticket_number,
-                "source_team_id": document_input.source_team_id,
-                "resolution_comment_id": str(document_input.resolution_comment_id),
-                "analysis_version": validated_input.analysis_version,
-            },
-            "content_hash": sha256_of(validated_input.content),
-            "safety_verdict": SafetyVerdict.UNKNOWN,
+        title=validated_input.title,
+        content=validated_input.content,
+        metadata={
+            "source_type": SourceType.TEXT,
+            "origin": GENERATED_KNOWLEDGE_ORIGIN,
+            "provider": validated_input.provider,
+            "ticket_id": str(document_input.ticket_id),
+            "ticket_number": document_input.ticket_number,
+            "source_team_id": document_input.source_team_id,
+            "resolution_comment_id": str(document_input.resolution_comment_id),
+            "analysis_version": validated_input.analysis_version,
         },
+        content_hash=sha256_of(validated_input.content),
+        safety_verdict=SafetyVerdict.UNKNOWN,
     )
-    if not created:
-        return document, False
 
     chunks = chunk_text(validated_input.content)
     if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
@@ -750,10 +840,10 @@ def update_text_source(
     Edit path.
 
     - name-only edit: single UPDATE, no re-chunk.
-    - text edit: delete documents+chunks for this source and rebuild from the
-      new content. We keep the source row (and its id) so agents' in-flight
-      prompts don't go stale on re-lookup. Same byte/chunk quota rules apply
-      to the new text.
+    - text edit: rebuild chunks from the new content. User-managed sources
+      delete and recreate the document. Generated text sources update the
+      existing document in place so learning runs keep a valid document id.
+      Same byte/chunk quota rules apply to the new text.
 
     Returns the refreshed source (with annotated counts) or None if the
     source doesn't belong to this team.
@@ -764,9 +854,13 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
-    _ensure_user_managed_source(source)
+    _ensure_editable_text_source(source)
     if always_include is not None:
         source.always_include = always_include
+
+    generated_document = None
+    if source.is_generated and (text is not None or name is not None):
+        generated_document = _require_single_generated_document(team_id=team_id, source_id=source_id)
 
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -788,26 +882,51 @@ def update_text_source(
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
-        KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).delete()
-
-        document_id = uuid.uuid4()
-        document = KnowledgeDocument.objects.create(
-            id=document_id,
-            team_id=team_id,
-            source=source,
-            stable_id=str(document_id),
-            title=name if name is not None else source.name,
-            content=text,
-            metadata={"source_type": SourceType.TEXT},
-            content_hash=sha256_of(text),
-            # Edited text is re-classified before it can resurface — see the
-            # rationale in create_text_source. Delete+recreate gives a fresh id,
-            # so there's no stale-verdict race here; content_hash still scopes
-            # the eventual verdict write to exactly this content.
-            safety_verdict=SafetyVerdict.UNKNOWN,
-        )
+        if generated_document is not None:
+            # Keep the document row so KnowledgeLearningRun.knowledge_document_id still points at it.
+            document = generated_document
+            document.title = name if name is not None else source.name
+            document.content = text
+            document.content_hash = sha256_of(text)
+            document.safety_verdict = SafetyVerdict.UNKNOWN
+            document.safety_reason = ""
+            document.classification_attempts = 0
+            document.embeddings_emitted_at = None
+            document.metadata = {**(document.metadata or {}), "edited_by_user": True}
+            document.save(
+                update_fields=[
+                    "title",
+                    "content",
+                    "content_hash",
+                    "safety_verdict",
+                    "safety_reason",
+                    "classification_attempts",
+                    "embeddings_emitted_at",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+        else:
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).delete()
+            document_id = uuid.uuid4()
+            document = KnowledgeDocument.objects.create(
+                id=document_id,
+                team_id=team_id,
+                source=source,
+                stable_id=str(document_id),
+                title=name if name is not None else source.name,
+                content=text,
+                metadata={"source_type": SourceType.TEXT},
+                content_hash=sha256_of(text),
+                # Edited text is re-classified before it can resurface — see the
+                # rationale in create_text_source. Delete+recreate gives a fresh id,
+                # so there's no stale-verdict race here; content_hash still scopes
+                # the eventual verdict write to exactly this content.
+                safety_verdict=SafetyVerdict.UNKNOWN,
+            )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
-        source.status = SourceStatus.READY
+        # Editing must not put a disabled generated source back into search.
+        source.status = SourceStatus.ERROR if _is_generated_source_disabled(source) else SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
     elif name is not None or always_include is not None:
         update_fields = ["updated_at"]
@@ -817,6 +936,10 @@ def update_text_source(
         if always_include is not None:
             update_fields.append("always_include")
         source.save(update_fields=update_fields)
+        if name is not None and generated_document is not None:
+            generated_document.title = name
+            generated_document.metadata = {**(generated_document.metadata or {}), "edited_by_user": True}
+            generated_document.save(update_fields=["title", "metadata", "updated_at"])
 
     return get_for_team(source.id, team_id) or source
 
@@ -910,7 +1033,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return False
-    _ensure_user_managed_source(source)
+    _ensure_editable_text_source(source)
     source.delete()
     return True
 

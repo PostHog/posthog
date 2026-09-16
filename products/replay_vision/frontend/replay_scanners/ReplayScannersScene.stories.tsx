@@ -193,6 +193,8 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         status: 'succeeded',
         error_reason: '',
         workflow_id: 'vision-observation-1',
+        // The API always sends this, and only a configured scanner has a page to link to.
+        scanner_origin: 'configured',
         scanner_snapshot: {
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
@@ -201,6 +203,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
+            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -278,7 +281,15 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
+        verification: null,
     },
+})
+
+// Rated wrong with no feedback written yet, the only state where the feedback placeholder shows.
+const thumbsDownObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000d3',
+    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d12',
+    label: { is_correct: false, feedback: '' },
 })
 
 // A monitor observation, so the detail page renders the prompt row and the reasoning card that a
@@ -301,6 +312,7 @@ const monitorObservationDetail = observation({
             prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
             allow_inconclusive: true,
         },
+        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {
@@ -311,6 +323,7 @@ const monitorObservationDetail = observation({
                 'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 
@@ -474,6 +487,102 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
+                // One card per reason kind, plus one with no cited timestamps (no clip range on the tile).
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    results: [
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d1',
+                                scanner_id: scanners.results[0].id,
+                                scanner_snapshot: {
+                                    name: 'Confused checkout',
+                                    scanner_type: 'monitor',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: true,
+                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                    verify_positives: 'off',
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'monitor',
+                                        verdict: 'yes',
+                                        confidence: 0.92,
+                                        reasoning: 'Retried the payment form twice before completing.',
+                                        reasoning_segments: [
+                                            { kind: 'chip', timestamp_ms: 62000 },
+                                            { kind: 'text', value: ' Retried the payment form twice ' },
+                                            { kind: 'chip', timestamp_ms: 154000 },
+                                        ],
+                                    },
+                                    signals_count: 2,
+                                    verification: null,
+                                },
+                                viewed: false,
+                            }),
+                            reason: { kind: 'signal_emitted', signals_count: 2 },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d2',
+                                scanner_id: scanners.results[3].id,
+                                scanner_snapshot: {
+                                    name: 'Intent score',
+                                    scanner_type: 'scorer',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: false,
+                                    scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
+                                    verify_positives: 'off',
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'scorer',
+                                        score: 9.5,
+                                        confidence: 0.88,
+                                        reasoning: 'Compared plans, opened billing, invited a teammate.',
+                                        reasoning_segments: [
+                                            { kind: 'text', value: 'Compared plans at ' },
+                                            { kind: 'chip', timestamp_ms: 30000 },
+                                            { kind: 'text', value: ', opened billing, invited a teammate.' },
+                                        ],
+                                    },
+                                    signals_count: 0,
+                                    verification: null,
+                                },
+                                viewed: false,
+                            }),
+                            reason: { kind: 'outlier_score', score: 9.5, window_mean: 5.1 },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d3',
+                                recording_subject_email: 'bob@example.com',
+                                viewed: true,
+                            }),
+                            reason: { kind: 'unviewed_recent' },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000d4',
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'summarizer',
+                                        confidence: 0.8,
+                                        title: 'Quick bug report',
+                                        summary: 'Hit an error dialog and filed feedback from the toast.',
+                                    },
+                                    signals_count: 0,
+                                    verification: null,
+                                },
+                                viewed: true,
+                            }),
+                            reason: { kind: 'recent' },
+                        },
+                    ],
+                },
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
@@ -558,6 +667,32 @@ export const ScannersListEmpty: StoryObj = {
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
+}
+
+// The home-redesign experiment's test arm lands on the What to watch feed.
+export const HomeWatchFeed: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+export const HomeWatchFeedEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
+export const UsageTabRedesigned: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision()}?tab=usage`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
 }
 
 export const SummarizerOverview: StoryObj = {
@@ -645,6 +780,42 @@ export const ScannerConfigurationLiteStandardPro: StoryObj = {
 // Renders the pending recommendation's diff and change cards plus the rating list.
 export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
+}
+
+export const ScannerCalibrationTestNudge: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE]: 'test' },
+    },
+}
+
+const neverRatedStats = {
+    ...summarizerStats,
+    labels: { ...summarizerStats.labels, up_total: 0, down_total: 0 },
+}
+
+export const ScannerCalibrationActivationBadge: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'badge' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
+}
+
+export const ScannerCalibrationActivationPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'prompt' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
 }
 
 const digestScoutConfig = {
@@ -811,6 +982,25 @@ export const ObservationDetailMonitor: StoryObj = {
             get: {
                 '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
             },
+        }),
+    ],
+}
+
+export const ObservationDetailCalibrationEntryPoint: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(observationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT]: 'test' },
+    },
+}
+
+export const ObservationDetailFeedbackPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/observations/:id/': thumbsDownObservationDetail },
         }),
     ],
 }

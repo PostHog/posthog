@@ -14,7 +14,8 @@ class DataModelingJobStatus(models.TextChoices):
 
 class DataModelingJobEngine(models.TextChoices):
     CLICKHOUSE = "clickhouse", "ClickHouse"
-    DUCKGRES = "duckgres", "Duckgres"
+    LEGACY_DUCKGRES = "duckgres", "Duckgres"
+    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
 class DataModelingJobRunMode(models.TextChoices):
@@ -60,4 +61,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         indexes = [
             # serves to cut lookup times for pre-existing running jobs during the preempt stage
             models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
+            # serves the per-saved-query lookup of the latest job of one engine, which the
+            # materialized view health check and failure digest do for every live view
+            models.Index(fields=["saved_query", "engine", "-last_run_at"], name="datamodelingjob_sq_engine_run"),
         ]

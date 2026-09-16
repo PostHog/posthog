@@ -10,6 +10,8 @@ module level (modeling's heavy deps are deferred inside its methods).
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
+    RESOLUTION_SOURCE_LINEAGE,
+    RESOLUTION_SOURCE_MATERIALIZATION,
     BoundedResolver,
     DataWarehouseModelPath,
     LabelTreeField,
@@ -24,6 +26,8 @@ from products.data_modeling.backend.models.modeling import (
 __all__ = [
     "DEFAULT_RESOLUTION_DEADLINE_SECONDS",
     "DEFAULT_RESOLUTION_MAX_VIEW_DEPTH",
+    "RESOLUTION_SOURCE_LINEAGE",
+    "RESOLUTION_SOURCE_MATERIALIZATION",
     "BoundedResolver",
     "DataWarehouseModelPath",
     "LabelTreeField",

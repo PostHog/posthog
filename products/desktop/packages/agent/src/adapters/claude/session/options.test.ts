@@ -935,7 +935,7 @@ describe("buildSystemPrompt", () => {
   const promptText = (prompt: Options["systemPrompt"]): string => {
     if (typeof prompt === "string") return prompt;
     if (Array.isArray(prompt)) return prompt.join("\n");
-    return prompt?.append ?? "";
+    return prompt?.type === "preset" ? (prompt.append ?? "") : "";
   };
 
   const prompts = [
