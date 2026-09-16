@@ -12,6 +12,7 @@ import {
   LightningIcon,
   LinkIcon,
   NotebookIcon,
+  PencilSimpleIcon,
   PlayCircleIcon,
   PlusIcon,
   SquaresFourIcon,
@@ -63,9 +64,12 @@ export function KnowledgeList({
   startWriting = false,
 }: KnowledgeListProps) {
   const [adding, setAdding] = useState(false);
-  const [briefingOpen, setBriefingOpen] = useState(startWriting);
+  const [briefing, setBriefing] = useState<Briefing>(
+    startWriting ? "edit" : "closed",
+  );
   const hasKnowledge = knowledge.trim().length > 0;
   const sections = useMemo(() => sectionHeadings(knowledge), [knowledge]);
+  const briefingOpen = briefing !== "closed";
 
   return (
     <section className="flex flex-col gap-1">
@@ -98,14 +102,24 @@ export function KnowledgeList({
                   ? firstLine(knowledge)
                   : "Nothing written yet. What this is, how to work here, key files, gotchas."
             }
-            kind={
-              sections.length > 0
-                ? `${sections.length} ${sections.length === 1 ? "section" : "sections"}`
-                : hasKnowledge
-                  ? "Briefing"
-                  : "Empty"
+            onOpen={() =>
+              setBriefing(
+                briefingOpen ? "closed" : hasKnowledge ? "read" : "edit",
+              )
             }
-            onOpen={() => setBriefingOpen((open) => !open)}
+            actions={
+              <Button
+                variant="default"
+                size="icon-xs"
+                aria-label="Edit CONTEXT.md"
+                title="Edit CONTEXT.md"
+                disabled={isSaving}
+                onClick={() => setBriefing("edit")}
+                className="text-muted-foreground"
+              >
+                <PencilSimpleIcon size={13} />
+              </Button>
+            }
             trailing={
               <CaretRightIcon
                 size={13}
@@ -120,11 +134,12 @@ export function KnowledgeList({
           {briefingOpen ? (
             <div className="pt-1 pb-5 @lg:pl-[30px]">
               <KnowledgeBriefing
+                key={briefing}
                 knowledge={knowledge}
                 onSave={onKnowledgeSave}
                 onAskAgent={onAskAgent}
                 isSaving={isSaving}
-                startEditing={startWriting || !hasKnowledge}
+                startEditing={briefing === "edit"}
               />
             </div>
           ) : null}
@@ -139,9 +154,10 @@ export function KnowledgeList({
                   external ? <LinkIcon size={15} /> : <FileTextIcon size={15} />
                 }
                 title={link.title}
-                meta={link.note || (external ? null : link.target)}
+                meta={
+                  link.note || (external ? hostOf(link.target) : link.target)
+                }
                 mono={!external && !link.note}
-                kind={external ? hostOf(link.target) : "File"}
                 onOpen={external ? () => openExternalUrl(link.target) : null}
                 onRemove={() =>
                   onLinksChange(links.filter((_, i) => i !== index))
@@ -208,7 +224,9 @@ function ObjectRow({
   const facts = data?.facts?.slice(0, 2) ?? [];
   const parts = [...(data?.status ? [data.status.label] : []), ...facts];
   const meta =
-    parts.length > 0 ? (
+    parts.length === 0 ? (
+      CONTEXT_OBJECT_KIND_LABELS[object.kind]
+    ) : (
       <span className="flex items-center gap-1.5">
         {data?.status ? (
           <span
@@ -225,13 +243,12 @@ function ObjectRow({
           </span>
         ))}
       </span>
-    ) : null;
+    );
   return (
     <KnowledgeRow
       icon={KIND_ICONS[object.kind]}
       title={data?.title || object.title}
       meta={meta}
-      kind={CONTEXT_OBJECT_KIND_LABELS[object.kind]}
       onOpen={() => openExternalUrl(object.url)}
       onRemove={onRemove}
       trailing={<OpenGlyph />}
@@ -241,17 +258,17 @@ function ObjectRow({
 }
 
 /**
- * One row of knowledge: what it is, the short line under it, and where it
- * leads. The kind sits at the right so the eye can scan it as a column.
+ * One row of knowledge: an icon for what it is, the short line under the
+ * title, and where it leads. Nothing sits to the right but the controls.
  */
 function KnowledgeRow({
   icon,
   title,
   meta,
-  kind,
   mono = false,
   onOpen,
   onRemove,
+  actions,
   trailing,
   expanded,
   disabled = false,
@@ -259,10 +276,11 @@ function KnowledgeRow({
   icon: ReactNode;
   title: string;
   meta: ReactNode;
-  kind: string;
   mono?: boolean;
   onOpen: (() => void) | null;
   onRemove?: () => void;
+  /** Controls that stay visible; the remove button only shows on hover. */
+  actions?: ReactNode;
   trailing: ReactNode;
   /** Set on the one row that opens in place; the others lead somewhere. */
   expanded?: boolean;
@@ -310,9 +328,7 @@ function KnowledgeRow({
         <span className="flex min-w-0 flex-1 items-center gap-3">{body}</span>
       )}
       <span className="flex shrink-0 items-center gap-1">
-        <span className="w-24 truncate text-right text-muted-foreground text-xxs @lg:w-28">
-          {kind}
-        </span>
+        {actions}
         {onRemove ? (
           <Button
             variant="default"
@@ -342,6 +358,8 @@ function OpenGlyph() {
     />
   );
 }
+
+type Briefing = "closed" | "read" | "edit";
 
 type Detected = "object" | "link" | "file";
 

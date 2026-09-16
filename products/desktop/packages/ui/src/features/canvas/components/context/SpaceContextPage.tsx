@@ -5,7 +5,7 @@ import {
   parseContextDocument,
   serializeContextDocument,
 } from "@posthog/core/canvas/contextDocument";
-import { Button, Text, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
@@ -33,10 +33,7 @@ import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
-import { RawContextEditor } from "./RawContextEditor";
 import { SignalsMargin } from "./SignalsMargin";
-
-type View = "overview" | "source";
 
 interface SpaceContextPageProps {
   channelId: string;
@@ -47,11 +44,13 @@ interface SpaceContextPageProps {
 }
 
 /**
- * The Context tab of a space, read top to bottom in three zones. Goals: what
- * the space is trying to move. Business knowledge: everything a person told
- * it, the briefing and every doc and object as one list of rows. Signals:
- * what agents and source products found about those rows. One CONTEXT.md
- * underneath.
+ * The Context tab of a space in three zones. Goals: what the space is trying
+ * to move. Business knowledge: everything a person told it, the briefing and
+ * every doc and object as one list of rows. Signals: what agents and source
+ * products found about those rows. Knowledge is written once and grows long;
+ * signals change daily, so they sit beside it in a column that stays put
+ * while the knowledge scrolls, and come first when the page is too narrow
+ * for two columns. One CONTEXT.md underneath.
  */
 export function SpaceContextPage({
   channelId,
@@ -59,7 +58,6 @@ export function SpaceContextPage({
   store,
   onOpenInWiki,
 }: SpaceContextPageProps) {
-  const [view, setView] = useState<View>("overview");
   const [agentOpen, setAgentOpen] = useState(false);
   const [writing, setWriting] = useState(false);
   const [measureTask, setMeasureTask] = useState<{
@@ -149,24 +147,6 @@ export function SpaceContextPage({
               Update with agent
             </Button>
           ) : null}
-          <ToggleGroup
-            value={[view]}
-            onValueChange={(next: string[]) => {
-              const selected = next[0];
-              if (selected === "overview" || selected === "source") {
-                setView(selected);
-              }
-            }}
-            aria-label="Context view"
-            className="gap-1"
-          >
-            <ToggleGroupItem value="overview" size="sm" variant="outline">
-              Overview
-            </ToggleGroupItem>
-            <ToggleGroupItem value="source" size="sm" variant="outline">
-              CONTEXT.md
-            </ToggleGroupItem>
-          </ToggleGroup>
         </PageHeaderActions>
       </PageHeader>
 
@@ -183,7 +163,7 @@ export function SpaceContextPage({
         </div>
       ) : (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 px-8 pt-8 pb-24">
+          <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-8 pt-8 pb-24">
             {store.saveError ? (
               <Notice
                 tone="warning"
@@ -226,40 +206,44 @@ export function SpaceContextPage({
               />
             ) : null}
 
-            {view === "source" ? (
-              <RawContextEditor
-                content={store.content}
-                onSave={store.save}
-                isSaving={store.isSaving}
-              />
-            ) : isBlank && !writing ? (
+            {isBlank && !writing ? (
               <ContextEmptyHero
                 channelName={channelName}
                 onAskAgent={() => setAgentOpen(true)}
                 onWrite={() => setWriting(true)}
               />
             ) : (
-              <div className="flex min-w-0 flex-col gap-12">
+              <div className="flex min-w-0 flex-col gap-10">
                 <GoalsList
                   goals={doc.goals}
                   onChange={(goals) => saveDoc({ ...doc, goals })}
                   onAskAgentForMeasure={askAgentForMeasure}
                   isSaving={store.isSaving}
                 />
-                <KnowledgeList
-                  knowledge={doc.knowledge}
-                  links={doc.links}
-                  objects={doc.objects}
-                  onKnowledgeSave={(knowledge) =>
-                    saveDoc({ ...doc, knowledge })
-                  }
-                  onLinksChange={(links) => saveDoc({ ...doc, links })}
-                  onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
-                  onAskAgent={() => setAgentOpen(true)}
-                  isSaving={store.isSaving}
-                  startWriting={writing && isBlank}
-                />
-                <SignalsMargin objects={doc.objects} />
+                <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">
+                  <div className="@4xl:order-none order-last min-w-0">
+                    <KnowledgeList
+                      knowledge={doc.knowledge}
+                      links={doc.links}
+                      objects={doc.objects}
+                      onKnowledgeSave={(knowledge) =>
+                        saveDoc({ ...doc, knowledge })
+                      }
+                      onLinksChange={(links) => saveDoc({ ...doc, links })}
+                      onObjectsChange={(objects) =>
+                        saveDoc({ ...doc, objects })
+                      }
+                      onAskAgent={() => setAgentOpen(true)}
+                      isSaving={store.isSaving}
+                      startWriting={writing && isBlank}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="@4xl:sticky @4xl:top-0">
+                      <SignalsMargin objects={doc.objects} />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>

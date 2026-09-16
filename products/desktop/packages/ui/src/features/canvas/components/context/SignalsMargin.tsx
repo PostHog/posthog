@@ -1,3 +1,4 @@
+import { ArrowSquareOutIcon, PulseIcon } from "@phosphor-icons/react";
 import type { ContextObject } from "@posthog/core/canvas/contextDocument";
 import type { SpaceSignal } from "@posthog/core/canvas/spaceSignals";
 import { Text } from "@posthog/quill";
@@ -5,6 +6,7 @@ import { useSpaceSignals } from "@posthog/ui/features/canvas/hooks/useSpaceSigna
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 
 interface SignalsMarginProps {
   objects: ContextObject[];
@@ -62,26 +64,55 @@ export function SignalsMargin({ objects }: SignalsMarginProps) {
   );
 }
 
-/** One fact: where it came from and when on the first line, the fact under it. */
+/**
+ * One fact: where it came from and when on the first line, the fact under
+ * it. When the source product said where it lives, the row opens it.
+ */
 function SignalRow({ signal }: { signal: SpaceSignal }) {
   const meta = getSourceProductMeta(signal.sourceProduct);
   const source = signal.sourceType
     ? humanize(signal.sourceType)
     : (meta?.label ?? humanize(signal.sourceProduct));
-  return (
-    <li className="flex flex-col gap-1 py-2.5">
+  const body = (
+    <>
       <span className="flex items-center gap-1.5 text-muted-foreground text-xxs">
-        {meta ? <meta.Icon size={11} className="shrink-0" /> : null}
+        {meta ? (
+          <meta.Icon size={11} className="shrink-0" />
+        ) : (
+          <PulseIcon size={11} className="shrink-0" />
+        )}
         <span className="truncate">{source}</span>
-        {signal.timestamp ? (
-          <span className="ml-auto shrink-0">
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {signal.url ? (
+            <ArrowSquareOutIcon
+              size={11}
+              className="opacity-0 transition-opacity group-hover/signal:opacity-100 group-focus-visible/signal:opacity-100"
+            />
+          ) : null}
+          {signal.timestamp ? (
             <RelativeTimestamp timestamp={signal.timestamp} />
-          </span>
-        ) : null}
+          ) : null}
+        </span>
       </span>
       <span className="line-clamp-4 text-foreground text-xs leading-snug">
         {signal.content}
       </span>
+    </>
+  );
+  const url = signal.url;
+  return (
+    <li>
+      {url ? (
+        <button
+          type="button"
+          onClick={() => openExternalUrl(url)}
+          className="group/signal -mx-3 flex w-[calc(100%+1.5rem)] flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-fill-hover"
+        >
+          {body}
+        </button>
+      ) : (
+        <div className="flex flex-col gap-1 py-2.5">{body}</div>
+      )}
     </li>
   );
 }

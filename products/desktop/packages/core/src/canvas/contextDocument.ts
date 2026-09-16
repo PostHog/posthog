@@ -355,10 +355,14 @@ const OBJECT_PATH_RULES: { kind: ContextObjectKind; re: RegExp }[] = [
   { kind: "person", re: /^\/persons?\/([^/?#]+)/ },
 ];
 
-/** Reads the object kind and id out of a PostHog app URL, or null when the URL points elsewhere. */
+/**
+ * Reads the object kind and id out of a PostHog app URL, or null when the URL
+ * points elsewhere. `path` is the object's own path (`/feature_flags/12`),
+ * which is how other products' signals refer to it.
+ */
 export function parsePostHogObjectUrl(
   url: string,
-): { kind: ContextObjectKind; id: string } | null {
+): { kind: ContextObjectKind; id: string; path: string } | null {
   let pathname: string;
   try {
     pathname = new URL(url).pathname;
@@ -368,7 +372,13 @@ export function parsePostHogObjectUrl(
   const path = pathname.replace(/^\/project\/\d+/, "");
   for (const rule of OBJECT_PATH_RULES) {
     const match = rule.re.exec(path);
-    if (match) return { kind: rule.kind, id: decodeURIComponent(match[1]) };
+    if (match) {
+      return {
+        kind: rule.kind,
+        id: decodeURIComponent(match[1]),
+        path: match[0],
+      };
+    }
   }
   return null;
 }
