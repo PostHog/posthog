@@ -263,9 +263,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        # A page is also the concurrency boundary: wait for its children before fetching the
-        # next page so a large backlog cannot flood the shared analytics task queue. Continue-As-New
-        # still bounds coordinator history, while stable IDs prevent per-subscription overlap.
         failed_ids: list[int] = []
         started_count = 0
         already_running_count = 0
