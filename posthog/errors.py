@@ -87,7 +87,10 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
-INVALID_BASE_ENCODED_VALUE_PATTERN = re.compile(r"\b(?:base64URL|base64|base58)Decode\b")
+# Anchored on the decode failure text, because ClickHouse also echoes the query scope into an
+# INCORRECT_DATA message: a bare function name matches an unrelated failure in a query that
+# holds a valid decode call.
+INVALID_BASE_ENCODED_VALUE_PATTERN = re.compile(r"\bInvalid (?:base64URL|base64|base58)Decode value \(")
 
 INVALID_BASE_ENCODED_VALUE_MESSAGE = (
     "A value in this query isn't valid base64 or base58, so it can't be decoded. "

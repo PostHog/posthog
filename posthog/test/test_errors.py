@@ -81,6 +81,19 @@ class TestWrapClickhouseQueryError:
         assert "tryBase64Decode" in str(wrapped)
         assert value not in str(wrapped)
 
+    def test_unrelated_incorrect_data_stays_internal_when_query_scope_holds_a_decoder(self) -> None:
+        # ClickHouse echoes the query scope into the message, so a query with a working decode call
+        # and a second INCORRECT_DATA cause must still report the real failure.
+        err = ServerException(
+            "DB::Exception: Invalid H3 cell index: 1: In scope SELECT base64Decode('aGVsbG8='), h3ToGeo(toUInt64(1)).",
+            code=117,
+        )
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, InternalCHQueryError)
+        assert not isinstance(wrapped, ExposedCHQueryError)
+
     @parameterized.expand(
         [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
