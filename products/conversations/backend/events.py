@@ -64,9 +64,8 @@ def _get_actor_distinct_id(
 
 # Every resolved ``$groups`` describes the customer, never us. These events are captured into
 # the support team's own project, so stamping that team's uuid as the `project` group would
-# attribute each ticket to the support team's project instead of the customer's. Only the
-# analytics fallback can see the customer's project group, so the other paths omit `project`
-# rather than name the wrong one.
+# attribute each ticket to the support team's project instead of the customer's. `project` names
+# the requester's own project where a path can see it, and stays unset where none can.
 
 # Channels whose customer email is tied to a provider-verified identity and is therefore safe
 # to use for organization attribution.
@@ -203,6 +202,23 @@ def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict |
     return {"instance": SITE_URL, "organization": org_id}
 
 
+def _requester_project(membership: OrganizationMembership) -> Team | None:
+    """The requester's own project for the ``project`` group, or ``None`` when it can't be named.
+
+    ``current_team`` follows the project switcher, so it names the project the requester worked
+    in last — usually the one they filed the ticket from. Read the field directly rather than
+    ``user.team``, which backfills and saves a project for users who have none.
+
+    A multi-org requester can have a current project outside the organization this membership
+    resolved, and an organization and a project from two different organizations would enrich
+    the event with a contradiction. Leave ``project`` unset in that case.
+    """
+    current_team = membership.user.current_team
+    if current_team is None or current_team.organization_id != membership.organization_id:
+        return None
+    return current_team
+
+
 def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_ids: list[str]) -> dict | None:
     """Resolve org ``$groups`` for an already-resolved person: membership, then analytics
     events, then the person's own profile.
@@ -215,12 +231,12 @@ def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_
     if distinct_ids:
         try:
             membership = (
-                OrganizationMembership.objects.select_related("organization")
+                OrganizationMembership.objects.select_related("organization", "user__current_team")
                 .filter(user__distinct_id__in=distinct_ids)
                 .first()
             )
             if membership:
-                return build_groups(membership.organization)
+                return build_groups(membership.organization, _requester_project(membership))
         except Exception:
             logger.exception("ticket_org_membership_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         # Membership rows are region-local: accounts registered in another region

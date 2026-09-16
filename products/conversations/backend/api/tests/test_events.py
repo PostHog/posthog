@@ -393,14 +393,37 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is expect_groups
         assert "$groups" not in call_kwargs["properties"]
 
+    @parameterized.expand(
+        [
+            # The requester's current project names the `project` group, but only when it sits in
+            # the organization the membership resolved: a project from another organization would
+            # contradict the org group, and the support team's own project is never a candidate.
+            ("no_current_project", None),
+            ("current_project_in_org", "same_org"),
+            ("current_project_in_another_org", "other_org"),
+        ]
+    )
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_groups_from_person_org(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_groups_from_person_org(
+        self, _name, current_project, mock_get_persons, mock_capture
+    ):
+        from posthog.models import Team
         from posthog.models.person.person import Person
 
         person_org = Organization.objects.create(name="Person Org")
         person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
         OrganizationMembership.objects.create(user=person_user, organization=person_org)
+        person_team = None
+        if current_project == "same_org":
+            person_team = Team.objects.create(organization=person_org, name="Customer project")
+        elif current_project == "other_org":
+            person_team = Team.objects.create(
+                organization=Organization.objects.create(name="Another Org"), name="Other project"
+            )
+        if person_team is not None:
+            person_user.current_team = person_team
+            person_user.save(update_fields=["current_team"])
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
 
@@ -410,8 +433,12 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["process_person_profile"] is True
         groups = call_kwargs["properties"]["$groups"]
         assert groups["organization"] == str(person_org.id)
-        assert "project" not in groups
         assert "instance" in groups
+        if current_project == "same_org":
+            assert person_team is not None
+            assert groups["project"] == str(person_team.uuid)
+        else:
+            assert "project" not in groups
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
