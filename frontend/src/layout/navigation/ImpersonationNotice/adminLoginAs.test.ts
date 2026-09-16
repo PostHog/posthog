@@ -7,11 +7,6 @@ import { initKeaTests } from '~/test/init'
 
 import { adminLoginAs } from './adminLoginAs'
 
-jest.mock('posthog-js', () => ({
-    __esModule: true,
-    default: { capture: jest.fn() },
-}))
-
 describe('adminLoginAs', () => {
     beforeEach(() => {
         jest.clearAllMocks()
