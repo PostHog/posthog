@@ -44774,6 +44774,18 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
+      /**
+         * How many people this run reached. Null on runs still in flight.
+         * @nullable
+         */
+      readonly audience_enqueued: number | null;
+      /**
+         * The batch audience limit that applied to this run.
+         * @nullable
+         */
+      readonly audience_limit: number | null;
+      /** True when the audience was larger than the limit, so some of it did not receive the workflow. The size of the remainder is not recorded. */
+      readonly audience_truncated: boolean;
     }
 
     /**
