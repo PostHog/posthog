@@ -2149,10 +2149,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const changedGroupCount =
                     groupFilters.filter((f) => !baselineGroupFilters.some((bf) => equal(f, bf))).length +
                     baselineGroupFilters.filter((bf) => !groupFilters.some((f) => equal(f, bf))).length
+                // A duration the state does not carry at all is legacy filter state, which the
+                // baseline stands in for. An empty one is a removal, which a reset undoes.
+                const durationChanged = !equal(filters.duration ?? baselineFilters.duration, baselineFilters.duration)
 
                 return (
                     changedGroupCount +
-                    (equal(filters.duration?.[0] ?? baselineFilters.duration[0], baselineFilters.duration[0]) ? 0 : 1) +
+                    (durationChanged ? 1 : 0) +
                     (filters.date_from === baselineFilters.date_from && filters.date_to === baselineFilters.date_to
                         ? 0
                         : 1) +

@@ -1861,39 +1861,50 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.totalFiltersCount).toEqual(1)
         })
 
-        // The filter bar can remove a caller's filter, which widens the list past what the tab asked
-        // for. The count has to notice, or the reset that puts it back stays disabled.
-        it('counts a caller filter the viewer removed, and a reset puts it back', async () => {
-            const metricFilter = { id: '$pageview', type: 'events', order: 0, name: '$pageview' } as ActionFilter
-            const callerGroup = {
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values: [metricFilter] }],
+        // A caller's own filter can be removed from the filter bar, and a saved filter can arrive
+        // without a duration. Both widen the list, so the count has to notice, or the reset that
+        // puts them back stays disabled.
+        it.each<[string, Partial<RecordingUniversalFilters>]>([
+            [
+                'a filter it scoped with',
+                {
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values: [] }],
+                    },
+                },
+            ],
+            ['the duration floor', { duration: [] }],
+        ])('counts %s once the viewer removes it, and a reset puts it back', async (_name, removal) => {
+            const callerFilters = {
+                date_from: '2024-03-01',
+                date_to: null,
+                duration: DEFAULT_RECORDING_FILTERS.duration,
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [{ id: '$pageview', type: 'events', order: 0, name: '$pageview' } as ActionFilter],
+                        },
+                    ],
+                },
+                experiment_exposure: { experiment_id: 1 },
             }
             const scopedProps = {
                 logicKey: 'caller_baseline_removed',
                 updateSearchParams: false,
                 resetToCallerFilters: true,
-                filters: {
-                    date_from: '2024-03-01',
-                    date_to: null,
-                    duration: DEFAULT_RECORDING_FILTERS.duration,
-                    filter_group: callerGroup,
-                    experiment_exposure: { experiment_id: 1 },
-                },
+                filters: callerFilters,
             }
 
             logic = sessionRecordingsPlaylistLogic(scopedProps)
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            expect(logic.values.totalFiltersCount).toEqual(0)
 
-            // the viewer removes the caller's filter
             await expectLogic(logic, () => {
-                logic.actions.setFilters({
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [{ type: FilterLogicalOperator.And, values: [] }],
-                    },
-                })
+                logic.actions.setFilters(removal)
             }).toFinishAllListeners()
 
             expect(logic.values.totalFiltersCount).toEqual(1)
@@ -1902,7 +1913,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.resetFilters()
             }).toFinishAllListeners()
 
-            expect(logic.values.filters.filter_group).toEqual(callerGroup)
+            expect(logic.values.filters).toEqual(expect.objectContaining(callerFilters))
             expect(logic.values.totalFiltersCount).toEqual(0)
         })
 
