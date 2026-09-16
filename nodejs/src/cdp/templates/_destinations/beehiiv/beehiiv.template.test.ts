@@ -270,6 +270,22 @@ describe('beehiiv template', () => {
         expect(errorResponse.error).toMatch('Error creating beehiiv subscription (status 400)')
     })
 
+    it('throws when reactivation fails, before any field update', async () => {
+        const lookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})
+        const reactivateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+            status: 200,
+            body: { data: { id: 'sub_123', email: EMAIL, status: 'inactive' } },
+        })
+        const errorResponse = await tester.invokeFetchResponse(reactivateRequest.invocation, {
+            status: 400,
+            body: { errors: [{ message: 'Invalid email' }] },
+        })
+
+        expect(errorResponse.finished).toBe(true)
+        expect(errorResponse.error).toMatch('Error reactivating beehiiv subscription (status 400)')
+        expect(errorResponse.invocation.queueParameters).toBeFalsy()
+    })
+
     it('throws when subscriber update fails', async () => {
         const lookupRequest = await tester.invoke(defaultInputs, {})
         const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
