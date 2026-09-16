@@ -220,6 +220,7 @@ def test_is_target_url() -> None:
     assert is_target_url("https://docs.posthog.com/x", domains)
     assert not is_target_url("https://notposthog.com/x", domains)
     assert not is_target_url("https://posthog.com.evil.example/x", domains)
+    assert not is_target_url("https://posthog.com:443@evil.example/x", domains)
     assert not is_target_url("not a url", domains)
 
 
@@ -231,8 +232,13 @@ def test_target_position() -> None:
 
 
 def test_top_domains_orders_and_dedupes() -> None:
-    urls = ["https://a.example.com/1", "https://posthog.com/2", "https://a.example.com/3"]
-    assert top_domains(urls) == ["a.example.com", "posthog.com"]
+    urls = [
+        "https://a.example.com/1",
+        "https://posthog.com/2",
+        "https://a.example.com/3",
+        "https://posthog.com:443@evil.example/4",
+    ]
+    assert top_domains(urls) == ["a.example.com", "posthog.com", "evil.example"]
 
 
 def test_build_check_fields_cited() -> None:

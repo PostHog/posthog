@@ -1126,6 +1126,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="7", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
+        # Well under the daily interval, so a backed-up queue drops the stale dispatch
+        # instead of fanning out a second day's checks and paying for them twice.
+        expires_seconds=60 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

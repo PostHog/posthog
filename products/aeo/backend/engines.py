@@ -230,7 +230,7 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
 def is_target_url(url: str, target_domains: list[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
-        host = (urlparse(url).netloc or "").lower().split(":")[0]
+        host = (urlparse(url).hostname or "").lower()
     except ValueError:
         return False
     return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
@@ -248,7 +248,7 @@ def top_domains(urls: list[str]) -> list[str]:
     domains: list[str] = []
     for url in urls:
         try:
-            host = (urlparse(url).netloc or "").lower().split(":")[0]
+            host = (urlparse(url).hostname or "").lower()
         except ValueError:
             continue
         if host and host not in domains:

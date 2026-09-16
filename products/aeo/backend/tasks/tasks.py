@@ -86,4 +86,7 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     try:
         run_citation_checks(team)
     except Exception:
+        # The runner already absorbs per-prompt failures, so anything reaching here is
+        # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
         logger.exception("aeo_citation_task_failed", team_id=team_id)
+        raise
