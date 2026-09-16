@@ -4,6 +4,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {
+    AnnotationScope,
     AnyFilterLike,
     AnyGroupScopeFilter,
     AnyPersonScopeFilter,
@@ -1754,6 +1755,8 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Render only annotations with this scope. Unset renders every scope. */
+    annotationsScope?: AnnotationScope
     /** Show the period-over-period change pill on the Metric display.
      * @default true */
     metricShowChange?: boolean
@@ -1812,6 +1815,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'annotationsScope',
     'metricShowChange',
     'metricChangeIncreaseColor',
     'metricChangeDecreaseColor',
@@ -2025,6 +2029,8 @@ export type FunnelsFilter = {
      * @default true
      */
     showAnnotations?: boolean
+    /** Render only annotations with this scope. Only applies to historical-trends funnels. */
+    annotationsScope?: AnnotationScope
     /**
      * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
      * tail of the trend isn't dragged down by entrants who still have time to convert.

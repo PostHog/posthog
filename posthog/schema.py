@@ -29,6 +29,7 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AnnotationScope as AnnotationScope,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
     ArtifactContentType as ArtifactContentType,
     ArtifactSource as ArtifactSource,
@@ -8381,6 +8382,10 @@ class TrendsFilter(BaseModel):
             " example, when values are denominated in a fixed currency regardless of"
             " the project's base currency. Include any trailing space yourself."
         ),
+    )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Render only annotations with this scope. Unset renders every scope."),
     )
     breakdown_histogram_bin_count: float | None = None
     chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
@@ -28617,6 +28622,10 @@ class ExperimentHoldoutType(BaseModel):
 class FunnelsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Render only annotations with this scope. Only applies to historical-trends funnels."),
     )
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH

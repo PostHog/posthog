@@ -167,6 +167,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AnnotationScope(StrEnum):
+    DASHBOARD_ITEM = "dashboard_item"
+    DASHBOARD = "dashboard"
+    PROJECT = "project"
+    ORGANIZATION = "organization"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"

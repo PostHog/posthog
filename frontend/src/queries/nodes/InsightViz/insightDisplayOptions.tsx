@@ -62,6 +62,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showMultipleYAxes,
         showAlertThresholdLines,
         showAnnotations,
+        annotationsScope,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -296,6 +297,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         unitIsSet,
         (hasLegend || showFunnelLegendConfig) && showLegend,
         showAnnotationsConfig && showAnnotations === false,
+        showAnnotationsConfig && showAnnotations !== false && !!annotationsScope,
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
