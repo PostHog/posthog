@@ -1,5 +1,7 @@
+import time
 import itertools
 from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -11,6 +13,7 @@ from unittest.mock import patch
 import dagster
 import psycopg2
 from clickhouse_driver import Client
+from prometheus_client import CollectorRegistry
 from psycopg2 import OperationalError
 
 from posthog.clickhouse.cleanup_snapshots import (
@@ -291,8 +294,9 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     create_person(team_id=TEAM_ID, version=0)
 
-    run_job(cluster, persons_database)
+    result = run_job(cluster, persons_database)
 
+    assert result.output_for_node("publish_sweep_metrics").queued_for_postgres == 1
     rows = queued_rows(persons_database)
     assert len(rows) == 1
     team_id, person_uuid, deleted_at, blocked_at = rows[0]
@@ -591,8 +595,10 @@ def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: Clickhous
         return original(self, client, persons_dictionary, settings=settings)
 
     with patch.object(OrphanedDistinctIdsTable, "populate", revive_then_populate):
-        run_job(cluster, persons_database)
+        result = run_job(cluster, persons_database)
 
+    # Both checkpoints report only what revived since the last one, so the run total is their sum.
+    assert result.output_for_node("publish_sweep_metrics").revived_person_count == 1
     assert cluster.any_host(surviving_distinct_ids).result() == {"spared"}
     assert cluster.any_host(rows_for(doomed)).result() == 0
     assert cluster.any_host(rows_for(revived)).result() > 0
@@ -1125,3 +1131,64 @@ def test_the_sweep_sensor_skips_while_a_sweep_is_already_active(status: dagster.
 
     result = clickhouse_cleanup.run_cleanup_sweep_after_deletes(_deletes_success_context(instance))
     assert isinstance(result, dagster.SkipReason)
+
+
+def _sweep_run(dry_run: bool) -> clickhouse_cleanup.CleanupRun:
+    config = clickhouse_cleanup.CleanupConfig(dry_run=dry_run)
+    return clickhouse_cleanup.CleanupRun.for_run("11111111-1111-1111-1111-111111111111", config)
+
+
+@contextmanager
+def _capturing_push(registry: CollectorRegistry) -> Iterator[CollectorRegistry]:
+    yield registry
+
+
+def _publish(run: clickhouse_cleanup.CleanupRun) -> tuple[CollectorRegistry, list[str]]:
+    registry = CollectorRegistry()
+    pushed_jobs: list[str] = []
+
+    def fake_push(job: str) -> AbstractContextManager[CollectorRegistry]:
+        pushed_jobs.append(job)
+        return _capturing_push(registry)
+
+    with patch.object(clickhouse_cleanup, "pushed_metrics_registry", fake_push):
+        clickhouse_cleanup.publish_sweep_metrics(dagster.build_op_context(), run)
+    return registry, pushed_jobs
+
+
+def test_a_dry_run_publishes_no_metrics() -> None:
+    registry, pushed_jobs = _publish(_sweep_run(dry_run=True))
+
+    # The helper pushes with PUT, which replaces the whole job. Entering it with an empty
+    # registry would delete the last-success gauge, so not entering it at all is the assertion.
+    assert pushed_jobs == []
+    assert list(registry.collect()) == []
+
+
+def test_publishes_every_measurement_the_run_took() -> None:
+    run = replace(
+        _sweep_run(dry_run=False),
+        persons_count=11,
+        orphaned_count=22,
+        revived_person_count=3,
+        revived_distinct_id_count=4,
+        queued_for_postgres=7,
+        mutation_seconds_max=1.5,
+        stranded_runs_reaped=2,
+    )
+
+    registry, pushed_jobs = _publish(run)
+
+    assert pushed_jobs == [clickhouse_cleanup.SWEEP_METRICS_JOB]
+    prefix = "posthog_clickhouse_deletion_sweep_"
+    assert registry.get_sample_value(f"{prefix}snapshot_deleted_persons") == 11
+    assert registry.get_sample_value(f"{prefix}snapshot_orphaned_distinct_ids") == 22
+    assert registry.get_sample_value(f"{prefix}revived_persons") == 3
+    assert registry.get_sample_value(f"{prefix}revived_distinct_ids") == 4
+    assert registry.get_sample_value(f"{prefix}queued_for_postgres") == 7
+    assert registry.get_sample_value(f"{prefix}mutation_seconds_max") == 1.5
+    assert registry.get_sample_value(f"{prefix}stranded_runs_reaped") == 2
+    last_success = registry.get_sample_value(f"{prefix}last_success_timestamp_seconds")
+    # Wall clock, not the time.monotonic used elsewhere here: the alert subtracts it from time().
+    assert last_success is not None
+    assert abs(last_success - time.time()) < 60

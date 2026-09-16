@@ -21,6 +21,7 @@ from posthog.hogql.editor_assist_metrics import (
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
+from posthog.security.outbound_proxy import internal_requests
 from posthog.taxonomy.property_access import restricted_property_names
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
@@ -151,7 +152,7 @@ class LanguageServiceClient:
         started = perf_counter()
         affinity_key = sha256(f"{team_id}:{user_id}".encode()).hexdigest()
         try:
-            response = requests.request(
+            response = internal_requests.request(
                 method,
                 f"{self.base_url}/teams/{team_id}/users/{user_id}/{endpoint}",
                 json=payload,

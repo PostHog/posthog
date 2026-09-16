@@ -17,8 +17,8 @@ export function ModelMetadata({
     loading?: boolean
 }): JSX.Element {
     return (
-        <dl className="grid grid-cols-2 gap-x-8 gap-y-3 mb-0 ml-auto text-sm py-2" aria-label="Model metadata">
-            <div className="col-start-2 row-start-1">
+        <dl className="flex flex-wrap gap-x-8 gap-y-3 mb-0 text-sm" aria-label="Model metadata">
+            <div>
                 <dt className="text-secondary mb-1">Created by</dt>
                 <dd className="mb-0">
                     {loading ? (
@@ -30,7 +30,7 @@ export function ModelMetadata({
                     )}
                 </dd>
             </div>
-            <div className="col-start-2 row-start-2">
+            <div>
                 <dt className="text-secondary mb-1">Created at</dt>
                 <dd className="mb-0">
                     {loading ? (
@@ -43,7 +43,7 @@ export function ModelMetadata({
                 </dd>
             </div>
             {updatedAt && (
-                <div className="col-start-1 row-start-2">
+                <div>
                     <dt className="text-secondary mb-1">Updated at</dt>
                     <dd className="mb-0">
                         <TZLabel time={updatedAt} />

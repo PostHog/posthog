@@ -97,14 +97,12 @@ export interface dataWarehouseViewsLogicActions {
     }
     createDataWarehouseSavedQuery: (
         view: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
     ) => Partial<DataWarehouseSavedQuery> & {
         types: string[][]
         folder_id?: string | null
-        dag_id?: string
     }
     createDataWarehouseSavedQueryFailure: (
         error: string,
@@ -133,14 +131,12 @@ export interface dataWarehouseViewsLogicActions {
         payload?: Partial<DataWarehouseSavedQuery> & {
             types: string[][]
             folder_id?: string | null
-            dag_id?: string
         }
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {
             types: string[][]
             folder_id?: string | null
-            dag_id?: string
         }
     }
     deleteDataWarehouseSavedQuery: (viewId: string) => string
@@ -472,7 +468,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     view: Partial<DataWarehouseSavedQuery> & {
                         types: string[][]
                         folder_id?: string | null
-                        dag_id?: string
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)

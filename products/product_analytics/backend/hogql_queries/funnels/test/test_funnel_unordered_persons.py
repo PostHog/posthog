@@ -1,13 +1,9 @@
 from datetime import datetime
-from typing import Any, Optional, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from posthog.schema import FunnelsQuery
+from posthog.schema import DateRange, EventsNode, FunnelsFilter, FunnelsQuery, IntervalType, StepOrderValue
 
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Team
 from posthog.test.test_journeys import journeys_for
 
 from products.product_analytics.backend.hogql_queries.funnels.test.test_funnel_persons import get_actors
@@ -15,26 +11,16 @@ from products.product_analytics.backend.hogql_queries.funnels.test.test_funnel_p
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-def get_actors_legacy_filters(
-    filters: dict[str, Any],
-    team: Team,
-    funnel_step: Optional[int] = None,
-    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
-    funnel_trends_drop_off: Optional[bool] = None,
-    funnel_trends_entrance_period_start: Optional[str] = None,
-    offset: Optional[int] = None,
-    include_recordings: bool = False,
-) -> list[list]:
-    funnels_query = cast(FunnelsQuery, filter_to_query(filters))
-    return get_actors(
-        funnels_query,
-        team,
-        funnel_step,
-        funnel_step_breakdown,
-        funnel_trends_drop_off,
-        funnel_trends_entrance_period_start,
-        offset,
-        include_recordings,
+def unordered_funnel_query() -> FunnelsQuery:
+    return FunnelsQuery(
+        series=[
+            EventsNode(event="step one", name="step one"),
+            EventsNode(event="step two", name="step two"),
+            EventsNode(event="step three", name="step three"),
+        ],
+        interval=IntervalType.DAY,
+        dateRange=DateRange(date_from="2021-05-01 00:00:00", date_to="2021-05-07 00:00:00"),
+        funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
     )
 
 
@@ -60,105 +46,41 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         journeys_for(events_by_person, self.team)
 
     def test_invalid_steps(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
+        query = unordered_funnel_query()
 
         with self.assertRaisesMessage(ValueError, "Input should be a valid integer"):
-            get_actors_legacy_filters(filters, self.team, funnel_step="blah")  # type: ignore
+            get_actors(query, self.team, funnel_step="blah")  # type: ignore
 
         with self.assertRaisesMessage(ValueError, "Funnel steps are 1-indexed, so step 0 doesn't exist"):
-            get_actors_legacy_filters(filters, self.team, funnel_step=0)
+            get_actors(query, self.team, funnel_step=0)
 
         with self.assertRaisesMessage(ValueError, "The first valid drop-off argument for funnelStep is -2"):
-            get_actors_legacy_filters(filters, self.team, funnel_step=-1)
+            get_actors(query, self.team, funnel_step=-1)
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=1)
+        results = get_actors(unordered_funnel_query(), self.team, funnel_step=1)
 
         self.assertEqual(35, len(results))
 
     def test_last_step(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=3)
+        results = get_actors(unordered_funnel_query(), self.team, funnel_step=3)
 
         self.assertEqual(5, len(results))
 
     def test_second_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=-2)
+        results = get_actors(unordered_funnel_query(), self.team, funnel_step=-2)
 
         self.assertEqual(20, len(results))
 
     def test_last_step_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
 
-        results = get_actors_legacy_filters(filters, self.team, funnel_step=-3)
+        results = get_actors(unordered_funnel_query(), self.team, funnel_step=-3)
 
         self.assertEqual(10, len(results))

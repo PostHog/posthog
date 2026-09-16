@@ -111,7 +111,11 @@ class GitHubCommitAttribution:
 
 @frozen
 class PullRequestRef:
-    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+    """A pull request or an issue's coordinates, parsed from its GitHub HTML URL.
+
+    One shape for both, because GitHub numbers issues and pull requests in one sequence per
+    repository and answers for both on the issues endpoints.
+    """
 
     owner: str
     repo: str
@@ -1015,27 +1019,40 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
-        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
+    def _parse_repo_item_url(url: str, item_path: str) -> PullRequestRef | None:
+        """Parse a ``/{owner}/{repo}/{item_path}/{number}[/...]`` GitHub URL.
 
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
+        Returns ``None`` when the URL is not one. Only the first four path segments are read, so a
+        caller that rebuilds an API path from the result cannot be steered by anything after them.
         """
         try:
-            parsed = urlparse(pr_url)
+            parsed = urlparse(url)
         except Exception:
             return None
         if parsed.netloc not in {"github.com", "www.github.com"}:
             return None
         parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
+        if len(parts) < 4 or parts[2] != item_path:
             return None
-        owner, repo, _, pr_number_str = parts[:4]
+        owner, repo, _, number_str = parts[:4]
+        if not number_str.isdigit():
+            return None
         try:
-            pr_number = int(pr_number_str)
+            # ``isdigit`` is true for digits ``int`` rejects, such as a superscript.
+            number = int(number_str)
         except ValueError:
             return None
-        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
+        return PullRequestRef(owner=owner, repo=repo, number=number)
+
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(pr_url, "pull")
+
+    @staticmethod
+    def parse_issue_url(issue_url: str) -> PullRequestRef | None:
+        """Parse a GitHub issue URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(issue_url, "issues")
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -1160,27 +1177,40 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         return self.close_pull_request(parsed.repository, parsed.number)
 
+    def _post_comment(self, repository: str, number: int, body: str, *, subject: str) -> dict[str, Any]:
+        """Comment through the issue-comments endpoint, which serves issues and pull requests alike.
+
+        The endpoint cannot tell the caller which of the two it wrote to, and a GET to find out
+        would cost a request per comment. So the caller names the subject, and an error says
+        "issue" or "pull request" as the caller knows it to be.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": f"Network error commenting on {subject}"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on {subject}: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def comment_on_issue(self, repository: str, issue_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on an issue. ``repository`` is ``owner/repo`` or a bare repo."""
+        return self._post_comment(repository, issue_number, body, subject="issue")
+
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
 
         PR comments use the issues endpoint (a PR is an issue for commenting purposes).
         """
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_post(
-            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json_body={"body": body},
-        )
-        if response is None:
-            return {"success": False, "error": "Network error commenting on pull request"}
-        if response.status_code != 201:
-            return {
-                "success": False,
-                "error": f"Failed to comment on pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        return {"success": True}
+        return self._post_comment(repository, pr_number, body, subject="pull request")
 
     def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
         """Post a comment on a pull request by its HTML URL."""
@@ -1248,6 +1278,15 @@ class GitHubIntegrationBase:
         head_sha = pr.get("head_sha")
         if not head_sha:
             return {"success": False, "error": "Pull request has no head commit"}
+
+        permissions = self.integration.config.get("permissions")
+        if isinstance(permissions, dict) and permissions and permissions.get("checks") not in {"read", "write"}:
+            return {
+                "success": False,
+                "error": "GitHub App is missing permission to read check runs",
+                "error_code": "github_checks_permission_missing",
+            }
+
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         checks: list[dict[str, Any]] = []
