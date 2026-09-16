@@ -4612,7 +4612,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description. When the reference is a feature flag key, call experiment-get-by-flag-key instead of listing.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description. When the reference is a feature flag key, call experiment-get-by-flag-key instead of listing.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",
@@ -4886,6 +4886,20 @@
         "required_scopes": ["experiment:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiments-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple experiments in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-experiment final tag list) and `skipped` (experiments missing or without edit permission, with reason).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Bulk update tags on experiments",
+        "title": "Bulk update tags on experiments",
+        "required_scopes": ["experiment:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -10414,7 +10428,7 @@
         }
     },
     "scout-config-list": {
-        "description": "List the per-scout configs for this project. Each scout has one row with its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pair with `scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output destinations. A freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name. Pair with `scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -10456,7 +10470,7 @@
         }
     },
     "scout-create": {
-        "description": "Create a custom scout skill and its runnable config in one atomic call. Any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing the name for a different definition returns a conflict.",
+        "description": "Create a custom scout skill and its runnable config in one atomic call. Give it a `display_name`, the label people read, kept exactly as written, and the server generates the scout's permanent skill name from it, adding a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to choose that identifier yourself; any valid skill name works and the `signals-scout-` prefix is optional. Pass the complete markdown prompt in `body`; include project-specific event or signal names, thresholds, investigation steps, and report criteria there. The server always grants the report-channel tools. Optional `files` bundle reference material, while `config` controls the rolling or cron schedule, enabled and dry-run posture, and typed output destinations such as Slack (a channel to post into, or users to DM directly). Repeating the same definition is safe and applies any supplied config fields. Reusing an explicit `name` for a different definition returns a conflict.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout",
@@ -12009,7 +12023,7 @@
         "feature_flag": "tasks"
     },
     "tasks-create": {
-        "description": "Create an agent task in the current project — a unit of work an AI agent picks up and actions, such as investigating an inbox report, fixing an error, or opening a pull request. `description` is the prompt handed to the agent, so make it specific and actionable. Pass `repository` in `organization/repo` format for code tasks so the agent knows where to work; omit it for investigation-only tasks. This creates the task record only — it does not start the agent. Returns the created task including its URL; open that URL to start the run. Requires the calling token's organization to have Tasks access enabled.",
+        "description": "Create a task without starting a run. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. A person can start the task at the returned URL. Use `tasks-create-and-run` to start a run immediately when that tool is available.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Create task",
@@ -12022,6 +12036,21 @@
             "readOnlyHint": false
         },
         "feature_flag": "tasks"
+    },
+    "tasks-create-and-run": {
+        "description": "Create a task and start its first background run. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A repeated call can create another task.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create task and start run",
+        "title": "Create task and start run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-list": {
         "description": "Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and `channel` to limit results to the current space. The results identify who created each task and whether its latest run is active. Supports additional filtering by status, repository, creator, origin product, and archived or internal state. Requires the calling token's organization to have Tasks access enabled.",
@@ -12097,6 +12126,21 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "tasks-run-create": {
+        "description": "Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated call can start another run.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Start task run",
+        "title": "Start task run",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks-mcp-agent-run-start"
     },
     "tasks-runs-list": {
         "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",

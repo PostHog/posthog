@@ -160,7 +160,7 @@ async fn insert_or_revive_persons(
                   SELECT 1 FROM {lop_table} lop
                   WHERE lop.team_id = {person_table}.team_id
                     AND lop.person_id = {person_table}.id
-                    AND lop.status IN ('marked', 'sealed')
+                    AND lop.mark_active
               )
         RETURNING {person_cols}
         "#,

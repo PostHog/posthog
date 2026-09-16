@@ -1297,6 +1297,79 @@
             ],
             "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
+        "TaskAgentCreateSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Instructions for the agent."
+                },
+                "repository": {
+                    "description": "Repository in organization/repo format.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "branch": {
+                    "description": "Base branch for the run.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["description"]
+        },
+        "TaskAgentRunCreateSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "Task ID."
+                },
+                "branch": {
+                    "description": "Git branch to check out in the sandbox.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "resume_from_run_id": {
+                    "description": "ID of a previous run to resume from.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "pending_user_message": {
+                    "description": "Initial or follow-up message for the run.",
+                    "type": "string"
+                }
+            },
+            "required": ["id"]
+        },
         "UsageMetricFiltersSchema": {
             "anyOf": [
                 {
