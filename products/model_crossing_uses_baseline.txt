@@ -698,7 +698,6 @@ rest_framework.Request products.data_catalog.backend.facade.api.upsert_metric fa
 rest_framework.Request products.endpoints.backend.facade.api.generate_openapi_spec facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.access.code_access_required_response facade-accepts(request) 1
 rest_framework.Request products.tasks.backend.facade.client_provenance.get_task_client_provenance facade-accepts(request) 1
-rest_framework.Request products.tasks.backend.facade.client_provenance.is_sandbox_oauth_request facade-accepts(request) 1
 rest_framework.Response products.tasks.backend.facade.access.code_access_required_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.compute_quota_limit_response facade-returns 1
 rest_framework.Response products.tasks.backend.facade.access.usage_limit_response facade-returns 1
