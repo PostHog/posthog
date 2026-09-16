@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -8,13 +10,15 @@ from django.utils import timezone
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.query_tagging import Product
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.task_usage import get_local_task_run_token_costs
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import record_run_token_usage
+from products.tasks.backend.temporal.metrics import record_run_model_spend, record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
@@ -27,6 +31,10 @@ TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"
 USAGE_METRICS_RECORDED_STATE_KEY = "usage_metrics_recorded"
+SPEND_METRIC_RECORDED_STATE_KEY = "spend_metric_recorded"
+# Generations are stamped while the run works, so the read window opens at the run row. The
+# margin absorbs clock skew between that row and the events.
+_RUN_SPEND_LOOKBACK_MARGIN = timedelta(hours=1)
 
 # Allowlist for `timeout_marker` so the activity never writes an arbitrary state key.
 _TERMINAL_STATE_MARKERS = (
@@ -126,6 +134,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in _TERMINAL_STATUSES and old_status != input.status:
         task_run.close_ci_progress_step()
+        _record_terminal_model_spend(task_run, input)
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
         if old_status != input.status:
@@ -274,6 +283,40 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
         _capture_posthog_ai_chat_analytics(task_run, input, termination_reason=termination_reason)
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)
+
+
+def _record_terminal_model_spend(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
+    """Price this run's own model spend and record it as a metric.
+
+    The orchestrator never sees what a run costs while it runs, so this is the one place the
+    distribution becomes visible: what a normal run spends, and how far the expensive tail
+    reaches. A run with nothing attributed is skipped rather than recorded as free — the
+    generations may still be crossing capture, or the model may carry no price.
+    """
+    if not settings.TASKS_RUN_SPEND_METRIC_ENABLED:
+        return
+    try:
+        state = task_run.state if isinstance(task_run.state, dict) else {}
+        if state.get(SPEND_METRIC_RECORDED_STATE_KEY):
+            return
+        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={SPEND_METRIC_RECORDED_STATE_KEY: True})
+        cost = get_local_task_run_token_costs(
+            team_id=task_run.team_id,
+            origin_product=task_run.task.origin_product,
+            task_run_ids=[task_run.id],
+            generated_after=task_run.created_at - _RUN_SPEND_LOOKBACK_MARGIN,
+            product=Product.POSTHOG_CODE,
+        ).get(str(task_run.id))
+        if cost is None:
+            return
+        record_run_model_spend(
+            float(cost),
+            origin_product=task_run.task.origin_product,
+            run_environment=task_run.environment,
+            status=input.status,
+        )
+    except Exception:
+        activity.logger.warning(f"Failed to record model spend for run {task_run.id}", exc_info=True)
 
 
 def _record_terminal_token_usage(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
