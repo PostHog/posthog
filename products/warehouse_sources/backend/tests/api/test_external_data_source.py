@@ -9122,6 +9122,25 @@ class TestCreateWebhook(APIBaseTest):
         hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
 
+    @parameterized.expand([("unknown_field", {"nope": "x"}), ("blank_required_field", {"signing_secret": ""})])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_rejects_inputs_it_cannot_store(self, _name, inputs, mock_create_webhook):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/",
+            data={"inputs": inputs},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_create_webhook.assert_not_called()
+        assert not HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_retry_keeps_inputs_a_failed_attempt_stored(self, mock_create_webhook):
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult

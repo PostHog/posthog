@@ -454,11 +454,22 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             )
 
         inputs = request.data.get("inputs") or {}
-        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        webhook_fields = source.get_source_config.webhookFields or []
+        webhook_field_names = {f.name for f in webhook_fields}
         if not isinstance(inputs, dict) or set(inputs) - webhook_field_names:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid webhook inputs"},
+            )
+
+        # A blank value stores nothing, but the name still counts as supplied below and drops out of
+        # `pending_inputs`, so the webhook would register with no key and nothing left to ask for.
+        required_fields = [f.name for f in webhook_fields if getattr(f, "required", False)]
+        blanked_required = [name for name in required_fields if name in inputs and not inputs[name]]
+        if blanked_required:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Missing required fields: {', '.join(blanked_required)}"},
             )
 
         # A connection known to lack the grant can't be fixed by trying. The hog function is still
