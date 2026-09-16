@@ -60,8 +60,6 @@ export interface MlSessionKeys {
 interface MlStoredKeyMismatch {
     id: string
     teamId: number
-    expectedOrganizationId: string
-    storedOrganizationId?: string
 }
 
 function storedKeyId(identity: MlKeyIdentity): TableKey {
@@ -96,6 +94,8 @@ export class MlKeyBatch {
     private readonly candidates = new Map<string, MlDataKey>()
     private readonly keys = new Map<string, MlDataKey>()
     private committed = false
+    // persist re-reads the batch after its writes and on every retry, so a row is reported the first time this batch meets it and not on each pass.
+    private readonly reportedUnusable = new Set<string>()
 
     constructor(
         private readonly db: MlKeyDynamoDB,
@@ -122,7 +122,6 @@ export class MlKeyBatch {
             for (const sessionId of [identity.sessionId, undefined]) {
                 const keyIdentity = {
                     teamId: identity.teamId,
-                    organizationId: identity.organizationId,
                     ...(sessionId ? { sessionId } : { sessionMonth: sessionStartMonth(identity.sessionId) }),
                 }
                 keyIdentities.set(tableKeyString(storedKeyId(keyIdentity)), keyIdentity)
@@ -133,7 +132,6 @@ export class MlKeyBatch {
             this.state.set(id, item)
         }
         const unusable: MlStoredKeyMismatch[] = []
-        const rehomed: MlStoredKeyMismatch[] = []
         await Promise.all(
             [...keyIdentities].map(async ([id, identity]) => {
                 const item = this.state.get(id)
@@ -141,26 +139,16 @@ export class MlKeyBatch {
                     return
                 }
                 if (item) {
-                    const storedOrganizationId = item.organization_id?.S
-                    if (!item.wrapped_key?.B || !storedOrganizationId) {
-                        unusable.push({
-                            id,
-                            teamId: identity.teamId,
-                            expectedOrganizationId: identity.organizationId,
-                            storedOrganizationId,
-                        })
+                    if (!item.wrapped_key?.B) {
+                        if (!this.reportedUnusable.has(id)) {
+                            this.reportedUnusable.add(id)
+                            unusable.push({ id, teamId: identity.teamId })
+                        }
                         return
                     }
-                    // The key was wrapped under the organization the row names, and KMS only unwraps it under that same context, so a team that moved organizations keeps its key under the old one.
-                    if (storedOrganizationId !== identity.organizationId) {
-                        rehomed.push({
-                            id,
-                            teamId: identity.teamId,
-                            expectedOrganizationId: identity.organizationId,
-                            storedOrganizationId,
-                        })
-                    }
-                    const storedIdentity = { ...identity, organizationId: storedOrganizationId }
+                    // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
+                    const organizationId = item.organization_id?.S
+                    const storedIdentity = { ...identity, ...(organizationId ? { organizationId } : {}) }
                     this.keys.set(id, await this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B)))
                 } else {
                     let candidate = this.candidates.get(id)
@@ -172,21 +160,13 @@ export class MlKeyBatch {
                 }
             })
         )
-        if (rehomed.length) {
-            MlMirrorMetrics.incrementMlKeyIdentityMismatch('organization_changed', rehomed.length)
-            logger.warn('🔑', 'ml_key_organization_changed', {
-                count: rehomed.length,
-                teamIds: [...new Set(rehomed.map((entry) => entry.teamId))].slice(0, 20),
-                sample: rehomed.slice(0, 5),
-            })
-        }
         // A row with no wrapped key and no tombstone cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
         if (unusable.length) {
             MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
             logger.error('🔑', 'ml_key_stored_key_unusable', {
                 count: unusable.length,
-                teamIds: [...new Set(unusable.map((entry) => entry.teamId))].slice(0, 20),
-                sample: unusable.slice(0, 5),
+                teamIds: [...new Set(unusable.map((entry) => entry.teamId))],
+                rows: unusable.map((entry) => entry.id),
             })
         }
     }
@@ -219,7 +199,6 @@ export class MlKeyBatch {
                     location,
                     {
                         wrapped_key: { B: key.wrapped },
-                        organization_id: { S: key.identity.organizationId },
                         team_id: { N: String(key.identity.teamId) },
                         session_month: { S: keySessionMonth(key.identity) },
                     },
