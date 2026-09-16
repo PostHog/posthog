@@ -186,6 +186,33 @@ describe('hog-charts bar-layout', () => {
             expect(bars[0]?.corners).toEqual(expectedCorners)
         })
 
+        it.each([
+            { desc: 'vertical', isHorizontal: false, expectedCorners: { topLeft: true, topRight: true } },
+            { desc: 'horizontal', isHorizontal: true, expectedCorners: { topRight: true, bottomRight: true } },
+        ])('rounds the cap away from a clamped log baseline ($desc)', ({ isHorizontal, expectedCorners }) => {
+            // A log domain excludes 0, so d3 clamps valueScale(0) to the domain minimum — which is the
+            // baseline end of the pixel range, so a positive segment still reads positive.
+            const a = makeSeries({ key: 'a', data: [10] })
+            const b = makeSeries({ key: 'b', data: [100] })
+            const labels = ['a']
+            const stacks = computeStackData([a, b], labels)
+            const scales = createBarScales([a, b], labels, dimensions, {
+                barLayout: 'stacked',
+                scaleType: 'log',
+                axisOrientation: isHorizontal ? 'horizontal' : 'vertical',
+                stackedSeries: [a, b].map((s) => ({ ...s, data: stacks.get(s.key)!.top })),
+            })
+            const bars = layoutOf({
+                series: b,
+                scales,
+                isHorizontal,
+                layout: 'stacked',
+                stackedBand: stacks.get('b'),
+                isTopOfStack: true,
+            })
+            expect(bars[0]?.corners).toEqual(expectedCorners)
+        })
+
         it('rounds both ends per band when capRoundedAtIndex/baseRoundedAtIndex are funnel-style', () => {
             // Funnel: step 0 is 100% (no filler), step 1 splits value + filler. The value segment
             // is the bottom of every band; it is also the visible top at step 0 (filler is zero).
