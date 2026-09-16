@@ -4,6 +4,8 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.api.common.v1 import GrpcStatus
+from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -533,6 +535,12 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
 
+def _namespace_not_found_error() -> RPCError:
+    status = GrpcStatus(code=RPCStatusCode.NOT_FOUND.value, message="namespace not found")
+    status.details.add().Pack(NamespaceNotFoundFailure(namespace="missing-ns"))
+    return RPCError("namespace not found", RPCStatusCode.NOT_FOUND, status.SerializeToString())
+
+
 @override_settings(DEBUG=False)
 class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
     def _client(self, outcomes):
@@ -582,15 +590,16 @@ class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (RPCStatusCode.UNAVAILABLE,),
-            (RPCStatusCode.DEADLINE_EXCEEDED,),
-            (RPCStatusCode.RESOURCE_EXHAUSTED,),
+            ("unavailable", RPCError("down", RPCStatusCode.UNAVAILABLE, b"")),
+            ("deadline_exceeded", RPCError("down", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+            ("resource_exhausted", RPCError("down", RPCStatusCode.RESOURCE_EXHAUSTED, b"")),
+            # Carries the same NOT_FOUND status as a missing workflow, so without the detail
+            # check a namespace anomaly would read as proof that every id in the batch ended.
+            ("namespace_not_found", _namespace_not_found_error()),
         ]
     )
-    def test_temporal_wide_failure_stops_the_batch(self, status):
-        client = self._client(
-            [WorkflowExecutionStatus.RUNNING, RPCError("down", status, b""), WorkflowExecutionStatus.RUNNING]
-        )
+    def test_temporal_wide_failure_stops_the_batch(self, _name, error):
+        client = self._client([WorkflowExecutionStatus.RUNNING, error, WorkflowExecutionStatus.RUNNING])
 
         with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
             result = describe_task_run_workflow_liveness(["wf-1", "wf-2", "wf-3"])

@@ -11,6 +11,7 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -539,6 +540,22 @@ _SERVICE_DEGRADED_STATUSES = frozenset(
 )
 
 
+def _is_namespace_not_found(error: RPCError) -> bool:
+    """Whether a NOT_FOUND answers for the namespace rather than for one workflow.
+
+    Temporal reports a missing namespace with the same NOT_FOUND status as a missing workflow,
+    and only the status detail separates them. Without this the sweep would read a namespace
+    anomaly as proof that every workflow it asked about had ended.
+    """
+    try:
+        details = error.grpc_status.details
+    except Exception:
+        # Status bytes we cannot parse say nothing about the namespace, so the caller falls back
+        # to treating a plain NOT_FOUND as absence.
+        return False
+    return any(detail.Is(NamespaceNotFoundFailure.DESCRIPTOR) for detail in details)
+
+
 def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str, str]:
     """Liveness of each orchestrating workflow, keyed by workflow id.
 
@@ -546,9 +563,11 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
     run) or ``unknown`` (Temporal could not answer). Plain strings keep temporalio out of the
     caller.
 
-    NOT_FOUND is the only error that proves absence. Timeouts, unavailability and permission
-    errors say nothing about the workflow, and failing a live run is unrecoverable, so every
-    other error reports ``unknown`` and leaves the row for a later sweep to judge.
+    A NOT_FOUND for one workflow is the only error that proves absence. Timeouts, unavailability
+    and permission errors say nothing about the workflow, and failing a live run is
+    unrecoverable, so every other error reports ``unknown`` and leaves the row for a later sweep
+    to judge. A NOT_FOUND that answers for the namespace is not proof either (see
+    ``_is_namespace_not_found``).
 
     The result can cover fewer ids than were asked for: a Temporal-wide failure stops the batch
     (see ``_SERVICE_DEGRADED_STATUSES``). Callers must read a missing id as ``unknown``.
@@ -568,9 +587,10 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
                 # asking for the current run reports the live one instead of reaping its run.
                 description = await client.get_workflow_handle(workflow_id).describe()
             except RPCError as e:
-                if e.status in _SERVICE_DEGRADED_STATUSES:
-                    # Temporal is down, overloaded or timing out, so the rest of the batch would
-                    # only add load and burn the sweep's time limit against a failing dependency.
+                if e.status in _SERVICE_DEGRADED_STATUSES or _is_namespace_not_found(e):
+                    # Temporal is down, overloaded, timing out, or answering for a namespace it
+                    # does not have, so the rest of the batch would only add load and burn the
+                    # sweep's time limit against a failing dependency.
                     # Every id left out reads as `unknown`, which is what each would have got.
                     logger.warning(
                         "task_run_liveness_batch_stopped",
