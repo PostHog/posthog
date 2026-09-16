@@ -20,23 +20,39 @@ describe('elementsLogic', () => {
             y: 0,
             toJSON: () => ({}),
         } as DOMRect)
-        document.body.innerHTML = '<button id="open-menu">Menu</button>'
-        logic = elementsLogic()
-        logic.mount()
     })
 
     afterEach(() => {
-        logic.unmount()
+        logic?.unmount()
         jest.restoreAllMocks()
         jest.useRealTimers()
         document.body.innerHTML = ''
     })
 
-    it('adds click targets that the page reveals while the picker is on', async () => {
+    it.each([
+        {
+            reveal: 'the page appends it',
+            html: '<button id="open-menu">Menu</button>',
+            revealElement: () =>
+                document.body.insertAdjacentHTML('beforeend', '<button id="inside-menu">Inside the menu</button>'),
+        },
+        {
+            reveal: 'an ancestor attribute shows it',
+            html:
+                '<button id="open-menu">Menu</button>' +
+                '<div id="menu" style="display: none"><button id="inside-menu">Inside the menu</button></div>',
+            revealElement: () => document.getElementById('menu')?.setAttribute('style', 'display: block'),
+        },
+    ])('adds a click target when $reveal while the picker is on', async ({ html, revealElement }) => {
+        // the page has to be in place before the picker starts, so that only the reveal mutates it
+        document.body.innerHTML = html
+        logic = elementsLogic()
+        logic.mount()
+
         logic.actions.enableInspect()
         expect(logic.values.inspectElements.map(({ element }) => element.id)).toEqual(['open-menu'])
 
-        document.body.insertAdjacentHTML('beforeend', '<button id="inside-menu">Inside the menu</button>')
+        revealElement()
         // the observer reports mutations in a microtask, the rescan itself is debounced
         await Promise.resolve()
         jest.advanceTimersByTime(500)

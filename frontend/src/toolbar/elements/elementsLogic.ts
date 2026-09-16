@@ -893,6 +893,9 @@ export const elementsLogic = kea<elementsLogicType>([
                 mutationObserver.observe(document.body, {
                     childList: true,
                     subtree: true,
+                    // a menu often keeps its contents mounted and toggles an attribute to show them
+                    attributes: true,
+                    attributeFilter: ['class', 'style', 'hidden', 'open'],
                 })
 
                 return () => {
@@ -909,4 +912,3 @@ export const elementsLogic = kea<elementsLogicType>([
         },
     })),
 ])
-
