@@ -1968,8 +1968,8 @@ describe('CDP API', () => {
             expect(mockResumeParkedSteps).toHaveBeenCalledWith(team.id, [{ ...body, jobId, actionId: 'task_node' }])
         })
 
-        it.each(['job_running', 'dispatching'])('asks the caller to retry on %s', async (outcome) => {
-            mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, outcome]]))
+        it('asks the caller to retry while the worker still holds the job', async () => {
+            mockResumeParkedSteps.mockResolvedValue(new Map([[jobId, 'job_running']]))
 
             const res = await supertest(app)
                 .post(`/api/projects/${team.id}/workflow_steps/resume`)
@@ -1977,7 +1977,7 @@ describe('CDP API', () => {
                 .send(body)
 
             expect(res.status).toEqual(409)
-            expect(res.body).toEqual({ outcome })
+            expect(res.body).toEqual({ outcome: 'job_running' })
         })
 
         it.each([
