@@ -115,6 +115,11 @@ export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
     }
 }
 
+export function pullRequestIdentity(prUrl: string): string | null {
+    const pr = parsePrUrlParts(prUrl)
+    return pr ? `${pr.repoSlug.toLowerCase()}#${pr.number.replace(/^0+(?=\d)/, '')}` : null
+}
+
 /** Parse a GitHub PR URL into its repo slug, e.g. `posthog/posthog`. */
 export function parsePrRepoSlug(prUrl: string): string | null {
     return parsePrUrlParts(prUrl)?.repoSlug ?? null

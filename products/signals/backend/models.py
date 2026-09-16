@@ -1494,6 +1494,11 @@ class SignalReportArtefact(UUIDModel):
                 condition=models.Q(type="implementation_decision"),
                 name="signals_dispatch_sweep_idx",
             ),
+            models.Index(
+                fields=["id"],
+                condition=models.Q(type="implementation_replacement"),
+                name="signals_replacement_sweep_idx",
+            ),
         ]
 
     @classmethod
