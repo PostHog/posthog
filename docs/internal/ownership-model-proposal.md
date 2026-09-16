@@ -125,7 +125,7 @@ Checked every team slug in use against live Slack channels (first pass 2026-07-1
 - 8/30 need an entry in the root `teams:` registry (below):
   - `ai-research`, `batch-exports`, `clickhouse`, `conversations`, `mcp-analytics`, `platform-ux` — these predate the `team-` convention and are the real org slugs; `team-clickhouse` and friends do not exist as GitHub teams, so the slugs cannot be "fixed" and the channel is `#team-<slug>`.
   - `team-data-stack` → `#group-data-stack`.
-  - `team-posthog-desktop` → `#team-desktop`, the name the channel was created under.
+  - `team-surfaces` → `#team-desktop`, the channel the desktop team created before Surfaces took its products over.
 
 So the derived default is right for most teams and the rest carry one entry each.
 

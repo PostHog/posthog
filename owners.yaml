@@ -23,14 +23,16 @@ teams:
         slack: '#team-platform-ux'
     team-data-stack:
         slack: '#group-data-stack'
-    # PostHog Desktop's channel kept the name it was created under.
-    team-posthog-desktop:
-        slack: '#team-desktop'
     # The derived '#team-replay' is right; the entry exists only to drop the daily
     # stamphog digest, which the team reads on the PRs themselves.
     team-replay:
         notifications:
             stamphog: false
+    # Surfaces took the desktop products over from team-posthog-desktop. This keeps its
+    # digests on the channel that team already uses, because the derived '#team-surfaces'
+    # is unverified and nothing validates a derived channel.
+    team-surfaces:
+        slack: '#team-desktop'
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability

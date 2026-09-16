@@ -1,0 +1,9 @@
+version: 1
+# The agent runtime under agent/ and agent-shadow/ runs inside every customer sandbox, and
+# .github/CODEOWNERS gates both on Agent Infrastructure. This rule keeps reviewer assignment
+# on that same team, so a change there never routes to a team that cannot clear its gate.
+# The rest of packages/ falls through to products/desktop/product.yaml.
+owners: []
+rules:
+    - match: ['/agent/', '/agent-shadow/']
+      owners: team-agent-infrastructure
