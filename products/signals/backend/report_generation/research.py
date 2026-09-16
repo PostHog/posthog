@@ -63,12 +63,15 @@ __all__ = [
 # TODO: Signals deduplication step before the research
 
 
-def _rejection_reason(error: Exception) -> str:
-    """Why a response was rejected, as failing field and rule only — never the rejected content."""
+def _rejection_reason(error: Exception, root_label: str = "response") -> str:
+    """Why a response was rejected, as failing field and rule only — never the rejected content.
+    A cross-field rule and a reply that is not an object both fail on the model root, where pydantic
+    reports no field at all, so `root_label` names the surface the caller was validating.
+    """
     if not isinstance(error, ValidationError):
         return type(error).__name__
     return ", ".join(
-        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+        f"{'.'.join(str(part) for part in entry['loc']) or root_label}: {entry['type']}" for entry in error.errors()
     )
 
 
@@ -151,7 +154,9 @@ Hard rules:
                 # rejected `input_value`, which would copy the chart's query — HogQL text and filter
                 # values — into application logs.
                 logger.warning(
-                    "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
+                    "presentation: dropped chart at index %d that did not validate (%s)",
+                    index,
+                    _rejection_reason(e, root_label="chart"),
                 )
         return kept
 

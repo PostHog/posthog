@@ -12,6 +12,7 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     SignalFindingUpdate,
     _finding_schema_reminder,
+    _rejection_reason,
     _render_previous_metrics_context,
     _render_signal_for_research,
     build_fix_verification_prompt,
@@ -178,6 +179,15 @@ class TestFindingResponseRequiredFields:
             SignalFindingUpdate.model_validate(payload)
 
         assert [problem["loc"] for problem in exc_info.value.errors()] == [("finding", "verified")]
+
+    def test_a_reply_that_omits_the_finding_is_reported_against_the_response(self):
+        # The rule that rejects this runs on the model root, so pydantic names no field and the
+        # reason falls back to the caller's label. Labeling it `chart` sends the reader to the
+        # charts surface, which has its own separate degrade path.
+        with pytest.raises(ValidationError) as exc_info:
+            SignalFindingUpdate.model_validate({"previous_finding_correct": False})
+
+        assert _rejection_reason(exc_info.value) == "response: value_error"
 
     def test_both_finding_prompts_name_the_required_finding_fields(self):
         signal = _make_signal({})
