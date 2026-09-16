@@ -200,6 +200,12 @@ async def _persist_content_snapshot(
 
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
+    if inputs.max_subscriptions_per_run < 1:
+        raise ApplicationError(
+            f"Subscription scheduler fetch limit must be at least 1, received {inputs.max_subscriptions_per_run}",
+            non_retryable=True,
+        )
+
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
@@ -275,6 +281,12 @@ async def fetch_due_subscriptions_page_activity(
     inputs: FetchDueSubscriptionsPageActivityInputs,
 ) -> FetchDueSubscriptionsPageActivityResult:
     """Fetch one stable page from the due cohort frozen by the coordinator workflow."""
+    if inputs.page_size < 1:
+        raise ApplicationError(
+            f"Subscription scheduler page size must be at least 1, received {inputs.page_size}",
+            non_retryable=True,
+        )
+
     due_before = dt.datetime.fromisoformat(inputs.due_before)
     await LOGGER.ainfo(
         "Fetching due subscriptions page",

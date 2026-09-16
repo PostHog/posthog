@@ -4,15 +4,49 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.testing import ActivityEnvironment
 
+from products.exports.backend.temporal.subscriptions.activities import (
+    fetch_due_subscriptions_activity,
+    fetch_due_subscriptions_page_activity,
+)
 from products.exports.backend.temporal.subscriptions.types import (
     DueSubscription,
+    FetchDueSubscriptionsActivityInputs,
+    FetchDueSubscriptionsPageActivityInputs,
     FetchDueSubscriptionsPageActivityResult,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionSchedulerCursor,
 )
 from products.exports.backend.temporal.subscriptions.workflows import ScheduleAllSubscriptionsWorkflow
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_subscriptions_per_run", [0, -1])
+async def test_legacy_scheduler_fetch_rejects_non_positive_limits(max_subscriptions_per_run: int) -> None:
+    with pytest.raises(ApplicationError) as error:
+        await ActivityEnvironment().run(
+            fetch_due_subscriptions_activity,
+            FetchDueSubscriptionsActivityInputs(max_subscriptions_per_run=max_subscriptions_per_run),
+        )
+
+    assert error.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_size", [0, -1])
+async def test_scheduler_page_fetch_rejects_non_positive_limits(page_size: int) -> None:
+    with pytest.raises(ApplicationError) as error:
+        await ActivityEnvironment().run(
+            fetch_due_subscriptions_page_activity,
+            FetchDueSubscriptionsPageActivityInputs(
+                due_before="2026-09-11T12:15:00+00:00",
+                page_size=page_size,
+            ),
+        )
+
+    assert error.value.non_retryable is True
 
 
 def test_scheduler_parse_inputs_restores_continue_as_new_cursor() -> None:

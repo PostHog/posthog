@@ -5,8 +5,17 @@ from unittest.mock import MagicMock, patch
 from products.exports.backend.temporal.subscriptions.metrics import record_scheduler_fetch, record_scheduler_progress
 
 
+def _capture_instruments(meter: MagicMock) -> tuple[dict[str, MagicMock], dict[str, MagicMock]]:
+    counters: dict[str, MagicMock] = {}
+    gauges: dict[str, MagicMock] = {}
+    meter.create_counter.side_effect = lambda name, *_args: counters.setdefault(name, MagicMock())
+    meter.create_gauge_float.side_effect = lambda name, *_args: gauges.setdefault(name, MagicMock())
+    return counters, gauges
+
+
 def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
     meter = MagicMock()
+    counters, gauges = _capture_instruments(meter)
     now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 
     with (
@@ -26,13 +35,16 @@ def test_record_scheduler_fetch_emits_progress_and_saturation_signals() -> None:
     meter.with_additional_attributes.assert_called_once_with({"outcome": "saturated"})
     run_meter = meter.with_additional_attributes.return_value
     run_meter.create_counter.return_value.add.assert_called_once_with(1)
-    meter.create_counter.return_value.add.assert_called_once_with(500)
-    meter.create_gauge_float.return_value.set.assert_any_call(2_700.0)
-    meter.create_gauge_float.return_value.set.assert_any_call(1_789_128_000.0)
+    counters["subscriptions_scheduler_selected"].add.assert_called_once_with(500)
+    gauges["subscriptions_scheduler_oldest_due_age_seconds"].set.assert_called_once_with(2_700.0)
+    gauges["subscriptions_scheduler_last_successful_fetch_timestamp_seconds"].set.assert_called_once_with(
+        1_789_128_000.0
+    )
 
 
 def test_record_scheduler_progress_emits_backlog_and_dispatch_signals() -> None:
     meter = MagicMock()
+    counters, gauges = _capture_instruments(meter)
 
     with patch(
         "products.exports.backend.temporal.subscriptions.metrics.get_metric_meter",
@@ -48,20 +60,19 @@ def test_record_scheduler_progress_emits_backlog_and_dispatch_signals() -> None:
             completed=False,
         )
 
-    gauge = meter.create_gauge_float.return_value
-    gauge.set.assert_any_call(250.0)
-    gauge.set.assert_any_call(100.0)
-    gauge.set.assert_any_call(150.0)
-    meter.create_counter.return_value.add.assert_any_call(1)
-    meter.create_counter.return_value.add.assert_any_call(98)
-    meter.create_counter.return_value.add.assert_any_call(2)
-    counter_names = [call.args[0] for call in meter.create_counter.call_args_list]
-    assert "subscriptions_scheduler_cohorts_started" in counter_names
-    assert "subscriptions_scheduler_cohorts_completed" not in counter_names
+    gauges["subscriptions_scheduler_cohort_total"].set.assert_called_once_with(250.0)
+    gauges["subscriptions_scheduler_cohort_processed"].set.assert_called_once_with(100.0)
+    gauges["subscriptions_scheduler_cohort_remaining"].set.assert_called_once_with(150.0)
+    counters["subscriptions_scheduler_pages"].add.assert_called_once_with(1)
+    counters["subscriptions_scheduler_children_started"].add.assert_called_once_with(98)
+    counters["subscriptions_scheduler_children_already_running"].add.assert_called_once_with(2)
+    counters["subscriptions_scheduler_cohorts_started"].add.assert_called_once_with(1)
+    assert "subscriptions_scheduler_cohorts_completed" not in counters
 
 
 def test_record_scheduler_progress_emits_completion_timestamp() -> None:
     meter = MagicMock()
+    counters, gauges = _capture_instruments(meter)
 
     with patch(
         "products.exports.backend.temporal.subscriptions.metrics.get_metric_meter",
@@ -78,6 +89,5 @@ def test_record_scheduler_progress_emits_completion_timestamp() -> None:
             completed_at=datetime.fromtimestamp(1_789_128_000.0, tz=UTC),
         )
 
-    meter.create_gauge_float.return_value.set.assert_any_call(1_789_128_000.0)
-    counter_names = [call.args[0] for call in meter.create_counter.call_args_list]
-    assert "subscriptions_scheduler_cohorts_completed" in counter_names
+    gauges["subscriptions_scheduler_last_completed_timestamp_seconds"].set.assert_called_once_with(1_789_128_000.0)
+    counters["subscriptions_scheduler_cohorts_completed"].add.assert_called_once_with(1)
