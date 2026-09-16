@@ -301,7 +301,15 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
         return {}, {}
     cutoff = now - timedelta(days=settings.engagement_window_days)
 
-    approved_root_teams = Team.objects.filter(_root_team_q(), organization__is_ai_data_processing_approved=True)
+    # A project that has never ingested an event can only be refused by the scan, and this base
+    # set feeds every tier. Nothing is stamped on the row, so the project re-enters the queue on
+    # its first event; ingestion is environment-scoped, so traffic in a child environment counts.
+    ingested_child_teams = Team.objects.filter(ingested_event=True, parent_team_id__isnull=False)
+    approved_root_teams = Team.objects.filter(
+        _root_team_q(),
+        Q(ingested_event=True) | Q(id__in=ingested_child_teams.values("parent_team_id")),
+        organization__is_ai_data_processing_approved=True,
+    )
     # Source configs are environment-scoped, so a project whose Signals setup lives in a child
     # environment counts through that child's parent; scout configs already canonicalize.
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
