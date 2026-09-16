@@ -45,7 +45,8 @@ Invalid input returns 400, a missing account returns 404, and object-level acces
 
 ## Scene behavior
 
-The external route makes one account lookup request and keeps the result in the existing scene logic.
+The external route waits for the current feature flags before loading, so cached flags cannot cause a premature legacy redirect.
+It makes one account lookup request and keeps the result in the existing scene logic.
 It does not resolve a UUID and then request the same account again.
 Related panels still make their own requests.
 Presence, tag edits, and nested account APIs use the returned `account.id`, never the external ID.

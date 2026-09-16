@@ -436,6 +436,39 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(mockAccountsPresenceCreate).not.toHaveBeenCalled()
         })
 
+        it.each([true, false])(
+            'waits for fresh flags before resolving with the detail scene enabled: %s',
+            async (accountSceneEnabled) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true })
+                featureFlagLogic.unmount()
+                initKeaTests()
+                featureFlagLogic.mount()
+                expect(featureFlagLogic.values.receivedFeatureFlags).toBe(false)
+                expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]).toBe(true)
+                const externalId = 'cached flag account'
+                const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
+                mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+                router.actions.push(externalUrl)
+                mountExternalIdLogic(externalId)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
+
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+                    [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: accountSceneEnabled,
+                })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledTimes(1)
+                expect(router.values.location.pathname).toBe(
+                    urls.currentProject(
+                        accountSceneEnabled ? externalUrl : urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage')
+                    )
+                )
+            }
+        )
+
         it('resolves an external account when customer analytics access arrives', async () => {
             const externalId = 'deferred external account'
             featureFlagLogic.actions.setFeatureFlags([], {
