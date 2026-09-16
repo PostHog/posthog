@@ -22,7 +22,7 @@ from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.utils.html import escapejs, format_html, format_html_join
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from structlog import get_logger
@@ -625,7 +625,7 @@ class TeamAdmin(admin.ModelAdmin):
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
                     "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
+                    "team_name": team.name,
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
             )
@@ -934,10 +934,9 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/email_sending_suspension_actions.html",
                 {
-                    "team": team,
                     "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
                     "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
+                    "team_name": team.name,
                     "is_suspended": is_suspended,
                 },
             )
@@ -999,7 +998,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
                     "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
                 },
-                request=getattr(self, "_current_request", None),
             )
         )
 
@@ -1229,11 +1227,10 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/ai_gateway_actions.html",
                 {
-                    "team": team,
                     "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
                     "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
                     "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
-                    "team_name_escaped": escapejs(team.name),
+                    "team_name": team.name,
                     "is_enabled": team.llm_gateway_enabled_at is not None,
                     "is_revoked": team.llm_gateway_revoked_at is not None,
                 },

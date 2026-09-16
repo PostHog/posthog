@@ -119,7 +119,6 @@ from products.feature_flags.backend.flag_status import (
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
 )
-from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
@@ -1986,7 +1985,7 @@ class FeatureFlagSerializer(
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
                 flag_key = self._validate_flag_reference(flag_reference)

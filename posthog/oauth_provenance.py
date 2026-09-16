@@ -11,11 +11,29 @@ pulls in enough of the model layer that importing it here would cycle back throu
 """
 
 from posthog.models.oauth import OAuthRefreshToken
-from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
 
 # Minted server-side only, so its presence proves the token was not obtained by a person
 # through the consent flow. See INTERNAL_SCOPES in posthog/temporal/oauth.py.
 INTERNAL_RUN_SCOPE = "internal_run:read"
+SANDBOX_ORIGIN_HEADER = "X-PostHog-Sandbox-Origin"
+
+
+def is_sandbox_oauth_request(request) -> bool:
+    token = get_oauth_access_token(request)
+    application = getattr(token, "application", None)
+    return (
+        application is not None
+        and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+        and (
+            getattr(token, "sandbox_task_id", None) is not None
+            or INTERNAL_RUN_SCOPE in (getattr(token, "scope", "") or "").split()
+        )
+    )
+
+
+def is_sandbox_origin_request(request) -> bool:
+    return request.headers.get(SANDBOX_ORIGIN_HEADER) == "1" or is_sandbox_oauth_request(request)
 
 
 def get_oauth_access_token(request) -> object | None:
@@ -43,7 +61,7 @@ def is_first_party_oauth_client(request) -> bool:
     return get_oauth_client_id(request) in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 
-def is_interactive_desktop_grant(request) -> bool:
+def is_interactive_desktop_grant(request, access_token: object | None = None) -> bool:
     """Whether this request carries a PostHog Desktop token a person consented to.
 
     The Electron app, the cloud coding agent, and the Slack app all authenticate against the
@@ -51,7 +69,8 @@ def is_interactive_desktop_grant(request) -> bool:
     the server-minted `internal_run:read` marker, and refresh-token lineage proving a consent
     flow happened. Sandbox tokens fail the second check before the third does any query.
     """
-    access_token = get_oauth_access_token(request)
+    if access_token is None:
+        access_token = get_oauth_access_token(request)
     if access_token is None or not is_first_party_oauth_client(request):
         return False
     scopes = set((getattr(access_token, "scope", "") or "").split())

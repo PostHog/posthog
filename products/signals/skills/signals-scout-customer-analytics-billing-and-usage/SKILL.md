@@ -1,5 +1,6 @@
 ---
 name: signals-scout-customer-analytics-billing-and-usage
+scout-display-name: 'Customer analytics: billing and usage'
 description: >
   Signals scout for per-account product-mix shifts. Watches each staked account's usage and
   forecasted MRR per product for one product dropping or spiking against its own baseline while

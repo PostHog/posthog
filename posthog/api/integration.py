@@ -1280,7 +1280,11 @@ class IntegrationViewSet(
         "request_access",
     ]
     permission_classes = [IntegrationManagementPermission]
-    queryset = defer_repository_cache_fields(Integration.objects.all())
+    # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
+    # page boundary. Clients page this list to find one kind, so a dropped row reads as
+    # "not configured". Order oldest-first: several clients take the first row of a kind as their
+    # default connection.
+    queryset = defer_repository_cache_fields(Integration.objects.all()).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]

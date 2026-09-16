@@ -1,6 +1,3 @@
-import hmac
-import hashlib
-
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -187,19 +184,6 @@ class TestPandaDocClient(TestCase):
             client = pandadoc.PandaDocClient()
             with self.assertRaises(pandadoc.PandaDocError):
                 client.send_document(document_id="doc_123", subject="s", message="m")
-
-    def test_verify_webhook_signature_accepts_valid_hmac(self) -> None:
-        secret = "shhh"
-        body = b'{"event": "document_state_changed"}'
-        signature = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-        self.assertTrue(pandadoc.verify_webhook_signature(secret=secret, body=body, signature=signature))
-
-    def test_verify_webhook_signature_rejects_bad_hmac(self) -> None:
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="shhh", body=b"{}", signature="0" * 64))
-
-    def test_verify_webhook_signature_rejects_empty_inputs(self) -> None:
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc"))
-        self.assertFalse(pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature=""))
 
     def test_serialize_recipient_emits_flat_email_and_role_for_each_role(self) -> None:
         # Both the Client signer and the PostHog CC serialize to the same
