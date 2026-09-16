@@ -285,6 +285,23 @@ describe('experimentLogic', () => {
 
             expect(queryMock).toHaveBeenCalledTimes(expectQuery ? 1 : 0)
         })
+
+        it("given a reset back to draft, drops the previous run's exposures", async () => {
+            logic.actions.loadExposuresSuccess({
+                kind: NodeKind.ExperimentExposureQuery,
+                timeseries: [{ variant: 'control', days: ['2024-12-30'], exposure_counts: [5] }],
+                total_exposures: { control: 5 },
+            })
+            logic.actions.setExperiment({
+                ...experimentWithNewMetrics,
+                status: 'draft',
+                start_date: null,
+            } as Experiment)
+
+            await logic.asyncActions.loadExposures(true)
+
+            expect(logic.values.exposures).toBeNull()
+        })
     })
 
     describe('refreshExperimentResults', () => {
