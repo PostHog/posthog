@@ -78,6 +78,7 @@ def _testcase(
     start: datetime | None = None,
     name: str = "t",
     file: str = "m.py",
+    runner_name: str = "",
 ) -> report_test_timings.TestCase:  # type: ignore[name-defined]
     test_start = start if start is not None else datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     return report_test_timings.TestCase(
@@ -92,6 +93,7 @@ def _testcase(
         end=test_start + timedelta(seconds=duration),
         outcome=outcome,
         attempts=attempts,
+        runner_name=runner_name,
     )
 
 
@@ -286,6 +288,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             <testcase classname="pkg.test_a.TestA" name="test_fast" time="0.1"/>
             <testcase classname="pkg.test_a.TestA" name="test_slow" time="2.0"/>
             <testcase classname="pkg.test_a.TestA" name="test_rerun" time="0.2">
+              <properties><property name="posthog.runner_name" value="runner-example"/></properties>
               <flakyFailure message="x" time="0.3"/>
             </testcase>
             <testcase classname="pkg.test_a.TestA" name="test_fail" time="0.1"><failure message="x"/></testcase>
@@ -314,6 +317,8 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[2].duration_seconds == pytest.approx(0.5)
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
+    assert shard.tests[2].runner_name == "runner-example"
+    assert shard.tests[0].runner_name == ""
     assert shard.tests[3].outcome == "failed"
 
 
@@ -725,7 +730,7 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
         testcase_seconds=2.1,
         overhead_seconds=7.9,
         tests=[
-            _testcase(name="slow", duration=2.0, start=start + timedelta(seconds=0.1)),
+            _testcase(name="slow", duration=2.0, start=start + timedelta(seconds=0.1), runner_name="runner-example"),
             _testcase(
                 name="fail",
                 outcome="failed",
@@ -750,6 +755,8 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     assert tracer.spans[0].attributes["shard.overhead_seconds"] == pytest.approx(7.9)
     assert tracer.spans[1].attributes["test.runner"] == "pytest"
     assert tracer.spans[1].attributes["test.job_key"] == "backend:core:1"
+    assert tracer.spans[1].attributes["test.runner_name"] == "runner-example"
+    assert "test.runner_name" not in tracer.spans[2].attributes
 
 
 def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatch: pytest.MonkeyPatch) -> None:

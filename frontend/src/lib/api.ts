@@ -29,8 +29,8 @@ import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
-    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DataWarehouseManagedViewsetKind,
     DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -38,7 +38,6 @@ import {
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
-    ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
     FileSystemViewLogEntry,
@@ -54,12 +53,12 @@ import {
     Node,
     NodeKind,
     QueryLogTags,
+    QueryScanResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-    SourceConfig,
     SpanTreeNode,
     TileFilters,
     UserProductListItem,
@@ -244,6 +243,10 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    ExternalDataSourceTypeEnumApi,
+    SourceConfigMapResponseApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -1744,6 +1747,10 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryScan(cacheKey: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent('scan').addPathComponent(cacheKey)
     }
 
     public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -4845,6 +4852,7 @@ const api = {
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
             data: {
+                reuse_results?: boolean
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
@@ -5883,7 +5891,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceType,
+            source_type: ExternalDataSourceTypeEnumApi,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5891,11 +5899,11 @@ const api = {
                 .withAction('database_schema')
                 .create({ data: { source_type, ...payload } })
         },
-        async wizard(): Promise<Record<string, SourceConfig>> {
+        async wizard(): Promise<SourceConfigMapResponseApi> {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceType,
+            source_type: ExternalDataSourceTypeEnumApi,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5905,7 +5913,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceType
+                source_type: ExternalDataSourceTypeEnumApi
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6363,6 +6371,12 @@ const api = {
     queryLog: {
         async get(queryId: string): Promise<HogQLQueryResponse> {
             return await new ApiRequest().queryLog(queryId).get()
+        },
+    },
+
+    queryScan: {
+        async get(cacheKey: string): Promise<QueryScanResponse> {
+            return await new ApiRequest().queryScan(cacheKey).get()
         },
     },
 

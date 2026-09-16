@@ -1,19 +1,17 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     UNVERSIONED_API_VERSION,
@@ -53,6 +51,7 @@ from .linkedin_ads import (
 LINKEDIN_ADS_VERSION_202606 = "202606"
 LINKEDIN_ADS_VERSION_202607 = "202607"
 LINKEDIN_ADS_VERSION_202608 = "202608"
+LINKEDIN_ADS_VERSION_202609 = "202609"
 
 # Opaque source version label -> LinkedIn API version header. The legacy `v1` pin keeps sending the
 # header it always has (`API_VERSION`), so existing syncs are byte-for-byte unchanged.
@@ -61,6 +60,7 @@ _API_HEADER_BY_VERSION = {
     LINKEDIN_ADS_VERSION_202606: LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607: LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608: LINKEDIN_ADS_VERSION_202608,
+    LINKEDIN_ADS_VERSION_202609: LINKEDIN_ADS_VERSION_202609,
 }
 
 
@@ -73,8 +73,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         LINKEDIN_ADS_VERSION_202606,
         LINKEDIN_ADS_VERSION_202607,
         LINKEDIN_ADS_VERSION_202608,
+        LINKEDIN_ADS_VERSION_202609,
     )
-    default_version = LINKEDIN_ADS_VERSION_202608
+    default_version = LINKEDIN_ADS_VERSION_202609
     # LinkedIn supports each version for a minimum of one year, then starts rejecting it with a 426
     # `NONEXISTENT_VERSION` (see `get_non_retryable_errors`). The legacy `v1` pin sends the header it
     # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark;
@@ -150,7 +151,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LINKEDIN_ADS,
+            name=ExternalDataSourceType.LINKEDINADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=["linkedin advertising"],

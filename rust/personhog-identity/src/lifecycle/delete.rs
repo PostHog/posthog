@@ -268,10 +268,10 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     let marked: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
         r#"
-        INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status)
-        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5
+        INSERT INTO {lifecycle_op_person} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', $5, true
         FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
-        ON CONFLICT (team_id, person_id) WHERE status IN ('marked', 'sealed') DO NOTHING
+        ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
         RETURNING person_id
         "#,
         op.op_id,
@@ -339,7 +339,7 @@ async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         tables.is_validation(),
         r#"
         SELECT count(*) as "count!" FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND status IN ('marked', 'sealed')
+        WHERE op_id = $1 AND mark_active
         "#,
         op.op_id
         => fetch_one(&mut *tx)
@@ -411,7 +411,7 @@ async fn seal(
         tables.is_validation(),
         r#"
         SELECT person_id FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND status IN ('marked', 'sealed')
+        WHERE op_id = $1 AND mark_active
         ORDER BY person_id
         "#,
         op.op_id
@@ -453,7 +453,7 @@ async fn seal(
         SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)
         FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)
         WHERE lop.op_id = $1 AND lop.person_id = u.person_id
-          AND lop.status IN ('marked', 'sealed')
+          AND lop.mark_active
         "#,
         op.op_id,
         STATUS_SEALED,
@@ -467,7 +467,7 @@ async fn seal(
             tables.is_validation(),
             r#"
             DELETE FROM {lifecycle_op_person}
-            WHERE op_id = $1 AND person_id = ANY($2) AND status IN ('marked', 'sealed')
+            WHERE op_id = $1 AND person_id = ANY($2) AND mark_active
             "#,
             op.op_id,
             &vanished
@@ -694,7 +694,7 @@ async fn complete(
 
     mirrored_query!(
         tables.is_validation(),
-        "UPDATE {lifecycle_op_person} SET status = $2 WHERE op_id = $1 AND status = 'sealed'",
+        "UPDATE {lifecycle_op_person} SET status = $2, mark_active = false WHERE op_id = $1 AND status = 'sealed'",
         op.op_id,
         STATUS_DELETED
         => execute(&mut *tx)

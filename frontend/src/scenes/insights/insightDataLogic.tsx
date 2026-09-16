@@ -301,6 +301,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
@@ -350,6 +351,7 @@ export interface insightDataLogicActions {
             next_allowed_client_refresh?: string | null | undefined
             order: number | null
             query: Node<Record<string, any>> | null
+            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
             query_status?: QueryStatus | undefined
             resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any

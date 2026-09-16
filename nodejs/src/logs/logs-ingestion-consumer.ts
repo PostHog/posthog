@@ -36,6 +36,7 @@ import {
     type LogRecordsTransform,
     bufferProcessingMode,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -367,6 +368,7 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly jsonAttributeParsingEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -418,6 +420,7 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -920,10 +923,27 @@ export class LogsIngestionConsumer {
                         }
 
                         const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
-                        const onRecordsDecoded = metricRuleState
-                            ? (records: LogRecord[]) =>
-                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
-                            : undefined
+                        const jsonAttributeKey =
+                            this.appSource === 'logs' &&
+                            teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
+                                ? logsSettings.json_parse_logs_attribute_key
+                                : undefined
+                        const onRecordsDecoded =
+                            metricRuleState || jsonAttributeKey
+                                ? (records: LogRecord[]) => {
+                                      if (metricRuleState) {
+                                          tallyRecords(
+                                              metricRuleState.rules,
+                                              records,
+                                              metricRuleState.tallies,
+                                              Date.now()
+                                          )
+                                      }
+                                      if (jsonAttributeKey) {
+                                          sniffJsonLogAttributes(records, jsonAttributeKey, message.teamId)
+                                      }
+                                  }
+                                : undefined
 
                         const resolved = await instrumentFn(
                             {
