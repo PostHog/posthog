@@ -18,6 +18,7 @@ from parameterized import parameterized
 
 from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.settings import BASE_DIR
+from posthog.temporal.ai.chat_agent import CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT
 
 from ee.hogai.llm import (
     AI_GATEWAY_FALLBACK_COUNTER,
@@ -716,7 +717,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         self.assertEqual(model.anthropic_api_url, "https://ai-gateway.test")
         self.assertEqual(model.anthropic_api_key.get_secret_value(), "phs_gateway")
         self.assertTrue(model.bypass_proxy)
-        self.assertEqual(model.max_retries, 1)
+        self.assertEqual(model.max_retries, 0)
         assert isinstance(twin, MaxChatAnthropic)
         self.assertNotIn("ai-gateway.test", twin.anthropic_api_url or "")
         self.assertEqual(twin.anthropic_api_key.get_secret_value(), "direct-api-key")
@@ -869,7 +870,13 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         for client in (model._client, model._async_client):
             self.assertEqual(client.timeout, AI_GATEWAY_TIMEOUT)
             self.assertEqual(client._client.timeout, AI_GATEWAY_TIMEOUT)
+            self.assertEqual(client.max_retries, 0)
         self.assertIsNone(twin._client_params["timeout"])
+
+        # A stalled gateway must leave the twin time to start streaming before the activity heartbeat times out.
+        assert AI_GATEWAY_TIMEOUT.connect is not None and AI_GATEWAY_TIMEOUT.read is not None
+        stalled_gateway_seconds = (AI_GATEWAY_TIMEOUT.connect + AI_GATEWAY_TIMEOUT.read) * (model.max_retries + 1)
+        self.assertGreaterEqual(CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT - stalled_gateway_seconds, 120)
 
     def test_token_counting_uses_the_direct_twin(self):
         model = MaxChatAnthropic.via_ai_gateway(self.gateway, model="claude-sonnet-4-6", user=self.user, team=self.team)

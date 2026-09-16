@@ -45,8 +45,9 @@ AI_GATEWAY_FALLBACK_COUNTER = Counter(
     ["reason"],
 )
 
-AI_GATEWAY_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
-"""Gateway-leg client timeout. The read bound sits just above the gateway's own 290s upstream header wait."""
+AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0)
+"""Gateway-leg client timeout. The read bound sits above the gateway's 120s stream idle close and leaves the twin
+time to answer inside the chat agent activity's 300s heartbeat window."""
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
 """generation_info flag on a generation the Go ai-gateway served and captured itself."""
@@ -343,8 +344,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
                 "anthropic_api_url": anthropic_gateway_base_url(ai_gateway.url),
                 "anthropic_api_key": ai_gateway.api_key,
                 "bypass_proxy": True,
-                # One retry, then the direct twin takes over.
-                "max_retries": 1,
+                # The direct twin is the retry; an SDK retry would double the wait before it.
+                "max_retries": 0,
                 "ai_gateway_fallback": cls(**kwargs),
             }
         )
