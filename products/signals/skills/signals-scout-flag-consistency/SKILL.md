@@ -163,6 +163,8 @@ Two libraries serving different response mixes, both spanning the whole window, 
 
 Rule out scope as well as time. `evaluation_runtime` of `client` or `server` bars the other regime, and `evaluation_contexts` bars a caller whose environment tags the flag does not list. The barred side returns the fallback steadily for the whole window, so configuration produces this lane's exact shape without a defect. Read both from `feature-flag-get-definition` before you believe a split.
 
+Check the identity unit too. A flag carrying `filters.aggregation_group_type_index` evaluates against a group key rather than a person, so the person-keyed rate says nothing about it: one person acting in two groups gets two correct answers, and two people acting in one group never join into a row. Re-run the ranker with `person_id` swapped for `$group_<index>` and read that instead. Where the stream carries no such key the lane has no unit to compare on, so drop the flag rather than fall back to `person_id`.
+
 Only now go to the trees, to name _which repo_ owns each regime and why the answers differ. The usual causes are in [`references/call-sites.md`](references/call-sites.md): a local-only server call sending no person properties while the client sends them, local evaluation running against a stale definition poll, a bootstrapped client value never refreshed, or a different distinct id on each side. Name the cause and the file, or file it as `requires_human_input` rather than guessing.
 
 #### Lane C — targeting context split
@@ -235,7 +237,7 @@ When in doubt, write a memory entry instead of filing a report.
 
 Direct calls (read-only):
 
-- `feature-flag-get-definition` — `filters` (release conditions and the properties they read), `experiment_set`, rollout, `version`, `evaluation_runtime` and `evaluation_contexts` (the SDK regimes and environments the flag may answer in). Required before judging any single flag.
+- `feature-flag-get-definition` — `filters` (release conditions, the properties they read, and `aggregation_group_type_index`, the flag's identity unit), `experiment_set`, rollout, `version`, `evaluation_runtime` and `evaluation_contexts` (the SDK regimes and environments the flag may answer in). Required before judging any single flag.
 - `feature-flag-get-all` — roster listing with `search`; confirms a key is not renamed or freshly created.
 - `feature-flags-activity-retrieve` — one flag's edit history; how you date an edit against a disagreement window.
 - `advanced-activity-logs-list` (`scopes: ["FeatureFlag"]`) — project-wide flag timeline, including the deletions Lane D dates against.
