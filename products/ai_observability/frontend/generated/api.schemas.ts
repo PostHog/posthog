@@ -2779,6 +2779,13 @@ export interface PatchedLLMPromptPublishApi {
     version_description?: string
 }
 
+export interface LLMPromptReferencedConflictApi {
+    /** What is still referenced and what to do next. */
+    detail: string
+    /** Names of the prompts whose latest or labeled version holds the reference. */
+    referencing_prompts: string[]
+}
+
 export interface LLMPromptDuplicateApi {
     /**
      * Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.

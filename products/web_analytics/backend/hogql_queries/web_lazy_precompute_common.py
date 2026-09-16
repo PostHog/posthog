@@ -28,6 +28,7 @@ from prometheus_client import Counter
 from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
@@ -445,6 +446,16 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     """
     runner = kwargs.pop("runner", None)
     family = kwargs.pop("family", None)
+    modifiers = create_default_modifiers_for_team(team, kwargs.get("modifiers"))
+    if runner is not None:
+        # Pin the runner's decision so a flag refresh cannot change INSERT semantics after hashing.
+        modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
+    kwargs["modifiers"] = modifiers
+    if modifiers.cookielessTrafficIsRegular:
+        kwargs["cache_key_context"] = {
+            **(kwargs.get("cache_key_context") or {}),
+            "traffic_classification": "cookieless-missing-ua-v1",
+        }
     background = is_background_warming_request()
     forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:

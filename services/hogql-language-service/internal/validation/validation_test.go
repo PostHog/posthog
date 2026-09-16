@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 func schema() *catalog.PreparedCatalog {
@@ -112,6 +113,9 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT uuid FROM events WHERE event = '$pageview' AND timestamp > now() - interval 1 month", tableName: "events"},
 		{query: "SELECT extract(month FROM timestamp) FROM events", tableName: "events"},
 		{query: "SELECT properties.$GEO_CITY FROM events", tableName: "events"},
+		{query: "SELECT s.kind FROM (SELECT event AS kind FROM events) AS s", tableName: "events"},
+		{query: "WITH t AS (SELECT event AS `Σ` FROM events) SELECT t.`ς` FROM t", tableName: "events"},
+		{query: "WITH t AS (SELECT event AS kind FROM events) SELECT s.kind FROM (SELECT * FROM t) AS s", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -192,12 +196,18 @@ func TestValidateCommonTableExpressions(t *testing.T) {
 }
 
 func TestValidateRejectsUnknownCommonTableExpressionField(t *testing.T) {
-	result := Validate(schema(), "WITH x AS (SELECT event AS kind FROM events) SELECT x.timestamp FROM x")
-	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
-		t.Fatalf("table names = %#v", result.TableNames)
+	for _, query := range []string{
+		"WITH x AS (SELECT event AS kind FROM events) SELECT x.timestamp FROM x",
+		"SELECT x.timestamp FROM (SELECT event AS kind FROM events) AS x",
+		"SELECT timestamp FROM (SELECT event AS kind FROM events) AS x",
+	} {
+		result := Validate(schema(), query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+			t.Fatalf("query %q: result = %#v", query, result)
+		}
+		if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
+			t.Fatalf("table names = %#v", result.TableNames)
+		}
 	}
 }
 
@@ -246,6 +256,23 @@ func TestValidateBoundsCommonTableExpressionProjectionExpansion(t *testing.T) {
 	}
 }
 
+func TestValidateBoundsFieldLookupWork(t *testing.T) {
+	ctes := make([]string, 128)
+	from := "c0"
+	for index := range ctes {
+		ctes[index] = fmt.Sprintf("c%d AS (SELECT event FROM events)", index)
+		if index > 0 {
+			from += fmt.Sprintf(" JOIN c%d ON 1 = 1", index)
+		}
+	}
+	ctes = append(ctes, "result AS (SELECT "+strings.Repeat("unknown", 1500)+", c0.event FROM "+from+")")
+	query := "WITH " + strings.Join(ctes, ", ") + " SELECT result.event FROM result"
+	result := Validate(schema(), query)
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" || result.Diagnostics[0].Message != querylimits.ErrFieldLookupTooLarge.Error() {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 	tests := []struct {
 		query      string
@@ -256,6 +283,9 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		{query: "SELECT session.properties.$entry_curent_url FROM events", suggestion: "$entry_current_url"},
 		{query: "SELECT group_0.properties.indstry FROM events", suggestion: "industry"},
 		{query: "SELECT properties.cafe FROM events", suggestion: "café"},
+		{query: "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
+		{query: "SELECT properties.$geo_cty FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", suggestion: "$geo_city"},
+		{query: "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_cty FROM events JOIN t ON 1 = 1", suggestion: "$geo_city"},
 	}
 	for _, test := range tests {
 		result := Validate(schema(), test.query)
