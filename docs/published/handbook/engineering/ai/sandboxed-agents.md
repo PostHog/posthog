@@ -36,6 +36,10 @@ Follow-up messages collect in "Up next" and send after the first response finish
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
+The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
+These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
+When the user loads, the pending request uses the active filter and search term.
+
 ```text
 Your product code
     │
@@ -57,6 +61,13 @@ The agent inside the sandbox gets:
 - A **GitHub installation token** for repo operations
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
+
+### Run system prompts
+
+The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
+or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
+to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
+only to the task-bound sandbox, so it can initialize the agent session.
 
 ## Creating a sandboxed agent
 

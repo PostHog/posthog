@@ -229,12 +229,10 @@ impl HandoffHandler for LeaderHandoffHandler {
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
-        // A request cancelled mid-produce takes its handler — and the
-        // count above — with it, leaving the record it enqueued in a
-        // window nobody is waiting on. Committing that window here lands
-        // the cancelled write below the cutoff the successor is about to
-        // read, rather than leaving it to be aborted by whichever side
-        // acts first.
+        // The count above covers every write through its outcome, a
+        // cancelled request's included: its commit task holds the slot.
+        // What can still be open here is a window nobody waits on, one a
+        // failed send poisoned and the committer has yet to abort.
         //
         // Best-effort by construction, and the drain proceeds either way:
         // the successor's `init_transactions` aborts whatever is left,
