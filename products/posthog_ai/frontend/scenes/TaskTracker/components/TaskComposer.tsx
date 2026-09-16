@@ -22,11 +22,13 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
+import { ComposerFocusCard } from '../../../components/composer/ComposerFocusCard'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
+import { composerFocusLogic } from '../../../logics/composerFocusLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
@@ -49,6 +51,7 @@ export function TaskComposer(): JSX.Element {
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
+    const { focus } = useValues(composerFocusLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -71,11 +74,15 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline}>
-                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
-                        once everyone is on the new PostHog AI. */}
-                    <OnboardingReplayButton panelId={panelId} />
-                </Welcome>
+                {focus ? (
+                    <ComposerFocusCard focus={focus} />
+                ) : (
+                    <Welcome headline={displayHeadline}>
+                        {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                            once everyone is on the new PostHog AI. */}
+                        <OnboardingReplayButton panelId={panelId} />
+                    </Welcome>
+                )}
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -167,7 +174,8 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    {/* The generic starters compete with the question the user came to ask about the focus. */}
+                    {!focus && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>
