@@ -30,6 +30,9 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
+Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
+underlying catalog tables in `tableNames`.
+
 Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
 distance. Dynamic properties use the same cached namespaces as autocomplete.
 

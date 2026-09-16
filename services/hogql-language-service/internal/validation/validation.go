@@ -38,12 +38,24 @@ type Result struct {
 type tableBinding struct {
 	name  string
 	table *catalog.PreparedTable
+	cte   *cteBinding
+}
+
+type cteBinding struct {
+	name       string
+	query      *clickhouse.SelectQuery
+	scope      *queryScope
+	fields     []catalog.Entry
+	fieldsDone bool
+	resolving  bool
 }
 
 type queryScope struct {
 	query    *clickhouse.SelectQuery
 	parent   *queryScope
 	bindings map[string]tableBinding
+	ctes     []*cteBinding
+	cteRoot  bool
 }
 
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
@@ -74,6 +86,14 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				if !ok {
 					return true
 				}
+				scope := innermostScope(scopes, start, end)
+				if scope == nil {
+					return true
+				}
+				if cte := resolveCTE(scope, name, start); cte != nil {
+					addBinding(scope, name, alias, tableBinding{name: cte.name, cte: cte})
+					return true
+				}
 				if original, exists := originalTableNames[strings.ToLower(name)]; exists {
 					name = original
 				}
@@ -93,17 +113,14 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					return true
 				}
 				binding := tableBinding{name: name, table: table}
-				scope := innermostScope(scopes, start, end)
-				if scope == nil {
-					return true
-				}
-				scope.bindings[strings.ToLower(name)] = binding
-				if alias != "" {
-					scope.bindings[strings.ToLower(alias)] = binding
-				}
+				addBinding(scope, name, alias, binding)
 			case *clickhouse.TableIdentifier:
 				ignoredIdents[typed.Database] = true
 				ignoredIdents[typed.Table] = true
+			case *clickhouse.CTEStmt:
+				if ident, ok := typed.Expr.(*clickhouse.Ident); ok {
+					ignoredIdents[ident] = true
+				}
 			case *clickhouse.FunctionExpr:
 				ignoredIdents[typed.Name] = true
 			case *clickhouse.IntervalExpr:
@@ -122,6 +139,16 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 		seen := map[string]bool{}
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
+			case *clickhouse.NestedIdentifier:
+				ignoredIdents[typed.Ident] = true
+				if typed.DotIdent == nil || typed.DotIdent.Name == "*" {
+					return true
+				}
+				ignoredIdents[typed.DotIdent] = true
+				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
+				if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+					validateField(&diagnostics, seen, binding, typed.DotIdent)
+				}
 			case *clickhouse.Path:
 				for _, field := range typed.Fields {
 					ignoredIdents[field] = true
@@ -146,10 +173,10 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					return true
 				}
 				if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
-					validateField(&diagnostics, seen, binding.table, typed.Fields[1])
+					validateField(&diagnostics, seen, binding, typed.Fields[1])
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] {
+				if ignoredIdents[typed] || typed.Name == "*" {
 					return true
 				}
 				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
@@ -165,9 +192,12 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 
 func queryScopes(statement clickhouse.Expr) []*queryScope {
 	var scopes []*queryScope
+	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
 	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 		if query, ok := node.(*clickhouse.SelectQuery); ok {
-			scopes = append(scopes, &queryScope{query: query, bindings: map[string]tableBinding{}})
+			scope := &queryScope{query: query, bindings: map[string]tableBinding{}}
+			scopes = append(scopes, scope)
+			byQuery[query] = scope
 		}
 		return true
 	})
@@ -181,7 +211,49 @@ func queryScopes(statement clickhouse.Expr) []*queryScope {
 			}
 		}
 	}
+	for _, scope := range scopes {
+		if scope.query.With == nil {
+			continue
+		}
+		for _, statement := range scope.query.With.CTEs {
+			name, nameOK := statement.Expr.(*clickhouse.Ident)
+			query, queryOK := statement.Alias.(*clickhouse.SelectQuery)
+			if !nameOK || !queryOK {
+				continue
+			}
+			cte := &cteBinding{name: name.Name, query: query, scope: byQuery[query]}
+			if cte.scope != nil {
+				cte.scope.cteRoot = true
+			}
+			scope.ctes = append(scope.ctes, cte)
+		}
+	}
 	return scopes
+}
+
+func addBinding(scope *queryScope, name, alias string, binding tableBinding) {
+	scope.bindings[strings.ToLower(name)] = binding
+	if alias != "" {
+		scope.bindings[strings.ToLower(alias)] = binding
+	}
+}
+
+func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
+	for current := scope; current != nil; current = current.parent {
+		limit := len(current.ctes)
+		for index, cte := range current.ctes {
+			if contains(cte.query, position, position) {
+				limit = index
+				break
+			}
+		}
+		for index := limit - 1; index >= 0; index-- {
+			if strings.EqualFold(current.ctes[index].name, name) {
+				return current.ctes[index]
+			}
+		}
+	}
+	return nil
 }
 
 func innermostScope(scopes []*queryScope, start, end int) *queryScope {
@@ -209,6 +281,9 @@ func visibleBindings(scope *queryScope) map[string]tableBinding {
 			if _, exists := bindings[name]; !exists {
 				bindings[name] = binding
 			}
+		}
+		if current.cteRoot {
+			break
 		}
 	}
 	return bindings
@@ -271,11 +346,11 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	return name, alias, int(identifier.Pos()), int(identifier.End()), true
 }
 
-func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table *catalog.PreparedTable, ident *clickhouse.Ident) {
+func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding tableBinding, ident *clickhouse.Ident) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics {
 		return
 	}
-	if hasField(table, ident.Name) {
+	if _, ok := bindingField(binding, ident.Name); ok {
 		return
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
@@ -285,7 +360,7 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table *catal
 	seen[key] = true
 	*diagnostics = append(*diagnostics, Diagnostic{
 		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
-		Suggestions: closest(ident.Name, table.Fields.Entries(), 5),
+		Suggestions: closest(ident.Name, bindingFields(binding), 5),
 	})
 }
 
@@ -293,16 +368,16 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 	if len(*diagnostics) >= querylimits.MaxDiagnostics {
 		return
 	}
-	uniqueTables := map[string]*catalog.PreparedTable{}
+	uniqueTables := map[string]tableBinding{}
 	for _, binding := range bindings {
-		uniqueTables[binding.name] = binding.table
-		if hasField(binding.table, ident.Name) {
+		uniqueTables[binding.name] = binding
+		if _, ok := bindingField(binding, ident.Name); ok {
 			return
 		}
 	}
 	candidates := make([]catalog.Entry, 0)
-	for _, table := range uniqueTables {
-		candidates = append(candidates, table.Fields.Entries()...)
+	for _, binding := range uniqueTables {
+		candidates = append(candidates, bindingFields(binding)...)
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
 	if seen[key] {
@@ -315,9 +390,110 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 	})
 }
 
-func hasField(table *catalog.PreparedTable, name string) bool {
-	_, ok := table.Fields.Exact(name)
-	return ok
+func bindingField(binding tableBinding, name string) (catalog.Entry, bool) {
+	if binding.table != nil {
+		return binding.table.Fields.Exact(name)
+	}
+	for _, field := range bindingFields(binding) {
+		if strings.EqualFold(field.Name, name) {
+			return field, true
+		}
+	}
+	return catalog.Entry{}, false
+}
+
+func bindingFields(binding tableBinding) []catalog.Entry {
+	if binding.table != nil {
+		return binding.table.Fields.Entries()
+	}
+	if binding.cte == nil {
+		return nil
+	}
+	return binding.cte.projectedFields()
+}
+
+func (c *cteBinding) projectedFields() []catalog.Entry {
+	if c.fieldsDone || c.resolving || c.scope == nil {
+		return c.fields
+	}
+	c.resolving = true
+	for _, item := range c.query.SelectItems {
+		if item.Alias != nil {
+			c.fields = append(c.fields, catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
+			continue
+		}
+		switch expr := item.Expr.(type) {
+		case *clickhouse.Ident:
+			if expr.Name == "*" {
+				c.fields = append(c.fields, wildcardFields(c.scope, "")...)
+			} else {
+				c.fields = append(c.fields, catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)})
+			}
+		case *clickhouse.Path:
+			if len(expr.Fields) > 0 {
+				c.fields = append(c.fields, catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)})
+			}
+		case *clickhouse.NestedIdentifier:
+			if expr.DotIdent != nil && expr.DotIdent.Name == "*" {
+				c.fields = append(c.fields, wildcardFields(c.scope, expr.Ident.Name)...)
+			} else if expr.DotIdent != nil {
+				c.fields = append(c.fields, catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)})
+			} else {
+				c.fields = append(c.fields, catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)})
+			}
+		default:
+			c.fields = append(c.fields, catalog.Entry{Name: item.Expr.String()})
+		}
+	}
+	c.resolving = false
+	c.fieldsDone = true
+	return c.fields
+}
+
+func wildcardFields(scope *queryScope, qualifier string) []catalog.Entry {
+	bindings := visibleBindings(scope)
+	if qualifier != "" {
+		return bindingFields(bindings[strings.ToLower(qualifier)])
+	}
+	fields := make([]catalog.Entry, 0)
+	seen := map[string]bool{}
+	for _, binding := range bindings {
+		if seen[binding.name] {
+			continue
+		}
+		seen[binding.name] = true
+		fields = append(fields, bindingFields(binding)...)
+	}
+	return fields
+}
+
+func projectedType(scope *queryScope, expr clickhouse.Expr) string {
+	bindings := visibleBindings(scope)
+	switch typed := expr.(type) {
+	case *clickhouse.Ident:
+		for _, binding := range bindings {
+			if field, ok := bindingField(binding, typed.Name); ok {
+				return field.Type
+			}
+		}
+	case *clickhouse.Path:
+		if len(typed.Fields) >= 2 {
+			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+				if field, exists := bindingField(binding, typed.Fields[1].Name); exists {
+					return field.Type
+				}
+			}
+		}
+	case *clickhouse.NestedIdentifier:
+		if typed.DotIdent != nil {
+			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+				if field, exists := bindingField(binding, typed.DotIdent.Name); exists {
+					return field.Type
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func closest(input string, candidates []catalog.Entry, limit int) []Suggestion {
