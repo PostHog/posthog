@@ -116,28 +116,23 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
-// Free-text path segments on this app's own backend that posthog-js's default
-// templating (all-digit or uuid-like segments only) won't catch: a team-skill
-// name, and the nested file path under it — see getLlmSkillBodyPage,
-// publishLlmSkillVersion, and getLlmSkillFile in
-// packages/api-client/src/posthog-client.ts. Extend these two patterns if a
-// future endpoint puts other free text (not just an id) in its path.
-const LLM_SKILL_FILE_PATH_RE =
-  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/;
-const LLM_SKILL_NAME_PATH_RE =
-  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/;
+const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
+  {
+    pattern:
+      /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/,
+    replacement: "$1:id$2:id$3:id",
+  },
+  {
+    pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
+    replacement: "$1:id$2:id",
+  },
+] as const;
 
-// Returning a custom `path` from `metrics.network.attributes` (below) replaces
-// posthog-js's default templated path outright rather than layering on top of
-// it, so this re-templates the numeric environment id too instead of leaving
-// that to the default. Returns `undefined` for every other route on this
-// app's own backend, deferring to posthog-js's default templating for those.
 function templateOwnApiPath(pathname: string): string | undefined {
-  if (LLM_SKILL_FILE_PATH_RE.test(pathname)) {
-    return pathname.replace(LLM_SKILL_FILE_PATH_RE, "$1:id$2:id$3:id");
-  }
-  if (LLM_SKILL_NAME_PATH_RE.test(pathname)) {
-    return pathname.replace(LLM_SKILL_NAME_PATH_RE, "$1:id$2:id");
+  for (const template of OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES) {
+    if (template.pattern.test(pathname)) {
+      return pathname.replace(template.pattern, template.replacement);
+    }
   }
   return undefined;
 }

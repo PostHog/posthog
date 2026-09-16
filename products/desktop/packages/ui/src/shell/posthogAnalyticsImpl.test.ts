@@ -286,9 +286,6 @@ describe("networkMetricPath", () => {
     expect(networkMetricPath(request)).toBe("external");
   });
 
-  // Skill names and file paths are free text a team member picks, not an id
-  // posthog-js's default numeric/uuid-only templating would catch — same
-  // leak class as the presigned-URL case above, just on the app's own host.
   it.each([
     {
       case: "a skill name",
