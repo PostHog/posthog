@@ -591,6 +591,8 @@ def get_frequentist_experiment_result(
                 experiment_variant_result.p_value = result.p_value
                 experiment_variant_result.confidence_interval = confidence_interval
                 experiment_variant_result.significant = result.is_significant
+                experiment_variant_result.delta = result.point_estimate
+                experiment_variant_result.cuped_adjusted = cuped_adjustment.control_unadjusted_mean is not None
             except StatisticError as e:
                 logger.info(
                     "experiment_statistics_skipped",
@@ -694,6 +696,9 @@ def get_bayesian_experiment_result(
                 experiment_variant_result.chance_to_win = result.chance_to_win
                 experiment_variant_result.credible_interval = credible_interval
                 experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+                experiment_variant_result.delta = result.effect_size
+                experiment_variant_result.cuped_adjusted = cuped_adjustment.control_unadjusted_mean is not None
+                experiment_variant_result.ci_level = result.ci_level
             except StatisticError as e:
                 logger.info(
                     "experiment_statistics_skipped",

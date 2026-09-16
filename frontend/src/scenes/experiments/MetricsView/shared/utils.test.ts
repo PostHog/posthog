@@ -10,9 +10,11 @@ import {
     formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
+    getDelta,
     getMetricColors,
     getMetricTag,
     isProportionMetric,
+    isSignificant,
     isWinning,
 } from './utils'
 
@@ -179,15 +181,17 @@ describe('getChanceToWin', () => {
 })
 
 describe('formatChanceToWinForGoal', () => {
-    const createResult = (chance_to_win: number): ExperimentVariantResult => ({
+    const createResult = (chance_to_win: number, ci_level?: number): ExperimentVariantResult => ({
         key: 'test',
         sum: 100,
         number_of_samples: 100,
         sum_squares: 100,
-        significant: true,
+        // Matches the backend's `is_decisive`, so the printed number must agree with it.
+        significant: ci_level == null || chance_to_win > ci_level || chance_to_win < 1 - ci_level,
         method: 'bayesian',
         credible_interval: [0.05, 0.15],
         chance_to_win,
+        ci_level,
     })
 
     it('formats chance to win for increase goal', () => {
@@ -210,6 +214,54 @@ describe('formatChanceToWinForGoal', () => {
         const result = createResult(0.0005)
         expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe('< 0.1%')
         expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Decrease)).toBe('> 99.9%')
+    })
+
+    it.each([
+        [0.9896, 0.99, '98.96%'],
+        [0.9496, 0.95, '94.96%'],
+        [0.8996, 0.9, '89.96%'],
+        [0.0104, 0.99, '1.04%'],
+    ])(
+        'keeps %p under a %p credible level off the threshold the significance tag uses',
+        (chanceToWin, ciLevel, expected) => {
+            const result = createResult(chanceToWin, ciLevel)
+            expect(isSignificant(result)).toBe(false)
+            expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe(expected)
+        }
+    )
+
+    it('still rounds to one decimal when rounding cannot cross the threshold', () => {
+        const result = createResult(0.756, 0.95)
+        expect(formatChanceToWinForGoal(result, ExperimentMetricGoal.Increase)).toBe('75.6%')
+    })
+})
+
+describe('getDelta', () => {
+    const createResult = (
+        credible_interval: [number, number] | undefined,
+        delta?: number
+    ): ExperimentVariantResult => ({
+        key: 'test',
+        sum: 100,
+        number_of_samples: 100,
+        sum_squares: 100,
+        significant: true,
+        method: 'bayesian',
+        credible_interval,
+        chance_to_win: 0.75,
+        delta,
+    })
+
+    it('reports the point estimate the test produced rather than the interval midpoint', () => {
+        expect(getDelta(createResult([0.02, 0.18], 0.07))).toBe(0.07)
+    })
+
+    it('falls back to the interval midpoint for results stored before the field existed', () => {
+        expect(getDelta(createResult([0.05, 0.15]))).toBeCloseTo(0.1)
+    })
+
+    it('returns 0 when there is neither an estimate nor an interval', () => {
+        expect(getDelta(createResult(undefined))).toBe(0)
     })
 })
 

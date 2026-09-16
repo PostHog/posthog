@@ -427,3 +427,21 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         assert cuped_interval is not None
         # Variance reduction shrinks the interval; equality only happens when θ = 0.
         self.assertLess(cuped_interval[1] - cuped_interval[0], no_cuped_interval[1] - no_cuped_interval[0])
+
+        no_cuped_variant = no_cuped_result.variant_results[0]
+        cuped_variant = cuped_result.variant_results[0]
+        assert no_cuped_variant.cuped_adjusted is False
+        assert cuped_variant.cuped_adjusted is True
+
+        # Without CUPED the delta is the relative difference of the means the results table prints,
+        # so the two columns cannot contradict each other.
+        baseline = no_cuped_result.baseline
+        assert baseline is not None
+        control_mean = baseline.sum / baseline.number_of_samples
+        test_mean = no_cuped_variant.sum / no_cuped_variant.number_of_samples
+        assert no_cuped_variant.delta is not None
+        self.assertAlmostEqual(no_cuped_variant.delta, (test_mean - control_mean) / control_mean, places=10)
+
+        assert cuped_variant.delta is not None
+        self.assertGreaterEqual(cuped_variant.delta, cuped_interval[0])
+        self.assertLessEqual(cuped_variant.delta, cuped_interval[1])

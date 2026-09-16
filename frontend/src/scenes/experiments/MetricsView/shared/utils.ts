@@ -172,7 +172,28 @@ export function formatPValue(pValue: number | null | undefined): string {
     return pValue.toFixed(3)
 }
 
-export function formatChanceToWin(chanceToWin: number | null | undefined): string {
+const CHANCE_TO_WIN_MAX_DECIMALS = 4
+
+/**
+ * Picks how many decimals keep the printed value on the same side of the decision thresholds as the
+ * raw one. Without this, rounding can print a number that reads as decisive next to a "Not
+ * significant" tag, or the reverse: at a 99% credible level, a 98.96% chance to win prints as 99.0%.
+ */
+function chanceToWinDecimals(chanceToWin: number, baseDecimals: number, ciLevel: number | undefined): number {
+    if (ciLevel == null) {
+        return baseDecimals
+    }
+    const thresholds = [ciLevel, 1 - ciLevel]
+    for (let decimals = baseDecimals; decimals < CHANCE_TO_WIN_MAX_DECIMALS; decimals++) {
+        const rounded = Number((chanceToWin * 100).toFixed(decimals)) / 100
+        if (thresholds.every((threshold) => Math.sign(chanceToWin - threshold) === Math.sign(rounded - threshold))) {
+            return decimals
+        }
+    }
+    return CHANCE_TO_WIN_MAX_DECIMALS
+}
+
+export function formatChanceToWin(chanceToWin: number | null | undefined, ciLevel?: number): string {
     if (chanceToWin == null) {
         return '—'
     }
@@ -180,14 +201,15 @@ export function formatChanceToWin(chanceToWin: number | null | undefined): strin
     // Convert to percentage and format
     const percentage = chanceToWin * 100
 
-    if (percentage >= 99.9) {
+    // The rails read as decisive, so only use them where they cannot straddle the decision threshold.
+    const railsSafe = ciLevel == null || ciLevel < 0.999
+    if (railsSafe && percentage >= 99.9) {
         return '> 99.9%'
-    } else if (percentage <= 0.1) {
+    } else if (railsSafe && percentage <= 0.1) {
         return '< 0.1%'
-    } else if (percentage < 1) {
-        return percentage.toFixed(2) + '%'
     }
-    return percentage.toFixed(1) + '%'
+    const baseDecimals = percentage < 1 ? 2 : 1
+    return percentage.toFixed(chanceToWinDecimals(chanceToWin, baseDecimals, ciLevel)) + '%'
 }
 
 export function isBayesianResult(result: ExperimentVariantResult): result is ExperimentVariantResultBayesian {
@@ -225,13 +247,29 @@ export function formatIntervalPercent(result: ExperimentVariantResult): string {
     return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
 }
 
+/**
+ * The delta is the point estimate of the test that produced the interval, which is what the chart
+ * and the significance decision are built on. Older stored results (timeseries snapshots) predate
+ * the field, so fall back to the interval midpoint. Both constructions are symmetric about it.
+ */
 export function getDelta(result: ExperimentVariantResult): number {
+    if (result.delta != null) {
+        return result.delta
+    }
     const interval = getVariantInterval(result)
     if (!interval) {
         return 0
     }
     const [lower, upper] = interval
     return (lower + upper) / 2
+}
+
+/**
+ * CUPED rescales both variants against a pre-exposure covariate before the test runs, so the delta
+ * is not the difference of the raw values printed in the value column. Callers label it.
+ */
+export function isCupedAdjusted(result: ExperimentVariantResult): boolean {
+    return result.cuped_adjusted === true
 }
 
 export function getDeltaPercent(result: ExperimentVariantResult): number {
@@ -344,7 +382,7 @@ export function formatChanceToWinForGoal(
     goal: ExperimentMetricGoal | undefined
 ): string {
     const chanceToWin = getChanceToWin(result, goal)
-    return formatChanceToWin(chanceToWin)
+    return formatChanceToWin(chanceToWin, isBayesianResult(result) ? result.ci_level : undefined)
 }
 
 export interface MetricColors {

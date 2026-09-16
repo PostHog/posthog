@@ -7,12 +7,14 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
+import { CupedAdjustedTag } from '~/scenes/experiments/MetricsView/shared/CupedAdjustedTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
     formatDeltaPercent,
     formatMetricValue,
     isBayesianResult,
+    isCupedAdjusted,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 
 type NotebookCompactTableProps = {
@@ -42,12 +44,19 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
                     <div className="flex flex-col">
                         <span className="font-semibold">{value}</span>
                         {delta && (
-                            <span
-                                className={`text-xs ${
-                                    delta.startsWith('+') ? 'text-success' : delta.startsWith('-') ? 'text-danger' : ''
-                                }`}
-                            >
-                                {delta}
+                            <span className="flex items-center gap-1">
+                                <span
+                                    className={`text-xs ${
+                                        delta.startsWith('+')
+                                            ? 'text-success'
+                                            : delta.startsWith('-')
+                                              ? 'text-danger'
+                                              : ''
+                                    }`}
+                                >
+                                    {delta}
+                                </span>
+                                {isCupedAdjusted(item) && <CupedAdjustedTag />}
                             </span>
                         )}
                         {item.isBaseline && <span className="text-xs text-muted">Baseline</span>}

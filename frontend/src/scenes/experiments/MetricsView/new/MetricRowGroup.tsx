@@ -32,6 +32,7 @@ import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEm
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
+import { CupedAdjustedTag } from '~/scenes/experiments/MetricsView/shared/CupedAdjustedTag'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import {
@@ -49,6 +50,7 @@ import {
     getMetricSubtitleValues,
     getNiceTickValues,
     isBayesianResult,
+    isCupedAdjusted,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -352,6 +354,7 @@ function CollapsibleBreakdownSection({
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)
                                                                     const deltaText = formatDeltaPercent(variant)
+                                                                    const cupedAdjusted = isCupedAdjusted(variant)
                                                                     const rowBackgroundColor = significant
                                                                         ? winning
                                                                             ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
@@ -419,6 +422,9 @@ function CollapsibleBreakdownSection({
                                                                                     >
                                                                                         {deltaText}
                                                                                     </span>
+                                                                                    {cupedAdjusted && (
+                                                                                        <CupedAdjustedTag />
+                                                                                    )}
                                                                                     {significant &&
                                                                                         deltaPositive !== undefined && (
                                                                                             <span
@@ -1124,6 +1130,7 @@ export function MetricRowGroup({
                 const deltaPositive = isDeltaPositive(variant)
                 const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
+                const cupedAdjusted = isCupedAdjusted(variant)
                 const rowBackgroundColor = significant
                     ? winning
                         ? `${colors.BAR_POSITIVE}${SIGNIFICANT_ROW_BG_ALPHA}`
@@ -1182,6 +1189,7 @@ export function MetricRowGroup({
                                 >
                                     {deltaText}
                                 </span>
+                                {cupedAdjusted && <CupedAdjustedTag />}
                                 {significant && deltaPositive !== undefined && (
                                     <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
