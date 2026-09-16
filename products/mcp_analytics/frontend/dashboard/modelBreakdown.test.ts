@@ -9,10 +9,10 @@ describe('model breakdown', () => {
 
     it('keeps unknown calls in coverage and the denominator while ranking named models before Other', () => {
         const rows = [
-            { model: 'Unknown', total_calls: 50 },
-            { model: 'Other', total_calls: 30 },
-            { model: 'example-small', total_calls: 5 },
-            { model: 'example-large', total_calls: 15 },
+            { model: 'Unknown', total_calls: 50, errors: 0, error_rate_pct: 0 },
+            { model: 'Other', total_calls: 30, errors: 0, error_rate_pct: 0 },
+            { model: 'example-small', total_calls: 5, errors: 0, error_rate_pct: 0 },
+            { model: 'example-large', total_calls: 15, errors: 0, error_rate_pct: 0 },
         ]
         const summary = summarizeModelBreakdown(rows)
 
@@ -27,13 +27,13 @@ describe('model breakdown', () => {
     it.each([
         { rows: [], totalCalls: 0, unknownCalls: 0, identifiedShare: 0 },
         {
-            rows: [{ model: 'Unknown', total_calls: 12 }],
+            rows: [{ model: 'Unknown', total_calls: 12, errors: 0, error_rate_pct: 0 }],
             totalCalls: 12,
             unknownCalls: 12,
             identifiedShare: 0,
         },
         {
-            rows: [{ model: 'example-model', total_calls: 12 }],
+            rows: [{ model: 'example-model', total_calls: 12, errors: 0, error_rate_pct: 0 }],
             totalCalls: 12,
             unknownCalls: 0,
             identifiedShare: 100,

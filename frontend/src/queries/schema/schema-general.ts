@@ -3440,6 +3440,8 @@ export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarn
 export interface MCPModelBreakdownItem {
     model: string
     total_calls: integer
+    errors: integer
+    error_rate_pct: number
 }
 
 export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
