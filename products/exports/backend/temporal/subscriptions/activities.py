@@ -5,7 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
-from django.db.models import F, Q, Window
+from django.db.models import Count, F, Q, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone as tz
 
@@ -313,9 +313,10 @@ async def fetch_due_subscriptions_page_activity(
                 | Q(next_delivery_date=cursor_date, id__gt=inputs.cursor.subscription_id)
             )
 
-        remaining_before_page = subscriptions_query.count()
-        rows = list(
-            subscriptions_query.order_by("next_delivery_date", "id").values(
+        fetched_rows = list(
+            subscriptions_query.annotate(_remaining_count=Window(expression=Count("id")))
+            .order_by("next_delivery_date", "id")
+            .values(
                 "id",
                 "team_id",
                 "created_by__distinct_id",
@@ -323,8 +324,11 @@ async def fetch_due_subscriptions_page_activity(
                 "insight_id",
                 "dashboard_id",
                 "prompt",
-            )[: inputs.page_size]
+                "_remaining_count",
+            )[: inputs.page_size + 1]
         )
+        remaining_before_page = fetched_rows[0]["_remaining_count"] if fetched_rows else 0
+        rows = fetched_rows[: inputs.page_size]
         subscriptions = [
             DueSubscription(
                 subscription_id=sub["id"],
@@ -338,13 +342,14 @@ async def fetch_due_subscriptions_page_activity(
             for sub in rows
         ]
         remaining_after_page = max(0, remaining_before_page - len(subscriptions))
+        has_more = len(fetched_rows) > inputs.page_size
         last_row = rows[-1] if rows else None
         next_cursor = (
             SubscriptionSchedulerCursor(
                 next_delivery_date=typing.cast(datetime, last_row["next_delivery_date"]).isoformat(),
                 subscription_id=last_row["id"],
             )
-            if last_row is not None and remaining_after_page > 0
+            if last_row is not None and has_more
             else None
         )
         return (

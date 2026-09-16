@@ -269,29 +269,35 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         failed_ids: list[int] = []
         started_count = 0
         already_running_count = 0
+        start_tasks = []
         for sub in page.subscriptions:
             workflow, child_id = _subscription_child_workflow(sub)
-            try:
-                await temporalio.workflow.start_child_workflow(
+            start_tasks.append(
+                temporalio.workflow.start_child_workflow(
                     workflow,
                     _tracked_subscription_inputs(sub),
                     id=child_id,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
                 )
-                started_count += 1
-            except WorkflowAlreadyStartedError:
+            )
+
+        start_results = await asyncio.gather(*start_tasks, return_exceptions=True)
+        for sub, result in zip(page.subscriptions, start_results):
+            if isinstance(result, WorkflowAlreadyStartedError):
                 already_running_count += 1
                 temporalio.workflow.logger.info(
                     "process_subscription.already_running",
                     extra={"subscription_id": sub.subscription_id},
                 )
-            except Exception as error:
+            elif isinstance(result, BaseException):
                 failed_ids.append(sub.subscription_id)
                 temporalio.workflow.logger.warning(
                     "process_subscription.child_workflow_start_error",
-                    extra={"subscription_id": sub.subscription_id, "error": str(error)},
+                    extra={"subscription_id": sub.subscription_id, "error": str(result)},
                 )
+            else:
+                started_count += 1
 
         total_count = inputs.total_count if inputs.total_count is not None else page.total_count
         processed_count = inputs.processed_count + len(page.subscriptions) - len(failed_ids)

@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -49,6 +50,54 @@ async def test_scheduler_page_fetch_rejects_non_positive_limits(page_size: int) 
     assert error.value.non_retryable is True
 
 
+@pytest.mark.asyncio
+async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> None:
+    due_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+    rows = [
+        {
+            "id": subscription_id,
+            "team_id": 42,
+            "created_by__distinct_id": "user-1",
+            "next_delivery_date": due_at,
+            "insight_id": subscription_id,
+            "dashboard_id": None,
+            "prompt": None,
+            "_remaining_count": 3,
+        }
+        for subscription_id in range(1, 4)
+    ]
+    queryset = MagicMock()
+    queryset.exclude.return_value = queryset
+    queryset.annotate.return_value = queryset
+    queryset.order_by.return_value = queryset
+    queryset.values.return_value = queryset
+    queryset.count.return_value = 2
+    queryset.__getitem__.side_effect = lambda page: rows[page]
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.Subscription.objects.filter",
+            return_value=queryset,
+        ),
+        patch("products.exports.backend.temporal.subscriptions.activities.record_scheduler_fetch"),
+    ):
+        result = await ActivityEnvironment().run(
+            fetch_due_subscriptions_page_activity,
+            FetchDueSubscriptionsPageActivityInputs(
+                due_before="2026-09-11T12:15:00+00:00",
+                page_size=2,
+            ),
+        )
+
+    assert [subscription.subscription_id for subscription in result.subscriptions] == [1, 2]
+    assert result.total_count == 3
+    assert result.remaining_count == 1
+    assert result.next_cursor == SubscriptionSchedulerCursor(
+        next_delivery_date=due_at.isoformat(),
+        subscription_id=2,
+    )
+
+
 def test_scheduler_parse_inputs_restores_continue_as_new_cursor() -> None:
     parsed = ScheduleAllSubscriptionsWorkflow.parse_inputs(
         [
@@ -76,7 +125,7 @@ def test_scheduler_parse_inputs_restores_continue_as_new_cursor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scheduler_dispatches_one_page_and_continues_with_progress() -> None:
+async def test_scheduler_dispatches_page_concurrently_and_continues_with_progress() -> None:
     subscriptions = [
         DueSubscription(
             subscription_id=subscription_id,
@@ -99,7 +148,18 @@ async def test_scheduler_dispatches_one_page_and_continues_with_progress() -> No
             remaining_count=150,
         )
     )
-    start_child = AsyncMock(return_value=MagicMock())
+    all_starts_submitted = asyncio.Event()
+    submitted_count = 0
+
+    async def start_after_all_submitted(*_args, **_kwargs):
+        nonlocal submitted_count
+        submitted_count += 1
+        if submitted_count == len(subscriptions):
+            all_starts_submitted.set()
+        await all_starts_submitted.wait()
+        return MagicMock()
+
+    start_child = AsyncMock(side_effect=start_after_all_submitted)
     execute_child = AsyncMock()
     continue_as_new = MagicMock()
     record_progress = MagicMock()
@@ -131,8 +191,11 @@ async def test_scheduler_dispatches_one_page_and_continues_with_progress() -> No
         ),
         patch("products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.logger.info"),
     ):
-        await ScheduleAllSubscriptionsWorkflow().run(
-            ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
+        await asyncio.wait_for(
+            ScheduleAllSubscriptionsWorkflow().run(
+                ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
+            ),
+            timeout=1,
         )
 
     assert start_child.await_count == 100
