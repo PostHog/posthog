@@ -349,7 +349,13 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
-PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
+
+**pnpm on a `depot-*` runner uses Depot Cache, not GitHub Actions cache.** Depot transparently handles the `actions/cache` API calls made by `pnpm-install`.
+`pnpm-store-cache.yml` warms two separate backends: Depot Cache on its `depot-*` matrix leg and GitHub Actions cache on its `ubuntu-*` leg.
+Never use GitHub's cache API, usage total, or 10 GB limit to diagnose pnpm caching on Depot jobs, and do not propose migrating those jobs to Depot Cache: they already use it.
+Inspect Depot's cache data for Depot jobs and GitHub's cache data only for GitHub-hosted jobs.
+Keep the pnpm writer master-only because Depot Cache is repository-scoped and has no branch isolation.
+PR-scoped writes on GitHub-hosted runners still fragment GitHub's 10 GB LRU cache.
 
 **Any job that runs `manage.py migrate` against a fresh Postgres must restore the master schema dump first**, keeping the migrate as a seconds-long top-up.
 A from-scratch replay of the full migration history grows with every migration merged and already costs more than most jobs' `timeout-minutes`, so an uncached migrate is a timeout that hasn't fired yet ([agent-skills cancelled at 30 min with the checks green](https://github.com/PostHog/posthog/actions/runs/32250956659/job/96061773764)).
