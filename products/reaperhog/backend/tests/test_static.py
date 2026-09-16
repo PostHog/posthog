@@ -43,6 +43,8 @@ def test_find_knip_workspaces_walks_up_from_the_scope(tmp_path: Path) -> None:
     assert find_knip_workspaces(tmp_path, "products/desktop/apps/code") == [tmp_path / "products/desktop"]
     assert find_knip_workspaces(tmp_path, "products/other") == []
     assert find_knip_workspaces(tmp_path, None) == [tmp_path / "products/desktop"]
+    # A scope above a workspace has to look down as well as up.
+    assert find_knip_workspaces(tmp_path, "products") == [tmp_path / "products/desktop"]
 
 
 def test_find_knip_workspaces_refuses_a_scope_outside_the_checkout(tmp_path: Path) -> None:
