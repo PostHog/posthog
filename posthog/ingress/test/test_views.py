@@ -1,15 +1,21 @@
 import hmac
 import json
-from typing import cast
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
+from typing import Any, cast
+from urllib.parse import urlencode
 
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import structlog.testing
 from parameterized import parameterized
 from requests import RequestException
+from rest_framework.request import Request as DRFRequest
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -19,6 +25,7 @@ from posthog.ingress.github.provider import GitHubProvider, build_github_provide
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.providers import WebhookProvider
 from posthog.ingress.slack.provider import build_slack_provider
+from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
 
@@ -43,6 +50,44 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     forward_failure_status = 502
+
+
+class _ClaimsGitHubProvider(GitHubProvider):
+    # Stands in for a scheme that checks a signed token, which names the sender before the body
+    # is parsed. The claims land in the delivery's context so the test can read them back.
+    def verify(self, request: HttpRequest) -> Verification:
+        return Verification(outcome=VerificationOutcome.VERIFIED, facts={"tenant_id": "t-1"})
+
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        return [replace(delivery, context=dict(facts)) for delivery in super().deliveries(request, payload, facts)]
+
+
+class _StubThrottle(BaseThrottle):
+    allowed = False
+    wait_seconds: float | None = None
+
+    def allow_request(self, request: DRFRequest, view: object) -> bool:
+        return self.allowed
+
+    def wait(self) -> float | None:
+        return self.wait_seconds
+
+
+class _ThrottledGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose verification is expensive enough to cap in front of, the way
+    # a JWT signing-key lookup is.
+    throttle_class = _StubThrottle
+
+
+class _ScopedThrottleGitHubProvider(GitHubProvider):
+    throttle_class = ScopedRateThrottle
+
+
+class _FormBodyGitHubProvider(GitHubProvider):
+    # Stands in for a provider that posts a form rather than JSON, the way Slack's interactivity
+    # payloads and Mailgun's events do.
+    def parse(self, request: HttpRequest) -> Any:
+        return json.loads(request.POST["payload"])
 
 
 class TestWebhookView(SimpleTestCase):
@@ -73,6 +118,54 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.status_code, 405)
         secret.assert_not_called()
         self.dispatcher.dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_throttle_that_says_how_long", 30.4, "31"),
+            ("a_throttle_that_does_not", None, None),
+        ]
+    )
+    def test_a_throttled_request_is_429_before_any_signature_is_checked(
+        self, _name: str, wait_seconds: float | None, retry_after: str | None
+    ) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET) as secret,
+            patch.object(_StubThrottle, "wait_seconds", wait_seconds),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+        ):
+            response = build_webhook_view(_ThrottledGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers.get("Retry-After"), retry_after)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["throttled"])
+        # The cap is worth having only if it lands before the signing key is read.
+        secret.assert_not_called()
+        self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_scoped_throttle_is_refused_when_the_view_is_built(self) -> None:
+        with self.assertRaises(TypeError) as raised:
+            build_webhook_view(_ScopedThrottleGitHubProvider("posthog"))
+
+        # A scoped throttle finds no scope here and permits everything, so the endpoint would
+        # look capped and answer 202 to every request.
+        self.assertIn("github/posthog", str(raised.exception))
+        self.assertIn("ScopedRateThrottle", str(raised.exception))
+
+    def test_a_throttle_that_allows_the_request_changes_nothing(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch.object(_StubThrottle, "allowed", True),
+        ):
+            response = build_webhook_view(_ThrottledGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        self.dispatcher.dispatch.assert_called_once()
 
     def test_a_bad_signature_is_403_and_never_reaches_a_consumer(self) -> None:
         body = json.dumps({"action": "opened"}).encode()
@@ -120,6 +213,15 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(delivery.event_type, "pull_request")
         self.assertEqual(delivery.delivery_id, "delivery-1")
         self.assertEqual(delivery.context, {"installation_id": "42"})
+
+    def test_what_the_signature_check_proved_reaches_deliveries(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-GitHub-Event": "issues"})
+
+        response = build_webhook_view(_ClaimsGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.dispatcher.dispatch.call_args.args[0].context, {"tenant_id": "t-1"})
 
     def test_a_batched_body_becomes_several_deliveries_that_share_one_budget(self) -> None:
         body = json.dumps([{"event": "document_state_changed"}, {"event": "document_state_changed"}]).encode()
@@ -169,6 +271,23 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.content, b"")
         self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_parse_override_reads_a_form_body_and_still_reaches_deliveries(self) -> None:
+        body = urlencode({"payload": json.dumps({"action": "opened", "installation": {"id": 42}})}).encode()
+        request = self.factory.post(
+            "/webhooks/github/",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            headers={"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "pull_request"},
+        )
+
+        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+            response = build_webhook_view(_FormBodyGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        delivery = self.dispatcher.dispatch.call_args.args[0]
+        self.assertEqual(delivery.payload, {"action": "opened", "installation": {"id": 42}})
+        self.assertEqual(delivery.context, {"installation_id": "42"})
 
     def test_slack_url_verification_echoes_the_challenge_before_dispatch(self) -> None:
         body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()

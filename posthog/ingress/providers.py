@@ -6,15 +6,18 @@ not import a product, and it must stay cheap to import, because the registry imp
 one of these on the first delivery.
 """
 
+import json
 import importlib
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse
 
+from rest_framework.throttling import BaseThrottle
+
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
-from posthog.ingress.verify.schemes import SignatureScheme, VerificationOutcome
+from posthog.ingress.verify.schemes import SignatureScheme, Verification
 
 # Every incarnation module, imported lazily. An incarnation exposes `SPECS` (what it accepts)
 # and may expose `CORE_CONSUMERS` (consumers core owns rather than a product).
@@ -25,6 +28,14 @@ _INCARNATION_MODULES = (
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
 )
+
+
+class InvalidPayload(Exception):
+    """A body the provider could not decode.
+
+    Carries the decoder's own message, which the view logs and never answers with: what the
+    parser tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    """
 
 
 class WebhookProvider(ABC):
@@ -40,6 +51,12 @@ class WebhookProvider(ABC):
     invalid_signature_status: int = 403
     unconfigured_status: int = 500
     success_status: int = 202
+    # A DRF throttle the view runs in front of verification, for a public endpoint whose
+    # verification is expensive: Teams signs with a JWT, so the first thing an unsigned request
+    # costs is a signing-key lookup. `None` runs no throttle, which is right for an endpoint
+    # whose verification is a local HMAC. It must be a fixed-rate throttle: `build_webhook_view`
+    # refuses a `ScopedRateThrottle`, whose scope lives on a view this one does not have.
+    throttle_class: type[BaseThrottle] | None = None
     # Answered instead of the receipt when the forward to the owning region fails, so a provider
     # that redelivers on a non-2xx tries again (Slack does, GitHub does not). `None` keeps the
     # receipt. This is the one documented exception to "consumers never decide the response": the
@@ -54,11 +71,28 @@ class WebhookProvider(ABC):
         """The signature scheme for this app's secret."""
 
     @abstractmethod
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
-        """Read zero or more deliveries out of one verified, parsed request."""
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
+        """Read zero or more deliveries out of one verified, parsed request.
 
-    def verify(self, request: HttpRequest) -> VerificationOutcome:
+        `facts` is what the signature scheme proved on the way, such as a signed token's
+        verified claims. It is empty for a scheme that only checks an HMAC.
+        """
+
+    def verify(self, request: HttpRequest) -> Verification:
         return self.scheme().verify(body=request.body, headers=request.headers)
+
+    def parse(self, request: HttpRequest) -> Any:
+        """Decode the verified body into the value `deliveries` reads.
+
+        JSON is the default because every provider here posts JSON. A provider that posts a
+        form instead (Slack interactivity, Mailgun) overrides this and reads `request.POST`.
+        Raise `InvalidPayload` for a body this provider cannot read, and the view answers 400.
+        """
+        try:
+            # RecursionError: deeply nested JSON must answer 400, not 500.
+            return json.loads(request.body)
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as error:
+            raise InvalidPayload(str(error)) from error
 
     def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
         """A handshake the protocol demands, answered before any consumer runs.
