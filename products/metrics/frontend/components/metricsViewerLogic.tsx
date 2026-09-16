@@ -58,7 +58,6 @@ import { METRICS_PANELS } from '../panels/registry'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
-import { METRICS_PANELS } from '../panels/registry'
 
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
