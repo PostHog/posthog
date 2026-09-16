@@ -10,15 +10,15 @@ import { urls } from 'scenes/urls'
 
 import type { PullRequestTimelinesApi } from '../generated/api.schemas'
 import { compactAgeLabel, compactUsd } from '../lib/format'
+import { DayViewAlignment, DayViewGroup, DayViewRow, rowOrigin } from '../lib/pullRequestDayView'
 import {
     DAY_START_HOUR,
-    DayViewAlignment,
-    DayViewGroup,
-    DayViewRow,
+    NIGHT_START_HOUR,
     SEGMENT_KIND_STYLES,
-    rowOrigin,
+    TIMELINE_TIME_FORMAT,
     segmentBackground,
-} from '../lib/pullRequestDayView'
+    timeAxis,
+} from '../lib/pullRequestTimeline'
 import { withCurrentScope } from '../lib/scope'
 import { PullRequestTimelineLegend } from './PullRequestTimelineLegend'
 import { PullRequestTimelineTrack } from './PullRequestTimelineTrack'
@@ -43,8 +43,8 @@ function DayViewRowItem({
     const highlight = SEGMENT_KIND_STYLES[row.highlightKind]
     const hover = [
         pr.title,
-        `timeline from ${dayjs(pr.started_at).format('ddd D MMM HH:mm')}`,
-        pluralize(pr.pushes, 'push', 'pushes'),
+        `timeline from ${dayjs(pr.started_at).format(TIMELINE_TIME_FORMAT)}`,
+        pluralize(pr.pushes.length, 'push', 'pushes'),
         pr.estimated_cost_usd != null ? `CI cost ${compactUsd(pr.estimated_cost_usd)}` : null,
     ]
         .filter(Boolean)
@@ -65,8 +65,7 @@ function DayViewRowItem({
             </Tooltip>
             <PullRequestTimelineTrack
                 pr={pr}
-                fromMs={origin.valueOf()}
-                toMs={origin.add(days, 'day').valueOf()}
+                axis={timeAxis(origin.valueOf(), origin.add(days, 'day').valueOf())}
                 className="h-3.5"
             />
             <span className="text-right text-[11px] tabular-nums text-tertiary">
@@ -115,7 +114,7 @@ export function PullRequestDayView({
                 <PullRequestTimelineLegend />
                 <div className="flex items-center gap-2">
                     <Tooltip
-                        title={`${alignmentNote} Shaded: nights 22:00 to 06:00 and weekends, in your time zone. The axis stretches to fit 90% of the pull requests; longer bars end in ›.`}
+                        title={`${alignmentNote} Shaded: nights ${NIGHT_START_HOUR}:00 to ${DAY_START_HOUR}:00 and weekends, in your time zone. The axis stretches to fit 90% of the pull requests; longer bars end in ›.`}
                     >
                         <span className="cursor-default text-[11px] text-tertiary">
                             axis fits {pluralize(days, 'day')}
@@ -141,9 +140,7 @@ export function PullRequestDayView({
                 </div>
             ) : groups.length === 0 ? (
                 <div className="py-6 text-center text-xs text-secondary">
-                    {timelines?.scope_kind === 'github_team' && !timelines.has_membership_data
-                        ? 'Team pull requests appear once the team members table on this GitHub source is synced.'
-                        : 'No open pull requests, and nothing merged in the window.'}
+                    No open pull requests, and nothing merged in the window.
                 </div>
             ) : (
                 <>

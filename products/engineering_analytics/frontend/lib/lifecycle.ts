@@ -1,5 +1,3 @@
-// Workflow run shapes and conclusion rules shared by the CI views.
-
 import type { PRLifecycleEventApi } from '../generated/api.schemas'
 
 export interface WorkflowRun {

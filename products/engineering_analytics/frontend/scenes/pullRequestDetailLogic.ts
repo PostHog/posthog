@@ -11,20 +11,21 @@ import {
     engineeringAnalyticsPrCost,
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
+    engineeringAnalyticsPullRequestTimelines,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
 import type {
     CIFailureLogsApi,
     PRCostSummaryApi,
     PRLifecycleApi,
+    PRTimelineApi,
+    PullRequestTimelinesApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
-import { DeliveryScope } from '../lib/deliveryScope'
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import { WorkflowRun, isDecisiveFailure, isPassingConclusion } from '../lib/lifecycle'
-import { TimelinePush } from '../lib/pullRequestTimeline'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -163,7 +164,6 @@ export interface pullRequestDetailLogicValues {
     authoredRuns: WorkflowRunDetailApi[]
     breadcrumbs: Breadcrumb[]
     commitGroups: PrCommitRuns[]
-    deliveryScope: DeliveryScope
     expandedRunKeys: string[]
     failingJobLabelByWorkflow: Record<string, string>
     failureLogs: CIFailureLogsApi | 'unavailable' | null
@@ -196,7 +196,10 @@ export interface pullRequestDetailLogicValues {
     runJobsLoading: boolean
     runs: WorkflowRun[]
     sourceId: string | null
-    timelinePushes: TimelinePush[]
+    timeline: PRTimelineApi | null
+    timelines: PullRequestTimelinesApi | null
+    timelinesFailed: boolean
+    timelinesLoading: boolean
     workflowFilter: string
 }
 
@@ -286,6 +289,21 @@ export interface pullRequestDetailLogicActions {
         prRuns: WorkflowRunDetailApi[]
         payload?: any
     }
+    loadTimelines: () => any
+    loadTimelinesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTimelinesSuccess: (
+        timelines: PullRequestTimelinesApi,
+        payload?: any
+    ) => {
+        timelines: PullRequestTimelinesApi
+        payload?: any
+    }
     setRunExpanded: (
         rowKey: string,
         expanded: boolean,
@@ -309,7 +327,6 @@ export interface pullRequestDetailLogicMeta {
         sourceId: (arg: string | null) => string | null
         repoOwner: (arg: string) => string
         repoName: (arg: string) => string
-        deliveryScope: (repoOwner: string, repoName: string, arg: number) => DeliveryScope
         runs: (prRuns: WorkflowRunDetailApi[]) => WorkflowRun[]
         commitGroups: (prRuns: WorkflowRunDetailApi[]) => PrCommitRuns[]
         filteredCommitGroups: (commitGroups: PrCommitRuns[], workflowFilter: string) => PrCommitRuns[]
@@ -331,7 +348,7 @@ export interface pullRequestDetailLogicMeta {
         authoredRuns: (prRuns: WorkflowRunDetailApi[]) => WorkflowRunDetailApi[]
         pushes: (authoredRuns: WorkflowRunDetailApi[]) => number
         rerunCycles: (authoredRuns: WorkflowRunDetailApi[]) => number
-        timelinePushes: (authoredRuns: WorkflowRunDetailApi[]) => TimelinePush[]
+        timeline: (timelines: PullRequestTimelinesApi | null) => PRTimelineApi | null
         breadcrumbs: (repoOwner: string, repoName: string, number: number) => Breadcrumb[]
     }
 }
@@ -377,6 +394,17 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             {
                 loadPrRuns: async (): Promise<WorkflowRunDetailApi[]> =>
                     await engineeringAnalyticsPrRuns(projectId(), {
+                        pr_number: props.number,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        timelines: [
+            null as PullRequestTimelinesApi | null,
+            {
+                loadTimelines: async (): Promise<PullRequestTimelinesApi> =>
+                    await engineeringAnalyticsPullRequestTimelines(projectId(), {
                         pr_number: props.number,
                         repo: `${props.repoOwner}/${props.repoName}`,
                         source_id: props.sourceId ?? undefined,
@@ -453,6 +481,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadPrRunsFailure: () => true,
             },
         ],
+        timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
         expandedRunKeys: [
             [] as string[],
             {
@@ -496,15 +525,6 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (repoOwner: string): string => repoOwner,
         ],
         repoName: [() => [(_, p: PullRequestDetailLogicProps) => p.repoName], (repoName: string): string => repoName],
-        // Memoized, so the timelines logic keyed by this scope sees one stable object per pull request.
-        deliveryScope: [
-            (s) => [s.repoOwner, s.repoName, (_, p: PullRequestDetailLogicProps) => p.number],
-            (repoOwner: string, repoName: string, number: number): DeliveryScope => ({
-                kind: 'pull_request',
-                prNumber: number,
-                repo: `${repoOwner}/${repoName}`,
-            }),
-        ],
         runs: [(s) => [s.prRuns], (prRuns: WorkflowRunDetailApi[]): WorkflowRun[] => prRuns.map(toWorkflowRun)],
         commitGroups: [
             (s) => [s.prRuns],
@@ -632,20 +652,10 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (authoredRuns: WorkflowRunDetailApi[]): number =>
                 authoredRuns.filter((run) => (run.run_attempt ?? 1) > 1).length,
         ],
-        // Each push at the start of its first CI run. Merge queue runs stay out: the queue pushed those, not the
-        // author. Re-runs stay out too: the runs read is capped, so a push can survive only through a later re-run.
-        timelinePushes: [
-            (s) => [s.authoredRuns],
-            (authoredRuns: WorkflowRunDetailApi[]): TimelinePush[] => {
-                const firstStart = new Map<string, string>()
-                for (const run of authoredRuns) {
-                    const current = firstStart.get(run.head_sha)
-                    if (run.run_attempt === 1 && run.run_started_at && (!current || run.run_started_at < current)) {
-                        firstStart.set(run.head_sha, run.run_started_at)
-                    }
-                }
-                return [...firstStart.entries()].map(([headSha, at]) => ({ headSha, at }))
-            },
+        timeline: [
+            (s) => [s.timelines],
+            (timelines: PullRequestTimelinesApi | null): PRTimelineApi | null =>
+                timelines?.items.find((item) => item.segments.length > 0) ?? null,
         ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.number],
@@ -674,6 +684,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
     afterMount(({ actions }) => {
         actions.loadLifecycle()
         actions.loadPrRuns()
+        actions.loadTimelines()
         actions.loadPrCost()
     }),
 ])

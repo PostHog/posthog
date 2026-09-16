@@ -1,6 +1,5 @@
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'
-import { dayStartsBetween } from './pullRequestDayView'
-import { timeInStates, timelineMilestones, trackAxis } from './pullRequestTimeline'
+import { paddedAxis, timeInStates, timelineMilestones, timelineSpan } from './pullRequestTimeline'
 
 const HOUR = 3600 * 1000
 // jest runs in UTC.
@@ -12,7 +11,12 @@ function at(hours: number): string {
 
 function pr(
     segments: [Kind, number, number][],
-    options: { state?: PRTimelineApi['state']; draft?: boolean; openedAtStart?: boolean } = {}
+    options: {
+        state?: PRTimelineApi['state']
+        draft?: boolean
+        openedAtStart?: boolean
+        pushes?: [string, number][]
+    } = {}
 ): PRTimelineApi {
     const state = options.state ?? 'open'
     return {
@@ -25,7 +29,7 @@ function pr(
         created_at: at(segments[0][1] - (options.openedAtStart ? 0 : 1)),
         started_at: at(segments[0][1]),
         merged_at: state === 'merged' ? at(segments[segments.length - 1][2]) : null,
-        pushes: 1,
+        pushes: (options.pushes ?? []).map(([headSha, hours]) => ({ head_sha: headSha, pushed_at: at(hours) })),
         estimated_cost_usd: null,
         billable_minutes: null,
         segments: segments.map(([kind, start, end]) => ({ kind, started_at: at(start), ended_at: at(end) })),
@@ -68,26 +72,31 @@ describe('pullRequestTimeline', () => {
                 [Kind.WaitingForReview, 0, 4],
                 [Kind.MergeQueue, 4, 5],
             ],
-            { state: 'merged' }
+            {
+                state: 'merged',
+                pushes: [
+                    ['aaaaaaaaaa', -2],
+                    ['bbbbbbbbbb', 0],
+                    ['cccccccccc', 2],
+                    ['dddddddddd', 6],
+                ],
+            }
         )
-        const pushes = [
-            { headSha: 'aaaaaaaaaa', at: at(-2) },
-            { headSha: 'bbbbbbbbbb', at: at(0) },
-            { headSha: 'cccccccccc', at: at(2) },
-            { headSha: 'dddddddddd', at: at(6) },
-        ]
 
-        expect(timelineMilestones(merged, pushes).map((milestone) => milestone.label)).toEqual([
+        expect(timelineMilestones(merged).map((milestone) => milestone.label)).toEqual([
             'Ready for review',
             'Push ccccccc',
             'Merged',
         ])
 
-        const kicked = pr([
-            [Kind.MergeQueue, 0, 2],
-            [Kind.OutOfMergeQueue, 2, 3],
-        ])
-        expect(timelineMilestones(kicked, [{ headSha: 'eeeeeeeeee', at: at(1) }])).toEqual([
+        const kicked = pr(
+            [
+                [Kind.MergeQueue, 0, 2],
+                [Kind.OutOfMergeQueue, 2, 3],
+            ],
+            { pushes: [['eeeeeeeeee', 1]] }
+        )
+        expect(timelineMilestones(kicked)).toEqual([
             { kind: 'start', at: at(0), label: 'Ready for review' },
             { kind: 'push', at: at(1), label: 'Push eeeeeee' },
             { kind: 'out_of_queue', at: at(2), label: 'Out of the merge queue' },
@@ -104,23 +113,20 @@ describe('pullRequestTimeline', () => {
         ],
         ['is an open draft', { draft: true, openedAtStart: true }, 'Opened', undefined],
     ])('labels the ends of a pull request that %s', (_, options, startLabel, endLabel) => {
-        const milestones = timelineMilestones(pr([[Kind.Draft, 0, 3]], options), [])
+        const milestones = timelineMilestones(pr([[Kind.Draft, 0, 3]], options))
 
         expect(milestones[0].label).toBe(startLabel)
         expect(milestones.length > 1 ? milestones[milestones.length - 1].label : undefined).toBe(endLabel)
     })
 
     it('starts the axis at the day start before a small-hours start, so that night is shaded', () => {
-        const axis = trackAxis(
-            pr([[Kind.WaitingForReview, -7, 30]]) // 03:00 on Wednesday to 16:00 on Thursday
-        )
-        const dayStarts = dayStartsBetween(axis.fromMs, axis.toMs)
+        const axis = paddedAxis(timelineSpan(pr([[Kind.WaitingForReview, -7, 30]])))
 
-        expect(dayStarts.map((day) => day.toISOString())).toEqual([
+        expect(axis.dayStarts.map((day) => day.toISOString())).toEqual([
             '2026-06-30T06:00:00.000Z',
             '2026-07-01T06:00:00.000Z',
             '2026-07-02T06:00:00.000Z',
         ])
-        expect(dayStarts[0].valueOf()).toBeLessThanOrEqual(axis.fromMs)
+        expect(axis.dayStarts[0].valueOf()).toBeLessThanOrEqual(axis.fromMs)
     })
 })

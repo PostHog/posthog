@@ -139,7 +139,6 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/sources/': [
                     { id: 'src-1', repo: 'PostHog/posthog', prefix: '' },
                 ],
-                // Sibling-tab loaders mount with the scene; stub them so the story renders without error toasts.
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 0,
                     repos: 1,
@@ -181,7 +180,6 @@ export const Team: Story = {
     render: () => <App />,
 }
 
-// Without the membership snapshot a team matches no author, so the panels say so instead of showing zeros.
 export const TeamWithoutMembership: Story = {
     render: () => <App />,
     decorators: [

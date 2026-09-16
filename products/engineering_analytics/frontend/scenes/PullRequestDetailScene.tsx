@@ -45,7 +45,6 @@ import {
     pullRequestDetailLogic,
     latestRunPerWorkflow,
 } from './pullRequestDetailLogic'
-import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
 
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
     component: PullRequestDetailScene,
@@ -412,13 +411,13 @@ export function PullRequestDetailScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
-        deliveryScope,
-        timelinePushes,
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        timeline,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, setWorkflowFilter, setRunExpanded } = useActions(pullRequestDetailLogic)
-    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
-    const { timelines, timelinesLoading, timelinesFailed } = useValues(timelinesLogic)
-    const { loadTimelines } = useActions(timelinesLogic)
+    const { loadLifecycle, loadPrRuns, loadTimelines, setWorkflowFilter, setRunExpanded } =
+        useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -430,8 +429,6 @@ export function PullRequestDetailScene(): JSX.Element {
     const running = runs.filter((run) => run.conclusion === null).length
     const latestRound = commitGroups[0] ? pushRoundOf(commitGroups[0].headSha, commitGroups[0].runs) : null
     const tilesLoading = prRunsLoading && commitGroups.length === 0
-    // The pull request scope returns this pull request alone.
-    const timeline = timelines?.items.find((item) => item.segments.length > 0) ?? null
 
     if (loadFailed) {
         return (
@@ -612,10 +609,7 @@ export function PullRequestDetailScene(): JSX.Element {
                 ) : !timelines ? (
                     <LemonSkeleton className="h-40 w-full" />
                 ) : timeline ? (
-                    <PullRequestDeliveryTimeline
-                        pr={timeline}
-                        pushes={tilesLoading || prRunsFailed ? null : timelinePushes}
-                    />
+                    <PullRequestDeliveryTimeline pr={timeline} />
                 ) : (
                     <div className="text-sm text-secondary">
                         No timeline for this pull request yet. If it stays empty, check the GitHub source's sync status.

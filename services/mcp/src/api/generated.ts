@@ -56892,6 +56892,13 @@ export namespace Schemas {
       metric_quality?: MetricQualityEnum;
     }
 
+    export interface PRTimelinePush {
+      /** The pushed head commit. */
+      head_sha: string;
+      /** When the commit's first workflow run was created, which is when the commit arrived. */
+      pushed_at: string;
+    }
+
     /**
      * * `draft` - DRAFT
      * * `waiting_for_review` - WAITING_FOR_REVIEW
@@ -56949,6 +56956,8 @@ export namespace Schemas {
     export interface PRTimeline {
       /** The repository the pull request belongs to. */
       repo: RepoRef;
+      /** Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded. A PR listed for an author or a team misses pushes from more than 30 days before the window. */
+      pushes: PRTimelinePush[];
       /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
       segments: PRTimelineSegment[];
       /** Pull request number. */
@@ -56974,8 +56983,6 @@ export namespace Schemas {
          * @nullable
          */
       merged_at: string | null;
-      /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
-      pushes: number;
       /**
          * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
          * @nullable

@@ -29,6 +29,7 @@ function timeline(
     title: string,
     startedAt: string,
     steps: [PRTimelineApi['segments'][number]['kind'], number][],
+    pushes: [string, number][],
     merged: boolean
 ): PRTimelineApi {
     let cursor = 0
@@ -51,7 +52,7 @@ function timeline(
         created_at: hoursAfter(startedAt, -0.5),
         started_at: startedAt,
         merged_at: merged ? hoursAfter(startedAt, cursor) : null,
-        pushes: 2,
+        pushes: pushes.map(([headSha, hours]) => ({ head_sha: headSha, pushed_at: hoursAfter(startedAt, hours) })),
         estimated_cost_usd: 6.4,
         billable_minutes: 88,
         segments,
@@ -119,7 +120,6 @@ function timelines(item: PRTimelineApi): PullRequestTimelinesApi {
     }
 }
 
-// Monday morning to Tuesday evening: an overnight review wait, a flaky push, then the queue.
 const READY = '2026-06-29T09:40:00Z'
 const MERGED = timeline(
     4721,
@@ -136,6 +136,10 @@ const MERGED = timeline(
         ['approved_not_enqueued', 1.5],
         ['merge_queue', 0.9],
     ],
+    [
+        ['a1b2c3d4e5', -0.4],
+        ['f6e5d4c3b2', 25],
+    ],
     true
 )
 const SECOND_PUSH = hoursAfter(READY, 25)
@@ -148,7 +152,6 @@ const MERGED_RUNS: WorkflowRunDetailApi[] = [
     run(4721, 105, 'Backend CI', '9a8b7c6d5e', hoursAfter(READY, 30.5), 'success', { mergeQueue: true }),
 ]
 
-// Kicked from the merge queue on Wednesday afternoon and not added back since.
 const KICKED_READY = '2026-07-01T08:00:00Z'
 const KICKED = timeline(
     4730,
@@ -161,6 +164,10 @@ const KICKED = timeline(
         ['approved_not_enqueued', 0.5],
         ['merge_queue', 1.2],
         ['out_of_merge_queue', 20.8],
+    ],
+    [
+        ['0c1d2e3f4a', -0.3],
+        ['5b6c7d8e9f', 5],
     ],
     false
 )

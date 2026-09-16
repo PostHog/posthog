@@ -3,7 +3,6 @@ import { combineUrl } from 'kea-router'
 
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { pluralize } from 'lib/utils/strings'
@@ -18,14 +17,13 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { PullRequestDayView } from '../components/PullRequestDayView'
 import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { formatCost, formatMinutes } from '../components/runTables'
-import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
-import { DELIVERY_DATE_OPTIONS, DeliverySections } from './DeliverySections'
+import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
 
 export const scene: SceneExport<AuthorLogicProps> = {
@@ -52,8 +50,6 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
         redTime,
     } = useValues(timelinesLogic)
     const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
     const avatarUrl = timelines?.items[0]?.author.avatar_url
@@ -102,17 +98,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 authors with each other (SPEC §2). */}
             <ScopePanel
                 busy={summaryLoading || timelinesLoading || workflowCostsLoading}
-                controls={
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={DELIVERY_DATE_OPTIONS}
-                        showCustomRangeOptions={false}
-                        showRollingRangePicker={false}
-                        size="small"
-                    />
-                }
+                controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
             >
                 <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
 

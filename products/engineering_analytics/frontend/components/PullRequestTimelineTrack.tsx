@@ -1,6 +1,3 @@
-// One pull request's timeline as a track between two instants. The day view stacks one per row on a
-// shared clock, and the pull request page draws one on the pull request's own span.
-
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -9,67 +6,63 @@ import { cn } from 'lib/utils/css-classes'
 import type { PRTimelineApi } from '../generated/api.schemas'
 import { compactAgeLabel } from '../lib/format'
 import {
-    DAY_START_HOUR,
-    NIGHT_START_OFFSET_HOURS,
+    NIGHT_START_HOUR,
     SEGMENT_KIND_STYLES,
-    dayStartsBetween,
+    TIMELINE_TIME_FORMAT,
+    TimeAxis,
     secondsBetween,
     segmentBackground,
-} from '../lib/pullRequestDayView'
+    timelineSpan,
+} from '../lib/pullRequestTimeline'
 
-const TIME_FORMAT = 'ddd D MMM HH:mm'
-// Past this span a day is a few pixels wide, so shading adds page nodes and no information.
+// Past this span a day is a few pixels wide, so shading only adds DOM nodes.
 const MAX_SHADED_DAYS = 60
 
 export function PullRequestTimelineTrack({
     pr,
-    fromMs,
-    toMs,
+    axis,
     className,
 }: {
     pr: PRTimelineApi
-    fromMs: number
-    /** A timeline that runs past this ends in a clip marker. */
-    toMs: number
-    className: string
+    axis: TimeAxis
+    className?: string
 }): JSX.Element {
-    const span = toMs - fromMs
-    const clip = (ms: number): number => Math.min(Math.max(ms, fromMs), toMs)
-    const left = (ms: number): string => `${(100 * (clip(ms) - fromMs)) / span}%`
-    const width = (startMs: number, endMs: number): string => `${(100 * (clip(endMs) - clip(startMs))) / span}%`
+    const { position, width } = axis
     const segments = pr.segments
     const isOpen = pr.state === 'open'
-    // An open pull request's last segment ends now.
-    const endMs = segments.length ? dayjs(segments[segments.length - 1].ended_at).valueOf() : fromMs
+    const endMs = dayjs(timelineSpan(pr).endedAt).valueOf()
 
     return (
         <div className={cn('relative overflow-hidden rounded-sm', className)}>
-            {(dayjs(toMs).diff(fromMs, 'day') <= MAX_SHADED_DAYS ? dayStartsBetween(fromMs, toMs) : []).map((day) => {
+            {(axis.dayStarts.length <= MAX_SHADED_DAYS ? axis.dayStarts : []).map((day) => {
                 const dayMs = day.valueOf()
-                // Calendar times rather than elapsed hours, so a daylight saving day still shades 22:00 to 06:00.
+                // Calendar times, not elapsed hours, so daylight saving days still shade 22:00 to 06:00.
                 const nextDayMs = day.add(1, 'day').valueOf()
-                const nightMs = day.hour(DAY_START_HOUR + NIGHT_START_OFFSET_HOURS).valueOf()
+                const nightMs = day.hour(NIGHT_START_HOUR).valueOf()
                 return (
                     <div key={dayMs}>
                         {(day.day() === 0 || day.day() === 6) && (
                             <div
                                 className="absolute inset-y-0 bg-fill-secondary"
-                                style={{ left: left(dayMs), width: width(dayMs, nextDayMs) }}
+                                style={{ left: position(dayMs), width: width(dayMs, nextDayMs) }}
                             />
                         )}
                         <div
                             className="absolute inset-y-0 bg-fill-tertiary"
-                            style={{ left: left(nightMs), width: width(nightMs, nextDayMs) }}
+                            style={{ left: position(nightMs), width: width(nightMs, nextDayMs) }}
                         />
-                        {dayMs > fromMs && (
-                            <div className="absolute inset-y-0 w-px bg-border-primary" style={{ left: left(dayMs) }} />
+                        {dayMs > axis.fromMs && (
+                            <div
+                                className="absolute inset-y-0 w-px bg-border-primary"
+                                style={{ left: position(dayMs) }}
+                            />
                         )}
                     </div>
                 )
             })}
             {segments.map((segment, index) => {
                 const startMs = dayjs(segment.started_at).valueOf()
-                if (startMs >= toMs) {
+                if (startMs >= axis.toMs) {
                     return null
                 }
                 const live = isOpen && index === segments.length - 1
@@ -77,12 +70,12 @@ export function PullRequestTimelineTrack({
                 return (
                     <Tooltip
                         key={segment.started_at}
-                        title={`${style.label} · ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}${live ? ' so far' : ''} · from ${dayjs(segment.started_at).format(TIME_FORMAT)}`}
+                        title={`${style.label} · ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}${live ? ' so far' : ''} · from ${dayjs(segment.started_at).format(TIMELINE_TIME_FORMAT)}`}
                     >
                         <div
                             className="absolute inset-y-px min-w-0.5 rounded-sm"
                             style={{
-                                left: left(startMs),
+                                left: position(startMs),
                                 width: width(startMs, dayjs(segment.ended_at).valueOf()),
                                 ...segmentBackground(segment.kind),
                             }}
@@ -90,15 +83,15 @@ export function PullRequestTimelineTrack({
                     </Tooltip>
                 )
             })}
-            {isOpen && segments.length > 0 && endMs <= toMs && (
-                <Tooltip title={`Now, ${dayjs(endMs).format(TIME_FORMAT)}`}>
+            {isOpen && segments.length > 0 && endMs <= axis.toMs && (
+                <Tooltip title={`Now, ${dayjs(endMs).format(TIMELINE_TIME_FORMAT)}`}>
                     <div
                         className="absolute -inset-y-px w-[3px] -translate-x-px rounded-sm bg-[var(--text-3000)]"
-                        style={{ left: left(endMs) }}
+                        style={{ left: position(endMs) }}
                     />
                 </Tooltip>
             )}
-            {endMs > toMs && (
+            {endMs > axis.toMs && (
                 <span className="absolute inset-y-0 right-0 flex w-3.5 items-center justify-center bg-surface-primary text-[11px] font-bold">
                     ›
                 </span>

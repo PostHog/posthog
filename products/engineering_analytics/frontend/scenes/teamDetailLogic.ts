@@ -49,7 +49,7 @@ export interface TeamMergeTrendData {
 export interface teamDetailLogicValues {
     activity: TeamActivityData | null
     activityLoading: boolean
-    deliveryScope: DeliveryScope
+    deliveryScope: DeliveryScope | null
     healthRow: TeamCIHealthRow | null
     healthRowLoading: boolean
     mergeTrend: TeamMergeTrendData | null
@@ -122,7 +122,7 @@ export interface teamDetailLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         ownerTeam: (ownerTeam: string) => string
         sourceId: (sourceId: string | null) => string | null
-        deliveryScope: (ownerTeam: string) => DeliveryScope
+        deliveryScope: (ownerTeam: string) => DeliveryScope | null
         mergeTrendSeries: (mergeTrend: TeamMergeTrendData | null) => {
             average: number[]
             labels: string[]
@@ -216,11 +216,12 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     selectors({
         ownerTeam: [(_, p) => [p.ownerTeam], (ownerTeam: string) => ownerTeam],
         sourceId: [(_, p) => [p.sourceId], (sourceId: string | null) => sourceId],
-        /** The owners.yaml team name is the GitHub team slug, so the delivery scope takes it as it
-         *  stands. Memoized, so the delivery logics keyed by this scope see one stable object. */
+        /** owners.yaml team names are GitHub team slugs (checked by `hogli owners:lint --live`). Null for
+         *  unowned surfaces, which have no GitHub team. */
         deliveryScope: [
             (s) => [s.ownerTeam],
-            (ownerTeam: string): DeliveryScope => ({ kind: 'github_team', githubTeam: ownerTeam }),
+            (ownerTeam: string): DeliveryScope | null =>
+                ownerTeam === UNOWNED_TEAM ? null : { kind: 'github_team', githubTeam: ownerTeam },
         ],
         /** Quill-ready daily series on the backend's own day buckets. Gaps carry the last values
          *  forward: a day without merges means "nothing merged", not instant merges, so

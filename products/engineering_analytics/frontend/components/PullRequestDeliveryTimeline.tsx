@@ -1,6 +1,3 @@
-// The pull request page's timeline: the day view's states for one pull request on its own clock, with
-// its milestones and where the time went, grouped by who can move it on.
-
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,19 +7,21 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { PRTimelineApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
-import { SEGMENT_KIND_STYLES, dayStartsBetween, secondsBetween, segmentBackground } from '../lib/pullRequestDayView'
 import {
     MilestoneKind,
-    TimelinePush,
+    SEGMENT_KIND_STYLES,
+    TIMELINE_TIME_FORMAT,
+    paddedAxis,
+    secondsBetween,
+    segmentBackground,
     timeInStates,
     timelineMilestones,
+    timelineSpan,
     timelineStartLabel,
-    trackAxis,
 } from '../lib/pullRequestTimeline'
 import { PullRequestTimelineLegend } from './PullRequestTimelineLegend'
 import { PullRequestTimelineTrack } from './PullRequestTimelineTrack'
 
-const TIME_FORMAT = 'ddd D MMM HH:mm'
 const MAX_DAY_LABELS = 8
 
 const MILESTONE_STYLES: Record<MilestoneKind, { glyph: string; className: string }> = {
@@ -37,34 +36,12 @@ function endLabel(pr: PRTimelineApi): string {
     return pr.merged_at ? 'Merged' : pr.state === 'closed' ? 'Closed' : 'Now'
 }
 
-function pushMarkersNote(pr: PRTimelineApi, pushes: TimelinePush[] | null): string | null {
-    if (pushes === null) {
-        return pr.pushes > 0 ? 'Push markers appear once the CI runs below load.' : null
-    }
-    const markedPushes = new Set(pushes.map((push) => push.headSha)).size
-    return markedPushes < pr.pushes ? 'Markers show the newest pushes only.' : null
-}
-
-export function PullRequestDeliveryTimeline({
-    pr,
-    pushes,
-}: {
-    /** A timeline with at least one segment. */
-    pr: PRTimelineApi
-    /** Null until the CI runs load. The runs read is capped, so this can miss the oldest pushes. */
-    pushes: TimelinePush[] | null
-}): JSX.Element {
-    const axis = trackAxis(pr)
-    const left = (ms: number): string => `${(100 * (ms - axis.fromMs)) / (axis.toMs - axis.fromMs)}%`
-    const dayStarts = dayStartsBetween(axis.fromMs, axis.toMs)
-
+export function PullRequestDeliveryTimeline({ pr }: { pr: PRTimelineApi }): JSX.Element {
+    const span = timelineSpan(pr)
+    const axis = paddedAxis(span)
     const { wholeSeconds, groups, longest } = timeInStates(pr)
-    const milestones = timelineMilestones(pr, pushes ?? [])
-    const segments = pr.segments
-    const start = segments[0].started_at
-    const end = segments[segments.length - 1].ended_at
-    const labelStep = Math.ceil(dayStarts.length / MAX_DAY_LABELS)
-    const pushNote = pushMarkersNote(pr, pushes)
+    const milestones = timelineMilestones(pr)
+    const labelStep = Math.ceil(axis.dayStarts.length / MAX_DAY_LABELS)
 
     return (
         <LemonCard
@@ -93,7 +70,7 @@ export function PullRequestDeliveryTimeline({
             <div className="relative h-4">
                 {milestones.map((milestone, index) => {
                     const style = MILESTONE_STYLES[milestone.kind]
-                    const title = `${milestone.label} · ${dayjs(milestone.at).format(TIME_FORMAT)}`
+                    const title = `${milestone.label} · ${dayjs(milestone.at).format(TIMELINE_TIME_FORMAT)}`
                     return (
                         <Tooltip key={`${milestone.kind}-${index}`} title={title}>
                             <span
@@ -101,7 +78,7 @@ export function PullRequestDeliveryTimeline({
                                 aria-label={title}
                                 tabIndex={0}
                                 className={cn('absolute top-0 -translate-x-1/2 text-[11px] leading-4', style.className)}
-                                style={{ left: left(dayjs(milestone.at).valueOf()) }}
+                                style={{ left: axis.position(dayjs(milestone.at).valueOf()) }}
                             >
                                 {style.glyph}
                             </span>
@@ -110,15 +87,15 @@ export function PullRequestDeliveryTimeline({
                 })}
             </div>
 
-            <PullRequestTimelineTrack pr={pr} fromMs={axis.fromMs} toMs={axis.toMs} className="h-6" />
+            <PullRequestTimelineTrack pr={pr} axis={axis} className="h-6" />
 
             <div className="relative mt-1 h-4 overflow-hidden text-[10px] text-tertiary">
-                {dayStarts.map((day, index) =>
+                {axis.dayStarts.map((day, index) =>
                     day.valueOf() > axis.fromMs && index % labelStep === 0 ? (
                         <span
                             key={day.valueOf()}
                             className="absolute pl-1 whitespace-nowrap"
-                            style={{ left: left(day.valueOf()) }}
+                            style={{ left: axis.position(day.valueOf()) }}
                         >
                             {day.format('ddd D MMM')}
                         </span>
@@ -166,24 +143,27 @@ export function PullRequestDeliveryTimeline({
                     <h3 className="m-0 mb-1 text-xs font-semibold text-secondary">Milestones</h3>
                     <div className="flex justify-between gap-2">
                         <span className="text-secondary">{timelineStartLabel(pr)}</span>
-                        <span className="font-semibold tabular-nums">{dayjs(start).format(TIME_FORMAT)}</span>
+                        <span className="font-semibold tabular-nums">
+                            {dayjs(span.startedAt).format(TIMELINE_TIME_FORMAT)}
+                        </span>
                     </div>
                     <div className="flex justify-between gap-2">
                         <span className="text-secondary">{endLabel(pr)}</span>
-                        <span className="font-semibold tabular-nums">{dayjs(end).format(TIME_FORMAT)}</span>
+                        <span className="font-semibold tabular-nums">
+                            {dayjs(span.endedAt).format(TIMELINE_TIME_FORMAT)}
+                        </span>
                     </div>
                     <div className="flex justify-between gap-2">
                         <span className="text-secondary">Pushes</span>
-                        <span className="font-semibold tabular-nums">{pr.pushes}</span>
+                        <span className="font-semibold tabular-nums">{pr.pushes.length}</span>
                     </div>
-                    {pushNote && <span className="text-tertiary">{pushNote}</span>}
                 </div>
             </div>
 
             <ol className="sr-only">
-                {segments.map((segment) => (
+                {pr.segments.map((segment) => (
                     <li key={segment.started_at}>
-                        {`${SEGMENT_KIND_STYLES[segment.kind].label}, ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}, from ${dayjs(segment.started_at).format(TIME_FORMAT)}`}
+                        {`${SEGMENT_KIND_STYLES[segment.kind].label}, ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}, from ${dayjs(segment.started_at).format(TIMELINE_TIME_FORMAT)}`}
                     </li>
                 ))}
             </ol>

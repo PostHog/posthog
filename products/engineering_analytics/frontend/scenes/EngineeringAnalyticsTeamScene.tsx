@@ -135,8 +135,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 showDate={false}
             />
 
-            {/* 'unowned' is an ownership gap, not an org team. */}
-            {!isUnowned && <TeamDeliveryPanel scope={deliveryScope} sourceId={sourceId} />}
+            {deliveryScope && <TeamDeliveryPanel scope={deliveryScope} sourceId={sourceId} />}
 
             <ScopePanel
                 busy={healthRowLoading || mergeTrendLoading}

@@ -1,36 +1,24 @@
-// A team's delivery sections in their own panel. Delivery has its own window because the team page's
-// test-health endpoints cap theirs at 30 days.
+import { useValues } from 'kea'
 
-import { useActions, useValues } from 'kea'
-
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-
+import { DELIVERY_DATE_OPTIONS, ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { DeliveryScope } from '../lib/deliveryScope'
-import { DELIVERY_DATE_OPTIONS, DeliverySections } from './DeliverySections'
+import { DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 export function TeamDeliveryPanel({ scope, sourceId }: { scope: DeliveryScope; sourceId: string | null }): JSX.Element {
-    const { summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
     return (
-        <ScopePanel
-            busy={summaryLoading}
-            controls={
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                    dateOptions={DELIVERY_DATE_OPTIONS}
-                    showCustomRangeOptions={false}
-                    showRollingRangePicker={false}
-                    size="small"
-                />
-            }
-        >
-            <DeliverySections scope={scope} scopeLabel="This team" sourceId={sourceId} />
+        <ScopePanel busy={summaryLoading} controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}>
+            {/* Without the members table a team matches no author, so every figure would be a false zero. */}
+            {summary && !summary.has_membership_data ? (
+                <div className="py-8 text-center text-sm text-secondary">
+                    No team membership data. Sync the team members table on this GitHub source to see this team's
+                    delivery figures.
+                </div>
+            ) : (
+                <DeliverySections scope={scope} scopeLabel="This team" sourceId={sourceId} />
+            )}
         </ScopePanel>
     )
 }

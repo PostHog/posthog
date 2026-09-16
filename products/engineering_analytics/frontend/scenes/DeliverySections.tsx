@@ -1,9 +1,5 @@
-// The delivery sections for one author or GitHub team, inside a page's ScopePanel: CI spend, getting
-// merged, and lead time to deploy, each figure against the repository.
-
 import { useActions, useValues } from 'kea'
 
-import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -15,11 +11,6 @@ import { Section } from '../components/Section'
 import { DeliveryScope } from '../lib/deliveryScope'
 import { compactMinutes, compactUsd, percent } from '../lib/format'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-
-// Pickers offer these presets and nothing custom: the backend caps a window at a year, and every preset stays inside it.
-export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
-)
 
 const formatRatio = (value: number): string => value.toFixed(1)
 
@@ -40,16 +31,6 @@ export function DeliverySections({
 
     if (summaryFailed) {
         return <CIAnalyticsLoadError onRetry={loadSummary} />
-    }
-
-    // Without the members table a team matches no author, so every figure would read as a false zero.
-    if (summary?.scope_kind === 'github_team' && !summary.has_membership_data) {
-        return (
-            <div className="py-8 text-center text-sm text-secondary">
-                No team membership data. Sync the team members table on this GitHub source to see this team's delivery
-                figures.
-            </div>
-        )
     }
 
     const summaryPending = summaryLoading && !summary
