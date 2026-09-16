@@ -3670,7 +3670,9 @@ jobs:
                   # artifact, and the timing reporter needs both to pair a re-run recovery
                   # (attempt-N pass) with the attempt-1 failure it proves flaky.
                   name: junit-results-backend-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
-                  path: junit-*.xml
+                  path: |
+                      junit-*.xml
+                      !junit-*-retry-failures.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the

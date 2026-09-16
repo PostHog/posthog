@@ -668,6 +668,7 @@ class _JUnitTimingsPlugin:
 
         root = ET.Element("testsuites")
         root.append(suite)
+        retry_path.parent.mkdir(parents=True, exist_ok=True)
         ET.ElementTree(root).write(retry_path, encoding="utf-8", xml_declaration=True)
 
 

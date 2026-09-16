@@ -71,7 +71,7 @@ def test_retry_diagnostics_survive_a_passing_final_attempt(
 
 @pytest.mark.parametrize("when", ["setup", "call", "teardown"])
 def test_retry_failure_uses_separate_junit_file(tmp_path: Path, when: Literal["setup", "call", "teardown"]) -> None:
-    junit_path = tmp_path / "junit.xml"
+    junit_path = tmp_path / "reports" / "junit.xml"
     xml = LogXML(junit_path, prefix=None, report_duration="call")
     xml.pytest_sessionstart()
     plugin = _JUnitTimingsPlugin()
@@ -125,7 +125,7 @@ def test_retry_failure_uses_separate_junit_file(tmp_path: Path, when: Literal["s
     assert main_suite.find(".//failure") is None
     assert main_suite.find(".//error") is None
 
-    retry_suite = ElementTree.parse(tmp_path / "junit-retry-failures.xml").getroot().find("testsuite")
+    retry_suite = ElementTree.parse(junit_path.with_name("junit-retry-failures.xml")).getroot().find("testsuite")
     assert retry_suite is not None
     assert retry_suite.get("tests") == "1"
     assert retry_suite.get("failures") == ("1" if when == "call" else "0")
