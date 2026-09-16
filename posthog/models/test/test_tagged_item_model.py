@@ -120,7 +120,10 @@ class TestTaggedItemGenericColumns(BaseTest):
 
     def test_enterprise_definition_stores_the_base_content_type(self):
         """An enterprise definition must not create a second content type for its tags."""
-        from ee.models import EnterpriseEventDefinition
+        try:
+            from ee.models import EnterpriseEventDefinition
+        except ImportError:
+            self.skipTest("needs the ee app")
 
         event_definition = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
@@ -148,6 +151,16 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert by_type["event_definition"].object_uuid == event_definition.id
         assert by_type["event_definition"].content_type == ContentType.objects.get_for_model(EventDefinition)
         assert all(item.team_id == tag.team_id for item in by_type.values())
+
+    def test_bulk_create_loads_uncached_tags_once(self):
+        dashboards = [Dashboard.objects.create(team_id=self.team.id, name=f"dashboard {i}") for i in range(3)]
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        rows = [TaggedItem(tag_id=tag.id, dashboard=dashboard) for dashboard in dashboards]
+
+        with self.assertNumQueries(2):
+            TaggedItem.objects.bulk_create(rows)
+
+        assert all(row.team_id == tag.team_id for row in rows)
 
     def test_retargeting_a_row_clears_the_other_object_column(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")

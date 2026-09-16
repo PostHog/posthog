@@ -66,6 +66,8 @@ def test_inherited_models_resolve_to_their_registered_base() -> None:
     Without this resolution an enterprise definition would store its tags under a second
     content type, and they would stop matching the tags written through the base model.
     """
+    if not apps.is_installed("ee"):
+        pytest.skip("needs the ee app")
     enterprise_event_definition = apps.get_model("ee.EnterpriseEventDefinition")
     enterprise_property_definition = apps.get_model("ee.EnterprisePropertyDefinition")
 

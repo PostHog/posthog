@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin, get_current_user, get_was_impersonated
+from posthog.models.tag import Tag
 from posthog.models.tagged_item_registry import content_type_for_entry, legacy_field_for, taggable_for_legacy_field
 from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
 
@@ -53,7 +54,11 @@ class TaggedItemQuerySet(models.QuerySet):
     def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:
         """Fill the generic pointer on each row, because bulk_create never calls save()."""
         objs = list(objs)
+        uncached_tag_ids = {obj.tag_id for obj in objs if not TaggedItem.tag.is_cached(obj)}
+        tags = Tag.objects.in_bulk(uncached_tag_ids) if uncached_tag_ids else {}
         for obj in objs:
+            if obj.tag_id in tags:
+                obj.tag = tags[obj.tag_id]
             obj.sync_generic_columns()
         return super().bulk_create(objs, *args, **kwargs)
 
