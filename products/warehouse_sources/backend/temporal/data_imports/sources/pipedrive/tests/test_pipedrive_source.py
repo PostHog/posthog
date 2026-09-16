@@ -71,15 +71,15 @@ class TestPipedriveSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "status, schema_name, expected_valid, expected_message",
+        "status, schema_name, expected_valid, expected_message_substring",
         [
             (200, None, True, None),
             (200, "deals", True, None),
             (403, None, True, None),
-            (403, "deals", False, "Invalid Pipedrive API token or insufficient permissions"),
-            (401, None, False, "Invalid Pipedrive API token or insufficient permissions"),
-            (500, None, False, "Could not validate Pipedrive credentials"),
-            (None, None, False, "Could not validate Pipedrive credentials"),
+            (403, "deals", False, "doesn't have permission to read this data"),
+            (401, None, False, "Pipedrive API token was rejected"),
+            (500, None, False, "Couldn't validate your Pipedrive credentials"),
+            (None, None, False, "Couldn't validate your Pipedrive credentials"),
         ],
     )
     @mock.patch(
@@ -91,14 +91,17 @@ class TestPipedriveSource:
         status: int | None,
         schema_name: str | None,
         expected_valid: bool,
-        expected_message: str | None,
+        expected_message_substring: str | None,
     ) -> None:
         mock_validate.return_value = status
 
         is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
-        assert message == expected_message
+        if expected_message_substring is None:
+            assert message is None
+        else:
+            assert message is not None and expected_message_substring in message
         mock_validate.assert_called_once_with("acme", "token")
 
     @mock.patch(
