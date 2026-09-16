@@ -130,6 +130,12 @@ const logsAlertsDestinationsCreate = (): ToolBase<
         if (params.webhook_url !== undefined) {
             body['webhook_url'] = params.webhook_url
         }
+        if (params.webhook_body !== undefined) {
+            body['webhook_body'] = params.webhook_body
+        }
+        if (params.webhook_headers !== undefined) {
+            body['webhook_headers'] = params.webhook_headers
+        }
         const result = await context.api.request<Schemas.LogsAlertDestinationResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/destinations/`,

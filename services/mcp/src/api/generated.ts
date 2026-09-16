@@ -51168,6 +51168,16 @@ export namespace Schemas {
       readonly destinations: readonly LogsAlertDestinationConfig[];
     }
 
+    /**
+     * JSON body to post, for type=webhook only. Defaults to the PostHog alert payload. Values may reference event data, for example {event.properties.alert_name}, so an incident tool such as PagerDuty gets the payload shape it expects.
+     */
+    export type LogsAlertCreateDestinationWebhookBody = { [key: string]: unknown };
+
+    /**
+     * Extra HTTP headers to send, for type=webhook only. These are merged into the default headers, and a header you set here replaces the default of the same name.
+     */
+    export type LogsAlertCreateDestinationWebhookHeaders = {[key: string]: string};
+
     export interface LogsAlertCreateDestination {
       /** Notification destination type.
        *
@@ -51183,6 +51193,10 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
+      /** JSON body to post, for type=webhook only. Defaults to the PostHog alert payload. Values may reference event data, for example {event.properties.alert_name}, so an incident tool such as PagerDuty gets the payload shape it expects. */
+      webhook_body?: LogsAlertCreateDestinationWebhookBody;
+      /** Extra HTTP headers to send, for type=webhook only. These are merged into the default headers, and a header you set here replaces the default of the same name. */
+      webhook_headers?: LogsAlertCreateDestinationWebhookHeaders;
     }
 
     export interface LogsAlertDeleteDestination {
