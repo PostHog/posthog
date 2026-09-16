@@ -12,9 +12,9 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     Approving one stages its content into the workflow's `draft` — the same move as restoring a
     revision — so nothing here can reach the live config without a human publishing it.
 
-    Prototype behind the `self-optimising-workflows` flag. The producer is eventually a PostHog
-    Autonomy Scout, which is why provenance is a created_via/source triple rather than an
-    agent-vs-human flag, and why no field assumes the workflow page is the only reader.
+    Behind the `self-optimising-workflows` flag. Provenance is a created_via/source triple rather
+    than an agent-vs-human flag, so a Scout, a Responder and a person are told apart later without
+    a schema change, and no field assumes the workflow page is the only reader.
     """
 
     class Status(models.TextChoices):
@@ -65,10 +65,9 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     rationale = models.TextField(help_text="Why the producer thinks this change is worth making.")
     content = models.JSONField(
         help_text=(
-            "The proposed change as a partial workflow content snapshot — only the fields it changes "
-            "(actions, edges, trigger, conversion, exit_condition, variables), and within `actions` only "
-            "the steps it changes, each carrying its `id`. Approving merges it over the live content to "
-            "build the staged draft."
+            "The proposed change as a partial workflow content snapshot: only the content fields it "
+            "changes, and within `actions` only the steps it changes, each carrying its `id` and only "
+            "the fields that change. Approving merges it over the live content to build the staged draft."
         )
     )
     step_id = models.CharField(
@@ -83,8 +82,8 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     )
     base_version = models.IntegerField(
         help_text=(
-            "Live workflow version this was authored against. Approving compares the steps this changes "
-            "against that version to tell whether somebody else already changed them."
+            "Live workflow version this was authored against. Approving compares the steps and fields "
+            "this changes against that version to tell whether somebody else already changed them."
         )
     )
     evidence = models.JSONField(
