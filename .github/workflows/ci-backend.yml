@@ -472,9 +472,9 @@ jobs:
             # the run-ci-backend label. turbo-discover.js reads it too, so a run that never
             # selects reports an empty mode rather than a selector error.
             SELECTION_APPLIES: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
-            # Native stacks integrate lower layers with trunk in the merge's first parent.
-            # The raw lower branch can omit trunk commits. Keep the queue's cumulative base.
-            TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && (startsWith(github.head_ref, 'trunk-merge/') && format('origin/{0}', github.event.pull_request.base.ref) || format('{0}^1', github.sha)) || '' }}
+            # GitHub tests PRs as synthetic merges. The first parent pins the exact integrated
+            # base for ordinary, stacked, and merge-queue PRs.
+            TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('{0}^1', github.sha) || '' }}
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
@@ -499,7 +499,7 @@ jobs:
 
             - name: Verify PR merge for test selection
               id: verify-merge
-              if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              if: github.event_name == 'pull_request'
               env:
                   PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
@@ -510,7 +510,7 @@ jobs:
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
-            - name: Fetch PR base for schema cache and queue affected diff
+            - name: Fetch PR base for schema cache
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -4131,22 +4131,18 @@ jobs:
 
             - name: Run test selection and verdict
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-                  DIFF_BASE: ${{ startsWith(github.head_ref, 'trunk-merge/') && format('origin/{0}', github.event.pull_request.base.ref) || format('{0}^1', github.sha) }}
+                  DIFF_BASE: ${{ format('{0}^1', github.sha) }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
               run: |
                   set -euo pipefail
                   mkdir -p /tmp/verdict
 
                   if [[ ! -s /tmp/verdict/selection.json ]]; then
-                      if [[ "$PR_BRANCH" == trunk-merge/* ]]; then
-                          git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-                      else
-                          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-                          test "$(git rev-parse HEAD^2)" = "$PR_SHA"
-                      fi
+                      test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+                      test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
+                      test "$(git rev-parse HEAD^2)" = "$PR_SHA"
+                      git rev-parse --verify "$DIFF_BASE^{commit}"
 
                       uv run tools/snob_backend_test_selection_shadow.py \
                           --base-ref "$DIFF_BASE" \

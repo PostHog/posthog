@@ -181,13 +181,13 @@ describe('Backend CI comparison boundaries', () => {
         }
     })
 
-    it.each(WORKFLOWS)('%s preserves the cumulative queue comparison and disables the PR selector', (file) => {
+    it.each(WORKFLOWS)('%s uses the pinned queue base and disables the PR selector', (file) => {
         const repo = createGraph()
         try {
             const wf = loadWorkflow(path.join(REPO_ROOT, file))
             const context = prContext(repo.queueMerge, repo.merge, 'master', true)
             const discovery = stepEnv(wf, step(wf, 'Discover products to test'), context)
-            expect(discovery.TURBO_SCM_BASE).toBe('origin/master')
+            expect(discovery.TURBO_SCM_BASE).toBe(`${repo.queueMerge}^1`)
             expect(discovery.SELECTION_APPLIES).toBe('false')
             expect(discovery.LEGACY_CHANGED).toBe('false')
             expect(
@@ -197,7 +197,16 @@ describe('Backend CI comparison boundaries', () => {
                     functions
                 )
             ).toBe(false)
-            expect(evaluateCondition(step(wf, 'Verify PR merge for test selection').if, context, functions)).toBe(false)
+
+            const verify = step(wf, 'Verify PR merge for test selection')
+            expect(evaluateCondition(verify.if, context, functions)).toBe(true)
+            repo.git('checkout', '--detach', repo.queueMerge)
+            const result = spawnSync('bash', ['-c', verify.run!], {
+                cwd: repo.cwd,
+                env: { ...repo.env, ...stepEnv(wf, verify, context), GITHUB_SHA: repo.queueMerge },
+                encoding: 'utf8',
+            })
+            expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: '' })
             expect(
                 repo.git('diff', '--name-only', `${discovery.TURBO_SCM_BASE}...${discovery.TURBO_SCM_HEAD}`).split('\n')
             ).toEqual([layerFiles[0], lowerFile, layerFiles[1]])
@@ -266,11 +275,6 @@ describe('Backend CI comparison boundaries', () => {
                 (candidate) => candidate.name === 'Run test selection and verdict'
             )!
             repo.git('checkout', '--detach', sha)
-            if (queued) {
-                repo.git('update-ref', 'refs/heads/master', repo.git('rev-parse', 'origin/master'))
-                repo.git('update-ref', '-d', 'refs/remotes/origin/master')
-                repo.git('remote', 'add', 'origin', repo.cwd)
-            }
             const args = selectorArgs(target, repo.cwd, {
                 ...repo.env,
                 ...envValues(target.env, context),
