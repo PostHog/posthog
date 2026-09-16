@@ -14,8 +14,12 @@ import {
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -25,9 +29,28 @@ import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 export function SlackNotConfiguredBanner({
+    surface,
     type = 'info',
     className,
-}: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
+}: {
+    /** Where this banner is rendered, reported as the `surface` on the impression event. */
+    surface: IntegrationConnectSurface
+} & Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
+    const { integrations, integrationsLoadFailed, slackIntegrations } = useValues(integrationsLogic)
+    const { reportSlackNotConfiguredBannerShown } = useActions(eventUsageLogic)
+
+    // Mount-time state is what the impression means: a caller that renders this while the list is
+    // still loading swaps it for the picker as soon as the load lands.
+    useOnMountEffect(() => {
+        reportSlackNotConfiguredBannerShown({
+            surface,
+            integrationsLoaded: integrations !== null,
+            integrationsLoadFailed,
+            integrationCount: integrations?.length ?? 0,
+            slackIntegrationCount: slackIntegrations?.length ?? 0,
+        })
+    })
+
     return (
         <LemonBanner type={type} className={className}>
             <div className="flex flex-col gap-2">

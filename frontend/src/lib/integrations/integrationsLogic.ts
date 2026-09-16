@@ -124,6 +124,7 @@ export interface integrationsLogicValues {
     githubRepositoriesLoading: boolean
     githubRepositoriesTotal: Record<number, number>
     integrations: IntegrationType[] | null
+    integrationsLoadFailed: boolean
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
@@ -720,6 +721,15 @@ export const integrationsLogic = kea<integrationsLogicType>([
         stopPolling: true,
     }),
     reducers({
+        // A failed load leaves `integrations` null, which every consumer reads as "no integrations".
+        // Keep the failure until a load succeeds, so the 30s poll's next attempt does not clear it.
+        integrationsLoadFailed: [
+            false,
+            {
+                loadIntegrationsSuccess: () => false,
+                loadIntegrationsFailure: () => true,
+            },
+        ],
         newIntegrationModalId: [
             null as string | null,
             {

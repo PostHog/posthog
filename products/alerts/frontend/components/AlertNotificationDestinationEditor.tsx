@@ -292,7 +292,13 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 </div>
             )
         } else {
-            slackDestinationInput = <SlackNotConfiguredBanner type="warning" className="max-w-4xl" />
+            slackDestinationInput = (
+                <SlackNotConfiguredBanner
+                    surface="alert_notification_destination"
+                    type="warning"
+                    className="max-w-4xl"
+                />
+            )
         }
     }
 

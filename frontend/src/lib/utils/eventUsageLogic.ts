@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import type { IntegrationConnectSurface, SlackNotConfiguredBannerShownProps } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -2182,6 +2182,9 @@ export interface eventUsageLogicActions {
     reportSessionTableVersionUpdated: (version: string) => {
         version: string
     }
+    reportSlackNotConfiguredBannerShown: (properties: SlackNotConfiguredBannerShownProps) => {
+        properties: SlackNotConfiguredBannerShownProps
+    }
     reportSubscribedDuringOnboarding: (productKey: string) => {
         productKey: string
     }
@@ -2477,6 +2480,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             selfDriving,
         }),
         reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
+        reportSlackNotConfiguredBannerShown: (properties: SlackNotConfiguredBannerShownProps) => ({ properties }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -3435,6 +3439,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('integration_connect_rejected', {
                 integration_kind: kind,
                 error,
+            })
+        },
+        // Counts banner impressions, which the connect click alone cannot: someone who sees the
+        // banner and ignores it leaves no other trace. The load state rides along because an
+        // unloaded list, a failed load and a genuinely empty one all render the same banner.
+        reportSlackNotConfiguredBannerShown: ({ properties }) => {
+            posthog.capture('slack_not_configured_banner_shown', {
+                surface: properties.surface,
+                integrations_loaded: properties.integrationsLoaded,
+                integrations_load_failed: properties.integrationsLoadFailed,
+                integration_count: properties.integrationCount,
+                slack_integration_count: properties.slackIntegrationCount,
             })
         },
         // Personal integrations are a separate table with their own connect surface, so they get

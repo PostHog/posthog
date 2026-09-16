@@ -46,8 +46,8 @@ import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
 
 /**
  * Where a user started an integration connect flow. Reported as the `surface` property on
- * `integration_connect_clicked`, so these strings are frozen — renaming one silently splits a
- * funnel that already counts the old value.
+ * `integration_connect_clicked` and `slack_not_configured_banner_shown`, so these strings are
+ * frozen — renaming one silently splits a funnel that already counts the old value.
  *
  * A connect can start from many places, and only some of them are a first connection: the
  * `*_reconnect` and `settings_manage` values cover flows that begin with an integration already
@@ -69,6 +69,23 @@ export type IntegrationConnectSurface =
     | 'visual_review_settings'
     | 'install_approved_banner'
     | 'unavailable_banner_reconnect'
+    // Surfaces that render the Slack not-configured banner, one per call site.
+    | 'comment_slack_destination'
+    | 'survey_notification_modal'
+    | 'alert_notification_destination'
+    | 'subscription_wizard'
+    | 'subscription_edit'
+    | 'evaluation_report_config'
+    | 'scanner_scout_slack_destination'
+
+/** Reported with every `slack_not_configured_banner_shown` impression. */
+export type SlackNotConfiguredBannerShownProps = {
+    surface: IntegrationConnectSurface
+    integrationsLoaded: boolean
+    integrationsLoadFailed: boolean
+    integrationCount: number
+    slackIntegrationCount: number
+}
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,

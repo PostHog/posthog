@@ -389,7 +389,7 @@ function SubscriptionDeliveryStep({
             ) : null}
             {subscription.target_type === 'slack' ? (
                 !slackIntegrations?.length ? (
-                    <SlackNotConfiguredBanner />
+                    <SlackNotConfiguredBanner surface="subscription_wizard" />
                 ) : (
                     <>
                         <LemonField name="integration_id" label="Slack connection">
