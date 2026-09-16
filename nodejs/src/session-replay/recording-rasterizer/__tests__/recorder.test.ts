@@ -44,6 +44,7 @@ const baseCaptureResult = {
     frame_count: 120,
     truncated: false,
     inactivity_periods: [],
+    frame_session_ms: [],
     timings: { setup_s: 0, capture_s: 2.5 },
 }
 

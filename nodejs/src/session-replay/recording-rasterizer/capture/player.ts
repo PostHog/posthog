@@ -26,6 +26,7 @@ export class PlayerController {
     private state = {
         ended: false,
         inactivityPeriods: [] as InactivityPeriod[],
+        frameSessionMs: [] as number[],
     }
 
     private startedResolve: (() => void) | null = null
@@ -88,6 +89,9 @@ export class PlayerController {
                 break
             case 'inactivity_periods':
                 this.state.inactivityPeriods = msg.periods
+                break
+            case 'frame_timeline':
+                this.state.frameSessionMs = msg.frameSessionMs
                 break
         }
     }
@@ -237,6 +241,10 @@ export class PlayerController {
 
     getInactivityPeriods(): InactivityPeriod[] {
         return this.state.inactivityPeriods
+    }
+
+    getFrameSessionMs(): number[] {
+        return this.state.frameSessionMs
     }
 
     dispose(): void {

@@ -64,6 +64,7 @@ function mockPlayer(overrides: Partial<Record<keyof PlayerController, any>> = {}
         isEnded: jest.fn().mockReturnValue(false),
         getError: jest.fn().mockReturnValue(null),
         getInactivityPeriods: jest.fn().mockReturnValue([]),
+        getFrameSessionMs: jest.fn().mockReturnValue([]),
         waitForSettled: jest.fn().mockResolvedValue(undefined),
         ...overrides,
     } as unknown as PlayerController
@@ -174,6 +175,7 @@ describe('capturePlayback', () => {
         const player = mockPlayer({
             isEnded: jest.fn().mockReturnValue(true),
             getInactivityPeriods: jest.fn().mockReturnValue(periods),
+            getFrameSessionMs: jest.fn().mockReturnValue([]),
         })
 
         const result = await capturePlayback(player, baseCaptureConfig(), outputPath, jest.fn())

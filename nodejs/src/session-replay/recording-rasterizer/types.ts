@@ -86,5 +86,7 @@ export interface RecordingResult {
     frame_count: number // total frames captured
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
+    frame_session_ms: number[] // session time at each captured frame, measured during capture
+    output_fps: number // frames per second of the rendered file, so a frame index is a video position
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

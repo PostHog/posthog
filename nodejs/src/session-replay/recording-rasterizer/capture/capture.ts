@@ -21,7 +21,10 @@ export async function capturePlayback(
     progress: RasterizationProgress | null = null,
     log: Logger = createLogger()
 ): Promise<
-    Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
+    Pick<
+        RecordingResult,
+        'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'frame_session_ms' | 'timings'
+    >
 > {
     const captureStart = process.hrtime()
     const ffmpegStderr: string[] = []
@@ -216,6 +219,7 @@ export async function capturePlayback(
         frame_count: frameCount,
         truncated,
         inactivity_periods: inactivityPeriods,
+        frame_session_ms: player.getFrameSessionMs(),
         timings: { setup_s: 0, capture_s: elapsed(captureStart) },
     }
 }

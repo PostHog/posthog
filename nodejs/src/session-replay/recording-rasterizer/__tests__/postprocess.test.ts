@@ -1,4 +1,4 @@
-import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { computeVideoTimestamps, videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
 import { InactivityPeriod } from '~/session-replay/recording-rasterizer/types'
 
 describe('computeVideoTimestamps', () => {
@@ -84,5 +84,50 @@ describe('computeVideoTimestamps', () => {
         expect(result[0].ts_from_s).toBe(5)
         expect(result[0].ts_to_s).toBe(10)
         expect(result[0].active).toBe(true)
+    })
+})
+
+describe('videoTimestampsFromFrames', () => {
+    // 3 fps, so one frame is 1/3s of video. Playback runs 0-1s, skips to 5s, runs to 6s, and the skip
+    // costs the frame it happens on — the frame the predicted mapping never accounts for.
+    const periods: InactivityPeriod[] = [
+        { ts_from_s: 0, ts_to_s: 1, active: true },
+        { ts_from_s: 1, ts_to_s: 5, active: false },
+        { ts_from_s: 5, ts_to_s: 6, active: true },
+    ]
+    const frameSessionMs = [0, 333, 666, 1000, 5000, 5333, 5666]
+
+    it('places a period where the frames actually put it', () => {
+        const result = videoTimestampsFromFrames(periods, frameSessionMs, 3)
+
+        expect(result[0].recording_ts_from_s).toBe(0)
+        expect(result[0].recording_ts_to_s).toBeCloseTo(1)
+        // The resumed stretch starts on frame 4, not frame 3 as the durations alone would say.
+        expect(result[2].recording_ts_from_s).toBeCloseTo(4 / 3)
+        expect(result[2].recording_ts_to_s).toBeCloseTo(7 / 3)
+    })
+
+    it('does not understate the video the way the predicted mapping does', () => {
+        const measured = videoTimestampsFromFrames(periods, frameSessionMs, 3)
+        const predicted = computeVideoTimestamps(periods)
+
+        const measuredEnd = measured[2].recording_ts_to_s!
+        const predictedEnd = predicted[2].recording_ts_to_s!
+        expect(measuredEnd).toBeGreaterThan(predictedEnd)
+        expect(measuredEnd - predictedEnd).toBeCloseTo(1 / 3)
+    })
+
+    it('charges the skipped stretch the frame the skip cost', () => {
+        const result = videoTimestampsFromFrames(periods, frameSessionMs, 3)
+
+        expect(result[1].recording_ts_from_s).toBeCloseTo(1)
+        expect(result[1].recording_ts_to_s).toBeCloseTo(4 / 3)
+        expect(computeVideoTimestamps(periods)[1].recording_ts_to_s).toBe(
+            computeVideoTimestamps(periods)[1].recording_ts_from_s
+        )
+    })
+
+    it('falls back to the predicted mapping when capture reported no timeline', () => {
+        expect(videoTimestampsFromFrames(periods, [], 3)).toEqual(computeVideoTimestamps(periods))
     })
 })
