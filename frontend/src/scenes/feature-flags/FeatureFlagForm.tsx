@@ -890,8 +890,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 <Link to={urls.experiment(runningExperiment.id)}>
                                                     {runningExperiment.name}
                                                 </Link>{' '}
-                                                runs. You can still edit descriptions, payloads, and rollout
-                                                percentages.
+                                                runs. You can still edit descriptions and payloads. Changing rollout
+                                                percentages now will skew the results.
                                             </LemonBanner>
                                         )}
 
