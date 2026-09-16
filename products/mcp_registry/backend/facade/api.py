@@ -92,7 +92,6 @@ def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contra
         return None
 
     visibility = logic.measured_visibility(server, team_id, caller_is_staff)
-    can_see_measured = bool(visibility.rows)
     latest_scores: list[contracts.ScoreInfo] = []
     for version in known_ranking_versions():
         run = latest_completed_run(version)
@@ -116,7 +115,7 @@ def get_server_detail(*, pk: str, team_id: int, caller_is_staff: bool) -> contra
         repository_url=server.repository_url,
         website_url=server.website_url,
         last_probed_at=server.last_probed_at,
-        tools=[_to_tool(tool) for tool in logic.visible_tools(server, can_see_measured)],
+        tools=[_to_tool(tool) for tool in logic.visible_tools(server, visibility.sees_every_row)],
         measured_stats=[_to_measured_stats(row) for row in visibility.rows],
         scores=latest_scores,
         connect_instructions=build_connect_instructions(server),
@@ -139,14 +138,13 @@ def discover_servers(
     for index, server in enumerate(servers):
         score = logic.score_for_run(run, server)
         visibility = logic.measured_visibility(server, team_id, caller_is_staff)
-        can_see_measured = bool(visibility.rows)
         matched_tools: list[dict[str, contracts.JSONScalar]] = [
             {
                 "name": tool.name,
                 "description": tool.description[:160],
                 "source": tool.source,
             }
-            for tool in logic.visible_tools(server, can_see_measured)
+            for tool in logic.visible_tools(server, visibility.sees_every_row)
             if any(token in tool.name.lower() for token in tokens)
         ]
         matched_tools = matched_tools[:_DISCOVER_TOOLS_PER_CANDIDATE]
