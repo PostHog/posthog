@@ -252,19 +252,20 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
             for sub in selected_rows
         ]
         oldest_due_at = selected_rows[0]["next_delivery_date"] if selected_rows else None
-        return _FetchedDueSubscriptions(
+        fetched = _FetchedDueSubscriptions(
             subscriptions=subscriptions,
             oldest_due_at=oldest_due_at,
             has_more=has_more,
         )
+        record_scheduler_fetch(
+            selected_count=len(fetched.subscriptions),
+            oldest_due_at=fetched.oldest_due_at,
+            now=dt.datetime.now(dt.UTC),
+            has_more=fetched.has_more,
+        )
+        return fetched
 
     fetched = await get_subscriptions()
-    record_scheduler_fetch(
-        selected_count=len(fetched.subscriptions),
-        oldest_due_at=fetched.oldest_due_at,
-        now=dt.datetime.now(dt.UTC),
-        has_more=fetched.has_more,
-    )
     await LOGGER.ainfo(
         "Fetched due subscriptions",
         count=len(fetched.subscriptions),
@@ -296,7 +297,7 @@ async def fetch_due_subscriptions_page_activity(
     )
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_page() -> tuple[FetchDueSubscriptionsPageActivityResult, datetime | None]:
+    def get_page() -> FetchDueSubscriptionsPageActivityResult:
         subscriptions_query = (
             Subscription.objects.filter(next_delivery_date__lte=due_before, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
@@ -358,24 +359,22 @@ async def fetch_due_subscriptions_page_activity(
             if last_row is not None and has_more
             else None
         )
-        return (
-            FetchDueSubscriptionsPageActivityResult(
-                subscriptions=subscriptions,
-                next_cursor=next_cursor,
-                total_count=cohort_total,
-                remaining_count=remaining_after_page,
-            ),
-            rows[0]["next_delivery_date"] if rows else None,
+        page = FetchDueSubscriptionsPageActivityResult(
+            subscriptions=subscriptions,
+            next_cursor=next_cursor,
+            total_count=cohort_total,
+            remaining_count=remaining_after_page,
         )
+        record_scheduler_fetch(
+            selected_count=len(page.subscriptions),
+            oldest_due_at=rows[0]["next_delivery_date"] if rows else None,
+            now=dt.datetime.now(dt.UTC),
+            has_more=page.next_cursor is not None,
+            record_oldest_due_age=inputs.cursor is None,
+        )
+        return page
 
-    page, oldest_due_at = await get_page()
-    record_scheduler_fetch(
-        selected_count=len(page.subscriptions),
-        oldest_due_at=oldest_due_at,
-        now=dt.datetime.now(dt.UTC),
-        has_more=page.next_cursor is not None,
-        record_oldest_due_age=inputs.cursor is None,
-    )
+    page = await get_page()
     await LOGGER.ainfo(
         "Fetched due subscriptions page",
         count=len(page.subscriptions),

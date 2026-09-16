@@ -1,5 +1,6 @@
 import json
 import asyncio
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -52,6 +53,8 @@ async def test_scheduler_page_fetch_rejects_non_positive_limits(page_size: int) 
 
 @pytest.mark.asyncio
 async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> None:
+    activity_thread_id = threading.get_ident()
+    metrics_thread_ids: list[int] = []
     due_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
     rows = [
         {
@@ -79,7 +82,10 @@ async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> N
             "products.exports.backend.temporal.subscriptions.activities.Subscription.objects.filter",
             return_value=queryset,
         ),
-        patch("products.exports.backend.temporal.subscriptions.activities.record_scheduler_fetch"),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.record_scheduler_fetch",
+            side_effect=lambda **_kwargs: metrics_thread_ids.append(threading.get_ident()),
+        ),
     ):
         result = await ActivityEnvironment().run(
             fetch_due_subscriptions_page_activity,
@@ -96,6 +102,7 @@ async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> N
         next_delivery_date=due_at.isoformat(),
         subscription_id=2,
     )
+    assert metrics_thread_ids and metrics_thread_ids[0] != activity_thread_id
 
 
 @pytest.mark.asyncio
