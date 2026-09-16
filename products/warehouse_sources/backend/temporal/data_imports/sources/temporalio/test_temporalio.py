@@ -1,11 +1,16 @@
+import socket
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
+
+from django.test import override_settings
 
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.codec import EncryptionCodec
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
     TemporalIOSourceConfig,
 )
@@ -21,9 +26,28 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio
     _with_transient_rpc_retry,
 )
 
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
 
 def _rpc_error(message: str, status: RPCStatusCode) -> RPCError:
     return RPCError(message, status, b"")
+
+
+def _config(host: str = "temporal.example.com") -> TemporalIOSourceConfig:
+    return TemporalIOSourceConfig.from_dict(
+        {
+            "host": host,
+            "port": "7233",
+            "namespace": "namespace",
+            "server_client_root_ca": "ca",
+            "client_certificate": "cert",
+            "client_private_key": "key",
+        }
+    )
+
+
+def _resolves_to(ip: str) -> list:
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
 
 
 class TestTemporalIOClient:
@@ -49,10 +73,45 @@ class TestTemporalIOClient:
         )
 
         with patch.object(Client, "connect", new=AsyncMock(return_value=MagicMock())) as mock_connect:
-            await _get_temporal_client(config)
+            await _get_temporal_client(config, team_id=999)
 
         data_converter = mock_connect.call_args.kwargs["data_converter"]
         assert isinstance(data_converter.payload_codec, EncryptionCodec)
+
+    @pytest.mark.parametrize("resolved_ip", ["169.254.169.254", "10.0.0.5"])
+    async def test_a_host_resolving_to_an_internal_ip_is_refused_before_dialling(self, resolved_ip):
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=_resolves_to(resolved_ip)),
+            patch(f"{_MIXINS_MODULE}.logger"),
+            patch.object(Client, "connect", new=AsyncMock(return_value=MagicMock())) as mock_connect,
+        ):
+            with pytest.raises(HostNotAllowedError):
+                await _get_temporal_client(_config(), team_id=999)
+
+        mock_connect.assert_not_called()
+
+    async def test_a_public_host_is_dialled(self):
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=_resolves_to("93.184.216.34")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+            patch.object(Client, "connect", new=AsyncMock(return_value=MagicMock())) as mock_connect,
+        ):
+            await _get_temporal_client(_config(), team_id=999)
+
+        assert mock_connect.call_args.args[0] == "temporal.example.com:7233"
+
+    def test_creating_a_source_on_an_internal_host_is_rejected(self):
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=_resolves_to("10.0.0.5")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            is_valid, error = TemporalIOSource().validate_credentials(_config(), team_id=999)
+
+        assert not is_valid
+        assert error
 
 
 class TestTemporalIONonRetryableErrors:

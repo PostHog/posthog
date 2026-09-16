@@ -208,7 +208,7 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 
 #### `ValidateDatabaseHostMixin`
 
-Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above.
+Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above. A source that dials the host itself, without the tunnel mixin, calls `check_connect_host()` on its connect path instead: a raw socket has no egress proxy in front of it, so a stored host is otherwise never re-checked. `TemporalIOSource` is the example.
 
 ## Non-Retryable Errors
 
