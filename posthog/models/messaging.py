@@ -75,6 +75,15 @@ class MessagingRecord(UUIDTModel):
     # Numeric indicator for repeat emails of the same campaign key
     campaign_count = models.IntegerField(null=True)
     sent_at = models.DateTimeField(null=True)
+    # The row is written before the send, so `sent_at IS NULL` on its own covers both "in flight"
+    # and "every attempt failed". These separate the two per recipient and per campaign, which
+    # the posthog_email_send_total counter cannot do, because it carries no email or campaign
+    # label by design.
+    failed_at = models.DateTimeField(null=True)
+    failure_count = models.IntegerField(default=0, db_default=0)
+    # Exception class plus the provider's status code, never its message: SMTP and Customer.io
+    # errors quote the recipient address, and this table deliberately keeps only a hash of it.
+    last_failure_reason = models.CharField(max_length=200, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
