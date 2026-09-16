@@ -28,13 +28,13 @@ _MODULE = "products.reaperhog.backend.logic.harvest"
 NOW = datetime(2026, 8, 30, tzinfo=UTC)
 
 
-def _hit(root: str) -> Hit:
+def _hit(root: str, *, decisive: bool = True) -> Hit:
     return Hit(
         scout=ScoutName.EXPERIMENTS,
         root_kind=RootKind.FLAG,
         root=root,
         files=["a.py"],
-        decisive=True,
+        decisive=decisive,
         summary="Experiment lost",
         evidence={"conclusion": "lost", "end_date": "2026-04-13", "users": 4211, "enabled_users": 0},
     )
@@ -133,15 +133,15 @@ def test_candidates_that_edit_the_same_file_are_not_dispatched_together():
     assert selection.skipped_conflict == 1
 
 
-def _seed_dead(team, *roots: str, scope: str = "flags"):
+def _seed_dead(team, *roots: str, scope: str = "flags", weak: str | None = None):
     inventory = upsert_inventory(team_id=team.id, repository="o/r", scope=scope)
-    record_scan(inventory, converge(_hit(root) for root in roots), head_sha="abc", now=NOW)
+    record_scan(inventory, converge(_hit(root, decisive=root != weak) for root in roots), head_sha="abc", now=NOW)
     for cluster in ReaperCluster.objects.filter(inventory=inventory):
         ReaperArtefact.append(
             team_id=team.id,
             inventory_id=inventory.id,
             cluster_id=cluster.id,
-            content=VerdictRecord(head_sha="abc", verdict=_verdict()),
+            content=VerdictRecord(head_sha="abc", verdict=_verdict(prefix=cluster.root)),
         )
     ReaperCluster.objects.filter(inventory=inventory).update(status=ClusterStatus.DEAD, verified_sha="abc")
     return inventory
@@ -179,6 +179,17 @@ class TestDispatchHarvest:
 
         assert (result.dispatched, result.skipped_duplicate) == (0, 1)
         create.assert_not_called()
+
+    def test_a_weak_cluster_is_never_dispatched(self, team, user):
+        inventory = _seed_dead(team, "a", "w", weak="w")
+        create = MagicMock(return_value=MagicMock(task_id=uuid4()))
+
+        with patch(f"{_MODULE}.tasks_facade.create_and_run_task", create):
+            result = dispatch_harvest(HarvestRequest(team_id=team.id, user_id=user.id, repository="o/r", scope="flags"))
+
+        assert result.dispatched == 1
+        statuses = {c.root: c.status for c in ReaperCluster.objects.filter(inventory=inventory)}
+        assert statuses == {"a": ClusterStatus.HARVESTING, "w": ClusterStatus.DEAD}
 
     def test_a_verdict_from_an_earlier_scan_goes_back_for_reverification(self, team, user):
         inventory = _seed_dead(team, "a")

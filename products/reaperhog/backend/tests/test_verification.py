@@ -41,9 +41,9 @@ def _hit(root: str, *, decisive: bool = True) -> Hit:
     )
 
 
-def _seed(team, *roots: str, blocked: str | None = None):
+def _seed(team, *roots: str, blocked: str | None = None, weak: str | None = None):
     inventory = upsert_inventory(team_id=team.id, repository="o/r", scope="flags")
-    record_scan(inventory, converge(_hit(root) for root in roots), head_sha="abc", now=NOW)
+    record_scan(inventory, converge(_hit(root, decisive=root != weak) for root in roots), head_sha="abc", now=NOW)
     if blocked:
         ReaperCluster.objects.filter(inventory=inventory, root=blocked).update(blocked_reason="oversize")
     return inventory
@@ -68,8 +68,8 @@ def _run(request: VerifyRequest, *, start: AsyncMock, cont: AsyncMock, end: Asyn
 
 @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
 class TestVerifyInventory:
-    def test_verdicts_drive_status_and_skip_blocked_clusters(self, team, user):
-        inventory = _seed(team, "a", "b", "c", blocked="c")
+    def test_verdicts_drive_status_and_skip_blocked_and_weak_clusters(self, team, user):
+        inventory = _seed(team, "a", "b", "c", "w", blocked="c", weak="w")
         session = MagicMock()
         start = AsyncMock(return_value=(session, _verdict(True, Confidence.HIGH)))
         cont = AsyncMock(return_value=_verdict(False, Confidence.HIGH))
@@ -78,7 +78,12 @@ class TestVerifyInventory:
         result = _run(_request(team, user), start=start, cont=cont, end=end)
 
         statuses = {c.root: c.status for c in ReaperCluster.objects.filter(inventory=inventory)}
-        assert statuses == {"a": ClusterStatus.DEAD, "b": ClusterStatus.ALIVE, "c": ClusterStatus.CANDIDATE}
+        assert statuses == {
+            "a": ClusterStatus.DEAD,
+            "b": ClusterStatus.ALIVE,
+            "c": ClusterStatus.CANDIDATE,
+            "w": ClusterStatus.CANDIDATE,
+        }
         assert (result.verified, result.dead, result.alive, result.failed) == (2, 1, 1, 0)
         verdicts = ReaperArtefact.objects.filter(inventory=inventory, type="verdict")
         assert {VerdictRecord.model_validate_json(v.content).head_sha for v in verdicts} == {"abc"}
