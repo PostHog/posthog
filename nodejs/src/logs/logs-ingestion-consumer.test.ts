@@ -53,6 +53,7 @@ import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
+import type { LogsSourceState, LogsSourcesCache } from './sources/logs-sources-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
 
@@ -213,7 +214,7 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer' | 'logsSourcesCache'
             >
         > = {}
     ) => {
@@ -2518,6 +2519,85 @@ describe('LogsIngestionConsumer', () => {
             } else {
                 expect(bodyKindIncSpy).not.toHaveBeenCalled()
             }
+        })
+    })
+
+    describe('log sources', () => {
+        const sourceId = '6f1a2b3c-0000-4000-8000-000000000001'
+        const otherSourceId = '6f1a2b3c-0000-4000-8000-000000000002'
+        const producedLogs = () => getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+        const sourceHeaders = (id: string = sourceId) => ({
+            token: team.api_token,
+            source_id: id,
+            bytes_uncompressed: '100',
+            bytes_uncompressed_records: '90',
+            bytes_compressed: '50',
+            record_count: '3',
+        })
+        const sourceMetrics = (name: string) =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m) => m.value.metric_name === name)
+                .map((m) => m.value)
+        const stubCache = (stateOf: (id: string) => LogsSourceState): LogsSourcesCache =>
+            ({
+                getSourceState: jest.fn((_teamId: number, id: string) => Promise.resolve(stateOf(id))),
+            }) as unknown as LogsSourcesCache
+
+        it.each([
+            ['disabled', 'source_disabled', [{ team_id: 0, instance_id: sourceId, count: 3 }]],
+            ['unknown to the team', 'source_unknown', []],
+        ])(
+            'drops a batch whose source is %s and never records it as received',
+            async (_name, reason, expectedDrops) => {
+                const state: LogsSourceState = reason === 'source_disabled' ? 'disabled' : 'unknown'
+                consumer = await createLogsIngestionConsumer(hub, {}, { logsSourcesCache: stubCache(() => state) })
+                const messages = await createKafkaMessages([createLogMessage()], sourceHeaders())
+
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+                expect(producedLogs()).toHaveLength(0)
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith({ reason, team_id: team.id.toString() })
+                expect(sourceMetrics('source_records_dropped')).toMatchObject(
+                    expectedDrops.map((drop) => ({ ...drop, team_id: team.id }))
+                )
+                expect(sourceMetrics('source_records_received')).toHaveLength(0)
+            }
+        )
+
+        it.each([
+            ['the source is enabled', stubCache(() => 'enabled')],
+            ['no sources cache is configured', undefined],
+        ])('passes the batch through and records what it received when %s', async (_name, logsSourcesCache) => {
+            consumer = await createLogsIngestionConsumer(hub, {}, { logsSourcesCache })
+            const messages = await createKafkaMessages([createLogMessage()], sourceHeaders())
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(producedLogs()).toHaveLength(1)
+            expect(sourceMetrics('source_records_received')).toMatchObject([
+                { team_id: team.id, instance_id: sourceId, count: 3 },
+            ])
+        })
+
+        it('keeps the enabled source of a mixed batch and attributes each metric to its own source', async () => {
+            consumer = await createLogsIngestionConsumer(
+                hub,
+                {},
+                {
+                    logsSourcesCache: stubCache((id) => (id === sourceId ? 'enabled' : 'disabled')),
+                }
+            )
+            const messages = [
+                ...(await createKafkaMessages([createLogMessage()], sourceHeaders(sourceId))),
+                ...(await createKafkaMessages([createLogMessage()], sourceHeaders(otherSourceId))),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(producedLogs()).toHaveLength(1)
+            expect(sourceMetrics('source_records_received')).toMatchObject([{ instance_id: sourceId, count: 3 }])
+            expect(sourceMetrics('source_records_dropped')).toMatchObject([{ instance_id: otherSourceId, count: 3 }])
         })
     })
 })

@@ -52,6 +52,11 @@ import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
+import {
+    LogsSourcesCache,
+    SOURCE_RECORDS_DROPPED_METRIC,
+    SOURCE_RECORDS_RECEIVED_METRIC,
+} from './sources/logs-sources-cache'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
 
@@ -68,6 +73,8 @@ export interface LogsIngestionConsumerDeps {
     logsTransformer?: LogsTransformerService
     /** When set, enabled teams stamp per-row retention from retention rules before produce. */
     retentionRulesCache?: RetentionRulesCache
+    /** When set, a batch that names a `source_id` is dropped unless an enabled LogsSource of the team has that id. */
+    logsSourcesCache?: LogsSourcesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -637,6 +644,9 @@ export class LogsIngestionConsumer {
         messages: LogsIngestionMessage[]
     ): Promise<{ backgroundTask?: Promise<any>; messages: LogsIngestionMessage[] }> {
         if (!messages.length) {
+            // The parse step can drop a whole batch for a disabled source and still queue the
+            // per-source drop metric, which must not wait for the next non-empty batch to flush.
+            await this.flushAppMetrics()
             return { messages: [] }
         }
 
@@ -1221,16 +1231,21 @@ export class LogsIngestionConsumer {
         // Best-effort, and independent of each other: neither failing may block ingestion or skip
         // the other, and nothing downstream reads either result, so they go out together.
         await Promise.all([
-            this.appMetricsAggregator.flush().catch((error) => {
-                logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
-            }),
+            this.flushAppMetrics(),
             this.deps.usageBatch.flush().catch((error) => {
                 logger.error('🔴', 'Failed to emit usage records - billing data may be lost', { error })
             }),
         ])
     }
 
-    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
+    private flushAppMetrics(): Promise<void> {
+        return this.appMetricsAggregator.flush().catch((error) => {
+            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', { error })
+        })
+    }
+
+    /** `instanceId` scopes the metric to one configured object of the team, such as a LogsSource. */
+    private queueUsageMetric(teamId: number, metricName: string, count: number, instanceId: string = ''): void {
         if (count === 0) {
             return
         }
@@ -1238,7 +1253,7 @@ export class LogsIngestionConsumer {
             team_id: teamId,
             app_source: this.appSource,
             app_source_id: '',
-            instance_id: '',
+            instance_id: instanceId,
             metric_kind: 'usage',
             metric_name: metricName,
             count,
@@ -1357,6 +1372,25 @@ export class LogsIngestionConsumer {
                         // Billing can only switch from payload-based to records-based bytes if the
                         // records sum never exceeds the payload size — flag any violation.
                         logsRecordsBytesExceedPayloadCounter.inc({ team_id: team.id.toString() })
+                    }
+
+                    const sourceId = headers.source_id || undefined
+                    if (sourceId && this.appSource === 'logs') {
+                        const state = this.deps.logsSourcesCache
+                            ? await this.deps.logsSourcesCache.getSourceState(team.id, sourceId)
+                            : 'enabled'
+                        if (state !== 'enabled') {
+                            const reason = state === 'disabled' ? 'source_disabled' : 'source_unknown'
+                            logMessageDroppedCounter.inc({ reason, team_id: team.id.toString() })
+                            recordLogMessageDropped(reason, team.id.toString())
+                            // The health API reads metrics by the team's source ids, so a drop for an
+                            // unknown id would never be shown.
+                            if (state === 'disabled') {
+                                this.queueUsageMetric(team.id, SOURCE_RECORDS_DROPPED_METRIC, recordCount, sourceId)
+                            }
+                            return
+                        }
+                        this.queueUsageMetric(team.id, SOURCE_RECORDS_RECEIVED_METRIC, recordCount, sourceId)
                     }
 
                     events.push({
