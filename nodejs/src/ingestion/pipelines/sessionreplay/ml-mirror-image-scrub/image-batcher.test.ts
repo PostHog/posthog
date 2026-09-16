@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib'
 import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/reader'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
-import { MlKafkaEncryption } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
@@ -94,7 +94,7 @@ describe('ImageBatcher', () => {
                 const offsets = new FakeOffsets()
                 const park = jest.fn().mockRejectedValueOnce(new Error('dlq unavailable')).mockResolvedValue(undefined)
                 const keyManager = {
-                    kafka: new MlKafkaEncryption({
+                    kafka: new MlKafkaTransport({
                         read: jest.fn().mockResolvedValue(new Map()),
                     } as unknown as MlKeyReader),
                 } as MlKeyManager
@@ -132,7 +132,7 @@ describe('ImageBatcher', () => {
                     bytes: invalid.value,
                     headers: { [INGESTION_VERSION_HEADER]: '2' },
                     detail: {
-                        reason: 'invalid_encryption',
+                        reason: 'invalid_record',
                         sourceTopic: invalid.topic,
                         sourcePartition: 0,
                         sourceOffset: 0,

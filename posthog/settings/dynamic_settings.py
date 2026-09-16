@@ -26,6 +26,16 @@ CONSTANCE_CONFIG = {
         "and series threads. Disable to fall back to building a database per call.",
         bool,
     ),
+    "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS": (
+        # Off in tests: test classes share one team while patching flag evaluation differently per
+        # test, so a cached decision from one test would leak into the next.
+        get_from_env("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS", 0 if TEST else 30, type_cast=int),
+        "How long each HogQL database build reuses a team's feature-flag decisions (managed viewsets, "
+        "data quality checks) before re-evaluating. This lag adds to the flag SDK's own definition "
+        "refresh cadence, and changes to this setting reach each worker within about a minute. "
+        "0 re-evaluates on every build.",
+        int,
+    ),
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED": (
         get_from_env("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", True, type_cast=str_to_bool),
         "Whether HogQL database builds construct revenue-analytics views lazily, on the first query "
@@ -380,6 +390,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
+    "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
