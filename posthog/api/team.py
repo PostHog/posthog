@@ -59,7 +59,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import (
     EventIngestionRestrictionConfig,
@@ -75,7 +75,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -1211,23 +1210,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
-    event_retention_months = serializers.IntegerField(
-        read_only=True,
-        help_text=(
-            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months. "
-            "Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog "
-            "support can change it unless your organization is on the enterprise plan. Background and discussion: "
-            "https://github.com/PostHog/posthog/issues/17031"
-        ),
-    )
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text=(
-            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
-            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
-            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
-        )
-    )
 
     class Meta:
         model = Team
@@ -1257,8 +1239,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
-            "event_retention_months",
-            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -1313,11 +1293,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             group_types = cached_group_types_for_team(team)
             self._group_types_cache = group_types
         return group_types
-
-    @extend_schema_field(serializers.BooleanField())
-    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
-    def get_events_retention_enforced(self, team: Team) -> bool:
-        return should_enforce_events_retention(team.id)
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
@@ -1888,6 +1863,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_logs_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("logs_settings must be an object or null.")
+
+        if "json_parse_logs_attribute_key" in value:
+            attribute_key = value["json_parse_logs_attribute_key"]
+            # Length is measured after trimming, matching CharField(trim_whitespace=True,
+            # max_length=200) on the logs_config key lists.
+            if not isinstance(attribute_key, str) or len(attribute_key.strip()) > 200:
+                raise exceptions.ValidationError(
+                    "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+                    "Use an empty string to disable parsing."
+                )
+            value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
         new_retention = value.get("retention_days")
         if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
@@ -2758,8 +2747,7 @@ class TeamViewSet(
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         team = self.get_object()
 
@@ -2767,10 +2755,10 @@ class TeamViewSet(
             scope="Team",
             team_id=team.pk,
             item_ids=[str(team.pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:

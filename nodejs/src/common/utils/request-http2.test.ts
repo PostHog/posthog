@@ -4,10 +4,12 @@ import https from 'node:https'
 import net, { AddressInfo } from 'node:net'
 import tls from 'node:tls'
 
+import type { ImageFetchOptions } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TestTlsIdentity, createTestTlsIdentity } from '~/tests/helpers/tls'
 
 type RequestModule = typeof import('./request')
+type Client = import('undici').Client
 
 const proxyEnvironmentNames = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'] as const
 
@@ -49,6 +51,8 @@ describe('secure HTTP/2 requests', () => {
     const openSockets = new Set<net.Socket>()
     const openHttp2Sessions = new Set<http2.ServerHttp2Session>()
     const pendingConcurrentResponses: Array<() => void> = []
+    const pendingImageResponses: Array<() => void> = []
+    const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
 
     beforeAll(async () => {
         const generatedTlsIdentity = await createTestTlsIdentity('origin.test')
@@ -61,6 +65,15 @@ describe('secure HTTP/2 requests', () => {
         })
         http2Origin.on('request', (request, response) => {
             http2OriginProtocols.push(request.httpVersion)
+            if (request.url?.startsWith('/image-burst-')) {
+                response.writeHead(200, { 'content-type': 'image/png' })
+                response.write(imageBytes.subarray(0, 1))
+                pendingImageResponses.push(() => response.end(imageBytes.subarray(1)))
+                if (pendingImageResponses.length === 6) {
+                    pendingImageResponses.splice(0).forEach((finish) => finish())
+                }
+                return
+            }
             const finishResponse = (): void => {
                 response.writeHead(200, { 'content-type': 'text/plain' })
                 response.end(request.url)
@@ -158,6 +171,7 @@ describe('secure HTTP/2 requests', () => {
     })
 
     afterEach(async () => {
+        pendingImageResponses.splice(0).forEach((finish) => finish())
         await requestModule.closeSharedAgents()
         await waitForExpect(() => expect(openHttp2Sessions.size).toBe(0), 2000)
     })
@@ -269,6 +283,77 @@ describe('secure HTTP/2 requests', () => {
         // The pool cap is 4, so only the cold-start gate can hold six requests on one session.
         expect(http2SessionCount).toBe(1)
     }, 10000)
+
+    it('shares one client for six cold image fetches and closes the idle client and its connections', async () => {
+        const { HttpImageFetcher } =
+            require('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher') as typeof import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher')
+        const { Client: UndiciClient } = jest.requireActual<typeof import('undici')>('undici')
+        const clients = new Set<Client>()
+        const dispatch = UndiciClient.prototype.dispatch
+        const dispatchSpy = jest.spyOn(UndiciClient.prototype, 'dispatch').mockImplementation(function (
+            this: Client,
+            options,
+            handler
+        ) {
+            if (options.path.startsWith('/image-burst-')) {
+                clients.add(this)
+            }
+            return dispatch.call(this, options, handler)
+        })
+        const fetcher = new HttpImageFetcher(
+            { maxUrlLength: 2048, isPublicHost: () => true },
+            { headersForGet: () => ({}) }
+        )
+        const options: ImageFetchOptions = {
+            maxBytes: 1000,
+            timeoutMs: 2000,
+            maxRedirects: 0,
+            isDifferentOrigin: () => false,
+            scheduleRequest: async (_url, _deadlineMs, request) => ({ ran: true, value: await request() }),
+            checkRedirectPolicy: () => Promise.resolve({ allowed: true, tdmrepReservation: false }),
+            tdmrepReservation: false,
+        }
+        const authority = `origin.test:${serverPort(http2Origin)}`
+        const fetchBurst = async (): Promise<void> => {
+            const results = await Promise.all(
+                Array.from({ length: 6 }, (_, index) =>
+                    fetcher.fetch(`https://${authority}/image-burst-${index}.png`, options)
+                )
+            )
+            expect(results).toEqual(
+                Array.from({ length: 6 }, () => expect.objectContaining({ outcome: 'ok', bytes: imageBytes }))
+            )
+        }
+
+        try {
+            await fetchBurst()
+
+            expect(clients.size).toBe(1)
+            expect(http2SessionCount).toBe(1)
+            expect(http2OriginProtocols).toEqual(Array(6).fill('2.0'))
+            expect(proxyAuthorities).toEqual([authority])
+            expect(openHttp2Sessions.size).toBe(1)
+            expect(openSockets.size).toBe(2)
+            const [idleClient] = clients
+
+            await waitForExpect(() => {
+                expect(idleClient.destroyed).toBe(true)
+                expect(openHttp2Sessions.size).toBe(0)
+                expect(openSockets.size).toBe(0)
+            }, keepAliveTimeoutMs * 3)
+
+            await fetchBurst()
+
+            expect(clients.size).toBe(2)
+            expect(http2SessionCount).toBe(2)
+            expect(http2OriginProtocols).toEqual(Array(12).fill('2.0'))
+            expect(proxyAuthorities).toEqual([authority, authority])
+            expect(openHttp2Sessions.size).toBe(1)
+            expect(openSockets.size).toBe(2)
+        } finally {
+            dispatchSpy.mockRestore()
+        }
+    }, 15000)
 
     it('still fans a burst out to an origin that negotiates HTTP/1.1', async () => {
         const http1Url = `https://origin.test:${serverPort(http1Origin)}`

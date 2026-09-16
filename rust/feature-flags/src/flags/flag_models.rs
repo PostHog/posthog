@@ -124,6 +124,8 @@ pub struct HypercacheFlagsWrapper {
 pub struct Holdout {
     pub id: i64,
     pub exclusion_percentage: f64,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Holdout {
@@ -178,15 +180,23 @@ pub struct MultivariateFlagVariant {
     pub key: String,
     pub name: Option<String>,
     pub rollout_percentage: f64,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 // Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
 // filters against these shapes at write time — keep field shapes in sync (issue #50084).
+//
+// `filters` is customer-writable JSONB that Django stores unvalidated, so every struct
+// reachable from here must carry `#[serde(flatten)] extra` and be weighed in
+// `estimate_filters_size`. Skipping either drops customer keys, or hides their bytes.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
     #[serde(default)]
@@ -375,12 +385,64 @@ pub struct PreparedFlagDefinitions {
     pub cohorts: Option<Arc<[Cohort]>>,
 }
 
+/// Estimates the heap bytes a flag's deserialized `filters` JSONB occupies.
+/// Every `extra` passthrough map in the subtree has to be weighed here, or oversized
+/// unknown keys bypass the cache's byte budget.
+fn estimate_filters_size(filters: &FlagFilters) -> usize {
+    use crate::utils::json_size::{estimate_json_map_size, estimate_json_size};
+
+    // A compiled regex costs ~2KB for the DFA/NFA automata inside fancy_regex::Regex, and
+    // the `value` payload can dominate for cohort/group filters, so walk it.
+    let properties_size = |props: &[PropertyFilter]| -> usize {
+        props
+            .iter()
+            .map(|p| {
+                std::mem::size_of::<PropertyFilter>()
+                    + p.key.len()
+                    + p.value.as_ref().map_or(0, estimate_json_size)
+                    + if p.compiled_regex.is_some() { 2048 } else { 0 }
+                    + estimate_json_map_size(&p.extra)
+            })
+            .sum()
+    };
+    let groups_size: usize = filters
+        .groups
+        .iter()
+        .map(|g| {
+            g.properties
+                .as_ref()
+                .map_or(0, |props| properties_size(props))
+                + estimate_json_map_size(&g.extra)
+        })
+        .sum();
+    let multivariate_size = filters.multivariate.as_ref().map_or(0, |m| {
+        estimate_json_map_size(&m.extra)
+            + m.variants
+                .iter()
+                .map(|v| {
+                    std::mem::size_of::<MultivariateFlagVariant>()
+                        + v.key.len()
+                        + v.name.as_ref().map_or(0, |n| n.len())
+                        + estimate_json_map_size(&v.extra)
+                })
+                .sum::<usize>()
+    });
+    let holdout_size = filters
+        .holdout
+        .as_ref()
+        .map_or(0, |h| estimate_json_map_size(&h.extra));
+
+    groups_size
+        + estimate_json_map_size(&filters.extra)
+        + multivariate_size
+        + holdout_size
+        + filters.payloads.as_ref().map_or(0, estimate_json_size)
+}
+
 impl PreparedFlagDefinitions {
     /// Estimates the heap memory footprint of this struct in bytes.
     /// Used by moka's weight-based eviction to enforce cache capacity limits.
     pub fn estimated_size_bytes(&self) -> usize {
-        use crate::utils::json_size::{estimate_json_map_size, estimate_json_size};
-
         let base = std::mem::size_of::<Self>();
 
         let flags_size: usize = self
@@ -396,42 +458,6 @@ impl PreparedFlagDefinitions {
                     .as_ref()
                     .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
                 let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
-                // Each PropertyFilter with a compiled regex costs ~2KB for the
-                // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
-                // payload can dominate for cohort/group filters, so walk it.
-                // The `extra` flatten maps capture unknown JSONB keys; without
-                // weighing them, oversized unknown filter fields would bypass the
-                // cache's byte-budget eviction (see `FlagFilters.extra` doc).
-                let group_size = |groups: &[FlagPropertyGroup]| -> usize {
-                    groups
-                        .iter()
-                        .map(|g| {
-                            let props_size = g.properties.as_ref().map_or(0, |props| {
-                                props
-                                    .iter()
-                                    .map(|p| {
-                                        let prop_base = std::mem::size_of::<PropertyFilter>();
-                                        let prop_key = p.key.len();
-                                        let prop_value =
-                                            p.value.as_ref().map_or(0, estimate_json_size);
-                                        let regex_overhead =
-                                            if p.compiled_regex.is_some() { 2048 } else { 0 };
-                                        let prop_extra = estimate_json_map_size(&p.extra);
-                                        prop_base
-                                            + prop_key
-                                            + prop_value
-                                            + regex_overhead
-                                            + prop_extra
-                                    })
-                                    .sum::<usize>()
-                            });
-                            props_size + estimate_json_map_size(&g.extra)
-                        })
-                        .sum()
-                };
-                let filters_size: usize =
-                    group_size(&f.filters.groups) + estimate_json_map_size(&f.filters.extra);
-                let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
                     + key_size
@@ -439,8 +465,7 @@ impl PreparedFlagDefinitions {
                     + runtime_size
                     + tags_size
                     + bucketing_size
-                    + filters_size
-                    + payloads_size
+                    + estimate_filters_size(&f.filters)
             })
             .sum();
 
@@ -609,6 +634,7 @@ mod mock_impls {
                         ..Default::default()
                     },
                 ],
+                ..Default::default()
             }
         }
     }
@@ -638,8 +664,7 @@ mod mock_impls {
 #[cfg(test)]
 mod unknown_key_passthrough_tests {
     //! Verify that unknown JSONB keys round-trip through deserialize/serialize
-    //! unchanged via the `extra` field on `FlagFilters`, `FlagPropertyGroup`,
-    //! and `PropertyFilter`.
+    //! unchanged via the `extra` field on every struct reachable from `FlagFilters`.
     //!
     //! Without this passthrough, the Python `verify_flags_cache` verifier reports
     //! spurious `FIELD_MISMATCH` against the Django JSONB passthrough because Rust
@@ -649,10 +674,11 @@ mod unknown_key_passthrough_tests {
     //! plans/verify-flags-cache-loose-comparison.md.
     use super::*;
 
-    fn round_trip(json: serde_json::Value) -> serde_json::Value {
-        let group: FlagPropertyGroup = serde_json::from_value(json)
-            .expect("FlagPropertyGroup should deserialize cleanly with flatten extra");
-        serde_json::to_value(&group).expect("FlagPropertyGroup should serialize cleanly")
+    fn round_trip<T: serde::de::DeserializeOwned + Serialize>(
+        json: serde_json::Value,
+    ) -> serde_json::Value {
+        let value: T = serde_json::from_value(json).expect("should deserialize with flatten extra");
+        serde_json::to_value(&value).expect("should serialize")
     }
 
     #[test]
@@ -665,7 +691,7 @@ mod unknown_key_passthrough_tests {
             "sort_key": "abc-123"
         });
 
-        let output = round_trip(input);
+        let output = round_trip::<FlagPropertyGroup>(input);
 
         assert_eq!(output["description"], "rollout to enterprise");
         assert_eq!(output["sort_key"], "abc-123");
@@ -680,9 +706,7 @@ mod unknown_key_passthrough_tests {
             ]
         });
 
-        let filters: FlagFilters = serde_json::from_value(input)
-            .expect("FlagFilters should deserialize cleanly with flatten extra");
-        let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
+        let output = round_trip::<FlagFilters>(input);
 
         let holdout_groups = output
             .get("holdout_groups")
@@ -701,12 +725,51 @@ mod unknown_key_passthrough_tests {
             "cohort_name": "QA users"
         });
 
-        let property: PropertyFilter = serde_json::from_value(input)
-            .expect("PropertyFilter should deserialize cleanly with flatten extra");
-        let output =
-            serde_json::to_value(&property).expect("PropertyFilter should serialize cleanly");
+        let output = round_trip::<PropertyFilter>(input);
 
         assert_eq!(output["cohort_name"], "QA users");
+    }
+
+    #[test]
+    fn multivariate_flag_variant_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "key": "control",
+            "name": "Control",
+            "rollout_percentage": 50,
+            "payload": {"color": "blue"},
+            "split_percent": 25
+        });
+
+        let output = round_trip::<MultivariateFlagVariant>(input);
+
+        assert_eq!(output["payload"], serde_json::json!({"color": "blue"}));
+        assert_eq!(output["split_percent"], 25);
+    }
+
+    #[test]
+    fn multivariate_flag_options_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "variants": [{"key": "control", "name": "Control", "rollout_percentage": 100}],
+            "payload": {"control": "blue"}
+        });
+
+        let output = round_trip::<MultivariateFlagOptions>(input);
+
+        assert_eq!(output["payload"], serde_json::json!({"control": "blue"}));
+        assert_eq!(output["variants"][0]["key"], "control");
+    }
+
+    #[test]
+    fn holdout_preserves_unknown_keys() {
+        let input = serde_json::json!({
+            "id": 42,
+            "exclusion_percentage": 10,
+            "split_percent": 5
+        });
+
+        let output = round_trip::<Holdout>(input);
+
+        assert_eq!(output["split_percent"], 5);
     }
 
     #[test]

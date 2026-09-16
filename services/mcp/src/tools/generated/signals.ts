@@ -76,7 +76,7 @@ const InboxReportArtefactsListSchema = () => {
 
 const inboxReportArtefactsList = (): ToolBase<
     ReturnType<typeof InboxReportArtefactsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>
+    WithAgentNote<WithPostHogUrl<Schemas.PaginatedSignalReportArtefactList>>
 > => ({
     name: 'inbox-report-artefacts-list',
     schema: InboxReportArtefactsListSchema(),
@@ -90,7 +90,10 @@ const inboxReportArtefactsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/inbox')
+        return withAgentNote(
+            await withPostHogUrl(context, result, '/inbox'),
+            "Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not show resolution. If the issue no longer occurs, record the result and reassess the report. If no plan applies, verify the issue from the report's evidence.\n"
+        )
     },
 })
 
@@ -342,7 +345,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
+            'You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n'
         )
     },
 })
@@ -596,6 +599,24 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -617,20 +638,8 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.structured_output_schema !== undefined) {
-            body['structured_output_schema'] = params.structured_output_schema
-        }
-        if (params.mcp_gateway_server_ids !== undefined) {
-            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
-        }
-        if (params.write_scopes !== undefined) {
-            body['write_scopes'] = params.write_scopes
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -679,6 +688,7 @@ const scoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -761,6 +771,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
@@ -784,6 +797,9 @@ const scoutCreate = (): ToolBase<ReturnType<typeof ScoutCreateSchema>, Schemas.S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -1111,6 +1127,7 @@ const scoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                summary_only: params.summary_only,
             },
         })
         return result
@@ -1388,6 +1405,24 @@ const signalsScoutConfigCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.structured_output_schema !== undefined) {
+            body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1409,20 +1444,8 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
-        if (params.model !== undefined) {
-            body['model'] = params.model
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.structured_output_schema !== undefined) {
-            body['structured_output_schema'] = params.structured_output_schema
-        }
-        if (params.mcp_gateway_server_ids !== undefined) {
-            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
-        }
-        if (params.write_scopes !== undefined) {
-            body['write_scopes'] = params.write_scopes
+        if (params.display_name !== undefined) {
+            body['display_name'] = params.display_name
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1471,6 +1494,7 @@ const signalsScoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                search: params.search,
                 tags: params.tags,
             },
         })
@@ -1552,6 +1576,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.repositories !== undefined) {
+            body['repositories'] = params.repositories
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
@@ -1781,6 +1808,7 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/project_profile/current/`,
             query: {
                 force_refresh: params.force_refresh,
+                summary_only: params.summary_only,
             },
         })
         return result

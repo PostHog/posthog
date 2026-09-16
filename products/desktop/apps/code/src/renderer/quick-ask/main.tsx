@@ -9,7 +9,9 @@ import { HostTRPCProvider } from "@posthog/host-router/react";
 import type { HostRouter } from "@posthog/host-router/router";
 import { QuickAsk } from "@posthog/quick-ask/panel/QuickAsk";
 import { getAuthIdentity, useAuthStore } from "@posthog/ui/features/auth/store";
+import { ReportReferenceNavigationContext } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { ThemeWrapper } from "@posthog/ui/primitives/ThemeWrapper";
+import { logger } from "@posthog/ui/shell/logger";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { hydrateCustomCloud } from "@renderer/custom-cloud";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +27,14 @@ import { BootErrorBoundary } from "../components/BootErrorBoundary";
 const hostTrpcClient = createTRPCClient<HostRouter>({
   links: [ipcLink({ transformer: superjson })],
 });
+
+async function openReport(reportId: string): Promise<void> {
+  try {
+    await hostTrpcClient.deepLink.openInboxReport.mutate({ reportId });
+  } catch (error) {
+    logger.scope("quick-ask").error("Failed to open report", error);
+  }
+}
 
 // Components outside React's tree (openExternalUrl) resolve the host client
 // through the shared service locator.
@@ -90,7 +100,9 @@ void hydrateCustomCloud().then(() => {
               queryClient={queryClient}
             >
               <ThemeWrapper>
-                <QuickAsk />
+                <ReportReferenceNavigationContext.Provider value={openReport}>
+                  <QuickAsk />
+                </ReportReferenceNavigationContext.Provider>
               </ThemeWrapper>
             </HostTRPCProvider>
           </QueryClientProvider>

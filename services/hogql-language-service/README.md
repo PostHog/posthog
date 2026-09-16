@@ -1,6 +1,8 @@
 # HogQL language service prototype
 
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
+Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
+The service embeds the global HogQL function list, while Django supplies permission-filtered tables and properties.
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
@@ -28,8 +30,14 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT amuont FROM warehouse_0420"}'
 ```
 
-Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
-distance. Dynamic properties use the same cached namespaces as autocomplete.
+Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
+underlying catalog tables in `tableNames`.
+Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
+diagnostic and ask the user to select fewer fields.
+
+Validation diagnostic offsets use `positionEncoding`, which defaults to UTF-16. Diagnostics include up to five visible
+typo suggestions ranked by case-insensitive Levenshtein distance. Dynamic properties use the same cached namespaces as
+autocomplete.
 
 ```bash
 curl -sS -X POST http://localhost:8091/teams/2/users/1/autocomplete \
@@ -41,8 +49,11 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the default) or
-`utf-16`; editor clients such as Monaco should send `utf-16`. The response echoes the selected encoding.
+Autocomplete `position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the
+default) or `utf-16`; editor clients such as Monaco should send `utf-16`. Validation accepts the same setting, defaults
+to `utf-16`, and uses it for diagnostic positions. Both responses echo the selected encoding. Suggestion labels
+preserve catalog names, while `insertText` quotes identifiers that contain spaces or special characters.
+Suggestions omit identifiers containing `%` because HogQL does not support them.
 `durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and

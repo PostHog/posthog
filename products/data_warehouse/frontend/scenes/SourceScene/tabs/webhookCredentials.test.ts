@@ -1,5 +1,7 @@
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo } from '~/types'
+
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { missingWebhookCredentials } from './webhookCredentials'
 
@@ -14,7 +16,7 @@ const signingSecret = {
 
 const optionalField = { ...signingSecret, name: 'note', required: false } as SourceFieldConfig
 
-const sourceConfig = { name: 'Mailgun', webhookFields: [signingSecret, optionalField] } as SourceConfig
+const sourceConfig = { name: 'Mailgun', webhookFields: [signingSecret, optionalField] } as SourceConfigResponseApi
 
 const webhookInfo = (inputs: WebhookInfo['inputs']): WebhookInfo =>
     ({ supports_webhooks: true, exists: true, inputs }) as WebhookInfo
@@ -32,8 +34,8 @@ describe('missingWebhookCredentials', () => {
     })
 
     it('reports nothing before the webhook exists', () => {
-        expect(missingWebhookCredentials({ supports_webhooks: true, exists: false } as WebhookInfo, sourceConfig)).toEqual(
-            []
-        )
+        expect(
+            missingWebhookCredentials({ supports_webhooks: true, exists: false } as WebhookInfo, sourceConfig)
+        ).toEqual([])
     })
 })

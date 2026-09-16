@@ -1,5 +1,7 @@
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { WebhookInfo, WebhookInputValue } from '~/types'
+
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 const hasValue = (input: WebhookInputValue | undefined): boolean => {
     if (!input) {
@@ -18,7 +20,7 @@ const hasValue = (input: WebhookInputValue | undefined): boolean => {
  */
 export function missingWebhookCredentials(
     webhookInfo: WebhookInfo | null,
-    sourceConfig: SourceConfig | null
+    sourceConfig: SourceConfigResponseApi | null
 ): SourceFieldConfig[] {
     if (!webhookInfo?.exists) {
         return []

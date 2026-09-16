@@ -43,15 +43,18 @@ function SqlCollapsible({
     hogql,
     clickhouseSql,
     showClickhouseSql,
+    embedded,
 }: {
     hogql?: string
     clickhouseSql?: string
     showClickhouseSql: boolean
+    embedded?: boolean
 }): JSX.Element {
     const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
 
     return (
         <LemonCollapse
+            embedded={embedded}
             panels={[
                 {
                     key: 'sql',
@@ -102,10 +105,13 @@ export function ResultDetails({
     experiment,
     result,
     metric,
+    embedded = false,
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
+    /** Renders the table, funnel, and SQL as divider-separated sections of a parent panel instead of standalone cards. */
+    embedded?: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
     const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
@@ -265,20 +271,22 @@ export function ResultDetails({
         : undefined
 
     return (
-        <div className="space-y-4">
-            <LemonTable columns={columns} dataSource={dataSource} loading={false} />
+        <div className={embedded ? 'divide-y divide-border' : 'space-y-4'}>
+            <LemonTable columns={columns} dataSource={dataSource} loading={false} embedded={embedded} />
             {isExperimentFunnelMetric(metric) && (
                 <ExperimentFunnelChart
                     result={result}
                     experiment={experiment}
                     metric={metric}
                     experimentQuery={experimentQuery}
+                    embedded={embedded}
                 />
             )}
             <SqlCollapsible
                 hogql={result.hogql}
                 clickhouseSql={result.clickhouse_sql}
                 showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+                embedded={embedded}
             />
         </div>
     )

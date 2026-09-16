@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type ReportMetricApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -77,13 +78,13 @@ export interface SignalReport {
     status: SignalReportStatus
     total_weight: number
     signal_count: number
-    relevant_user_count: number | null
     created_at: string
     updated_at: string
     artefact_count: number
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
+    metrics?: ReportMetricApi[]
     /** Prompts the report's author suggests sending about it (questions or next-step actions), offered above the "Ask AI" box. */
     suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
@@ -411,6 +412,8 @@ export interface SignalTeamConfig {
     max_reports_per_day?: number | null
     /** Whether self-driving PRs open ready for review instead of draft. A reviewer's own setting overrides it. */
     default_open_pull_request_ready?: boolean
+    /** Whether self-driving comments a link to the report back on a GitHub issue that raised it. */
+    github_issue_writeback_enabled?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */

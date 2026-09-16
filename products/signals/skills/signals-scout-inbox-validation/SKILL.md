@@ -1,5 +1,6 @@
 ---
 name: signals-scout-inbox-validation
+scout-display-name: Inbox validation
 description: >
   Follow-up Signals scout for the inbox itself. Re-measures the problems behind recently
   resolved reports after a soak window and reports when a fix didn't hold, plus a gated
@@ -13,6 +14,7 @@ compatibility: >
 allowed_tools:
   - emit_report
   - edit_report
+scout-role: operational
 metadata:
   owner_team: signals
   scope: inbox_validation
