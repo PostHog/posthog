@@ -863,6 +863,38 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_listed_skill_is_readable_by_the_name_and_version_the_list_returned(self):
+        self.create_skill(name="signals-scout-drive-session-completion", version=1)
+
+        listed = self.client.get(self._url()).json()["results"][0]
+        response = self.client.get(self._url(f"name/{listed['name']}?version={listed['version']}"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["name"], response.json()["version"]) == (listed["name"], listed["version"])
+
+    def test_get_skill_by_near_miss_name_suggests_the_listed_name(self):
+        self.create_skill(name="signals-scout-drive-session-completion")
+
+        response = self.client.get(self._url("name/signals-scout-drive-session?version=1"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_not_found"
+        assert body["suggestions"] == ["signals-scout-drive-session-completion"]
+        assert "signals-scout-drive-session-completion" in body["detail"]
+
+    def test_get_skill_at_absent_version_names_the_versions_the_store_holds(self):
+        self.create_skill(name="versioned-skill", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", version=2)
+
+        response = self.client.get(self._url("name/versioned-skill?version=7"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        assert body["type"] == "skill_version_not_found"
+        assert body["available_versions"] == [1, 2]
+        assert "has no version 7" in body["detail"]
+
     @parameterized.expand(
         [
             ("no_query_string", "", None),
@@ -2168,6 +2200,27 @@ class TestSkillAccessControlRBAC(APIBaseTest):
                 }
             ],
         }
+
+    def test_not_found_suggestions_omit_skills_the_member_cannot_read(self):
+        LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals-restricted",
+            description="d",
+            body="# x\n",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+
+        response = self.client.get(self._url("name/make-fractal"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["suggestions"] == ["make-fractals"]
 
     @parameterized.expand(
         [
