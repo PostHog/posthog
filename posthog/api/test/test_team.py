@@ -477,13 +477,14 @@ def team_api_test_factory():
                     send_feature_flags=False,
                 ),
             ]
-            mock_start_workflow.assert_called_once_with(
-                team_ids=[team_pk],
-                project_id=team_pk,
-                user_id=self.user.id,
-                # The org's first project already holds the plain default name, so the second one gets a suffix
-                project_name="Default project 2",
-            )
+            mock_start_workflow.assert_called_once()
+            workflow_kwargs = mock_start_workflow.call_args.kwargs
+            self.assertEqual(workflow_kwargs["team_ids"], [team_pk])
+            self.assertEqual(workflow_kwargs["project_id"], team_pk)
+            self.assertEqual(workflow_kwargs["user_id"], self.user.id)
+            self.assertEqual(workflow_kwargs["project_name"], "Default project 2")
+            self.assertGreater(workflow_kwargs["start_delay"], timedelta(hours=47))
+            self.assertLessEqual(workflow_kwargs["start_delay"], timedelta(hours=48))
             assert mock_capture.call_args_list == expected_capture_calls
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
