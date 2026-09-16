@@ -1,4 +1,3 @@
-import type { WorkspaceMode } from "@posthog/shared";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,24 +17,11 @@ vi.mock("../../../shell/logger", () => ({
   logger: { scope: () => ({ warn: vi.fn(), error: vi.fn() }) },
 }));
 
-import { useWarmTask } from "./useWarmTask";
+import { type UseWarmTaskOptions, useWarmTask } from "./useWarmTask";
 import { takeWarmTaskLease } from "./warmTaskLease";
 
-interface Props {
-  workspaceMode: WorkspaceMode;
-  claudeModelAccess?: string;
-  selectedRepository?: string | null;
-  repositories?: string[];
-  githubIntegrationId?: number;
-  allowNoRepo?: boolean;
-  branch?: string | null;
-  editorIsEmpty: boolean;
-  runtimeAdapter?: string | null;
-  model?: string | null;
-  reasoningEffort?: string | null;
-  sandboxEnvironmentId?: string | null;
-  customImageId?: string | null;
-}
+// The hook's own options, so a field added there cannot go untested here.
+type Props = UseWarmTaskOptions;
 
 const cloudTyping: Props = {
   workspaceMode: "cloud",

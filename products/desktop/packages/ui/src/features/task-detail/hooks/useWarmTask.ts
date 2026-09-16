@@ -17,7 +17,7 @@ const log = logger.scope("warm-task");
 
 const WARM_DEBOUNCE_MS = 600;
 
-interface UseWarmTaskOptions {
+export interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
   selectedRepository?: string | null;
