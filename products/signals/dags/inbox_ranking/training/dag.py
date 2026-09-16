@@ -109,6 +109,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
     MODEL_FAMILIES,
+    UNSEEN_SCORES_TABLE,
     HeadGrade,
     ModelFamily,
     UnseenModel,
@@ -131,7 +132,6 @@ from products.signals.dags.inbox_ranking.training.unseen import (
 )
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
-UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
 MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
 METADATA_FILE = "metadata.json"
