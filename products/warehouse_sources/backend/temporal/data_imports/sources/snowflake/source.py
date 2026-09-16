@@ -26,6 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SnowflakeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    SNOWFLAKE_RESULT_CAP_MARKER,
+    SNOWFLAKE_TOO_WIDE_MESSAGE,
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
 )
@@ -97,6 +99,9 @@ SnowflakeErrors = {
     # "check all connection details" message, so people re-enter correct credentials repeatedly.
     "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
     "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    # Without this entry the wizard falls back to the generic "check all connection details"
+    # message, which sends people back to credentials that are fine.
+    SNOWFLAKE_RESULT_CAP_MARKER: SNOWFLAKE_TOO_WIDE_MESSAGE,
 }
 
 
@@ -241,6 +246,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             ),
         )
 
+    def discovery_timeout_message(self) -> str:
+        return SNOWFLAKE_TOO_WIDE_MESSAGE
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
@@ -257,6 +265,8 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # match the stable phrase.
             "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
+            # Retrying can never succeed until the customer narrows the import to a single schema.
+            SNOWFLAKE_RESULT_CAP_MARKER: SNOWFLAKE_TOO_WIDE_MESSAGE,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin

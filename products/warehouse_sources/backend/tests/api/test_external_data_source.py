@@ -5372,6 +5372,41 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_answers_slow_discovery_with_the_source_guidance(
+        self, mock_get_source, mock_capture_exception
+    ):
+        # Discovery on a wide account used to outlive the gateway, which killed the request with no
+        # body — the wizard could not say what went wrong or what to change. Own the deadline so the
+        # caller gets the source's own guidance instead.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source import SnowflakeSource
+
+        source = SnowflakeSource()
+        mock_get_source.return_value = source
+
+        def _never_returns(*args, **kwargs):
+            time.sleep(1)
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=_never_returns),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.DISCOVERY_DEADLINE_SECONDS",
+                0.1,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "Snowflake"},
+            )
+
+        assert response.status_code == 400
+        assert "Schema field" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_database_schema_rejects_source_without_schema_discovery(self, mock_get_source, mock_capture_exception):
         # AmazonS3 deliberately omits get_schemas, so the base raises NotImplementedError. The endpoint
         # must return a clean 400 without capturing it as a server error, mirroring `setup`.

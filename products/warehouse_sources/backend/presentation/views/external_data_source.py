@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import time
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable, Mapping
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import connection, transaction
+from django.db import connection, connections, transaction
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
@@ -21,6 +27,7 @@ from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from openai import APIConnectionError
 from opentelemetry import trace
+from prometheus_client import Counter
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -50,6 +57,7 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -197,6 +205,58 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
 
+# Interactive schema discovery fans out one catalog round trip per metadata kind, each sized by the
+# customer's table count. Past the gateway's own limit the request dies with no body at all, so the
+# setup wizard shows nothing it can act on. Stay under that limit and own the failure instead.
+DISCOVERY_DEADLINE_SECONDS = 100
+
+# A timed-out leg keeps running — a driver blocked on a socket read can't be interrupted — so a
+# shared, bounded pool caps how many abandoned legs one web worker can hold. A per-request executor
+# would instead leak a thread per slow discovery, which is exactly what a wide account produces.
+_DISCOVERY_MAX_WORKERS = 8
+_DISCOVERY_EXECUTOR = ThreadPoolExecutor(max_workers=_DISCOVERY_MAX_WORKERS, thread_name_prefix="warehouse-discovery")
+
+# The failures this endpoint turns into a message were previously invisible: a request killed at the
+# gateway never reaches exception capture, so the only baseline we can build is one we count here.
+DISCOVERY_FAILURES_COUNTER = Counter(
+    "warehouse_source_discovery_failures_total",
+    "Interactive schema discovery failures, by source type and cause.",
+    labelnames=["source_type", "cause"],
+)
+_discovery_otel = OtelInstrumentFactory("warehouse-sources")
+
+
+def _record_discovery_failure(source: AnySource, cause: str) -> None:
+    labels = {"source_type": str(source.source_type), "cause": cause}
+    DISCOVERY_FAILURES_COUNTER.labels(**labels).inc()
+    _discovery_otel.record_counter_twin(DISCOVERY_FAILURES_COUNTER, 1, labels)
+
+
+class _DiscoveryDeadline:
+    """Wall-clock budget shared by every blocking leg of interactive schema discovery."""
+
+    def __init__(self, seconds: float) -> None:
+        self._expires_at = time.monotonic() + seconds
+
+    def run[T](self, work: Callable[[], T]) -> T:
+        """Run `work` on a pooled thread, raising `FutureTimeoutError` once the budget is spent.
+
+        Every worker still busy is one the caller already abandoned, so a saturated pool means the
+        answer is the same timeout the budget would produce. The thread closes the Django
+        connections it opened so an abandoned leg does not leak one.
+        """
+        remaining = self._expires_at - time.monotonic()
+        if remaining <= 0 or _DISCOVERY_EXECUTOR._work_queue.qsize() >= _DISCOVERY_MAX_WORKERS:  # noqa: SLF001
+            raise FutureTimeoutError()
+
+        def _work_and_release() -> T:
+            try:
+                return work()
+            finally:
+                connections.close_all()
+
+        return _DISCOVERY_EXECUTOR.submit(_work_and_release).result(timeout=remaining)
+
 
 def _source_unavailable_message(source_type: str) -> str:
     # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
@@ -309,6 +369,25 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     discovery already gives an unexpected error just below the credential check."""
     capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
+
+def _discovery_timed_out_response(source: AnySource, team_id: int) -> Response:
+    """Answer a discovery run that outlived its budget with the source's own guidance.
+
+    Not captured as an exception: the cause is the size of the customer's catalog, not a bug, and
+    the request never reached exception capture before because the gateway killed it first.
+    """
+    _record_discovery_failure(source, "timeout")
+    logger.warning(
+        "database_schema discovery timed out",
+        source_type=str(source.source_type),
+        team_id=team_id,
+        timeout_seconds=DISCOVERY_DEADLINE_SECONDS,
+    )
+    return Response(
+        status=status.HTTP_400_BAD_REQUEST,
+        data={"message": source.discovery_timeout_message()},
+    )
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -3500,23 +3579,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        if isinstance(source, (PostgresSource, MySQLSource)):
+            probe = partial(
+                source.validate_credentials_for_access_method,
+                cast(Any, source_config),
+                self.team_id,
+                access_method,
+                require_ssl=new_source_requires_ssl(source_config),
+            )
+        elif isinstance(source, CustomSource):
+            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+            # an unbound integration owned by the requester, or the probe could send another source's token
+            # to the submitted host.
+            probe = partial(
+                source.validate_credentials, source_config, self.team_id, owner_user_id=self.request.user.id
+            )
+        else:
+            probe = partial(source.validate_credentials, source_config, self.team_id)
+
+        # A SQL source's credential probe runs the same discovery fan-out as the listing below, so the
+        # two share one budget rather than getting one each.
+        deadline = _DiscoveryDeadline(DISCOVERY_DEADLINE_SECONDS)
         try:
-            if isinstance(source, (PostgresSource, MySQLSource)):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config),
-                    self.team_id,
-                    access_method,
-                    require_ssl=new_source_requires_ssl(source_config),
-                )
-            elif isinstance(source, CustomSource):
-                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
-                # an unbound integration owned by the requester, or the probe could send another source's token
-                # to the submitted host.
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, self.team_id, owner_user_id=self.request.user.id
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+            credentials_valid, credentials_error = deadline.run(probe)
+        except FutureTimeoutError:
+            return _discovery_timed_out_response(source, self.team_id)
         except Exception as e:
             credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
@@ -3526,7 +3613,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         try:
-            schemas = source.get_schemas(source_config, self.team_id)
+            schemas = deadline.run(lambda: source.get_schemas(source_config, self.team_id))
+        except FutureTimeoutError:
+            return _discovery_timed_out_response(source, self.team_id)
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
@@ -3537,6 +3626,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            _record_discovery_failure(source, "source_error" if is_expected_source_error else "unexpected")
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(

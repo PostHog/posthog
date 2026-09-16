@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError, HttpError, OperationalError
+from snowflake.connector.errors import DatabaseError, HttpError, OperationalError, ProgrammingError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -1118,6 +1118,26 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         assert message is not None and "multi-factor authentication" in message
         assert "snowflakecomputing.com" not in message
+        mock_capture.assert_not_called()
+
+    def test_information_schema_result_cap_returns_guidance_without_capture(self, source):
+        # Snowflake 000709. Unmapped, this reaches the wizard as "check all connection details",
+        # which points at credentials that are fine and hides the one field that fixes it.
+        error = ProgrammingError(
+            msg="000709 (54000): Information schema query returned too much data. "
+            "Please repeat query with more selective predicates.",
+            errno=709,
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "Schema field" in message
         mock_capture.assert_not_called()
 
     def test_unexpected_value_error_is_still_captured(self, source):

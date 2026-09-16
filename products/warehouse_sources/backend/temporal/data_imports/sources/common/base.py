@@ -232,6 +232,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def discovery_timeout_message(self) -> str:
+        """Customer-facing message when schema discovery runs past the interactive deadline.
+
+        Discovery happens inside one HTTP request, so a source whose listing scales with the
+        customer's catalog can outlive the gateway. Override to name the field that narrows the
+        scan; the default only says the connection is too large to list interactively.
+        """
+
+        return (
+            "Listing the tables in this source took too long. It usually means the connection covers more "
+            "data than we can list in one go. Narrow it to a single schema or database, then try again."
+        )
+
     def get_retryable_errors(self) -> set[str]:
         """Returns partial error messages the source already retries internally.
 
