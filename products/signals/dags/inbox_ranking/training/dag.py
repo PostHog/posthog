@@ -90,12 +90,20 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     candidate_events,
     capture_training_events,
     examples_events,
+    holdout_calibration_events,
     promotion_event,
+    unseen_calibration_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.train import (
+    XGB_PARAMS,
+    TrainedHead,
+    booster_holdout_auc,
+    holdout_calibration_rows,
+    train_head,
+)
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
@@ -103,6 +111,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     HeadGrade,
     ModelFamily,
     UnseenModel,
+    calibration_rows,
     empty_scores_write_allowed,
     graded_rows,
     head_grades,
@@ -542,7 +551,19 @@ def _train_candidate(
         context.log.warning(
             f"removed {len(stale)} stale {family.name} objects from a previous run of dt={partition_key}"
         )
-    capture_training_events(context, partition_key, candidate_events(metadata))
+    capture_training_events(
+        context,
+        partition_key,
+        [
+            *candidate_events(metadata),
+            *holdout_calibration_events(
+                partition_key=partition_key,
+                run_id=context.run.run_id,
+                model_name=family.name,
+                rows=holdout_calibration_rows(trained),
+            ),
+        ],
+    )
     return {
         f"{family.name}_stale_objects_removed": dagster.MetadataValue.int(len(stale)),
         f"{family.name}_heads_trained": dagster.MetadataValue.int(len(trained)),
@@ -934,6 +955,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
         partition_key,
         [
             *unseen_head_graded_events(run_id=context.run.run_id, grades=grades),
+            *unseen_calibration_events(run_id=context.run.run_id, rows=calibration_rows(grades)),
             *unseen_report_graded_events(run_id=context.run.run_id, rows=report_rows),
         ],
     )
