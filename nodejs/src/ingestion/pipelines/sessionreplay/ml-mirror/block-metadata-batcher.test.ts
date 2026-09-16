@@ -8,10 +8,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
-import { MlDataKey, decryptEnvelope } from './privacy/crypto'
-import { MlKeyReader } from './privacy/reader'
-import { sessionKeyId, tableKeyString } from './privacy/schema'
-import { MlKafkaEncryption, encryptedKafkaValue } from './privacy/transport'
+import { MlDataKey, decryptEnvelope } from './keys/crypto'
+import { MlKeyReader } from './keys/reader'
+import { sessionKeyId, tableKeyString } from './keys/schema'
+import { MlKafkaEncryption, encryptedKafkaValue } from './keys/transport'
 
 const row = (sessionId: string): MlBlockMetadataRow => ({
     session_id: sessionId,

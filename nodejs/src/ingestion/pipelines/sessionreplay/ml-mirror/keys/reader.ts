@@ -1,10 +1,10 @@
 import { KEY_READ_LEASE_MS, MlDataKey, MlKeyEncryption } from './crypto'
-import { MlPrivacyDynamoDB } from './dynamodb'
+import { MlKeyDynamoDB } from './dynamodb'
 import { MlKeyIdentity, TableKey, tableKeyString, teamBlockId } from './schema'
 
 export class MlKeyReader {
     constructor(
-        private readonly db: MlPrivacyDynamoDB,
+        private readonly db: MlKeyDynamoDB,
         private readonly encryption: MlKeyEncryption
     ) {}
 

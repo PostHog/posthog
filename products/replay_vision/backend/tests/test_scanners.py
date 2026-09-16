@@ -138,8 +138,8 @@ class TestPreamble:
         rendered = scanner.preamble(
             team_name="Acme",
             navigation=[
-                {"rec_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
-                {"rec_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
+                {"vid_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
+                {"vid_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
             ],
             navigation_dropped=3,
         )
