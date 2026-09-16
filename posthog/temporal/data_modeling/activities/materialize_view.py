@@ -656,9 +656,13 @@ async def hogql_table(
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
+    # Named so that a query dying mid-stream can be looked up in ClickHouse's query log,
+    # which holds the real error where the torn response does not.
+    query_id = str(uuid.uuid4())
+
     # The query goes in a field rather than the message: only the message is copied into the
     # log_entries row users can read, and the compiled query is the saved query's own SQL.
-    await logger.adebug("Running clickhouse query", query=arrow_printed)
+    await logger.adebug("Running clickhouse query", query=arrow_printed, query_id=query_id)
 
     async with (
         _clickhouse_query_semaphore,
@@ -678,6 +682,7 @@ async def hogql_table(
             arrow_printed,
             query_parameters=context.values,
             on_schema=capture_arrow_schema,
+            query_id=query_id,
         ):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)

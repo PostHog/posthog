@@ -100,6 +100,12 @@ class ClickHouseQueryStatus(enum.StrEnum):
     ERROR = "Error"
 
 
+# ClickHouse writes `system.query_log` on a flush interval, so a query that has only
+# just died is not in it yet. Wait past one interval before asking about a query we
+# watched fail moments ago.
+QUERY_LOG_FLUSH_WAIT_SECONDS = 10.0
+
+
 class ChunkBytesAsyncStreamIterator:
     """Async iterator of HTTP chunk bytes.
 
@@ -419,7 +425,10 @@ class ClickHouseClient:
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
         if response.status != 200:
-            error_message = await response.text()
+            # A query that fails once ClickHouse has already written result bytes leaves
+            # them in the body ahead of the error text, so a strict decode raises on the
+            # binary instead of reporting what went wrong.
+            error_message = (await response.read()).decode("utf-8", errors="replace")
             self.raise_clickhouse_error(error_message, query=query)
 
     def check_response(self, response, query) -> None:
@@ -830,6 +839,42 @@ class ClickHouseClient:
             self.logger.warning("Failed to read written rows from query log", query_id=query_id, exc_info=True)
             return None
 
+    async def araise_error_behind_broken_stream(
+        self, query_id: str | None, stream_error: BaseException
+    ) -> typing.NoReturn:
+        """Raise the error that stopped a query, in place of the broken stream it left.
+
+        ClickHouse answers 200 as soon as it starts streaming, so a query that dies after
+        that point cannot report through the status code. It writes the error into the tail
+        of the response it was already sending, then cuts the connection. Whether we hold
+        that text is a race with the cut, and the two outcomes need different answers:
+
+        - the tail arrived, and the bytes we could not parse as Arrow are the error itself
+        - the cut won, nothing arrived, and only ClickHouse still knows
+
+        Re-raises `stream_error` when neither answers, because a stream we cannot explain
+        is still a stream we could not read.
+        """
+        if isinstance(stream_error, asyncpa.InvalidMessageFormat) and stream_error.unparsed:
+            trailer = stream_error.unparsed.decode("utf-8", errors="replace")
+            if "DB::Exception" in trailer:
+                try:
+                    self.raise_clickhouse_error(trailer, query_id=query_id)
+                except ClickHouseError as recorded:
+                    raise recorded from stream_error
+
+        if query_id is not None:
+            await asyncio.sleep(QUERY_LOG_FLUSH_WAIT_SECONDS)
+            try:
+                await self.acheck_query(query_id, raise_on_error=True)
+            except (ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError):
+                # The log cannot answer. Not finding a record is not finding a success.
+                pass
+            except ClickHouseError as recorded:
+                raise recorded from stream_error
+
+        raise stream_error
+
     async def acheck_query_in_process_list(self, query_id: str) -> bool:
         """Check if a query is running in the ClickHouse process list.
 
@@ -933,10 +978,18 @@ class ClickHouseClient:
         """
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
-            if on_schema is not None:
-                on_schema(await reader.get_schema())
-            async for batch in reader:
-                yield batch
+
+            try:
+                if on_schema is not None:
+                    on_schema(await reader.get_schema())
+
+                async for batch in reader:
+                    yield batch
+            except Exception as stream_error:
+                # Only a failure to read arrives here. A consumer that raises inside its own
+                # loop closes this generator with GeneratorExit, which is a BaseException and
+                # passes straight through, so their error is never swapped for the query's.
+                await self.araise_error_behind_broken_stream(query_id, stream_error)
 
     async def aproduce_query_as_arrow_record_batches(
         self,
