@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, rmSync } from "node:fs";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,16 +20,25 @@ export interface TestRepo {
   exists: (relativePath: string) => boolean;
 }
 
-export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
-  const repoPath = join(
-    tmpdir(),
-    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  await mkdir(repoPath, { recursive: true });
+let templateRepoPromise: Promise<string> | null = null;
 
-  const git = async (args: string[]): Promise<string> => {
-    const { stdout } = await execFileAsync("git", args, { cwd: repoPath });
-    return stdout.trim();
+// Initializing a repo costs seven git subprocesses. A test file that builds a
+// repo per test spends most of its runtime on those spawns, and they are the
+// first thing to crawl on a contended CI runner. Build the repo once per
+// module and copy it: a git repo has no absolute paths, so the copy is valid.
+function getTemplateRepo(): Promise<string> {
+  templateRepoPromise ??= buildTemplateRepo();
+  return templateRepoPromise;
+}
+
+async function buildTemplateRepo(): Promise<string> {
+  const templatePath = await mkdtemp(join(tmpdir(), "test-repo-template-"));
+  process.once("exit", () =>
+    rmSync(templatePath, { recursive: true, force: true }),
+  );
+
+  const git = async (args: string[]): Promise<void> => {
+    await execFileAsync("git", args, { cwd: templatePath });
   };
 
   await git(["init"]);
@@ -37,10 +46,25 @@ export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
   await git(["config", "user.name", "Test"]);
   await git(["config", "commit.gpgsign", "false"]);
 
-  await writeFile(join(repoPath, ".gitignore"), ".posthog/\n");
-  await writeFile(join(repoPath, "README.md"), "# Test Repo");
+  await writeFile(join(templatePath, ".gitignore"), ".posthog/\n");
+  await writeFile(join(templatePath, "README.md"), "# Test Repo");
   await git(["add", "."]);
   await git(["commit", "-m", "Initial commit"]);
+
+  return templatePath;
+}
+
+export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
+  const repoPath = join(
+    tmpdir(),
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  await cp(await getTemplateRepo(), repoPath, { recursive: true });
+
+  const git = async (args: string[]): Promise<string> => {
+    const { stdout } = await execFileAsync("git", args, { cwd: repoPath });
+    return stdout.trim();
+  };
 
   return {
     path: repoPath,

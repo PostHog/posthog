@@ -1096,20 +1096,26 @@ export class AgentServer {
     this.shutdownController.abort(new CredentialRelayError("cancelled"));
     this.credentialRelay.stop();
     try {
-      await withTimeout(
+      const initializationCleanup = await withTimeout(
         Promise.allSettled([
           this.cleanupInitializingConnection(),
           this.initializationPromise,
         ]),
         5_000,
       );
-      await withTimeout(
+      if (initializationCleanup.result === "timeout") {
+        this.logger.warn("Timed out waiting for initialization cleanup");
+      }
+      const sessionCleanup = await withTimeout(
         this.session
           ? this.cleanupSession({ completeEventStream: true })
           : (this.eventStreamSender?.stop({ complete: false }) ??
               Promise.resolve()),
         5_000,
       );
+      if (sessionCleanup.result === "timeout") {
+        this.logger.warn("Timed out waiting for session cleanup");
+      }
     } finally {
       this.server?.close();
       this.server = null;
