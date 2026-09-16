@@ -62,7 +62,8 @@ export function LeadTimeComparisonCard({
                             </div>
                             <div>
                                 Box: the middle half of the pull requests. Line: median. Dot: mean. Whiskers: 5th to
-                                95th percentile.
+                                95th percentile. The time axis is logarithmic, so a few very slow pull requests don't
+                                squash the rest.
                             </div>
                             <div>
                                 Deploy failure share and recovery are not shown: one deploy ships many pull requests, so
@@ -114,6 +115,9 @@ export function LeadTimeComparisonCard({
                                         ]}
                                         formatSeconds={compactAgeLabel}
                                         excludeOutliers
+                                        horizontal
+                                        logScale
+                                        className="h-28"
                                         dataAttr={`engineering-analytics-delivery-${stage.key}`}
                                     />
                                 </div>
