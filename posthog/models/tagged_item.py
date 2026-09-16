@@ -8,6 +8,8 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin, g
 from posthog.models.tagged_item_registry import content_type_for_entry, legacy_field_for, taggable_for_legacy_field
 from posthog.models.utils import UUIDTModel, build_partial_uniqueness_constraint, build_unique_relationship_check
 
+GENERIC_POINTER_FIELDS = ("content_type", "object_id", "object_uuid", "team")
+
 RELATED_OBJECTS = (
     "dashboard",
     "insight",
@@ -266,6 +268,8 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     def save(self, *args, **kwargs):
         self.full_clean()
         self.sync_generic_columns()
+        if kwargs.get("update_fields"):
+            kwargs["update_fields"] = {*kwargs["update_fields"], *GENERIC_POINTER_FIELDS}
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:

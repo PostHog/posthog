@@ -163,6 +163,20 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert tagged_item.object_uuid == event_definition.id
         assert tagged_item.content_type == ContentType.objects.get_for_model(EventDefinition)
 
+    def test_save_with_update_fields_persists_the_generic_columns(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        tagged_item = TaggedItem.objects.create(dashboard_id=dashboard.id, tag_id=tag.id)
+        TaggedItem.objects.filter(pk=tagged_item.pk).update(content_type=None, object_id=None, team=None)
+
+        tagged_item = TaggedItem.objects.get(pk=tagged_item.pk)
+        tagged_item.save(update_fields=["tag"])
+
+        tagged_item.refresh_from_db()
+        assert tagged_item.object_id == dashboard.id
+        assert tagged_item.content_type == ContentType.objects.get_for_model(Dashboard)
+        assert tagged_item.team_id == tag.team_id
+
     def test_helpers_report_the_tagged_object(self):
         insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)
