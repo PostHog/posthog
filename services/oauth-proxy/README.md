@@ -24,6 +24,7 @@ The one exception is the OpenID Connect ID token: the worker verifies the region
 | `POST` | `/oauth/revoke`                           | Routed by `client_id`, falls back to trying both regions                           |
 | `POST` | `/oauth/introspect`                       | US first, then EU (a 200 with `active: false` counts as a miss)                    |
 | `GET`  | `/oauth/userinfo`                         | Tries both regions with the bearer token                                           |
+| `GET`  | `/static/fonts/*.woff2`                   | RoundHog faces for the region picker, bundled from `@posthog/brand`                |
 
 Trailing slashes are optional; paths are normalized before matching.
 
@@ -35,6 +36,8 @@ Trailing slashes are optional; paths are normalized before matching.
    The proxy's own `/oauth/callback/` is appended to the submitted `redirect_uris` so both regional servers accept it later.
 2. **Authorize.**
    `/oauth/authorize` serves a static region picker.
+   The page mirrors the app's login scene (`frontend/src/scenes/authentication/shared/authScene`): the same background, card, logo and buttons, restated in plain CSS because a Worker cannot import the app's tokens.
+   It loads no third-party asset; the RoundHog faces it uses are bundled from `@posthog/brand` and served by this worker (see `src/handlers/fonts.ts`).
    The picker re-requests the same URL with `_region=us|eu` appended.
    The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
    For clients with a stored `redirect_uris` list, it also generates a nonce, stores the client's original `redirect_uri` and `state` under it, and sends the regional server that nonce as `state` instead of the client's own.
