@@ -12,8 +12,7 @@
             <td style="padding: 4px 0;"><code>{{ mapping.group_type }}</code></td>
         </tr>
     </table>
-    <form method="post"
-          onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+    <form method="post" class="js-disable-on-submit">
         {% csrf_token %}
         <div style="margin: 20px 0;">
             <label for="name_singular"
@@ -74,4 +73,5 @@
                style="margin-left: 10px">Cancel</a>
         </div>
     </form>
+    {% include "admin/_csp_safe_handlers.html" %}
 {% endblock %}

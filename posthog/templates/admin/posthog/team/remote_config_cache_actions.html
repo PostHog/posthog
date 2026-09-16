@@ -9,8 +9,9 @@
             formmethod="post"
             formaction="{{ rebuild_url }}"
             formnovalidate
-            onclick="return confirm('Rebuild cache for team {{ team_name_escaped }}?');">Rebuild cache</button>
+            data-confirm="Rebuild cache for team {{ team_name }}?">Rebuild cache</button>
     <p style="margin-top: 8px; color: #666; font-size: 12px;">
         Cache key: <code>{{ cache_key }}</code>
     </p>
 </div>
+{% include "admin/_csp_safe_handlers.html" %}

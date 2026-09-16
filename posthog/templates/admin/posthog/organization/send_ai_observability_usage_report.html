@@ -3,7 +3,8 @@
 {% block content %}
     <div id="content-main">
         <form method="post"
-              onsubmit="this.querySelector('input[name=_send_report]').disabled = true">
+              class="js-disable-on-submit"
+              data-disable-on-submit="input[name=_send_report]">
             <p>
                 The date is the day the report would have run; it reports AI observability usage for the <b>previous</b> day.
                 <br />
@@ -49,4 +50,5 @@
             </div>
         </form>
     </div>
+    {% include "admin/_csp_safe_handlers.html" %}
 {% endblock %}

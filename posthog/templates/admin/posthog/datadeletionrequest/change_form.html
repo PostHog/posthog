@@ -225,7 +225,7 @@
                     style="padding: 10px 15px;
                            background: #d9534f;
                            color: white"
-                    onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
+                    data-confirm="Retry this failed request? It will be re-queued for execution.">Retry execution</button>
         </div>
     {% endif %}
     {% if can_verify %}
@@ -253,7 +253,8 @@
                     style="padding: 10px 15px;
                            background: #417690;
                            color: white"
-                    onclick="return confirm('Verify this request against ClickHouse now?');">Verify deletion</button>
+                    data-confirm="Verify this request against ClickHouse now?">Verify deletion</button>
         </div>
     {% endif %}
+    {% include "admin/_csp_safe_handlers.html" %}
 {% endblock %}

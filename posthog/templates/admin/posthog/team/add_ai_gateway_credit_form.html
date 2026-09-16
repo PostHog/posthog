@@ -2,8 +2,7 @@
 {% load i18n %}
 {% block content %}
     <p>Add prepaid credit to <strong>{{ team.name }}</strong>'s AI gateway wallet. This appends a top-up entry to the gateway ledger and increases the team's spendable balance immediately.</p>
-    <form method="post"
-          onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+    <form method="post" class="js-disable-on-submit">
         {% csrf_token %}
         <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
         <div style="margin: 20px 0;">
@@ -40,4 +39,5 @@
                style="margin-left: 10px">Cancel</a>
         </div>
     </form>
+    {% include "admin/_csp_safe_handlers.html" %}
 {% endblock %}
