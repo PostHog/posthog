@@ -33,6 +33,7 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
+import { ShareSkillMenuItem } from './ShareSkillMenuItem'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
@@ -204,18 +205,7 @@ function buildSkillColumns(
                                     </LemonButton>
                                 </AccessControlAction>
 
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmSkill}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        onClick={() => publishToCommunity(skill)}
-                                        data-attr="llma-skill-dropdown-publish-community"
-                                        fullWidth
-                                    >
-                                        Publish to community
-                                    </LemonButton>
-                                </AccessControlAction>
+                                <ShareSkillMenuItem skill={skill} onShare={publishToCommunity} />
 
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmSkill}

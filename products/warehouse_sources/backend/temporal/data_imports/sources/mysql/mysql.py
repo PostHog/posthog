@@ -31,7 +31,7 @@ import pyarrow as pa
 import pymysql
 import structlog
 import pymysql.converters
-from pymysql.constants import CR, FIELD_TYPE
+from pymysql.constants import CLIENT, CR, FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -688,15 +688,43 @@ def _reconnect_pinned(connection: pymysql.Connection, team_id: int | None) -> No
     connection.connect(sock=_pinned_socket(connection.host, connection.port, connection.connect_timeout, team_id))
 
 
+class _TLSRequiredConnection(pymysql.Connection):
+    """A connection that refuses to authenticate when the server offers no TLS.
+
+    pymysql wraps the socket only when the server advertises the TLS capability, and that check
+    has no else branch, so a missing or stripped flag is served in plaintext and raises nothing.
+    Refusing here stops the credentials before they cross that connection, and covers every
+    reconnect as well: `Connection.connect()` runs this method each time it reopens the socket.
+    """
+
+    def _request_authentication(self) -> None:
+        # The stubs declare neither the handshake hook nor the capability flags it reads.
+        offers_tls = bool(self.server_capabilities & CLIENT.SSL)  # type: ignore[attr-defined]
+        if self.ssl and not offers_tls:
+            raise pymysql.err.OperationalError(
+                CR.CR_SSL_CONNECTION_ERROR,
+                "The MySQL server did not offer a TLS connection. Turn off certificate "
+                "verification for this source, or enable TLS on the server.",
+            )
+        super()._request_authentication()  # type: ignore[misc]
+
+
+def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
+    """Build the connection, refusing plaintext when this source verifies the certificate."""
+    if kwargs.get("ssl_verify_cert"):
+        return _TLSRequiredConnection(**kwargs, **extra)
+    return pymysql.connect(**kwargs, **extra)
+
+
 def _open_pymysql_connection(kwargs: dict[str, Any], team_id: int | None) -> pymysql.Connection:
     sock = _pinned_socket(kwargs["host"], kwargs["port"], kwargs["connect_timeout"], team_id)
     if sock is None:
-        return pymysql.connect(**kwargs)
+        return _new_connection(kwargs)
 
     # `host` stays the hostname so pymysql sends it as the TLS server name, and PlanetScale, which
     # turns on `ssl_verify_identity`, verifies the certificate against it. Python sends no SNI for
     # an IP literal. Only the TCP connect goes to the pinned address.
-    connection = pymysql.connect(**kwargs, defer_connect=True)
+    connection = _new_connection(kwargs, defer_connect=True)
     connection.connect(sock=sock)
     return connection
 
@@ -1052,9 +1080,17 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready.
         """
+        verify_certificate = config.verify_server_certificate
         ssl_ca: str | None = None
-        if config.using_ssl:
+        # Verification implies TLS, so a user who asks us to check the certificate gets the
+        # encrypted connection that check needs, whatever `using_ssl` says.
+        if config.using_ssl or verify_certificate:
             ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        # The tunnel presents the database on a loopback address, so the certificate's hostname
+        # cannot match the address pymysql dials. The chain check still applies there.
+        tunnel = config.ssh_tunnel
+        verify_hostname = verify_certificate and not (tunnel is not None and tunnel.enabled)
 
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             kwargs: dict[str, Any] = {
@@ -1067,6 +1103,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "password": config.password,
                 "connect_timeout": 10,
                 "ssl_ca": ssl_ca,
+                # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
+                # explicit True verifies. None leaves that prior behavior untouched.
+                "ssl_verify_cert": True if verify_certificate else None,
+                "ssl_verify_identity": True if verify_hostname else None,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }

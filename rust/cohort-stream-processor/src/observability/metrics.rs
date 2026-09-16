@@ -661,6 +661,35 @@ pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarde
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
 pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_total";
+/// Rows whose composition read a reconcile section started (counter). Attempt-based, unlike
+/// [`RECONCILE_ROWS_SCANNED_TOTAL`]: a page that fails its produce or commit counts its rows again
+/// on the retry, so the gap between the two series is the retried work.
+pub const RECONCILE_ROWS_ATTEMPTED_TOTAL: &str = "cohort_reconcile_rows_attempted_total";
+/// Store keys those sections fetched, labelled by `source` (`behavioral`|`person_record`|`stage2`)
+/// (counter). Over [`RECONCILE_ROWS_ATTEMPTED_TOTAL`] this is keys per row, which is what the
+/// cohort's shape costs. The handoff saving is instead
+/// `store_offload_exec_duration_seconds{op="reconcile_page"}_count` over
+/// [`RECONCILE_ROWS_ATTEMPTED_TOTAL`], because one section now carries many rows.
+pub const RECONCILE_KEYS_FETCHED_TOTAL: &str = "cohort_reconcile_keys_fetched_total";
+/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so this
+/// is the only read of how much a section actually held.
+///
+/// One sample is one row's batch of one source, not a budget-sized chunk, so ordinary samples sit
+/// far below the section's 4 MiB budget; a sample above it is the documented overshoot, where the
+/// read that crossed the budget had already returned. A batch that matched nothing records a real
+/// `0`, and a miss inside a batch is invisible in the sum, so prefer the upper quantiles while a
+/// scan sweeps persons it finds nothing for.
+pub const RECONCILE_READ_BYTES: &str = "cohort_reconcile_read_bytes";
+/// Wall time one settlement page spent in each step, labelled by `stage`
+/// (`recompute`|`membership_produce`|`cascade_produce`|`commit`) (histogram). A page that fails
+/// records no sample for the step that failed, so the histogram stays a picture of settled work.
+/// `recompute` covers every section of the page's read and evaluation, permit waits included.
+///
+/// A step with nothing to do still records its real near-zero duration: `cascade_produce` on a page
+/// with no flips, and both produce and commit on a dirty page whose every row was deleted. Read the
+/// upper quantiles, not the median, which on a quiet cohort is mostly those pages.
+pub const RECONCILE_PAGE_DURATION_SECONDS: &str = "cohort_reconcile_page_duration_seconds";
 /// Snapshot membership rows acknowledged by Kafka and durably settled, labelled by `status`, counted
 /// once per committed page (counter).
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
@@ -1061,6 +1090,19 @@ mod tests {
         assert_eq!(
             RECONCILE_ROWS_SCANNED_TOTAL,
             "cohort_reconcile_rows_scanned_total",
+        );
+        assert_eq!(
+            RECONCILE_ROWS_ATTEMPTED_TOTAL,
+            "cohort_reconcile_rows_attempted_total",
+        );
+        assert_eq!(
+            RECONCILE_KEYS_FETCHED_TOTAL,
+            "cohort_reconcile_keys_fetched_total",
+        );
+        assert_eq!(RECONCILE_READ_BYTES, "cohort_reconcile_read_bytes");
+        assert_eq!(
+            RECONCILE_PAGE_DURATION_SECONDS,
+            "cohort_reconcile_page_duration_seconds",
         );
         assert_eq!(
             RECONCILE_ROWS_EMITTED_TOTAL,

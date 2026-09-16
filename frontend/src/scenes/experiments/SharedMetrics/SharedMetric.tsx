@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -31,11 +32,13 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
@@ -47,14 +50,35 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
     }),
 }
 
-function openDeleteSharedMetricDialog(onDelete: () => void): void {
+function openSaveWithRunningExperimentsDialog(
+    runningExperiments: readonly ExperimentSavedMetricLinkedExperimentApi[],
+    onSave: () => void
+): void {
     LemonDialog.open({
-        title: 'Delete this metric?',
-        content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+        title: 'Save changes to this metric?',
+        content: (
+            <div className="text-sm text-secondary max-w-120">
+                <p>
+                    This metric is used by{' '}
+                    {runningExperiments.length === 1
+                        ? 'a running experiment'
+                        : `${runningExperiments.length} running experiments`}
+                    . Saving changes to the metric definition also changes{' '}
+                    {runningExperiments.length === 1 ? 'its' : 'their'} results.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 max-h-60 overflow-y-auto">
+                    {runningExperiments.map((experiment) => (
+                        <li key={experiment.id} className="truncate">
+                            <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        ),
         primaryButton: {
-            children: 'Delete',
+            children: 'Save',
             type: 'primary',
-            onClick: onDelete,
+            onClick: onSave,
             size: 'small',
         },
         secondaryButton: {
@@ -71,8 +95,39 @@ export function SharedMetric(): JSX.Element {
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
 
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentProjectId } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
+
+    const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
+
+    const handleDelete = async (): Promise<void> => {
+        if (!sharedMetric.id || deleteCheckLoading) {
+            return
+        }
+        setDeleteCheckLoading(true)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId: sharedMetric.id,
+                onDelete: deleteSharedMetric,
+            })
+        } finally {
+            setDeleteCheckLoading(false)
+        }
+    }
+
+    const handleSave = (): void => {
+        if (['create', 'duplicate'].includes(action)) {
+            createSharedMetric()
+            return
+        }
+        if (runningExperiments.length > 0) {
+            openSaveWithRunningExperimentsDialog(runningExperiments, () => updateSharedMetric())
+            return
+        }
+        updateSharedMetric()
+    }
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
@@ -147,8 +202,8 @@ export function SharedMetric(): JSX.Element {
                                 <SceneMenuBarItem
                                     variant="destructive"
                                     opensFloatingUi
-                                    disabled={!!disabledReason}
-                                    onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                    disabled={!!disabledReason || deleteCheckLoading}
+                                    onClick={() => void handleDelete()}
                                     data-attr="shared-metric-menubar-delete"
                                 >
                                     <IconTrash />
@@ -187,7 +242,8 @@ export function SharedMetric(): JSX.Element {
                             <ButtonPrimitive
                                 variant="danger"
                                 menuItem
-                                onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                disabled={deleteCheckLoading}
+                                onClick={() => void handleDelete()}
                             >
                                 <IconTrash /> Delete
                             </ButtonPrimitive>
@@ -233,7 +289,8 @@ export function SharedMetric(): JSX.Element {
                                             icon={<IconTrash />}
                                             status="danger"
                                             data-attr="shared-metric-delete"
-                                            onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                            loading={deleteCheckLoading}
+                                            onClick={() => void handleDelete()}
                                         >
                                             Delete
                                         </LemonButton>
@@ -250,14 +307,7 @@ export function SharedMetric(): JSX.Element {
                                 disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                                 size="small"
                                 type="primary"
-                                onClick={() => {
-                                    if (['create', 'duplicate'].includes(action)) {
-                                        createSharedMetric()
-                                        return
-                                    }
-
-                                    updateSharedMetric()
-                                }}
+                                onClick={handleSave}
                             >
                                 Save
                             </LemonButton>
@@ -293,14 +343,7 @@ export function SharedMetric(): JSX.Element {
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                         size="medium"
                         type="primary"
-                        onClick={() => {
-                            if (['create', 'duplicate'].includes(action)) {
-                                createSharedMetric()
-                                return
-                            }
-
-                            updateSharedMetric()
-                        }}
+                        onClick={handleSave}
                     >
                         Save
                     </LemonButton>

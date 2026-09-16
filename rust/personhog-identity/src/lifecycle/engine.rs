@@ -16,15 +16,18 @@
 //! renew/release match only while `attempt` is unchanged, so a displaced
 //! driver cannot extend or clear a stealer's lease.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use rand::Rng;
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use tonic::Status;
 use uuid::Uuid;
+
+use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 
 /// Terminal step: the op ran to the end.
 pub const STEP_COMPLETED: &str = "completed";
@@ -37,6 +40,7 @@ const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
 const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
+const STEP_DURATION_MS: &str = "personhog_lifecycle_step_duration_ms";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
@@ -143,6 +147,17 @@ impl From<SagaError> for Status {
     }
 }
 
+fn record_step_duration(row: &OpRow, start: Instant) {
+    common_metrics::histogram(
+        STEP_DURATION_MS,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("step".to_string(), row.step.clone()),
+        ],
+        start.elapsed().as_secs_f64() * 1000.0,
+    );
+}
+
 /// One row of `lifecycle_op`: the complete checkpoint of an operation.
 #[derive(Debug, Clone)]
 pub struct OpRow {
@@ -176,7 +191,7 @@ pub trait OpDriver: Send + Sync {
     fn op_type(&self) -> &'static str;
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError>;
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError>;
 }
 
 #[derive(Clone, Debug)]
@@ -196,17 +211,27 @@ pub struct EngineConfig {
 }
 
 pub struct Engine {
-    pool: PgPool,
+    pools: IdentityPools,
     config: EngineConfig,
+    tables: IdentityTables,
 }
 
 impl Engine {
-    pub fn new(pool: PgPool, config: EngineConfig) -> Self {
-        Self { pool, config }
+    pub fn new(pools: IdentityPools, config: EngineConfig, tables: IdentityTables) -> Self {
+        tables.validate().expect("invalid identity table set");
+        Self {
+            pools,
+            config,
+            tables,
+        }
     }
 
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
+    pub fn pools(&self) -> &IdentityPools {
+        &self.pools
+    }
+
+    pub fn tables(&self) -> &IdentityTables {
+        &self.tables
     }
 
     /// Create the op if it is new, then drive it to a terminal step and
@@ -240,9 +265,10 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        let inserted = sqlx::query!(
+        let inserted = mirrored_query!(
+            self.tables.is_validation(),
             r#"
-            INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
+            INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request)
             VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (op_id) DO NOTHING
             "#,
@@ -250,10 +276,9 @@ impl Engine {
             driver.op_type(),
             team_id as i32,
             driver.initial_step(),
-            request,
-        )
-        .execute(&self.pool)
-        .await?
+            request
+            => execute(self.pools.fast())
+        )?
         .rows_affected()
             > 0;
 
@@ -302,7 +327,10 @@ impl Engine {
         if row.completed_at.is_some() {
             return Ok(row);
         }
-        driver.run_step(&self.pool, &row).await?;
+        let step_start = Instant::now();
+        let stepped = driver.run_step(&self.pools, &row).await;
+        record_step_duration(&row, step_start);
+        stepped?;
         self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished while being driven"))
         })
@@ -418,7 +446,10 @@ impl Engine {
                 }
             }
 
-            if let Err(err) = driver.run_step(&self.pool, &row).await {
+            let step_start = Instant::now();
+            let stepped = driver.run_step(&self.pools, &row).await;
+            record_step_duration(&row, step_start);
+            if let Err(err) = stepped {
                 // Attributable escalation: a persistently failing op (a
                 // corrupt row, a wedged leader call) shows up as this
                 // counter climbing for one op_type/kind, not as generic
@@ -493,22 +524,23 @@ impl Engine {
         }
     }
 
-    async fn load(&self, op_id: Uuid) -> Result<Option<OpRow>, sqlx::Error> {
-        sqlx::query_as!(
+    /// The op row for this id, if one exists.
+    pub async fn load(&self, op_id: Uuid) -> Result<Option<OpRow>, sqlx::Error> {
+        mirrored_query_as!(
             OpRow,
+            self.tables.is_validation(),
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
                    request as "request: Value", outcome as "outcome: Value",
                    created_at, completed_at,
                    (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
                        as "lease_live!"
-            FROM lifecycle_op
+            FROM {lifecycle_op}
             WHERE op_id = $1
             "#,
             op_id
+            => fetch_optional(self.pools.fast())
         )
-        .fetch_optional(&self.pool)
-        .await
     }
 
     /// Sleep one poll interval, jittered to 0.5–1.5× so waiters released by
@@ -530,15 +562,16 @@ impl Engine {
     /// again beats joining a tuple-lock queue. A skipped row reads as None,
     /// the same as losing the claim outright.
     async fn try_claim(&self, op_id: Uuid, unpark: bool) -> Result<Option<i32>, sqlx::Error> {
-        sqlx::query_scalar!(
+        mirrored_query_scalar!(
+            self.tables.is_validation(),
             r#"
-            UPDATE lifecycle_op
+            UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2),
                 attempt = attempt + 1,
                 parked_at = NULL,
                 parked_reason = NULL
             WHERE op_id IN (
-                SELECT op_id FROM lifecycle_op
+                SELECT op_id FROM {lifecycle_op}
                 WHERE op_id = $1 AND completed_at IS NULL
                   AND (lease_expires_at IS NULL OR lease_expires_at < now())
                   AND (parked_at IS NULL OR $3)
@@ -548,10 +581,9 @@ impl Engine {
             "#,
             op_id,
             self.config.lease.as_secs_f64(),
-            unpark,
+            unpark
+            => fetch_optional(self.pools.fast())
         )
-        .fetch_optional(&self.pool)
-        .await
     }
 
     /// Park an op after a definitive leader refusal: record when and why,
@@ -566,18 +598,18 @@ impl Engine {
         status: &Status,
     ) -> Result<bool, sqlx::Error> {
         let reason = personhog_common::grpc::refusal_reason_label(status).to_string();
-        let parked = sqlx::query!(
+        let parked = mirrored_query!(
+            self.tables.is_validation(),
             r#"
-            UPDATE lifecycle_op
+            UPDATE {lifecycle_op}
             SET parked_at = now(), parked_reason = $3, lease_expires_at = NULL
             WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2
             "#,
             op_id,
             attempt,
-            reason,
-        )
-        .execute(&self.pool)
-        .await?
+            reason
+            => execute(self.pools.fast())
+        )?
         .rows_affected()
             > 0;
         if parked {
@@ -604,29 +636,29 @@ impl Engine {
     /// Extend our lease. Returns false when the lease is no longer ours
     /// (another driver claimed the op and bumped `attempt`).
     async fn renew_lease(&self, op_id: Uuid, attempt: i32) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
+        let result = mirrored_query!(
+            self.tables.is_validation(),
             r#"
-            UPDATE lifecycle_op
+            UPDATE {lifecycle_op}
             SET lease_expires_at = now() + make_interval(secs => $2)
             WHERE op_id = $1 AND completed_at IS NULL AND attempt = $3
             "#,
             op_id,
             self.config.lease.as_secs_f64(),
-            attempt,
-        )
-        .execute(&self.pool)
-        .await?;
+            attempt
+            => execute(self.pools.fast())
+        )?;
         Ok(result.rows_affected() > 0)
     }
 
     async fn release_lease(&self, op_id: Uuid, attempt: i32) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE lifecycle_op SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
+        mirrored_query!(
+            self.tables.is_validation(),
+            "UPDATE {lifecycle_op} SET lease_expires_at = NULL WHERE op_id = $1 AND completed_at IS NULL AND attempt = $2",
             op_id,
-            attempt,
-        )
-        .execute(&self.pool)
-        .await?;
+            attempt
+            => execute(self.pools.fast())
+        )?;
         Ok(())
     }
 
@@ -635,10 +667,12 @@ impl Engine {
     /// than one lease (so a freshly created op isn't stolen from the RPC
     /// about to claim it). Returns how many ops reached a terminal step.
     pub async fn sweep(&self, drivers: &[&dyn OpDriver]) -> Result<u32, SagaError> {
-        let abandoned = sqlx::query!(
+        let abandoned = mirrored_query_as!(
+            AbandonedOp,
+            self.tables.is_validation(),
             r#"
             SELECT op_id, op_type
-            FROM lifecycle_op
+            FROM {lifecycle_op}
             WHERE completed_at IS NULL
               AND parked_at IS NULL
               AND ((lease_expires_at IS NULL AND created_at < now() - make_interval(secs => $1))
@@ -647,10 +681,9 @@ impl Engine {
             LIMIT $2
             "#,
             self.config.lease.as_secs_f64(),
-            SWEEP_BATCH_SIZE,
-        )
-        .fetch_all(&self.pool)
-        .await?;
+            SWEEP_BATCH_SIZE
+            => fetch_all(self.pools.fast())
+        )?;
 
         let mut resumed = 0u32;
         for op in abandoned {
@@ -681,12 +714,11 @@ impl Engine {
         // The park counter dies with the process, so a gauge refreshed
         // every pass keeps parked ops visible across restarts. Telemetry
         // only: a failure must not fail a pass whose resumes succeeded.
-        match sqlx::query_scalar!(
-            r#"SELECT count(*) AS "count!" FROM lifecycle_op WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
+        match mirrored_query_scalar!(
+            self.tables.is_validation(),
+            r#"SELECT count(*) AS "count!" FROM {lifecycle_op} WHERE completed_at IS NULL AND parked_at IS NOT NULL"#
+            => fetch_one(self.pools.fast())
+        ) {
             Ok(parked) => common_metrics::gauge(OPS_PARKED, &[], parked as f64),
             Err(e) => tracing::warn!(error = %e, "failed to refresh the parked-ops gauge"),
         }
@@ -698,23 +730,28 @@ impl Engine {
     /// The retention window exists only for op_id idempotency — the durable
     /// deletion shield is the person tombstone row, not the op row.
     pub async fn gc(&self, retention: Duration) -> Result<u64, SagaError> {
-        let result = sqlx::query!(
+        let result = mirrored_query!(
+            self.tables.is_validation(),
             r#"
-            DELETE FROM lifecycle_op
+            DELETE FROM {lifecycle_op}
             WHERE op_id IN (
-                SELECT op_id FROM lifecycle_op
+                SELECT op_id FROM {lifecycle_op}
                 WHERE completed_at IS NOT NULL
                   AND completed_at < now() - make_interval(secs => $1)
                 LIMIT $2
             )
             "#,
             retention.as_secs_f64(),
-            self.config.gc_batch_limit,
-        )
-        .execute(&self.pool)
-        .await?;
+            self.config.gc_batch_limit
+            => execute(self.pools.get(Lane::Heavy))
+        )?;
         Ok(result.rows_affected())
     }
+}
+
+struct AbandonedOp {
+    op_id: Uuid,
+    op_type: String,
 }
 
 /// Compare-and-swap the op's step inside the step's own transaction, so the
@@ -723,18 +760,19 @@ impl Engine {
 /// roll back its transaction and let the engine reload.
 pub async fn advance_step_in_tx(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op_id: Uuid,
     from: &str,
     to: &str,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query!(
-        "UPDATE lifecycle_op SET step = $3 WHERE op_id = $1 AND step = $2",
+    let result = mirrored_query!(
+        tables.is_validation(),
+        "UPDATE {lifecycle_op} SET step = $3 WHERE op_id = $1 AND step = $2",
         op_id,
         from,
         to
-    )
-    .execute(&mut **tx)
-    .await?;
+        => execute(&mut **tx)
+    )?;
     Ok(result.rows_affected() == 1)
 }
 
@@ -742,23 +780,24 @@ pub async fn advance_step_in_tx(
 /// `completed_at`, and drop the lease in the same compare-and-swap.
 pub async fn complete_op_in_tx(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op_id: Uuid,
     from: &str,
     final_step: &str,
     outcome: &Value,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query!(
+    let result = mirrored_query!(
+        tables.is_validation(),
         r#"
-        UPDATE lifecycle_op
+        UPDATE {lifecycle_op}
         SET step = $3, outcome = $4, completed_at = now(), lease_expires_at = NULL
         WHERE op_id = $1 AND step = $2
         "#,
         op_id,
         from,
         final_step,
-        outcome,
-    )
-    .execute(&mut **tx)
-    .await?;
+        outcome
+        => execute(&mut **tx)
+    )?;
     Ok(result.rows_affected() == 1)
 }
