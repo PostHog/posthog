@@ -761,11 +761,21 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                 self.assertEqual(headers.get("x-posthog-billable"), billable_header)
                 self.assertTrue(is_ai_gateway_served(result))
 
+    async def test_privacy_mode_routes_with_the_redaction_header(self):
+        for privacy_mode, redaction_header in [(False, None), (True, "true"), (None, "true")]:
+            with self.subTest(privacy_mode=privacy_mode):
+                self.requests.clear()
+                model = self._model()
+                with patch("ee.hogai.llm.ensure_config", return_value=self._config(privacy_mode=privacy_mode)):
+                    result = await model.agenerate([[HumanMessage(content="hello")]])
+
+                self.assertEqual([request.url.host for request in self.requests], ["ai-gateway.test"])
+                self.assertEqual(self.requests[0].headers.get("x-posthog-privacy-mode"), redaction_header)
+                self.assertTrue(is_ai_gateway_served(result))
+
     async def test_calls_for_other_products_go_direct(self):
         cases: list[tuple[str, dict, dict | None]] = [
             ("mcp conversation", self._config(ai_product="mcp"), None),
-            ("privacy mode", self._config(privacy_mode=True), None),
-            ("privacy mode unknown", self._config(privacy_mode=None), None),
             ("outside a posthog_ai run", self._config(ai_product=None), None),
             ("product override", self._config(), {"ai_product": "alert_investigation_agent"}),
         ]

@@ -395,8 +395,6 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         configurable = ensure_config().get("configurable") or {}
         return (
             configurable.get("ai_product") == POSTHOG_AI_PRODUCT
-            # The gateway captures content unredacted, so privacy mode, and an unknown value, stay direct.
-            and configurable.get("privacy_mode") is False
             and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
         )
 
@@ -428,6 +426,9 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         )
         if not posthog_properties["$ai_billable"]:
             headers["X-PostHog-Billable"] = "false"
+        # The gateway records prompts and outputs unless asked not to, so an unknown privacy mode redacts too.
+        if configurable.get("privacy_mode") is not False:
+            headers["X-PostHog-Privacy-Mode"] = "true"
         return {**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), **headers}}
 
     def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
