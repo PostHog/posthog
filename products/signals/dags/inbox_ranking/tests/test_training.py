@@ -995,6 +995,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
     assert candidates[0]["properties"]["holdout_auc"] == 0.67
     assert candidates[0]["properties"]["lookback_days"] == 60
     assert candidates[0]["properties"]["trained"] is True
+    # The unseen events carry both roles, so this side needs the role to survive the same filter.
+    assert all(c["properties"]["model_role"] == CANDIDATE_ROLE for c in candidates)
     assert "file" not in candidates[0]["properties"]
     # A head with nothing to fit still reports, so the readability alert sees a bad day, not a gap.
     assert {"trained": False, "readable": False}.items() <= candidates[2]["properties"].items()

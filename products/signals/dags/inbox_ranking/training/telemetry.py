@@ -69,8 +69,10 @@ class HeadExampleCounts:
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head: the head's metrics plus the candidate context. A head the candidate
     could not fit still gets an event (`trained` false, `readable` false), so a per-head alert sees
-    a bad day instead of a missing one."""
-    context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS}
+    a bad day instead of a missing one. The role is stamped rather than read from the metadata: this
+    asset only ever fits candidates, and the unseen events carry both roles, so without it a chart
+    filtered to the candidate keeps the unseen line and drops these rows."""
+    context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS} | {"model_role": CANDIDATE_ROLE}
     trained = [
         TrainingEvent(
             event=CANDIDATE_TRAINED_EVENT,
