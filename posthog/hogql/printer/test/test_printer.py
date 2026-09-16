@@ -400,6 +400,16 @@ class TestPrinter(BaseTest):
             ),
             ("offset_string", "select 1 from events offset '10'", "OFFSET must be a number, but this query has '10'"),
             ("limit_null", "select 1 from events limit null", "LIMIT must be a number, but this query has NULL"),
+            (
+                "limit_by_count_null",
+                "select 1 from events limit null by event",
+                "LIMIT BY count must be a number, but this query has NULL",
+            ),
+            (
+                "limit_by_offset_null",
+                "select 1 from events limit 1 offset null by event",
+                "LIMIT BY offset must be a number, but this query has NULL",
+            ),
         ]
     )
     def test_row_count_must_be_numeric(self, _name: str, query: str, expected_error: str):

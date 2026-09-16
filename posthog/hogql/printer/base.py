@@ -478,6 +478,9 @@ class BasePrinter(Visitor[str]):
                 limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
+            self._assert_valid_row_count(node.limit_by.n, "LIMIT BY count")
+            if node.limit_by.offset_value is not None:
+                self._assert_valid_row_count(node.limit_by.offset_value, "LIMIT BY offset")
             clauses.append(
                 f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )
