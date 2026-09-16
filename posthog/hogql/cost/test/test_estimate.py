@@ -58,9 +58,34 @@ class TestEstimateEventsScan(BaseTest):
                 "SELECT count() FROM events WHERE '2026-09-01 00:00:00' <= timestamp AND timestamp <= '2026-09-03 12:00:00'",
                 EventsScanEstimate(rows=250_000, days=2.5, events=(), time_range="bounded"),
             ),
+            (
+                "subquery_source_keeps_the_inner_narrowing",
+                "SELECT count() FROM (SELECT event FROM events WHERE event = 'signup' AND timestamp > now() - interval 30 day AND timestamp < now())",
+                EventsScanEstimate(rows=1_200_000, days=30.0, events=("signup",), time_range="bounded"),
+            ),
+            (
+                "cte_is_followed",
+                "WITH pageviews AS (SELECT event FROM events WHERE event = '$pageview') SELECT count() FROM pageviews",
+                EventsScanEstimate(
+                    rows=21_900_000, days=float(DEFAULT_RANGE_DAYS), events=("$pageview",), time_range="open"
+                ),
+            ),
+            (
+                "union_all_sums_both_branches",
+                "SELECT event FROM events WHERE event = 'signup' UNION ALL SELECT event FROM events WHERE event = '$pageview'",
+                EventsScanEstimate(
+                    rows=36_500_000, days=float(DEFAULT_RANGE_DAYS), events=("$pageview", "signup"), time_range="open"
+                ),
+            ),
+            (
+                "self_join_narrows_each_side_by_its_own_alias",
+                "SELECT count() FROM events a JOIN events b ON a.distinct_id = b.distinct_id"
+                " WHERE a.timestamp > now() - interval 10 day AND a.timestamp < now() AND b.event = 'signup'",
+                EventsScanEstimate(rows=15_600_000, days=float(DEFAULT_RANGE_DAYS), events=(), time_range="open"),
+            ),
         ]
     )
-    def test_estimates_events_only_selects(self, _name, sql, expected):
+    def test_estimates_events_scans(self, _name, sql, expected):
         assert self._estimate(sql) == expected
 
     @parameterized.expand(
@@ -80,10 +105,17 @@ class TestEstimateEventsScan(BaseTest):
         [
             ("join", "SELECT count() FROM events e JOIN persons p ON p.id = e.person_id"),
             ("other_table", "SELECT count() FROM persons"),
-            ("subquery_source", "SELECT count() FROM (SELECT event FROM events)"),
+            (
+                "join_inside_a_subquery",
+                "SELECT count() FROM (SELECT e.event FROM events e JOIN persons p ON p.id = e.person_id)",
+            ),
+            (
+                "union_branch_on_another_table",
+                "SELECT distinct_id FROM events UNION ALL SELECT toString(id) FROM persons",
+            ),
         ]
     )
-    def test_shapes_outside_events_only_return_none(self, _name, sql):
+    def test_shapes_that_read_other_tables_return_none(self, _name, sql):
         assert self._estimate(sql) is None
 
     def test_team_without_volume_returns_none(self):

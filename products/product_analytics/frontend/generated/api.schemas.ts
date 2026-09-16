@@ -3860,7 +3860,7 @@ export const QueryIndexUsageApi = {
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
-    /** Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data. */
+    /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
     events_scan_estimate?: EventsScanEstimateApi | null
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsageApi[] | null

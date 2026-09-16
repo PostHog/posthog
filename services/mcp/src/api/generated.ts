@@ -5947,7 +5947,7 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
-      /** Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data. */
+      /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
       events_scan_estimate?: EventsScanEstimate | null;
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
@@ -76083,7 +76083,7 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
-      /** Present only for a select that reads the events table alone; absent for joins, other tables, or a team with no data. */
+      /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
       events_scan_estimate?: EventsScanEstimate | null;
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
