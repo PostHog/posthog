@@ -18,10 +18,6 @@ export interface ScoutSuggestionCardProps {
     sessionId: string
 }
 
-/**
- * The "turn this into a scout" offer under a completed turn: pick a cadence and a Slack channel,
- * create the scout the classifier drafted, without leaving the conversation.
- */
 export function ScoutSuggestionCard({ streamKey, turnIndex, sessionId }: ScoutSuggestionCardProps): JSX.Element | null {
     const logic = scoutSuggestionLogic({ streamKey, turnIndex, sessionId })
     const {

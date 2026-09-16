@@ -28,7 +28,6 @@ import { runStreamLogic } from './runStreamLogic'
 export interface NotebookSuggestionLogicProps {
     streamKey: string
     turnIndex: number
-    /** Task id backing the conversation. Lands in the analytics events as `task_id`. */
     sessionId: string
 }
 
@@ -110,10 +109,6 @@ export type notebookSuggestionLogicType = MakeLogicType<
     notebookSuggestionLogicMeta
 >
 
-/**
- * State of one notebook suggestion card: the title the user can edit and the save call that writes
- * the conversation so far into a new markdown notebook. Keyed per turn like the scout card.
- */
 export const notebookSuggestionLogic: LogicWrapper<notebookSuggestionLogicType> = kea<notebookSuggestionLogicType>([
     props({} as NotebookSuggestionLogicProps),
     key((props) => `${props.streamKey}:${props.turnIndex}`),

@@ -12,16 +12,10 @@ export interface TurnSuggestionCardProps {
     streamKey: string
     turnIndex: number
     isLastTurn: boolean
-    /** Task id backing the conversation; the card's analytics events carry it as `task_id`. */
     sessionId: string
     revealDelayMs?: number
 }
 
-/**
- * Per-turn slot for the server-classified suggestion. Renders nothing until the classifier has
- * published one for this turn, the turn is the latest, and the reveal delay has passed; then picks
- * the card for the suggestion's kind.
- */
 export function TurnSuggestionCard({
     streamKey,
     turnIndex,

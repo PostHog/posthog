@@ -1,7 +1,6 @@
 import type { TurnSuggestion } from '../types/streamTypes'
 
 export interface TurnSuggestionEventContext {
-    /** Task id backing the conversation. Lands in the events as `task_id`. */
     sessionId: string
     turnIndex: number
 }

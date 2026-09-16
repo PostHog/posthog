@@ -28,11 +28,7 @@ export interface ConversationNotebook {
 
 const INSIGHT_TOOLS = new Set(['insight-create', 'insight-update', 'insight-get', 'insight-query'])
 
-/**
- * Turns a completed tool call into the notebook block the agent's own notebook tools would write:
- * a SQL cell for HogQL, a saved-insight embed for a saved insight, and a Query component for an
- * ephemeral insight query. Anything else (recordings, docs, writes) contributes nothing.
- */
+/** Mirrors the blocks the agent's notebook tools write: a SQLV2 cell for HogQL, a Query embed otherwise. */
 function toolCallToNotebookBlock(invocation: ToolInvocation): string | null {
     const message = toolInvocationToMessage(invocation)
     if (!message || message.status !== 'completed' || !message.innerToolName) {
@@ -75,10 +71,6 @@ function toolCallToNotebookBlock(invocation: ToolInvocation): string | null {
     return null
 }
 
-/**
- * Writes the conversation so far as one markdown notebook: the classifier's title and lead, then
- * each question, the queries the assistant ran as live cells, and the assistant's answers.
- */
 export function buildConversationNotebook({
     title,
     summary,
