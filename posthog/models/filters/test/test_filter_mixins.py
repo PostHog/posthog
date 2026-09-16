@@ -1,5 +1,11 @@
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
+
+from posthog.models.filters import Filter
 from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 
 
@@ -16,3 +22,31 @@ class TestFilterMixins(BaseTest):
     def test_funnel_window_days_to_milliseconds(self):
         one_day = FunnelWindowDaysMixin.milliseconds_from_days(1)
         self.assertEqual(one_day, 86_400_000)
+
+
+class TestPagingParams(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("string", "not-a-number"),
+            ("float_infinity", float("inf")),
+            ("float_nan", float("nan")),
+            ("list", [10]),
+            ("dict", {"value": 10}),
+        ]
+    )
+    def test_invalid_value_is_rejected(self, _name: str, raw: object):
+        for key in ("limit", "offset"):
+            with self.assertRaises(ValidationError):
+                getattr(Filter(data={key: raw}), key)
+
+    @parameterized.expand(
+        [
+            ("string", "10", 10),
+            ("integer", 10, 10),
+            ("float", 10.0, 10),
+            ("empty_string", "", 0),
+        ]
+    )
+    def test_valid_value_is_accepted(self, _name: str, raw: object, expected: int):
+        for key in ("limit", "offset"):
+            self.assertEqual(getattr(Filter(data={key: raw}), key), expected)

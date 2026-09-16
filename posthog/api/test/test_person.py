@@ -1916,6 +1916,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("string", '{"limit": "not-a-number"}'),
+            ("float_infinity", '{"limit": Infinity}'),
+            ("list", '{"limit": [10]}'),
+            ("dict", '{"limit": {"value": 10}}'),
+        ]
+    )
+    def test_list_rejects_invalid_limit(self, _name: str, body: str):
+        # A GET request can carry a JSON body, and that body overrides the query string.
+        response = self.client.generic("GET", "/api/person/", data=body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_csv_export(self):
         _create_person(
             team=self.team,
