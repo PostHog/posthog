@@ -124,7 +124,9 @@ class AlertsProductSourceTickWorkflow(PostHogWorkflow):
                     id=f"alerts-cycle-{binding.source_kind}-{tick_started_at}",
                     task_queue=binding.task_queue,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=5),
+                    # Wide enough for a cycle's evaluation activity to use its full
+                    # schedule-to-close budget and still start its delivery previews.
+                    execution_timeout=dt.timedelta(minutes=7),
                 )
             except WorkflowAlreadyStartedError:
                 workflow.logger.info(

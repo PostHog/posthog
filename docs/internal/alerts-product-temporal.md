@@ -165,6 +165,17 @@ collides instead of running the same cycle twice.
 then starts one `alerts-product-deliver-preview` child per notification on the delivery
 queue.
 
+Cohorts run one after another inside a single activity, so the cycle caps how many it
+evaluates rather than how long each one may take. A cohort whose ClickHouse query fails is
+skipped and the rest of the pass continues, because one team's failure must not cost every
+other team its evaluation. The cycle takes one attempt: a retry would re-run the same
+fleet-wide scan against a cluster that just failed it, and the next tick starts a fresh
+cycle anyway.
+
+Alerts are excluded from a cycle the way production excludes them before evaluating: a
+structurally broken filter config, and a schedule restriction that blocks a check at the
+tick occasion.
+
 ### The cycle does not write
 
 The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute.

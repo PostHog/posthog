@@ -31,7 +31,7 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_state_machine import CheckResult, NotificationAction, evaluate_alert_check
-from products.logs.backend.alert_utils import due_alerts_q
+from products.logs.backend.alert_utils import due_alerts_q, next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this cycle drift
@@ -44,6 +44,11 @@ logger = structlog.get_logger(__name__)
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB
 # limit, which fails the whole cycle rather than truncating it.
 MAX_PREVIEWS_PER_CYCLE = 500
+
+# Cohorts run one after another in a single activity. The cycle caps how many it evaluates
+# so that the activity finishes inside its start-to-close timeout. An unbounded cycle would
+# instead time out and return nothing, which costs every team its evaluation.
+MAX_COHORTS_PER_CYCLE = 60
 
 _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.FIRE: "firing",
@@ -62,6 +67,28 @@ def _cohort_key(row: Mapping[str, Any], checkpoint: datetime | None, now: dateti
         is_projection_eligible(row["filters"]),
         resolve_alert_date_to(row["next_check_at"] or now, checkpoint),
     )
+
+
+def _is_in_quiet_hours(row: Mapping[str, Any], team: Team, now: datetime) -> bool:
+    """True when the alert's schedule restriction blocks a check at `now`.
+
+    Production reschedules such an alert past the restriction and evaluates nothing. This
+    cycle cannot write, so it drops the row instead. An unreadable restriction blocks the
+    alert, which is what production does with one it cannot parse.
+    """
+    restriction = row["schedule_restriction"]
+    if not restriction:
+        return False
+    try:
+        return next_allowed_check_at(now, team_timezone=team.timezone, schedule_restriction=restriction) > now
+    except Exception as error:
+        logger.exception(
+            "Skipping logs alert with invalid quiet-hours configuration",
+            alert_id=str(row["id"]),
+            team_id=row["team_id"],
+            error=str(error),
+        )
+        return True
 
 
 def _preview_for_alert(
@@ -94,7 +121,7 @@ def _preview_for_alert(
         alert_name=alert.name,
         notification=outcome.notification.value,
         destination_names=tuple(destination.name for destination in destinations),
-        evaluation_key=f"window:{window_end.isoformat()}",
+        evaluation_key=f"{alert.id}:window:{window_end.isoformat()}",
     )
 
 
@@ -108,7 +135,12 @@ def evaluate_due_logs_alerts(now: datetime) -> tuple[AlertDeliveryPreview, ...]:
                 broken_state=LogsAlertConfiguration.State.BROKEN,
                 snoozed_state=LogsAlertConfiguration.State.SNOOZED,
             )
-        ).values(
+        )
+        # Ordered so the cohort budget and the preview cap keep the same alerts on a
+        # retried attempt. Without an ordering Postgres is free to return the rows in a
+        # different physical order and the truncation would fall somewhere else.
+        .order_by("id")
+        .values(
             "id",
             "team_id",
             "window_minutes",
@@ -116,6 +148,7 @@ def evaluate_due_logs_alerts(now: datetime) -> tuple[AlertDeliveryPreview, ...]:
             "check_interval_minutes",
             "filters",
             "next_check_at",
+            "schedule_restriction",
         )
     )
     # Production excludes a structurally broken filter before evaluating, so including one
@@ -126,6 +159,7 @@ def evaluate_due_logs_alerts(now: datetime) -> tuple[AlertDeliveryPreview, ...]:
 
     teams = {team.id: team for team in Team.objects.filter(id__in={row["team_id"] for row in rows})}
     rows = [row for row in rows if row["team_id"] in teams]
+    rows = [row for row in rows if not _is_in_quiet_hours(row, teams[row["team_id"]], now)]
     if not rows:
         return ()
 
@@ -141,35 +175,66 @@ def evaluate_due_logs_alerts(now: datetime) -> tuple[AlertDeliveryPreview, ...]:
     for row in rows:
         cohorts.setdefault(_cohort_key(row, checkpoint, now), []).append(str(row["id"]))
 
-    alerts_by_id = {
-        str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=[row["id"] for row in rows])
-    }
+    if len(cohorts) > MAX_COHORTS_PER_CYCLE:
+        logger.warning(
+            "Truncating logs alert cohorts to keep the cycle inside its activity timeout",
+            produced=len(cohorts),
+            evaluated=MAX_COHORTS_PER_CYCLE,
+        )
 
     previews: list[AlertDeliveryPreview] = []
-    for key, alert_ids in cohorts.items():
+    for key, alert_ids in list(cohorts.items())[:MAX_COHORTS_PER_CYCLE]:
         team_id, window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
         lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
         # Capped the way the production cohort query requires: one batched query carries one
         # countIf column per alert, so an uncapped cohort is an unbounded query.
         for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE, strict=False):
-            alerts = [alerts_by_id[alert_id] for alert_id in chunk]
-            result = BatchedAlertCheckQuery(
-                team=teams[team_id],
-                alerts=alerts,
-                date_from=date_to - timedelta(minutes=lookback),
-                date_to=date_to,
-                projection_eligible=projection_eligible,
-            ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
+            # Hydrated one chunk at a time. Production splits discovery from evaluation so
+            # that it never holds every due alert in the fleet in memory at once.
+            alerts_by_id = {str(alert.id): alert for alert in LogsAlertConfiguration.objects.filter(id__in=list(chunk))}
+            # An alert deleted since the discovery read is absent from this pass rather than
+            # a KeyError that would cost every other team its evaluation.
+            alerts = [alerts_by_id[alert_id] for alert_id in chunk if alert_id in alerts_by_id]
+            if not alerts:
+                continue
+
+            try:
+                result = BatchedAlertCheckQuery(
+                    team=teams[team_id],
+                    alerts=alerts,
+                    date_from=date_to - timedelta(minutes=lookback),
+                    date_to=date_to,
+                    projection_eligible=projection_eligible,
+                ).execute_rolling_checks(date_to, window_minutes, cadence_minutes, evaluation_periods)
+            except Exception as error:
+                # One team's query must not end the pass for every other team, which is how
+                # the production cohort runner contains the same failure.
+                logger.exception(
+                    "Logs alert cohort query failed; skipping the cohort",
+                    team_id=team_id,
+                    cohort_size=len(alerts),
+                    error=str(error),
+                )
+                continue
 
             for alert in alerts:
-                preview = _preview_for_alert(
-                    alert,
-                    result.per_alert.get(str(alert.id), []),
-                    evaluation_periods=evaluation_periods,
-                    window_end=date_to,
-                    now=now,
-                )
+                try:
+                    preview = _preview_for_alert(
+                        alert,
+                        result.per_alert.get(str(alert.id), []),
+                        evaluation_periods=evaluation_periods,
+                        window_end=date_to,
+                        now=now,
+                    )
+                except Exception as error:
+                    logger.exception(
+                        "Failed to evaluate a logs alert for preview; skipping the alert",
+                        alert_id=str(alert.id),
+                        team_id=alert.team_id,
+                        error=str(error),
+                    )
+                    continue
                 if preview is not None:
                     previews.append(preview)
 

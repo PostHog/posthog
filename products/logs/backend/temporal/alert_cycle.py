@@ -45,9 +45,14 @@ class LogsAlertSourceCycleWorkflow(PostHogWorkflow):
         previews = await workflow.execute_activity(
             evaluate_due_logs_alerts_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            schedule_to_close_timeout=dt.timedelta(minutes=4),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            # Matches the production logs alerting activity timeout. The cohorts run one
+            # after another, so the cycle bounds how many it evaluates rather than how long
+            # each one may take.
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            schedule_to_close_timeout=dt.timedelta(minutes=6),
+            # One attempt, because a retry re-runs the same fleet-wide ClickHouse scan
+            # against a cluster that just failed it. The next tick starts a fresh cycle.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
         # A re-run of the same occasion reuses these ids, and Temporal raises on a reused
@@ -57,7 +62,7 @@ class LogsAlertSourceCycleWorkflow(PostHogWorkflow):
                 workflow.start_child_workflow(
                     "alerts-product-deliver-preview",
                     preview,
-                    id=f"alerts-deliver-preview-{preview.alert_id}-{preview.evaluation_key}",
+                    id=f"alerts-deliver-preview-{preview.evaluation_key}",
                     task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=1),

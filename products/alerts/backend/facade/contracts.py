@@ -167,8 +167,10 @@ class SourceCycleResult:
 class AlertDeliveryPreview:
     """What a delivery would send, for a cycle that must not contact a destination.
 
-    `evaluation_key` names the evaluation occasion, not the attempt, so two deliveries
-    carrying the same key describe one notification and not two.
+    `evaluation_key` names the alert and the evaluation occasion, not the attempt, so two
+    deliveries carrying the same key describe one notification and not two. The occasion
+    alone does not identify a notification, because every alert evaluated in one cohort
+    shares a window end.
     """
 
     source_kind: SourceKind

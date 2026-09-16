@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -33,15 +33,32 @@ class TestLogsAlertSourceCycle(APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, alert: LogsAlertConfiguration, now: datetime | None = None):
+    def _run(
+        self,
+        *alerts: LogsAlertConfiguration,
+        now: datetime | None = None,
+        failing: tuple[LogsAlertConfiguration, ...] = (),
+    ):
+        failing_ids = {str(alert.id) for alert in failing}
+
+        def _build_query(**kwargs) -> MagicMock:
+            cohort_ids = [str(alert.id) for alert in kwargs["alerts"]]
+            query = MagicMock()
+            if failing_ids.intersection(cohort_ids):
+                query.execute_rolling_checks.side_effect = Exception("ClickHouse rejected the query")
+            else:
+                query.execute_rolling_checks.return_value = BatchedBucketedResult(
+                    per_alert={
+                        alert_id: [BucketedCount(timestamp=datetime.now(UTC), count=500)] for alert_id in cohort_ids
+                    },
+                    query_duration_ms=1,
+                )
+            return query
+
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
-            patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
+            patch(f"{_MODULE}.BatchedAlertCheckQuery", side_effect=_build_query) as query,
         ):
-            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
-                per_alert={str(alert.id): [BucketedCount(timestamp=datetime.now(UTC), count=500)]},
-                query_duration_ms=1,
-            )
             return evaluate_due_logs_alerts(now or datetime.now(UTC)), query
 
     def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
@@ -75,4 +92,34 @@ class TestLogsAlertSourceCycle(APIBaseTest):
 
         previews, _ = self._run(alert, now=occasion)
 
-        assert [preview.evaluation_key for preview in previews] == [f"window:{occasion.isoformat()}"]
+        assert [preview.evaluation_key for preview in previews] == [f"{alert.id}:window:{occasion.isoformat()}"]
+
+    @parameterized.expand(
+        [
+            ("inside_the_blocked_window", {"blocked_windows": [{"start": "00:00", "end": "06:00"}]}, []),
+            ("outside_the_blocked_window", {"blocked_windows": [{"start": "12:00", "end": "18:00"}]}, ["fire"]),
+        ]
+    )
+    def test_an_alert_inside_its_quiet_hours_is_not_previewed(
+        self, _name: str, schedule_restriction: dict, expected_notifications: list[str]
+    ) -> None:
+        # Production reschedules a restricted alert past the window instead of evaluating
+        # it, so previewing one here would name a delivery production never makes.
+        occasion = datetime(2026, 9, 15, 3, 0, tzinfo=UTC)
+        alert = self._breaching_alert(
+            next_check_at=occasion - timedelta(minutes=1), schedule_restriction=schedule_restriction
+        )
+
+        previews, _ = self._run(alert, now=occasion)
+
+        assert [preview.notification for preview in previews] == expected_notifications
+
+    def test_a_failed_cohort_query_leaves_the_other_cohorts_evaluated(self) -> None:
+        # Two window lengths make two cohorts, so each one gets its own ClickHouse query.
+        due_at = datetime.now(UTC) - timedelta(minutes=1)
+        failing = self._breaching_alert(name="Slow service", window_minutes=5, next_check_at=due_at)
+        healthy = self._breaching_alert(name="Checkout errors", window_minutes=7, next_check_at=due_at)
+
+        previews, _ = self._run(failing, healthy, failing=(failing,))
+
+        assert [preview.alert_id for preview in previews] == [str(healthy.id)]
