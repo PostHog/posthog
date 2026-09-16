@@ -80,8 +80,8 @@ def delete_persons_profile(
 ) -> PersonProfileDeletionResult:
     """Run ClickHouse Kafka tombstones, then a single Postgres batch delete.
 
-    Activity logging is performed only when both ``organization_id`` and ``actor``
-    are provided (i.e. from a DRF endpoint). Dagster ops should leave them as None.
+    Activity logging is performed only when ``organization_id`` is provided (i.e. from a
+    DRF endpoint). Dagster ops should leave it and ``actor`` as None.
     """
     from posthog.personhog_client.client import personhog_call
 
@@ -193,7 +193,13 @@ def _tombstone_and_delete_persons(
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
 ) -> PersonProfileDeletionResult:
-    """Tombstone each person in ClickHouse, log the deletions, then batch-delete the survivors from Postgres."""
+    """Tombstone each person in ClickHouse, batch-delete the survivors from Postgres, then log the deletions.
+
+    The activity log is written last so that a failed Postgres delete followed by a retry
+    does not produce duplicate log rows (and the CDP events they fan out to). Logging needs
+    an ``organization_id``; a missing ``actor`` (for example a user removed before a queued
+    task ran) still records the deletion, with no user attached.
+    """
     deleted: builtins.list[Person] = []
     errors: builtins.list[uuid_lib.UUID] = []
     for person in persons:
@@ -204,13 +210,16 @@ def _tombstone_and_delete_persons(
             logger.exception("Failed to delete person", person_uuid=str(person.uuid))
             errors.append(person.uuid)
 
-    if organization_id is not None and actor is not None:
+    if deleted:
+        delete_persons_from_postgres(team_id, deleted)
+
+    if organization_id is not None:
         bulk_log_activity(
             [
                 LogActivityEntry(
                     organization_id=organization_id,
                     team_id=team_id,
-                    user=cast(User, actor),
+                    user=actor,
                     was_impersonated=was_impersonated,
                     item_id=person.pk,
                     scope="Person",
@@ -221,8 +230,6 @@ def _tombstone_and_delete_persons(
             ]
         )
 
-    if deleted:
-        delete_persons_from_postgres(team_id, deleted)
     return PersonProfileDeletionResult(deleted_count=len(deleted), errors=errors)
 
 

@@ -150,6 +150,45 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert log.activity == "deleted"
         assert log.was_impersonated is True
 
+    def test_logs_deletion_without_a_user_when_the_actor_is_gone(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
+        ):
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=None,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", item_id=str(p.pk))
+        assert log.user is None
+
+    def test_does_not_log_when_the_postgres_delete_fails(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch(
+                "posthog.models.person.bulk_delete.delete_persons_from_postgres",
+                side_effect=RuntimeError("personhog down"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            process_queued_person_deletion(
+                self.team.pk,
+                [str(p.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person").exists()
+
     def test_skips_persons_that_no_longer_exist(self):
         with (
             patch("posthog.models.person.bulk_delete.delete_person") as ch_delete,
