@@ -5,11 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.cost.statistics import EventVolume, FixedStatisticsProvider
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -428,17 +430,45 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
 
-    def test_execute_hogql_query_populates_plan_fingerprint(self):
+    @parameterized.expand(
+        [
+            ("events", "events", True, False, 7000),
+            ("unsupported_join", "events e JOIN persons p ON p.id = e.person_id", True, False, None),
+            ("missing_statistics", "events", False, False, None),
+            ("statistics_failure", "events", True, True, None),
+        ]
+    )
+    def test_execute_hogql_query_populates_cost_tags(
+        self, _name: str, source: str, has_statistics: bool, statistics_fail: bool, expected_rows: int | None
+    ) -> None:
         marker = str(uuid.uuid4())
         # An explicit LIMIT keeps the executor from adding its default one, so both sides hash the same shape.
-        sql = f"SELECT count() FROM events WHERE event = '{marker}' LIMIT 100"  # noqa: S608
+        sql = (
+            f"SELECT count() FROM {source} WHERE event = '{marker}' "  # noqa: S608
+            "AND timestamp >= now() - interval 7 day AND timestamp < now() LIMIT 100"
+        )
+        volume = EventVolume(total=1000, by_event={marker: 1000}, days=1)
+        provider = FixedStatisticsProvider(event_volume={self.team.pk: volume} if has_statistics else {})
         reset_query_tags()
-        tag_queries(kind="request", id="test")
-        execute_hogql_query(sql, team=self.team, query_type="HogQLQuery")
+        tag_queries(kind="request", id="test", estimated_rows=123)
+        with patch.object(
+            provider,
+            "event_volume",
+            wraps=provider.event_volume,
+            side_effect=RuntimeError("Statistics unavailable") if statistics_fail else None,
+        ):
+            response = execute_hogql_query(sql, team=self.team, query_type="HogQLQuery", statistics_provider=provider)
 
         comment = self._get_log_comment(marker)
 
+        assert response.error is None
+        assert response.results == [(0,)]
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
+        if expected_rows is None:
+            assert "estimated_rows" not in comment
+        else:
+            assert comment["estimated_rows"] == expected_rows
+        assert any(key.endswith("/events_scan_estimate") for key in comment["timings"])
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):

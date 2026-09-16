@@ -23,7 +23,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.estimate import estimate_events_scan
-from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
@@ -60,6 +60,7 @@ def get_hogql_metadata(
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     prepared_ast: Optional[ast.AST] = None,  # precached
     printed_sql: Optional[str] = None,  # precached
+    statistics_provider: Optional[StatisticsProvider] = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -184,7 +185,7 @@ def get_hogql_metadata(
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
             if source is None and query.indexUsage and _scan_estimate_enabled(team):
-                _attach_events_scan_estimate(response, hogql_ast, context)
+                _attach_events_scan_estimate(response, hogql_ast, context, statistics_provider)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -267,6 +268,7 @@ def _attach_events_scan_estimate(
     response: HogQLMetadataResponse,
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
     context: HogQLContext,
+    statistics_provider: StatisticsProvider | None = None,
 ) -> None:
     """Estimate how many events the query reads, for the editor to show before the user runs it."""
     # Deferred like build_index_eligibility_report: the resolver must stay off this module's import path.
@@ -277,7 +279,8 @@ def _attach_events_scan_estimate(
     try:
         with context.timings.measure("events_scan_estimate"):
             resolved = resolve_types(clone_expr(hogql_ast), context, dialect="clickhouse")
-            estimate = estimate_events_scan(resolved, context, ClickHouseStatisticsProvider())
+            provider = statistics_provider if statistics_provider is not None else ClickHouseStatisticsProvider()
+            estimate = estimate_events_scan(resolved, context, provider)
     except Exception:
         # Advisory only. A query that compiles must not be reported as invalid because estimating it failed.
         logger.exception("hogql_events_scan_estimate_failed", team_id=context.team_id)

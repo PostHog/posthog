@@ -23,7 +23,9 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
     get_default_limit_for_context,
 )
+from posthog.hogql.cost.estimate import estimate_events_scan
 from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
@@ -58,7 +60,7 @@ from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
-from posthog.hogql.resolver import Resolver
+from posthog.hogql.resolver import Resolver, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
@@ -116,6 +118,9 @@ class HogQLQueryExecutor:
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
+    statistics_provider: StatisticsProvider = dataclasses.field(
+        default_factory=ClickHouseStatisticsProvider, repr=False
+    )
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
@@ -582,6 +587,17 @@ class HogQLQueryExecutor:
         except Exception:
             return None
 
+    def _estimated_rows(self) -> int | None:
+        try:
+            with self.timings.measure("events_scan_estimate"):
+                context = self.hogql_context or self.context
+                resolved = resolve_types(clone_expr(self.select_query), context, dialect="clickhouse")
+                estimate = estimate_events_scan(resolved, context, self.statistics_provider)
+                return estimate.rows if estimate is not None else None
+        except Exception:
+            # Advisory statistics must not prevent an otherwise valid query from running.
+            return None
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
     def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
@@ -782,6 +798,7 @@ class HogQLQueryExecutor:
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
+        estimated_rows = self._estimated_rows()
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
@@ -796,6 +813,7 @@ class HogQLQueryExecutor:
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
                 plan_fingerprint=plan_fingerprint,
+                estimated_rows=estimated_rows,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -870,6 +888,7 @@ class HogQLQueryExecutor:
                     hogql_ast=self.select_query,
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
+                    statistics_provider=self.statistics_provider,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

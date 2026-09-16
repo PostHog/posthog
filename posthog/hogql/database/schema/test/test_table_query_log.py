@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -51,7 +53,35 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
         )
         assert response.results is not None
 
-    def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
+    def test_cost_estimate_accuracy_query_runs_against_the_archive(self) -> None:
+        for fingerprint, estimated_bytes, read_bytes, status, initial in [
+            ("rows-only", None, 0, "QueryFinish", 1),
+            ("mixed", None, 500, "QueryFinish", 1),
+            ("mixed", 2000, 500, "QueryFinish", 1),
+            ("mixed", 2000, 0, "QueryFinish", 1),
+            ("mixed", 0, 500, "QueryFinish", 1),
+            ("excluded", 2000, 500, "ExceptionWhileProcessing", 1),
+            ("excluded", 2000, 500, "QueryFinish", 0),
+        ]:
+            tags: dict[str, str | int] = {
+                "team_id": self.team.pk,
+                "plan_fingerprint": fingerprint,
+                "estimated_rows": 100,
+            }
+            if estimated_bytes is not None:
+                tags["estimated_bytes"] = estimated_bytes
+            sync_execute(
+                "INSERT INTO sharded_query_log_archive "
+                "(event_date, event_time, team_id, type, is_initial_query, read_rows, read_bytes, log_comment) "
+                "VALUES (today(), now(), %(team_id)s, %(status)s, %(initial)s, 50, %(read_bytes)s, %(tags)s)",
+                {
+                    "team_id": self.team.pk,
+                    "status": status,
+                    "initial": initial,
+                    "read_bytes": read_bytes,
+                    "tags": json.dumps(tags),
+                },
+            )
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
 
         assert response.results is not None
@@ -63,3 +93,7 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             "median_bytes_q_error",
             "p90_bytes_q_error",
         ]
+        assert {row[0]: row[1:] for row in response.results} == {
+            "rows-only": (1, 2.0, 2.0, None, None),
+            "mixed": (4, 2.0, 2.0, 4.0, 4.0),
+        }

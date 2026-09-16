@@ -47,6 +47,19 @@ Few things to note:
 - Placeholders like `{where}` are just nodes of type `ast.Placeholder(field='where')`. You can leave them in, and call `stmt = replace_placeholders(stmt, { where: parse_expr('1') })` later.
 - We wrote one AST node ourselves: `ast.Constant(value=num_last_days)`. We did it to sanitize the value by make sure it's treated as a constant. We might simplify constants further (e.g. `parse_const` or just `{days: 2}`), but we're not there yet.
 
+## Scan estimate accuracy
+
+ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in the query's `log_comment` when the events scan estimator supports the query and team statistics are available.
+This uses the same estimator as the SQL editor, independently of the editor's display flag.
+Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
+The `events_scan_estimate` timing measures the added planning work.
+
+Use `posthog.hogql.cost.accuracy.cost_estimate_accuracy_hogql(days=7)` to generate a HogQL query over the team's archived `query_log`.
+It compares estimated rows with actual `read_rows` for successful initial queries, grouped by plan fingerprint.
+Both row counts must be positive.
+The report includes row-only estimates; byte accuracy uses only entries with positive byte estimates and reads, and returns `NULL` when none exist.
+Q-error measures the larger of estimate / actual and actual / estimate: 1 is exact, and 3 means a factor of three off.
+
 ## AST nodes
 
 If you want more control, you can build the AST nodes directly. The same query above can be written as:

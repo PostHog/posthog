@@ -116,7 +116,9 @@ class TestEstimateEventsScan(BaseTest):
         ]
     )
     def test_shapes_that_read_other_tables_return_none(self, _name, sql):
-        assert self._estimate(sql) is None
+        with patch.object(self.provider, "event_volume", wraps=self.provider.event_volume) as read_statistics:
+            assert self._estimate(sql) is None
+        read_statistics.assert_not_called()
 
     def test_team_without_volume_returns_none(self):
         self.provider = FixedStatisticsProvider()

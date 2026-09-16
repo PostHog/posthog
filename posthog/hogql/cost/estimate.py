@@ -67,13 +67,13 @@ def estimate_events_scan(
     """Estimate the events read by a resolved query, or None when it reads anything but the events table."""
     if context.team_id is None:
         return None
-    volume = provider.event_volume(context.team_id)
-    if volume is None or not volume.days:
-        return None
-
     now = now or datetime.now(UTC)
     scans = _events_scans(node, now, ctes={})
     if not scans:
+        return None
+
+    volume = provider.event_volume(context.team_id)
+    if volume is None or not volume.days:
         return None
 
     rows = 0
