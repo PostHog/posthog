@@ -315,8 +315,9 @@ class DeliveryConfigSerializer(serializers.Serializer):
     )
     include_posthog_hint = serializers.BooleanField(
         required=False,
-        help_text="Prompt subscriptions only: include PostHog product guidance. Slack only. "
-        "Email and Microsoft Teams reports do not include it. Defaults to true when omitted. "
+        help_text="Prompt subscriptions only: include PostHog product guidance. Defaults to true when "
+        "omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it "
+        "out and accept the option without an error, unlike post_all_insights_in_main_message. "
         + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
 
