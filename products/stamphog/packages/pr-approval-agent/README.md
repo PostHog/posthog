@@ -16,13 +16,16 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 ## Verdicts
 
-| Verdict  | Meaning                                                 |
-| -------- | ------------------------------------------------------- |
-| APPROVE  | No showstoppers found                                   |
-| REFUSE   | A concrete issue was found                              |
-| ESCALATE | Only a human can rule out a showstopper                 |
-| WAIT     | No verdict yet: a reviewer bot or a CI check is pending |
-| ERROR    | The run could not produce a verdict                     |
+| Verdict  | Meaning                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| APPROVED | The gates passed and the reviewer found no showstoppers                                                            |
+| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending migration check) or the reviewer found a concrete issue |
+| ESCALATE | Only a human can rule out a showstopper                                                                            |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                            |
+| ERROR    | The run could not produce a verdict                                                                                |
+
+These are the values of `Pipeline.final_verdict`, which both entrypoints return.
+The nested LLM reviewer answers with `APPROVE` and `REFUSE`, and the pipeline maps those onto the names above.
 
 `WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
@@ -176,7 +179,9 @@ It records why the rule became what it is, which false positives drove an exclus
 Treat it as historical justification like a commit message, not as a claim about the present.
 
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
-The loader hard-fails without it, so the gate can never be configured to approve edits to its own policy or engine.
+The loader hard-fails when the category or one of its required path patterns is missing.
+It checks the pattern sources only, so a policy that keeps the patterns but hollows them out, for example with a blanket `exempt_path_prefixes`, still loads.
+That is one more reason every edit to a policy file is a human-reviewed change.
 
 The loader rejects unknown top-level keys.
 The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.

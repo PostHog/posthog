@@ -24,13 +24,14 @@ The bot never posts request-changes.
 Approvals are posted as real reviews so they count toward branch protection, once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
 Every other verdict is posted once per run as a comment review on the same surface, so approvals and non-approvals for one head never disagree across two lists.
 A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
-The spelling differs per layer: the engine emits `APPROVE` and `REFUSE`, its pipeline reports `APPROVED` and `REFUSED`, and the API exposes the lowercase `approved` and `refused`.
+The engine reports `APPROVED` and `REFUSED`, and the API exposes them lowercase as `approved` and `refused`.
 
 The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
 So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 `WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
-`ERROR` means the run could not reach its LLM backend, and a transient infra failure must not silently drop labels across every queued PR.
+`ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
+A transient failure must not silently drop labels across every queued PR.
 
 Each run is stored as a `ReviewRun` row with its evidence bundle.
 Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).

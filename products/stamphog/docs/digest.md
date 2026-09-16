@@ -11,8 +11,9 @@ It also includes a per-repo audience when a repo declares its own channel under 
 A team hears about code it owns, not about everywhere its members touched.
 So a merge nobody owns, in a repo that declares nothing, reaches nobody.
 That is an ownership gap, and `hogli owners:unowned` is where it gets fixed.
-A slug that is not a live GitHub team reaches nobody in the same way, because there is no `#<slug>` channel to name-match and no registry entry to redirect it.
-`hogli owners:lint --live` is the check that catches one.
+A slug that is no longer a live GitHub team is not checked at run time.
+If a same-named Slack channel or a registry entry still exists, the digest keeps posting there; only when neither exists does the audience reach nobody.
+`hogli owners:lint --live` is the check that catches a stale slug.
 Renaming an audience in the ownership files does not move the rows already captured under the old key.
 A branch opened before the rename keeps producing that key until it rebases, so those rows route nowhere and expire after the seven-day claim window.
 A `PullRequestAudience` row per audience is what the daily run claims, so one channel failing to post never strands the merge for another.
