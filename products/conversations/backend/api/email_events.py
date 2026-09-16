@@ -13,9 +13,7 @@ from posthog.ingress.mailgun.provider import build_mailgun_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 
-from products.conversations.backend.facade.api import mailgun_sender_is_active_here
 from products.conversations.backend.mailgun import get_email_webhook_signing_key
-from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT, SENDER_STATUS_ACTIVE
 
 _outbound_provider = build_mailgun_provider("outbound", signing_key_getter=get_email_webhook_signing_key)
 
@@ -41,6 +39,15 @@ def email_sender_status_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
     if _outbound_provider.verify(request).outcome is not VerificationOutcome.VERIFIED:
         return HttpResponse("Invalid signature", status=403)
+
+    # Deferred because this module is on the URL conf's import path, and the ingestion modules
+    # behind the facade are not cheap to import.
+    from products.conversations.backend.facade.api import mailgun_sender_is_active_here  # noqa: PLC0415
+    from products.conversations.backend.services.mailgun_events import (  # noqa: PLC0415
+        SENDER_STATUS_ABSENT,
+        SENDER_STATUS_ACTIVE,
+    )
+
     if mailgun_sender_is_active_here(request.POST.get("sender", "")):
         return HttpResponse(status=SENDER_STATUS_ACTIVE)
     return HttpResponse(status=SENDER_STATUS_ABSENT)
