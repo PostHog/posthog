@@ -48,13 +48,14 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    ChannelAssignment,
     Priority,
     PriorityAssessment,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -526,6 +527,31 @@ def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> E
         emitted=_surfaced(judgement.status),
         skipped_reason=None,
         safety_explanation=judgement.safety.explanation,
+    )
+
+
+def _assign_report_to_space(*, team_id: int, report_id: str, space_id: str, attribution: ArtefactAttribution) -> None:
+    """Hand an authored report to the space (task channel) the scout says it belongs to.
+
+    An unknown or private space is skipped rather than failing the emit: the report is already
+    saved, and the space router can still pick it up from its evidence.
+    """
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
+    try:
+        channel_id = uuid.UUID(space_id)
+    except ValueError:
+        logger.warning("scout report %s names an invalid space id %r; left unassigned", report_id, space_id)
+        return
+    if not tasks_facade.channel_exists(team_id, channel_id, None):
+        logger.warning("scout report %s names an unknown space %s; left unassigned", report_id, space_id)
+        return
+    SignalReportArtefact.append_status(
+        team_id=team_id,
+        report_id=report_id,
+        content=ChannelAssignment(channel_id=channel_id),
+        attribution=attribution,
+        reevaluate_autostart=False,
     )
 
 
@@ -1355,6 +1381,7 @@ async def emit_report(
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     idempotency_key: str | None = None,
+    space_id: str | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -1493,6 +1520,10 @@ async def emit_report(
             delivery_id=persisted.report_id,
         )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+    if space_id:
+        await database_sync_to_async(_assign_report_to_space, thread_sensitive=False)(
+            team_id=team.id, report_id=persisted.report_id, space_id=space_id, attribution=attribution
+        )
     return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -1514,6 +1545,7 @@ def emit_report_sync(
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     idempotency_key: str | None = None,
+    space_id: str | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -1632,6 +1664,10 @@ def emit_report_sync(
             delivery_id=persisted.report_id,
         )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+    if space_id:
+        _assign_report_to_space(
+            team_id=team.id, report_id=persisted.report_id, space_id=space_id, attribution=attribution
+        )
     return finish(_emit_result(persisted.report_id, judgement))
 
 

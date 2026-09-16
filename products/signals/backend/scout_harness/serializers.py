@@ -1256,6 +1256,17 @@ class SuggestedReviewerSerializer(serializers.Serializer):
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
+    space_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The space (task channel) this report belongs to, when the scout knows it — for example a report "
+            "about a goal read from that space's CONTEXT.md. The report is assigned to the space on creation, "
+            "so it shows on the space's Context page and Reports tab. An unknown space is ignored; a report "
+            "without one may still be routed from its evidence."
+        ),
+    )
+
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
         help_text=(

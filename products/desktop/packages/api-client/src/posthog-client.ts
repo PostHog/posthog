@@ -7260,6 +7260,34 @@ export class PostHogAPIClient {
     return { results: data.results ?? [], columns: data.columns ?? [] };
   }
 
+  /**
+   * Asks PostHog to write a HogQL query from a sentence. Synchronous; the
+   * backend answers 400 with a reason when the sentence is too vague.
+   */
+  async draftHogQL(prompt: string, currentQuery?: string): Promise<string> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/draft_sql/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("prompt", prompt);
+    if (currentQuery) url.searchParams.set("current_query", currentQuery);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path,
+    });
+    const data = (await response.json()) as {
+      sql?: string;
+      prompt?: string[];
+      detail?: string;
+    };
+    if (!response.ok || typeof data.sql !== "string") {
+      throw new Error(
+        data.prompt?.[0] ?? data.detail ?? "Could not write a query for that.",
+      );
+    }
+    return data.sql;
+  }
+
   async runQuery(
     query: Record<string, unknown>,
     options?: { refresh?: "blocking" | false },

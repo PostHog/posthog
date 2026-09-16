@@ -1159,6 +1159,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
                 idempotency_key=data.get("idempotency_key"),
+                space_id=str(data["space_id"]) if data.get("space_id") else None,
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
