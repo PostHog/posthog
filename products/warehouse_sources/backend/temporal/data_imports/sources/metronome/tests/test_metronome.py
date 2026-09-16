@@ -1,3 +1,4 @@
+import threading
 from collections import deque
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     _format_rfc3339,
     _paginator_for,
     _parallel_usage_pages,
+    _usage_rows_for_customer,
+    _WalkCancelled,
     get_resource,
     metronome_source,
     validate_credentials,
@@ -355,6 +358,28 @@ class TestMetronomeParallelUsage:
 
         assert len(submitted) == USAGE_CUSTOMER_CONCURRENCY
         assert len(todo) == 6 - USAGE_CUSTOMER_CONCURRENCY
+
+    def test_a_cancelled_walk_stops_at_the_next_page(self) -> None:
+        # `cancel_futures` only drops walks that never started, so one already running has to stop
+        # itself, or it keeps spending the account's request budget after the consumer has gone and
+        # holds the pool's threads open on the way out.
+        pages_served: list[int] = []
+
+        class _Client:
+            def paginate(self, path, **kwargs):
+                for index in range(5):
+                    pages_served.append(index)
+                    yield [{"value": index}]
+
+        cancelled = threading.Event()
+        cancelled.set()
+
+        with pytest.raises(_WalkCancelled):
+            _usage_rows_for_customer(cast(Any, _Client()), METRONOME_ENDPOINTS["usage_daily"], {}, "c1", cancelled)
+
+        # It raises rather than returning what it had: the checkpoint records whole customers, so a
+        # partial one must never be mistakable for a finished one.
+        assert pages_served == [0]
 
 
 class TestMetronomeSourceResponse:

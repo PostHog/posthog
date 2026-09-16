@@ -424,13 +424,29 @@ class _PacedClients:
         return client
 
 
+class _WalkCancelled(Exception):
+    """The consumer went away while this customer was still being walked.
+
+    Raised rather than returning the rows gathered so far, because the checkpoint records whole
+    customers: a partial one must never be mistakable for a finished one.
+    """
+
+
 def _usage_rows_for_customer(
-    client: RESTClient, config: MetronomeEndpointConfig, json_body: dict[str, Any], customer_id: str
+    client: RESTClient,
+    config: MetronomeEndpointConfig,
+    json_body: dict[str, Any],
+    customer_id: str,
+    cancelled: threading.Event,
 ) -> list[Any]:
     """Every usage row one customer has in the requested window.
 
     `_float_usage_value` is applied here because this path builds its own requests rather than going
     through the resource's `data_map`.
+
+    `cancel_futures` only drops walks that never started, so a walk already running checks between
+    pages for itself. Otherwise it keeps spending the account's request budget after the consumer
+    has gone, and the pool's threads hold up the process on their way out.
     """
     rows: list[Any] = []
     for page in client.paginate(
@@ -443,6 +459,8 @@ def _usage_rows_for_customer(
         paginator=_paginator_for(config),
     ):
         rows.extend(_float_usage_value(row) for row in page)
+        if cancelled.is_set():
+            raise _WalkCancelled(customer_id)
     return rows
 
 
@@ -497,9 +515,11 @@ def _parallel_usage_pages(
     done_in_page = set(walk.completed_customers)
     pool = ThreadPoolExecutor(max_workers=USAGE_CUSTOMER_CONCURRENCY, thread_name_prefix="metronome-usage")
 
+    cancelled = threading.Event()
+
     def submit_walk(customer_id: str) -> "Future[list[Any]]":
         return submit_with_context(
-            pool, lambda: _usage_rows_for_customer(clients.get(), config, json_body, customer_id)
+            pool, lambda: _usage_rows_for_customer(clients.get(), config, json_body, customer_id, cancelled)
         )
 
     try:
@@ -541,7 +561,9 @@ def _parallel_usage_pages(
                 done_in_page.update(batch_customers)
                 commit_checkpoint(page_cursor, tuple(done_in_page))
     finally:
-        # The consumer may close the generator early; never block on requests still in flight.
+        # The consumer may close the generator early. Signal first so a walk already running stops
+        # at its next page, then never block on the ones still in flight.
+        cancelled.set()
         pool.shutdown(wait=False, cancel_futures=True)
 
 

@@ -79,3 +79,32 @@ class TestRequestPacer:
 
         # Recovered to the base 0.1s spacing after its own 2s window, not after the 30s default.
         assert sleeps[-1] == pytest.approx(0.1)
+
+    def test_a_longer_retry_after_extends_a_hold_already_running(self) -> None:
+        # Requests in flight when the first 429 lands all report it. A vendor naming a deadline past
+        # the hold already running is not that: keeping only the first would resume early.
+        clock = {"now": 0.0}
+        sleeps: list[float] = []
+        pacer = RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleeps.append)
+
+        pacer.throttled(5.0)
+        pacer.throttled(20.0)
+        clock["now"] = 6.0
+        pacer.wait_turn()
+
+        # Still held at 6s, because the second 429 moved the deadline out to 20s.
+        assert sleeps[-1] == pytest.approx(14.0)
+
+    def test_a_shorter_or_missing_retry_after_does_not_extend(self) -> None:
+        clock = {"now": 0.0}
+        sleeps: list[float] = []
+        pacer = RequestPacer(10.0, clock=lambda: clock["now"], sleep=sleeps.append, hold_seconds=30.0)
+
+        pacer.throttled(20.0)
+        pacer.throttled(1.0)
+        pacer.throttled(None)
+        clock["now"] = 20.0
+        pacer.wait_turn()
+
+        # The 20s deadline stands: neither the shorter header nor the bare repeat moved it.
+        assert sleeps == []

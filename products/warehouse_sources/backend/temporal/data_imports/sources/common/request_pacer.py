@@ -84,7 +84,16 @@ class RequestPacer:
         with self._lock:
             now = self._clock()
             if now < self._hold_until:
-                # Requests already in flight when the first 429 landed report the same throttle.
+                # Requests already in flight when the first 429 landed report the same throttle, so
+                # a repeat changes nothing by itself. A vendor naming a deadline past the hold
+                # already running is not a repeat: honouring only the first would resume early and
+                # earn the next 429. A missing or shorter header still says nothing new.
+                if retry_after is not None and retry_after > 0:
+                    deadline = now + retry_after
+                    if deadline > self._hold_until:
+                        self._hold_until = deadline
+                        self._next_start = max(self._next_start, deadline)
+                        self._recover_at = deadline if self._recover_at is None else max(self._recover_at, deadline)
                 return
             hold = retry_after if retry_after is not None and retry_after > 0 else self._hold_seconds
             self._interval = min(self._interval * 2, self._base_interval * 16)
