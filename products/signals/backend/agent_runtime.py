@@ -90,6 +90,12 @@ class AgentRuntime:
 
 DEFAULT_RUNTIME = AgentRuntime()
 
+# The OpenAI service tiers a pin may name, mirroring the agent server's `ServiceTier` enum. The
+# agent server sends the value verbatim as the gateway's `X-PostHog-Service-Tier`, which fails
+# closed on anything else, so an unknown value is dropped here (standard queue) rather than
+# threaded into run state where it would 400 every request of the run.
+KNOWN_SERVICE_TIERS = frozenset({"default", "priority", "flex"})
+
 # The Codex trial config (used by the local `analyze_report --codex` override).
 CODEX_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh")
 
@@ -128,11 +134,12 @@ def _parse_runtime(step_block: object) -> AgentRuntime:
         value = step_block.get(key)
         return value if isinstance(value, str) and value else None
 
+    service_tier = _str_or_none("service_tier")
     return AgentRuntime(
         runtime_adapter=_str_or_none("runtime_adapter"),
         model=_str_or_none("model"),
         reasoning_effort=_str_or_none("reasoning_effort"),
-        service_tier=_str_or_none("service_tier"),
+        service_tier=service_tier if service_tier in KNOWN_SERVICE_TIERS else None,
     )
 
 

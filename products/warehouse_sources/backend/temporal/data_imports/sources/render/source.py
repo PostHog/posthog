@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -19,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import (
+    KEY_FORBIDDEN_MESSAGE,
+    KEY_REJECTED_MESSAGE,
     RenderResumeConfig,
     render_source,
     validate_credentials as validate_render_credentials,
@@ -45,7 +45,7 @@ class RenderSource(ResumableSource[RenderSourceConfig, RenderResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.RENDER,
+            name=ExternalDataSourceType.RENDER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Render",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -94,8 +94,8 @@ An API key grants access to every workspace your user belongs to. To sync a sing
         # problem, so stop the sync. Match the stable status text and base host, not the
         # per-request path/query.
         return {
-            "401 Client Error: Unauthorized for url: https://api.render.com": "Your Render API key is invalid or has been revoked. Create a new API key in your Render account settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.render.com": "Your Render API key does not have access to this resource. Check the key's workspace access, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.render.com": KEY_REJECTED_MESSAGE,
+            "403 Client Error: Forbidden for url: https://api.render.com": KEY_FORBIDDEN_MESSAGE,
         }
 
     def get_schemas(
@@ -133,10 +133,7 @@ An API key grants access to every workspace your user belongs to. To sync a sing
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_render_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Render API key"
+        return validate_render_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RenderResumeConfig]:
         return ResumableSourceManager[RenderResumeConfig](inputs, RenderResumeConfig)

@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
@@ -134,15 +134,46 @@ class TestFormatSessionForJudge:
         assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
         assert "t399" in rendered
 
-    def test_every_trace_appears(self):
+    @pytest.mark.parametrize("content_length,should_truncate", [(300_000, False), (600_000, True)])
+    def test_preserves_every_trace_and_only_truncates_content_when_the_session_exceeds_budget(
+        self, content_length: int, should_truncate: bool
+    ) -> None:
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
+        content = "start " + "x" * (content_length // 2) + " critical evidence " + "y" * (content_length // 2) + " end"
+        traces[0].events[0].properties["$ai_input"] = [{"role": "user", "content": content}]
         rendered = format_session_for_judge(traces)
         assert rendered is not None
         assert "t-alpha" in rendered
         assert "t-beta" in rendered
+        assert ("chars truncated" in rendered) == should_truncate
+        assert ("critical evidence" in rendered) == (not should_truncate)
+        assert "start " in rendered
+        assert " end" in rendered
+        assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
+
+    @pytest.mark.parametrize("budget_delta", [-1, 0])
+    def test_session_budget_includes_trace_headers_and_separators(self, budget_delta: int) -> None:
+        traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
+        content = "start " + "x" * 2_000 + " critical evidence " + "y" * 2_000 + " end"
+        traces[0].events[0].properties["$ai_input"] = [{"role": "user", "content": content}]
+        expected = format_session_for_judge(traces)
+        assert expected is not None
+
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.JUDGE_SESSION_MAX_CHARS",
+            len(expected) + budget_delta,
+        ):
+            rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert "t-beta" in rendered
+        if budget_delta < 0:
+            assert "chars truncated" in rendered
+            assert "critical evidence" not in rendered
+        else:
+            assert rendered == expected
 
 
-@freeze_time(FROZEN_NOW)
 class TestCountSessionEvents:
     def test_the_count_stays_an_ungrouped_aggregate(self):
         """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
@@ -173,7 +204,7 @@ class TestCountSessionEvents:
             "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
             return_value=Mock(results=[[7, first_seen]]),
         ) as mock_query_ai_events:
-            result = _count_session_events(Mock(), "s-1", datetime.now(UTC), datetime.now(UTC))
+            result = _count_session_events(Mock(), "s-1", FROZEN_NOW, FROZEN_NOW)
 
         assert result.event_count == 7
         assert result.first_seen == first_seen
@@ -208,6 +239,33 @@ class TestFetchSessionForEvaluation:
         # SessionQueryRunner defaults to 100 rows under LimitContext.QUERY, which would drop the
         # tail of any session past 100 traces, so the fetch must ask for the export ceiling instead.
         assert kwargs["query"].limit == MAX_SELECT_TRACES_LIMIT_EXPORT
+
+    @pytest.mark.parametrize("window_end", [None, datetime(2026, 7, 20, 6, tzinfo=UTC)])
+    def test_upper_bound_is_the_given_window_end_or_now(self, window_end):
+        window_start = datetime(2026, 7, 20, tzinfo=UTC)
+        now = datetime(2026, 7, 21, tzinfo=UTC)
+        with (
+            time_machine.travel(now, tick=False),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._sum_session_payload_bytes",
+                return_value=0,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)], hasMore=False
+            )
+            fetch_session_for_evaluation(1, "s-1", window_start, window_end)
+
+        date_range = mock_session_query_runner.call_args.kwargs["query"].dateRange
+        assert date_range.date_to == (window_end or now).isoformat()
 
     def test_skips_a_small_session_whose_payload_is_enormous(self):
         """The event count cannot see this: a handful of events carrying megabytes each sits far
@@ -341,7 +399,6 @@ class TestFetchSessionForEvaluation:
         assert outcome.skip_reason == "session_truncated"
 
 
-@freeze_time(FROZEN_NOW)
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",
@@ -361,7 +418,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -375,7 +432,7 @@ class TestExecuteSessionActivities:
                     evaluation={"evaluation_type": "hog", "output_type": "boolean"},
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
 
@@ -397,7 +454,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -427,7 +484,7 @@ class TestExecuteSessionActivities:
                     },
                     team_id=1,
                     session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
+                    window_start=FROZEN_NOW.isoformat(),
                 )
             )
         assert result["skipped"] is True
@@ -463,6 +520,6 @@ class TestExecuteSessionActivities:
                         },
                         team_id=1,
                         session_id="s-1",
-                        window_start=datetime.now(UTC).isoformat(),
+                        window_start=FROZEN_NOW.isoformat(),
                     )
                 )

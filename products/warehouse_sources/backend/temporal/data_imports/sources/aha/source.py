@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha import (
     AhaResumeConfig,
     aha_source,
@@ -50,7 +48,7 @@ class AhaSource(ResumableSource[AhaSourceConfig, AhaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AHA,
+            name=ExternalDataSourceType.AHA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha!",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -146,4 +144,5 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

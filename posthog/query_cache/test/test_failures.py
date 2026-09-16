@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 
 from django.core.cache import caches
 from django.test import SimpleTestCase
@@ -66,7 +66,7 @@ class TestQueryFailureCache(SimpleTestCase):
 
     def test_load_dependent_breaker_opens_after_threshold_and_backs_off_exponentially(self):
         failure_cache = QueryFailureCache("cache_key_1")
-        with freeze_time("2026-01-01T00:00:00Z") as frozen:
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
             for _ in range(KIND_POLICIES["timeout"].open_threshold - 1):
                 failure_cache.record_failure("timeout", "failed")
                 assert failure_cache.get_open() is None
@@ -76,7 +76,7 @@ class TestQueryFailureCache(SimpleTestCase):
             assert record.open_until == datetime.now(UTC) + BASE_BACKOFF
             assert failure_cache.get_open() is not None
 
-            frozen.tick(BASE_BACKOFF + timedelta(seconds=1))
+            frozen.shift(BASE_BACKOFF + timedelta(seconds=1))
             assert failure_cache.get_open() is None
             record = failure_cache.record_failure("timeout", "failed")
             assert record is not None
@@ -85,7 +85,7 @@ class TestQueryFailureCache(SimpleTestCase):
     @parameterized.expand([("memory_limit",), ("query_size",), ("too_many_bytes",)])
     def test_deterministic_kinds_open_on_first_failure(self, kind):
         failure_cache = QueryFailureCache(f"cache_key_instant_{kind}")
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             record = failure_cache.record_failure(kind, "failed")
             assert record is not None
             assert record.consecutive_failures == 1
@@ -99,7 +99,7 @@ class TestQueryFailureCache(SimpleTestCase):
     def test_backoff_is_capped_and_survives_high_failure_counts(self):
         # 50 failures is past the point where uncapped backoff math overflows timedelta.
         failure_cache = QueryFailureCache("cache_key_2")
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             record = None
             for _ in range(50):
                 record = failure_cache.record_failure("timeout", "failed")
@@ -117,7 +117,7 @@ class TestQueryFailureCache(SimpleTestCase):
 
     def test_clear_closes_breaker_and_resets_count(self):
         failure_cache = QueryFailureCache("cache_key_3")
-        with freeze_time("2026-01-01T00:00:00Z"):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
             for _ in range(3):
                 failure_cache.record_failure("memory_limit", "failed")
             assert failure_cache.get_open() is not None

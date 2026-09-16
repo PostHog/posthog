@@ -7,12 +7,16 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase import (
     browserbase,
     source as source_module,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.source import BrowserbaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
     BrowserbaseSourceConfig,
@@ -47,22 +51,31 @@ class TestBrowserbaseSourceConfig:
 
 
 class TestBrowserbaseSchemas:
-    @parameterized.expand([("sessions",), ("projects",)])
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_every_endpoint_is_full_refresh_only(self, endpoint: str) -> None:
-        # No Browserbase list endpoint exposes a server-side timestamp filter, so nothing can sync
-        # incrementally - guarding against a future edit flipping this on without a real filter.
+        # No Browserbase endpoint exposes a usable incremental cursor: most have no server-side
+        # timestamp filter at all, and the agent endpoints only filter on creation time over rows
+        # that keep changing afterwards. Guards against a future edit flipping this on.
         schema = next(s for s in BrowserbaseSource().get_schemas(_config(), team_id=1) if s.name == endpoint)
 
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
 
+    def test_session_logs_is_not_enabled_by_default(self) -> None:
+        # One request per session over an unpaginated session list, carrying raw CDP bodies - it
+        # must not be force-enabled by one-shot source creation.
+        by_name = {s.name: s for s in BrowserbaseSource().get_schemas(_config(), team_id=1)}
+
+        assert by_name["session_logs"].should_sync_default is False
+        assert by_name["sessions"].should_sync_default is True
+
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials=True means the public docs <SourceTables /> is fed here.
         tables = BrowserbaseSource().get_documented_tables()
 
         by_name = {t["name"]: t for t in tables}
-        assert set(by_name) == {"sessions", "projects"}
+        assert set(by_name) == set(ENDPOINTS)
         assert by_name["sessions"]["description"]
         assert by_name["sessions"]["sync_methods"] == ["Full refresh"]
 

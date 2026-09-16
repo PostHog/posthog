@@ -11,7 +11,8 @@ map values from failing insertion into the typed JSON column while preserving un
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
 The utility module and CI use Go 1.27.1, declared in `clickhouse-udfs/util/go.mod`.
-Rebuild all three utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
+Rebuild all utilities for Linux amd64 and arm64 with `./scripts/build.sh` whenever this version changes; CI verifies the checked-in binaries.
+Changes to `posthog/user_scripts` no longer dispatch the separate UDF publishing workflow on pushes to master.
 
 The event, person, and temporary cleaners reuse at most 4,096 parser nodes across rows.
 Recycled nodes keep small backing arrays for reuse and release larger arrays whose capacity exceeds twice their used length, so a wide row does not make later small rows repeatedly clear oversized arrays.
@@ -160,3 +161,127 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
+
+### `decompress(data, codec)`
+
+Returns the exact decompressed bytes as a ClickHouse `String`, including NUL, newlines, and non-UTF-8 bytes.
+Both inputs are regular SQL arguments, so the codec can vary between rows in an `executable_pool`.
+The worker uses RowBinary transport with row-count headers and flushes after each chunk, allowing ClickHouse to reuse it across blocks and queries.
+See [ClickHouse's executable UDF documentation](https://clickhouse.com/docs/reference/functions/regular-functions/udf) for the argument and pool protocol.
+
+| Codec             | Input                                                                  |
+| ----------------- | ---------------------------------------------------------------------- |
+| `GZIP`            | GZIP stream, including concatenated members.                           |
+| `ZSTD`            | Zstandard frames, including concatenated frames.                       |
+| `LZ4`             | Standard LZ4 frames.                                                   |
+| `LZ4Block`        | Raw LZ4 block without a size prefix.                                   |
+| `LZ4SizePrefixed` | Four-byte little-endian uncompressed size followed by a raw LZ4 block. |
+
+Names are case-insensitive. An empty codec auto-detects GZIP, ZSTD, or framed LZ4, including ZSTD/LZ4 streams with leading skippable metadata frames.
+Raw and size-prefixed blocks require an explicit codec because they have no identifying magic bytes.
+`LZ4` always means the standard frame format; it does not select the replay envelope.
+
+```sql
+SELECT decompress(unhex('170000006068656c6c6f200600d06f2068656c6c6f2068656c6c6f'), 'LZ4SizePrefixed');
+-- hello hello hello hello
+
+SELECT decompress(compressed_body, 'ZSTD') FROM messages;
+SELECT decompress(base64Decode(encoded_body), '') FROM messages;
+```
+
+The replay producer in `rust/capture/src/serialization/mod.rs` uses `LZ4SizePrefixed` and marks those Kafka values with `content-encoding: lz4`.
+Read the message value into a raw `String`, decompress it, then parse its JSON.
+Kafka record-batch compression is handled by the Kafka client separately.
+The function does not pass through uncompressed messages: select which rows need decoding using the message's encoding metadata.
+When using `if` to mix compressed and plain rows, set `short_circuit_function_evaluation = 'force_enable'` so the UDF only receives the compressed branch.
+
+Each compressed input is limited to 65 MiB and each decoded value to 64 MiB.
+The extra input allowance accommodates compression overhead near the output limit.
+Invalid frames, unsupported codecs, truncated transport, size-limit violations, and incorrect envelope sizes fail the query.
+Framed codec checksums are validated when present; raw LZ4 blocks have no checksum, so a damaged block that still decodes cannot always be detected.
+A size-prefixed block must produce exactly the declared number of bytes.
+
+Workers reuse GZIP and LZ4 readers, the ZSTD decoder, and input/output buffers.
+ZSTD uses `DecodeAll` to decode directly into a reusable slice.
+Input and output transport buffers are 64 KiB each, down from 4 MiB each in the archived implementation.
+Buffers retain their high-water capacity for the worker's lifetime, and each codec can retain separate output storage; the value limit is not a total worker-memory limit.
+`LZ4Block` reserves the full 64 MiB output capacity because it has no size metadata; `LZ4SizePrefixed` grows its output buffer to the declared size instead.
+
+The build script, architecture launcher, unversioned function configuration, deployment manifests, and existing utility-UDF CI include the decompressor.
+Installing those artifacts makes the function available; this change does not alter Kafka table definitions or materialized views.
+
+Run its unit tests and repeat the synthetic decoding benchmarks from `clickhouse-udfs/util`:
+
+```sh
+go test ./cmd/decompress_udf -timeout 30s
+go test -run '^$' -bench BenchmarkDecompress -benchmem -cpu=1 -count=3 ./cmd/decompress_udf
+```
+
+#### Decompression measurements, September 10, 2026
+
+Baseline: archived `PostHog/clickhouse-util-udfs` commit `92a3dd0c0ce81adada0440144acbdf12ef5beec2`.
+Both implementations used Go 1.27.1 on an Apple M4 Pro, macOS arm64, with identical compression-library versions.
+The microbenchmark repeats synthetic JSON to make 1 KiB and 64 KiB payloads and reuses one processor after warmup.
+Results below are medians of three alternating before/after runs with `-cpu=1 -benchtime=200ms`.
+
+| Workload     | Before    | After     | Speedup | Allocated bytes per row, before / after |
+| ------------ | --------- | --------- | ------- | --------------------------------------- |
+| GZIP, 1 KiB  | 2,616 ns  | 715 ns    | 3.66×   | 41,256 / 24                             |
+| GZIP, 64 KiB | 15,841 ns | 12,764 ns | 1.24×   | 41,256 / 24                             |
+| ZSTD, 1 KiB  | 1,489 ns  | 1,312 ns  | 1.13×   | 72 / 0                                  |
+| ZSTD, 64 KiB | 20,234 ns | 19,198 ns | 1.05×   | 72 / 0                                  |
+
+LZ4 reader reuse reduces allocations from 488 to 136 bytes per row.
+Raw LZ4 decoding uses the same library primitive as before; its decoding speed is effectively unchanged.
+The new size-prefixed variant avoids reserving a full 64 MiB buffer for a small block.
+
+Whole-query GZIP measurements used ClickHouse 26.6.2.158 in Docker on the same host.
+The baseline used `executable`; the new function used `executable_pool` with chunk headers.
+Each result is the median of five alternating measurements after one warmup, using `max_threads=1` and `max_block_size=8192`.
+
+| Workload             | Before | After  | Speedup |
+| -------------------- | ------ | ------ | ------- |
+| 100,000 rows × 1 KiB | 432 ms | 110 ms | 3.93×   |
+| 10,000 rows × 64 KiB | 714 ms | 464 ms | 1.54×   |
+
+Queries summed `length(decompress(materialize(unhex(payload_hex)), materialize('GZIP')))` over `numbers(row_count)` to prevent constant folding.
+Separate byte-for-byte comparisons found zero differing rows for both workloads.
+These highly compressible, repeated payloads measure decoding and UDF transport, not Kafka ingestion, JSON parsing, or production capacity.
+
+#### Codec dispatch and native Zstandard follow-up
+
+Codec dispatch uses `strings.EqualFold`, avoiding an uppercase-string allocation for mixed-case codec names.
+For `LZ4SizePrefixed` on the 1 KiB synthetic workload, median decoding time fell from 92.39 ns to 58.67 ns, a 36.5% reduction.
+Allocated bytes fell from 16 to zero per row. These are three-sample medians with `-cpu=1 -benchtime=500ms` on the same macOS arm64 host.
+The existing round-trip cases cover original, lowercase, and uppercase codec names.
+
+A separate benchmark compared the Go processor with a direct CGO call to `ZSTD_decompressDCtx`.
+It reused a decoder context and a 64 MiB output buffer on both sides, included the CGO call overhead, and verified identical output before timing.
+Compression and warmup were excluded; the two decoders received identical frames from the Go encoder at its default compression level.
+Payloads contained repeated text, deterministic varied event text, or pseudorandom bytes at 1 KiB, 64 KiB, and 1 MiB.
+Text was truncated to the exact benchmark size; no JSON parsing was performed.
+
+Linux results used Go 1.27.1, klauspost/compress v1.19.1, Debian Bookworm libzstd 1.5.4, and glibc 2.36 in an arm64 Docker container on the Apple M4 Pro.
+Values below are three-sample medians with `-cpu=1 -benchtime=200ms`.
+
+| Input              | Size   | Go decoder | Native via CGO | Native throughput / Go |
+| ------------------ | ------ | ---------- | -------------- | ---------------------- |
+| Varied event text  | 1 KiB  | 2.437 µs   | 2.003 µs       | 1.22×                  |
+| Varied event text  | 64 KiB | 33.445 µs  | 23.549 µs      | 1.42×                  |
+| Varied event text  | 1 MiB  | 472.654 µs | 336.296 µs     | 1.41×                  |
+| Repeated text      | 64 KiB | 20.042 µs  | 5.082 µs       | 3.94×                  |
+| Pseudorandom bytes | 64 KiB | 3.656 µs   | 4.023 µs       | 0.91×                  |
+| Pseudorandom bytes | 1 MiB  | 65.406 µs  | 68.503 µs      | 0.95×                  |
+
+On macOS arm64 with libzstd 1.5.7, native throughput was 1.18–1.31× Go's for varied event text, and 4.72× for the repeated 64 KiB input.
+That repeated input compressed to only 77 bytes; its speedup should not be treated as representative.
+The macOS and Linux results use different library versions and execution environments, so they do not isolate a libc or version effect.
+Neither run measures production CPUs, ClickHouse transport, Kafka ingestion, or concurrent queries.
+Go allocation counters do not include C allocations.
+
+Both implementations passed checks for valid and empty frames, unknown content size, concatenated frames, skippable metadata, checksum errors, truncated frames, and output limits.
+This is a bounded compatibility check, not an exhaustive audit; the benchmark's direct native API does not implement every policy of the Go UDF, including its window-size restriction.
+
+Native Zstandard is not integrated into the UDF. Both Linux artifacts still build with `CGO_ENABLED=0` and contain no native Zstandard dependency.
+A direct C binding requires CGO and a target C toolchain/library. Disabling CGO excludes files importing `C`; it does not automatically select another decoder.
+Dynamic native libraries also introduce target ABI and library-version dependencies. See the [Go CGO documentation](https://pkg.go.dev/cmd/cgo).

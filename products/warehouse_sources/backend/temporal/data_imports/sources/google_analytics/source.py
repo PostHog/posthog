@@ -3,18 +3,16 @@ from typing import Optional, cast
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import (
+from posthog.models.integration import Integration
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -81,11 +79,28 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
         # retry the activity without paging it as a bug.
         #
         # "Connection aborted"/"Connection reset by peer"/"Read timed out" are transport-level blips
-        # from `requests` raised directly by `session.post()` in `_run_report`, outside its own retry
-        # loop (which only handles `RefreshError` and HTTP-level failures). The resumable source picks
-        # up from the last saved chunk on the next Temporal retry, same as ClickHouse's source
+        # from `requests` raised by `session.post()` in `_run_report`, which now backs off on them
+        # inline, so they reach here only once that budget is spent. The resumable source picks up
+        # from the last saved chunk on the next Temporal retry, same as ClickHouse's source
         # classifies this text.
-        return {"(retryable)", "Connection aborted", "Connection reset by peer", "Read timed out"}
+        #
+        # "Connection broken" is the urllib3 `ProtocolError` prefix for a body cut off mid-stream.
+        # It carries the underlying reason (an incomplete read, an invalid chunk length, or a reset),
+        # so only the reset variant matches the text above — match the prefix to cover them all.
+        #
+        # "Max retries exceeded with url" is the urllib3 wrapper around a connect that never
+        # succeeded (a DNS failure, a refused connection, or a connect timeout). `Retry.increment`
+        # tests for a connection error before it tests the method allowlist, so the shared adapter
+        # retries this POST too and wraps the exhausted failure in that text, which carries none of
+        # the messages above. Google Sheets, Langfuse, Notion and SigNoz match the same prefix.
+        return {
+            "(retryable)",
+            "Connection aborted",
+            "Connection broken",
+            "Connection reset by peer",
+            "Max retries exceeded with url",
+            "Read timed out",
+        }
 
     def get_schemas(
         self,
@@ -219,7 +234,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_ANALYTICS,
+            name=ExternalDataSourceType.GOOGLEANALYTICS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             keywords=["ga4", "ga"],
             label="Google Analytics",

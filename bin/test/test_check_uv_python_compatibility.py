@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 
+import io
 import subprocess
+from contextlib import redirect_stdout
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import unittest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_uv_python_compatibility, label_workflow_pins
+from bin.check_uv_python_compatibility import check_uv_python_compatibility, check_workflow_pins, label_workflow_pins
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -38,6 +42,53 @@ class TestCheckUvPythonCompatibility(unittest.TestCase):
 
 
 class TestLabelWorkflowPins(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (".github/actions/setup-uv/action.yml", "'0.11.28' # exact", True),
+            (".depot/actions/setup-uv/action.yaml", '"0.11.28"', True),
+            (".github/workflows/ci.yml", "0.11.28", True),
+            (".depot/workflows/ci.yaml", "'0.11.28'", True),
+            (".depot/actions/setup-uv/action.yml", "'0.11.28.*'", False),
+            (".github/actions/setup-uv/action.yml", "'>=0.11.28'", False),
+            (".github/actions/setup-uv/action.yml", "'latest'", False),
+            (".github/actions/setup-uv/action.yml", "'0.11.28, <0.12'", False),
+        ]
+    )
+    def test_ci_pin_discovery(self, filename: str, version: str, expected_ok: bool) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ci_file = root / filename
+            ci_file.parent.mkdir(parents=True)
+            ci_file.write_text(
+                f"steps:\n  - name: Install uv\n    uses: astral-sh/setup-uv@abc\n    with:\n      version: {version}\n"
+            )
+            with (
+                patch("bin.check_uv_python_compatibility.__file__", str(root / "bin/check.py")),
+                redirect_stdout(io.StringIO()),
+            ):
+                ok, pin = check_workflow_pins()
+        self.assertEqual((ok, pin), (expected_ok, "0.11.28" if expected_ok else None))
+
+    def test_missing_pin_does_not_read_next_step(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflow = root / ".github/workflows/ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                "steps:\n"
+                "  - uses: astral-sh/setup-uv@abc\n"
+                "  - uses: another/setup@abc\n"
+                "    with:\n"
+                "      version: '0.11.28'\n"
+            )
+            with (
+                patch("bin.check_uv_python_compatibility.__file__", str(root / "bin/check.py")),
+                redirect_stdout(io.StringIO()),
+            ):
+                ok, pin = check_workflow_pins()
+        self.assertFalse(ok)
+        self.assertIsNone(pin)
+
     def test_single_usage_uses_bare_name(self):
         missing, locations = label_workflow_pins({"ci-a.yml": ["0.11.28"]})
         self.assertEqual(missing, [])

@@ -5,8 +5,6 @@ import {
   hasFileMentions,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
-import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -15,19 +13,10 @@ import { useEffect, useRef, useState } from "react";
  * identically in the live transcript and in views that precede it. Plain
  * content renders as markdown.
  *
- * Attachments hide when the content carries file mentions: contentToXml folds
- * every attachment into a <file /> tag, so showing both would list it twice.
- *
  * Long content clamps to five lines with a Show more toggle, so a bubble in a
  * pre-transcript view never grows past what the live bubble would show.
  */
-export function UserMessageBody({
-  content,
-  attachments = [],
-}: {
-  content: string;
-  attachments?: UserMessageAttachment[];
-}) {
+export function UserMessageBody({ content }: { content: string }) {
   const containsFileMentions = hasFileMentions(content);
 
   const [isExpanded, setIsExpanded] = useState(false);
@@ -71,11 +60,6 @@ export function UserMessageBody({
           <ChatMarkdown content={content} />
         )}
       </div>
-      {attachments.length > 0 && !containsFileMentions && (
-        <div className="mt-1.5">
-          <UserMessageAttachments attachments={attachments} />
-        </div>
-      )}
       {isOverflowing && (
         <button
           type="button"

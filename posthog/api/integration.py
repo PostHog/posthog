@@ -97,6 +97,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    resolve_aliased_oauth_kind,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -211,6 +212,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     )
     try:
         # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
+        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -624,6 +626,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     def create(self, validated_data: Any) -> Any:
         team_id = self.context["team_id"]
+        config_in = validated_data.get("config") or {}
+
+        # A kind that borrows another kind's connected app returns on the owner's callback path, so
+        # the client posts the path's kind. Both kinds derive the same integration id from the same
+        # provider account, so the grant would overwrite the borrowed kind's working integration
+        # with a token its API rejects. Promote the state kind before anything keys on it.
+        state = config_in.get("state")
+        validated_data["kind"] = resolve_aliased_oauth_kind(
+            validated_data["kind"], state if isinstance(state, str) else ""
+        )
         kind = validated_data["kind"]
 
         # Setting push identity verification is a security policy change, not a credential upload, so it
@@ -638,7 +650,6 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        config_in = validated_data.get("config") or {}
         requested_verification = config_in.get("push_identity_verification")
         # Registering/clearing public keys is a security-policy change (it decides which signer is
         # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.

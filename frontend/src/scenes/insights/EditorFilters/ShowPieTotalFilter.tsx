@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { ChartDisplayType } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
