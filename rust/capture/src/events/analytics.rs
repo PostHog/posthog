@@ -563,9 +563,7 @@ async fn process_events_inner(
                 );
             }
 
-            // Charged against the limiter but not re-stamped. The over_budget arm
-            // carries the events an enforcement watchdog would otherwise read as
-            // enforcement that never happened.
+            // Enforcement alerting needs the over_budget arm; keep both arms emitted.
             if already_disabled_over_budget_count > 0 {
                 counter!(
                     "capture_global_rate_limiter_already_disabled",
@@ -2938,11 +2936,7 @@ mod tests {
 
     #[tokio::test]
     async fn global_rate_limit_is_skipped_when_person_processing_was_already_off() {
-        // An ops restriction already took person processing away. The limiter is
-        // still charged, because the event's volume belongs in the key's fleet
-        // count, but nothing is stamped. The event keeps its lane and its partition
-        // key, so the overflow reroute does not apply either. A hot key under a
-        // restriction is left to the burst limiter downstream.
+        // Still charged so the key's fleet count stays right, but nothing is stamped.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3011,8 +3005,7 @@ mod tests {
 
     #[tokio::test]
     async fn already_disabled_under_budget_is_counted_separately() {
-        // The key is under budget, so the counter must stay out of the
-        // enforcement identity the GRL watchdog checks.
+        // Under budget: must not enter the enforcement identity.
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);

@@ -1013,18 +1013,14 @@ async fn apply_ai_byte_limits(
     }
 }
 
-/// Per-batch tally of how the shared global rate limiter classified each
-/// evaluated event. The first three fields count events (not distinct_ids) and
-/// all three charge the limiter, so `allowed + limited + already_disabled`
-/// equals the non-Drop events reaching this stage.
+/// Per-batch tally from the shared global rate limiter. Counts events, not
+/// distinct_ids: `allowed + limited + already_disabled` covers every non-Drop event.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct TokenDistinctIdTally {
     allowed: u64,
     limited: u64,
     already_disabled: u64,
-    /// Subset of `already_disabled`, so it stays out of the sum above. An
-    /// over-budget event whose person processing is already off is enforced by
-    /// doing nothing, which without this term looks like enforcement is broken.
+    /// Subset of `already_disabled`; keep it out of the sum above.
     already_disabled_over_budget: u64,
 }
 
