@@ -190,9 +190,9 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     if user == ClickHouseUser.DELETION_EXECUTOR:
         raise RuntimeError(
             "Data deletion request executor ClickHouse credentials are missing; set "
-            "CLICKHOUSE_DATA_DELETION_REQUEST_EXECUTOR_USER and "
-            "CLICKHOUSE_DATA_DELETION_REQUEST_EXECUTOR_PASSWORD or "
-            "CLICKHOUSE_DATA_DELETION_REQUEST_EXECUTOR_PASSWORD_FILE"
+            "CLICKHOUSE_DELETION_EXECUTOR_USER and "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD or "
+            "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE"
         )
     return __user_dict[ClickHouseUser.DEFAULT]
 
