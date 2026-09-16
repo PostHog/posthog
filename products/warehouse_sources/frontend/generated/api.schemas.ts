@@ -5183,6 +5183,8 @@ export interface WebhookInfoResponseApi {
     external_status: WebhookExternalStatusApi | null
     /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
     missing_events?: string[]
+    /** Required webhook field names with no value yet. Deliveries are dropped while any is missing. */
+    missing_inputs?: string[]
 }
 
 export interface CdcPrerequisitesResponseApi {
