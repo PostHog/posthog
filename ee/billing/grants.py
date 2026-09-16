@@ -178,9 +178,13 @@ def _projects_for_credential(organization: Organization, authenticator: Any) -> 
     """The projects the credential is scoped to, and whether that is anything at all.
 
     A credential scoped to teams is clipped to the ones in this organization, whatever the role.
-    None means the credential is not scoped. What the user can see is a separate question that
-    the series reads answer per request, so a member's visibility never widens or shrinks a
-    token, and an organization with thousands of projects never lists them in one.
+    None means the credential is not scoped. What the user can see is a separate question, so a
+    member's visibility never widens this, and the organization-wide reads never list a project.
+
+    The series and projects reads do narrow the token they mint further, to what that request may
+    cover, because billing settles those from the token rather than from the parameter beside it.
+    That happens at the call (see `_grants_for_projects`), so only the reads that need a list
+    carry one.
     """
     scoped = get_authenticator_scoped_team_ids(authenticator)
     if scoped is None:
