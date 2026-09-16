@@ -55,7 +55,7 @@ On `$mcp_tool_call` unless noted. These are the properties any instrumented serv
 | `$mcp_conversation_id`                          | The conversation handle: **server-minted on the first call, agent-echoed thereafter** (an invented value is rejected and replaced). **Survives reconnects, but only when the server sets `enableConversationId`** (off by default) — see identifiers below and [stateless-and-sessions.md](stateless-and-sessions.md).                                                                                                                                                                                                                                                                                                                    |
 | `$mcp_resource_name`                            | On resource events.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `$session_id`                                   | The standard PostHog session id, materialized. The usual grouping key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `$mcp_source`                                   | Always `posthog_mcp_analytics`. The reliable way to isolate MCP events from everything else on the `events` table.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `$mcp_source`                                   | `posthog_mcp_analytics` from any instrumented server, or `posthog_cli` from the local `posthog-cli` runtime, which captures directly rather than through the SDK. The reliable way to isolate MCP events from everything else on the `events` table — match both values, or a filter on `posthog_mcp_analytics` alone drops every CLI call.                                                                                                                                                                                                                                                                       |
 
 ## Server-stamped properties
 
@@ -69,7 +69,11 @@ TS 0.11.0 / Python 7.42.0), `$mcp_transport`, `$mcp_auth_method`,
 `$mcp_scope_preset` (which kind of caller minted the token, worked out from its scope set:
 `scout`, `research`, `implementation`, `sandbox` for any other server-minted run, or `user` for a person's own token; `research` and `implementation` need the scratchpad scopes and do not occur yet),
 `$mcp_organization_id`, `$mcp_project_id`, `$mcp_project_uuid`, `$mcp_project_name`,
-`$ai_product` (`mcp`), and the non-`$`-prefixed `mcp_runtime` (`hono`) and
+`$ai_product` (`mcp`), the non-`$`-prefixed `source` (which PostHog surface made the call, in the
+vocabulary `EventSource` in `posthog/event_usage.py` owns — `cli` for the local CLI, `mcp` for a
+third-party agent, and one of `wizard`, `slack`, `posthog_ai`, `posthog_code`, `self_driving` for a
+first-party caller the hosted server can vouch for; it is the property that joins an MCP call to
+the product events it causes), and the non-`$`-prefixed `mcp_runtime` (`hono`) and
 `mcp_vendor_client` — the last of which is the **legacy spelling of `$mcp_vendor_client`**,
 still coalesced behind it in harness SQL so historical rows keep resolving.
 
@@ -241,4 +245,8 @@ intentionally omitted, matching TS `instrument()`.
 - Zombie tools = `arrayJoin($mcp_listed_tool_names)` from `$mcp_tools_list`, minus the distinct
   effective tool names seen on `$mcp_tool_call`. `$mcp_exec_inner_tool_names` is the intended
   single-exec equivalent but is unemitted today, so a query resting on it returns nothing.
-- Scope to `$mcp_source = 'posthog_mcp_analytics'` to isolate MCP events.
+- Scope to `$mcp_source IN ('posthog_mcp_analytics', 'posthog_cli')` to isolate MCP events. The
+  first value alone drops every local `posthog-cli` call.
+- Split by surface with `source` (`cli`, `mcp`, `posthog_ai`, ...), not with `$mcp_client_name`.
+  A client name is self-reported, and it is the same property the product events use, so the two
+  sides of one call land in one breakdown.
