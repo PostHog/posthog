@@ -5,7 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
@@ -4855,7 +4855,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_filter_by_pr_state_prefers_the_newer_of_two_prs(self):
         """Two runs with their own PRs: the newer one's state is the task's."""
-        base_time = django_timezone.now()
+        base_time = datetime(2026, 1, 1, tzinfo=UTC)
 
         task = self.create_task("Task with two PRs")
         TaskRun.objects.create(
