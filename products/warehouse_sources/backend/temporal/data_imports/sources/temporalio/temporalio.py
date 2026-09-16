@@ -15,10 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import connect
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    pinned_connect_host,
-    unbracket_host,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import pinned_connect_host
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
@@ -268,14 +265,9 @@ class FakeSettings:
 
 
 async def _get_temporal_client(config: TemporalIOSourceConfig, team_id: int | None) -> Client:
-    # The Temporal core dials `host:port` over gRPC from Rust, which reads no proxy environment,
-    # so the egress proxy is not in this path and the check has to happen here. The lookup is
-    # blocking and unbounded, so it runs on a worker thread rather than on the event loop.
-    dial_host = await asyncio.to_thread(pinned_connect_host, config.host, team_id)
-    # The certificate is issued for the configured name, so a name stays the TLS identity once
-    # the dial goes to its address. A host that is already an address has no name to carry, and
-    # the brackets an IPv6 address gains for the dial do not make it a different host.
-    tls_domain = config.host if unbracket_host(dial_host) != unbracket_host(config.host) else None
+    # The Temporal core dials over gRPC from Rust and reads no proxy environment, so the egress
+    # proxy does not see this connection. The lookup blocks, so it runs off the event loop.
+    target = await asyncio.to_thread(pinned_connect_host, config.host, team_id)
 
     if config.fallback_decryption_keys:
         fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
@@ -283,9 +275,9 @@ async def _get_temporal_client(config: TemporalIOSourceConfig, team_id: int | No
         fallback_keys = []
 
     return await connect(
-        host=dial_host,
+        host=target.host,
         port=config.port,
-        tls_domain=tls_domain,
+        tls_domain=target.tls_server_name,
         namespace=config.namespace,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,

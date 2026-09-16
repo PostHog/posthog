@@ -54,11 +54,12 @@ PUBLIC_CREDENTIAL_HALVES = {
     "Imagga.api_key",
 }
 
-# Sources that reach their host over HTTP, where the egress proxy refuses an internal address on
-# every request. They carry no host check of their own because the proxy is already in their path.
-# A source that opens a raw socket — a database wire protocol, gRPC — has no such backstop, so it
-# must check the host itself. Drop the entry when a source starts validating its host.
-HOST_REACHED_OVER_HTTP = {
+# Sources that take a host but do not inherit ValidateDatabaseHostMixin. Each one reaches its host
+# only over HTTP, where the egress proxy refuses an internal address on every request, so the mixin
+# is not required. Most still check the host themselves, with `_is_host_safe` or a vendor domain
+# allowlist. A source that opens a raw socket, such as a database wire protocol or gRPC, has no
+# proxy in its path, so it must inherit the mixin and check the host where it connects.
+HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
     "Appdynamics",
     "Argocd",
     "Bigeye",
@@ -177,17 +178,19 @@ def test_credential_fields_are_marked_secret(source_type):
 @pytest.mark.parametrize("source_type", HOST_FIELD_SOURCES, ids=str)
 def test_sources_with_a_host_field_refuse_an_internal_host(source_type):
     source = ALL_SOURCES[source_type]
-    reached_over_http = str(source_type) in HOST_REACHED_OVER_HTTP
+    listed = str(source_type) in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN
 
     if not isinstance(source, ValidateDatabaseHostMixin):
-        assert reached_over_http, (
-            f"{source_type} takes a host but validates nothing, so a customer can point it at an "
-            f"internal address. Inherit ValidateDatabaseHostMixin and check the host on the connect "
-            f"path, or record it in HOST_REACHED_OVER_HTTP if the egress proxy covers it."
+        assert listed, (
+            f"{source_type} takes a host but does not inherit ValidateDatabaseHostMixin. Inherit it "
+            f"and check the host where the source connects. If the source reaches its host only over "
+            f"HTTP, where the egress proxy covers it, record it in HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
         )
         return
 
-    assert not reached_over_http, f"{source_type} now validates its host — remove it from HOST_REACHED_OVER_HTTP."
+    assert not listed, (
+        f"{source_type} now inherits ValidateDatabaseHostMixin. Remove it from HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN."
+    )
     with override_settings(CLOUD_DEPLOYMENT="US"):
         is_valid, _ = source.is_database_host_valid("169.254.169.254", team_id=999)
 

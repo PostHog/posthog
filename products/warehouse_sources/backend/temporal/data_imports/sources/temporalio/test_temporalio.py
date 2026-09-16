@@ -9,7 +9,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.codec import EncryptionCodec
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo, resolver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
     TemporalIOSourceConfig,
 )
@@ -86,16 +86,16 @@ class TestTemporalIOClient:
             ("93.184.216.34", "93.184.216.34", "93.184.216.34:7233", None),
             ("2606:4700:4700::1111", "2606:4700:4700::1111", "[2606:4700:4700::1111]:7233", None),
             ("[2606:4700:4700::1111]", "2606:4700:4700::1111", "[2606:4700:4700::1111]:7233", None),
+            ("2606:4700:4700:0::1111", "2606:4700:4700::1111", "[2606:4700:4700::1111]:7233", None),
         ],
     )
     async def test_the_checked_address_is_dialled_and_only_a_name_carries_tls(
         self, host, resolved, expected_target, expected_tls_domain
     ):
-        # A host that is already an address has no separate name for the certificate, and the
-        # brackets an IPv6 address gains for the dial must not read as a different host.
+        # An address has no name of its own for the certificate, however it is written.
         with (
             override_settings(CLOUD_DEPLOYMENT="US"),
-            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo(0, resolved)),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=resolver(resolved)),
             patch(f"{_MIXINS_MODULE}.logger"),
             patch.object(Client, "connect", new=AsyncMock(return_value=MagicMock())) as mock_connect,
         ):
@@ -113,16 +113,23 @@ class TestTemporalIOClient:
         assert not is_valid
         assert errors
 
-    def test_creating_a_source_on_an_internal_host_is_rejected(self):
+    @pytest.mark.parametrize(
+        "host,resolved,expected_valid",
+        [
+            ("temporal.example.com", "10.0.0.5", False),
+            ("[2606:4700:4700::1111]", "2606:4700:4700::1111", True),
+        ],
+    )
+    def test_creating_a_source_checks_the_host(self, host, resolved, expected_valid):
         with (
             override_settings(CLOUD_DEPLOYMENT="US"),
-            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo(0, "10.0.0.5")),
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=resolver(resolved)),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
-            is_valid, error = TemporalIOSource().validate_credentials(_config(), team_id=999)
+            is_valid, error = TemporalIOSource().validate_credentials(_config(host=host), team_id=999)
 
-        assert not is_valid
-        assert error
+        assert is_valid is expected_valid
+        assert (error is None) is expected_valid
 
 
 class TestTemporalIONonRetryableErrors:

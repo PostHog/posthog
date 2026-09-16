@@ -10,7 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    ValidateDatabaseHostMixin,
+    unbracket_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -99,7 +102,8 @@ class TemporalIOSource(ValidateDatabaseHostMixin, ResumableSource[TemporalIOSour
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return self.is_database_host_valid(config.host, team_id)
+        # An IPv6 host is entered in brackets because `connect()` joins host and port with a colon.
+        return self.is_database_host_valid(unbracket_host(config.host), team_id)
 
     def source_for_pipeline(
         self,

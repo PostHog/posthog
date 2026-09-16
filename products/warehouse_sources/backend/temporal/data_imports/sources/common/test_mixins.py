@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     open_ssh_tunnel,
     resolve_safe_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import resolver
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -56,8 +57,6 @@ class TestIsHostSafe(SimpleTestCase):
             ("ipv4_compatible_imds", "::169.254.169.254"),
             ("ipv6_reserved", "4000::1"),
             ("ipv6_loopback", "::1"),
-            ("ipv6_bracketed_loopback", "[::1]"),
-            ("ipv6_bracketed_imds", "[::ffff:169.254.169.254]"),
             ("multicast", "224.0.0.1"),
             ("reserved", "0.0.0.0"),
         ]
@@ -74,7 +73,6 @@ class TestIsHostSafe(SimpleTestCase):
             ("public_ip_2", "1.1.1.1"),
             ("public_ip_3", "52.0.0.1"),
             ("ipv6_public", "2606:4700:4700::1111"),
-            ("ipv6_bracketed_public", "[2606:4700:4700::1111]"),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
@@ -639,6 +637,18 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
         config = FakeConfig(host="db.example.com", ssh_tunnel=None)
         with (
             patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("169.254.169.254")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(HostNotAllowedError, match="Database host not allowed"):
+                with self._connection_cm(entrypoint, config, 999):
+                    pass
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_bracketed_address_is_refused_because_the_driver_dials_the_host_as_written(self, entrypoint: str):
+        config = FakeConfig(host="[2606:4700:4700::1111]", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=resolver("2606:4700:4700::1111")),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
             with pytest.raises(HostNotAllowedError, match="Database host not allowed"):
