@@ -102,6 +102,7 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
     ("targeted_without_operator", config(targeted(targeting={"properties": [person(operator=None, negation=None)]}))),
     ("targeted_false_value", config(targeted(value=False))),
     ("description_and_metadata", config(targeted(description="Preview accounts", metadata={"color": "blue"}))),
+    ("unicode_description_and_metadata", config(targeted(description="Préview 🦔", metadata={"label": "🦔"}))),
     ("empty_metadata", config(targeted(metadata={}))),
     (
         "exact_finite_number_boundaries",
@@ -251,6 +252,7 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     ("missing_id", config(without(targeted(), "id")), [("required", "filters.rules[0].id")]),
     ("id_not_uuid", config(targeted(id="rule-1")), [("invalid", "filters.rules[0].id")]),
+    ("id_with_trailing_newline", config(targeted(id=TARGETED_ID + "\n")), [("invalid", "filters.rules[0].id")]),
     (
         "id_without_hyphens",
         config(targeted(id="11111111111141118111111111111111")),
@@ -474,8 +476,11 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     ("description_null", config(targeted(description=None)), [("invalid", "filters.rules[0].description")]),
     ("description_number", config(targeted(description=1)), [("invalid", "filters.rules[0].description")]),
+    ("description_high_surrogate", config(targeted(description="\ud800")), [("invalid", "filters")]),
+    ("description_low_surrogate", config(targeted(description="\udfff")), [("invalid", "filters")]),
     ("metadata_list", config(targeted(metadata=[])), [("invalid", "filters.rules[0].metadata")]),
     ("metadata_string", config(targeted(metadata="x")), [("invalid", "filters.rules[0].metadata")]),
+    ("metadata_surrogate_key", config(targeted(metadata={"nested": {"\ud800": "value"}})), [("invalid", "filters")]),
     ("metadata_nan", config(targeted(metadata={"n": float("nan")})), [("invalid", "filters.rules[0].metadata")]),
     *[
         (name, config(targeted(metadata={"n": value})), [("invalid", "filters.rules[0].metadata")])

@@ -298,7 +298,7 @@ def _validate_rule(
             errors.append(_unknown_field(f"{path}.{name}", rollout_only if name in _ROLLOUT_RULE_FIELDS else None))
 
     before = len(errors)
-    _field(rule, "id", path, errors, (lambda v: isinstance(v, str) and bool(_UUID.match(v)), "Must be a UUID."))
+    _field(rule, "id", path, errors, (lambda v: isinstance(v, str) and bool(_UUID.fullmatch(v)), "Must be a UUID."))
     predicates = _validate_targeting(rule, path, errors)
     _field(rule, "description", path, errors, (lambda v: isinstance(v, str), "Must be a string."), False)
     if "metadata" in rule:
@@ -544,6 +544,6 @@ def _encoded_size(value: object, *, allow_nan: bool = True) -> int | None:
         encoded = json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False, allow_nan=allow_nan)
         if not allow_nan and not _has_finite_numbers(value):
             return None
+        return len(encoded.encode("utf-8"))
     except (TypeError, ValueError):
         return None
-    return len(encoded.encode("utf-8"))
