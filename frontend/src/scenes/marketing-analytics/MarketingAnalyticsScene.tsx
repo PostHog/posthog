@@ -13,6 +13,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
+import { PagePerformance } from 'scenes/web-analytics/PagePerformance'
+import { PagePerformanceFilters } from 'scenes/web-analytics/PagePerformanceFilters'
 import { AttributionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab'
 import { RetentionTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/RetentionTab/RetentionTab'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
@@ -298,6 +300,16 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                           </>
                       ),
                   },
+                  {
+                      key: MarketingAnalyticsTab.PAGE_VISIBILITY,
+                      label: 'Page visibility',
+                      content: (
+                          <>
+                              <PagePerformanceFilters tabs={<></>} />
+                              <PagePerformance />
+                          </>
+                      ),
+                  },
               ]
             : []),
         ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
@@ -357,6 +369,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.PAGE_VISIBILITY]:
+        'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',
     [MarketingAnalyticsTab.DASHBOARD]:
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
