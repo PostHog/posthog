@@ -129,13 +129,25 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else {
+		aliases := map[string]bool{}
+		for alias := range bindings.SelectAliases(lowerPrefix) {
+			aliases[alias.Name] = true
+			suggestions = appendFields(suggestions, slices.Values([]catalog.Entry{alias}))
+		}
 		seen := map[analysis.Relation]bool{}
 		for _, relation := range bindings.All() {
 			if seen[relation] {
 				continue
 			}
 			seen[relation] = true
-			suggestions = appendFields(suggestions, relation.Prefix(lowerPrefix))
+			fields := func(yield func(catalog.Entry) bool) {
+				for field := range relation.Prefix(lowerPrefix) {
+					if !aliases[field.Name] && !yield(field) {
+						return
+					}
+				}
+			}
+			suggestions = appendFields(suggestions, fields)
 		}
 		if document != nil && document.LimitError() != nil {
 			return Result{}, document.LimitError()
@@ -155,7 +167,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
-		return strings.ToLower(suggestions[i].Label) < strings.ToLower(suggestions[j].Label)
+		left, right := strings.ToLower(suggestions[i].Label), strings.ToLower(suggestions[j].Label)
+		if left == right {
+			return suggestions[i].Label < suggestions[j].Label
+		}
+		return left < right
 	})
 	for index := range suggestions {
 		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)

@@ -457,7 +457,7 @@ def test_temporal_config():
         }
     )
     assert config.host == "host"
-    assert config.port == "22"
+    assert config.port == 22
     assert config.namespace == "namespace"
     assert config.encryption_key == "encryption_key"
     assert config.server_client_root_ca == "server_client_root_ca"
