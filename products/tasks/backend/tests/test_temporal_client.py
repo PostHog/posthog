@@ -1,3 +1,5 @@
+import asyncio
+
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -550,6 +552,8 @@ class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
             handle.describe = AsyncMock()
             if isinstance(outcome, Exception):
                 handle.describe.side_effect = outcome
+            elif callable(outcome):
+                handle.describe.side_effect = outcome
             else:
                 handle.describe.return_value = Mock(status=outcome)
             handles.append(handle)
@@ -608,6 +612,24 @@ class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
         # the sweep's time limit. Omitting it reads as `unknown`, which is what it would have got.
         self.assertEqual(result, {"wf-1": "running"})
         self.assertEqual(client.get_workflow_handle.call_count, 2)
+
+    def test_batch_time_budget_keeps_the_verdicts_already_collected(self):
+        async def answers_too_late(**_):
+            await asyncio.sleep(5)
+            return Mock(status=WorkflowExecutionStatus.RUNNING)
+
+        client = self._client([WorkflowExecutionStatus.RUNNING, answers_too_late, WorkflowExecutionStatus.RUNNING])
+
+        with (
+            patch("products.tasks.backend.temporal.client._LIVENESS_BATCH_TIMEOUT_SECONDS", 0.05),
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+        ):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2", "wf-3"])
+
+        # One hung frontend call must not spend the sweep's whole tick. The verdict already
+        # collected survives the budget, so the sweep still reaps on it; the two ids left out
+        # read as `unknown`.
+        self.assertEqual(result, {"wf-1": "running"})
 
     def test_connect_failure_reports_every_workflow_unknown(self):
         with patch("products.tasks.backend.temporal.client.sync_connect", side_effect=RuntimeError("no temporal")):

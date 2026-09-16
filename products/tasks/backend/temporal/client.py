@@ -539,6 +539,16 @@ _SERVICE_DEGRADED_STATUSES = frozenset(
     {RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.RESOURCE_EXHAUSTED}
 )
 
+# A per-call cap plus a cap on the whole batch, the two layers `team_deletion` already applies
+# to its own Temporal sweep. The describe phase runs before any row is claimed, under the
+# sweep's 110-second Celery soft limit, so without these one hung frontend call spends the
+# whole tick and the sweep reaps nothing. The batch cap is a slice of that limit rather than
+# all of it, because the claim phase still has to write its rows afterwards. Reaching the
+# per-call cap surfaces as DEADLINE_EXCEEDED, which `_SERVICE_DEGRADED_STATUSES` already reads
+# as a struggling frontend and stops the batch on.
+_LIVENESS_RPC_TIMEOUT = timedelta(seconds=10)
+_LIVENESS_BATCH_TIMEOUT_SECONDS = 60.0
+
 
 def _is_namespace_not_found(error: RPCError) -> bool:
     """Whether a NOT_FOUND answers for the namespace rather than for one workflow.
@@ -570,7 +580,8 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
     ``_is_namespace_not_found``).
 
     The result can cover fewer ids than were asked for: a Temporal-wide failure stops the batch
-    (see ``_SERVICE_DEGRADED_STATUSES``). Callers must read a missing id as ``unknown``.
+    (see ``_SERVICE_DEGRADED_STATUSES``), and so does spending the batch's time budget (see
+    ``_LIVENESS_BATCH_TIMEOUT_SECONDS``). Callers must read a missing id as ``unknown``.
 
     Batched because ``sync_connect`` opens a fresh client per call: describing one workflow at
     a time would pay a connection and an event loop for every candidate in a sweep.
@@ -578,14 +589,15 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
     if not workflow_ids:
         return {}
 
-    async def describe_all(client: Any) -> dict[str, str]:
-        results: dict[str, str] = {}
+    results: dict[str, str] = {}
+
+    async def describe_all(client: Any) -> None:
         for workflow_id in workflow_ids:
             try:
                 # No run id, so Temporal resolves the workflow's current run. `process-task`
                 # continues as new, and the closed link of that chain reports CONTINUED_AS_NEW;
                 # asking for the current run reports the live one instead of reaping its run.
-                description = await client.get_workflow_handle(workflow_id).describe()
+                description = await client.get_workflow_handle(workflow_id).describe(rpc_timeout=_LIVENESS_RPC_TIMEOUT)
             except RPCError as e:
                 if e.status in _SERVICE_DEGRADED_STATUSES or _is_namespace_not_found(e):
                     # Temporal is down, overloaded, timing out, or answering for a namespace it
@@ -603,14 +615,22 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
                 results[workflow_id] = "unknown"
             else:
                 results[workflow_id] = "running" if description.status == WorkflowExecutionStatus.RUNNING else "gone"
-        return results
 
     try:
         client = sync_connect()
     except Exception as e:
         logger.warning("task_run_liveness_connect_failed", extra={"error": str(e)})
         return dict.fromkeys(workflow_ids, "unknown")
-    return asyncio.run(describe_all(client))
+    try:
+        asyncio.run(asyncio.wait_for(describe_all(client), _LIVENESS_BATCH_TIMEOUT_SECONDS))
+    except TimeoutError:
+        # The verdicts already collected still stand, so the sweep reaps on those instead of
+        # losing the tick. Every id left out reads as `unknown`, which is what each would have got.
+        logger.warning(
+            "task_run_liveness_batch_timed_out",
+            extra={"described": len(results), "of": len(workflow_ids)},
+        )
+    return results
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
