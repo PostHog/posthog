@@ -2,7 +2,7 @@ List LLM traces to inspect AI/LLM usage across your application. Returns traces 
 
 Set `detail: "summary"` to preview event content when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` preserves the existing full-detail response, subject to size limits.
 
-Event properties outside the `$ai_*` namespace are withheld from the response and listed by name under `_redactedKeys`. They can hold credentials, authentication state, request headers, user identity, permissions, or budget context. The values are unchanged in PostHog.
+The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld, because it can hold credentials, authentication state, request headers, user identity, permissions, or budget context. A bag that has something withheld lists those names under `_redactedKeys`, with no values. The values are unchanged in PostHog.
 
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
