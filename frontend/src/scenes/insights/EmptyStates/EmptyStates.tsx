@@ -857,6 +857,7 @@ export function InsightErrorState({
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
             error_type: 'server',
+            status: titleStatus ?? null,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })

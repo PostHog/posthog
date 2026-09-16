@@ -59,6 +59,7 @@ describe('insight error states', () => {
         expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
             error_type: 'server',
+            status: null,
             query_kind: null,
             query_id: 'test-query-id',
         })
