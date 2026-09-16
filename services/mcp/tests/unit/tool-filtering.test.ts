@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
+        const context = {
+            stateManager: {
+                getApiKey: async () => ({
+                    scopes: ['task:read', 'task:write', ...(sandbox ? ['internal_run:read'] : [])],
+                }),
+                getAiConsentGiven: async () => true,
+            },
+        } as unknown as Context
+        const tools = await getToolsFromContext(context, {
+            featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': true },
+        })
+        const names = tools.map((tool) => tool.name)
+        expect(names).toContain('tasks-create')
+        expect(names.includes('tasks-create-and-run')).toBe(!sandbox)
+        expect(names.includes('tasks-run-create')).toBe(!sandbox)
+    })
+
+    it('does not advertise run-start tools before rollout', () => {
+        const names = getToolsForFeatures({ featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': false } })
+        expect(names).toContain('tasks-create')
+        expect(names).not.toContain('tasks-create-and-run')
+        expect(names).not.toContain('tasks-run-create')
+    })
     const featureTests = [
         {
             features: undefined,
@@ -477,6 +501,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
+        'context_layer_internal:write',
         'internal_run:read',
         'loop_context_internal:write',
         'signal_scout_internal:read',
@@ -535,6 +560,7 @@ describe('server-minted scope matching', () => {
     // dropping that rule hid `scout-members-list` from every scout's toolset and left reports
     // with nobody to route to. Django authorizes the same tokens with the rule applied.
     it.each([
+        'context_layer_internal',
         'internal_run',
         'loop_context_internal',
         'mcp_builtin_agent',
@@ -747,15 +773,22 @@ describe('Tool Filtering - Scoped Teams', () => {
     })
 
     it('keeps project-scoped tools visible when scopedTeams is non-empty', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [42] })
+        const tools = getToolsForFeatures({ scopedTeams: [42], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
+        expect(tools).not.toContain('context-wiki-channel-resolve')
+        expect(tools).not.toContain('context-wiki-page-retrieve')
+        expect(tools).not.toContain('context-wiki-page-update')
+        expect(tools).toContain('task-context-wiki-channel-resolve')
+        expect(tools).toContain('task-context-wiki-page-retrieve')
+        expect(tools).toContain('task-context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is empty (unscoped token)', () => {
-        const tools = getToolsForFeatures({ scopedTeams: [] })
+        const tools = getToolsForFeatures({ scopedTeams: [], featureFlags: { 'context-layer': true } })
         expect(tools).toContain('roles-list')
         expect(tools).toContain('organization-get')
+        expect(tools).toContain('context-wiki-page-update')
     })
 
     it('keeps org-scope tools visible when scopedTeams is undefined', () => {
@@ -949,10 +982,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
+                'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',
+                'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
@@ -978,7 +1014,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(36)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -991,9 +1027,14 @@ describe('Tool Filtering - Feature Flags', () => {
         }
     })
 
-    it('keeps public context wiki tools separate from internal loop tools', () => {
+    it('keeps human, task, and loop context wiki tools on separate scopes', () => {
         const definitions = getToolDefinitions()
         expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['task-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'internal_run:read',
+            'context_layer_internal:write',
+        ])
         expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
             'task:write',
             'loop_context_internal:write',
@@ -1003,6 +1044,22 @@ describe('Tool Filtering - Feature Flags', () => {
             'loop_context_internal:write',
         ])
         expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
+    })
+
+    it('shows task context writes only to write-enabled task credentials', async () => {
+        const options = { featureFlags: { 'context-layer': true } }
+        const readOnlyTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read']),
+            options
+        )
+        const writeTools = await getToolsFromContext(
+            createMockContext(['task:read', 'task:write', 'internal_run:read', 'context_layer_internal:write']),
+            options
+        )
+
+        expect(readOnlyTools.map((tool) => tool.name)).toContain('task-context-wiki-page-retrieve')
+        expect(readOnlyTools.map((tool) => tool.name)).not.toContain('task-context-wiki-page-update')
+        expect(writeTools.map((tool) => tool.name)).toContain('task-context-wiki-page-update')
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
@@ -1181,5 +1238,38 @@ describe('Tool Filtering - Entitlements (activity log family)', () => {
         // Fail-open: unresolved entitlements still advertise.
         const unknown = getToolsForFeatures({ isCloud: true })
         expect(unknown).toContain('advanced-activity-logs-list')
+    })
+})
+
+describe('Tool Filtering - Entitlements (access control family)', () => {
+    const memberAndDefaultTools = [
+        'access-control-defaults-get',
+        'access-control-members-list',
+        'access-control-member-objects-list',
+        'access-control-member-properties-list',
+        'access-control-default-objects-list',
+        'access-control-default-properties-list',
+    ]
+    const roleTools = [
+        'access-control-roles-list',
+        'access-control-role-objects-list',
+        'access-control-role-properties-list',
+    ]
+
+    it.each(memberAndDefaultTools)('%s needs access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: [], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).toContain(tool)
+    })
+
+    it.each(roleTools)('%s needs role_based_access, not just access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['role_based_access'], isCloud: true })).toContain(tool)
+    })
+
+    it('fails open when entitlements are unknown', () => {
+        const unknown = getToolsForFeatures({ isCloud: true })
+        for (const tool of [...memberAndDefaultTools, ...roleTools]) {
+            expect(unknown).toContain(tool)
+        }
     })
 })

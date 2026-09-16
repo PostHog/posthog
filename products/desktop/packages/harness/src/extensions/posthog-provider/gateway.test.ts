@@ -87,6 +87,8 @@ describe("resolveExplicitRegion", () => {
 
   beforeEach(() => {
     delete process.env.POSTHOG_REGION;
+    delete process.env.POSTHOG_CUSTOM_CLOUD_URL;
+    delete process.env.POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID;
   });
 
   afterEach(() => {
@@ -118,5 +120,25 @@ describe("resolveExplicitRegion", () => {
   it("falls back to a valid POSTHOG_REGION when no explicit option is given", () => {
     process.env.POSTHOG_REGION = "dev";
     expect(resolveExplicitRegion()).toBe("dev");
+  });
+
+  it("accepts custom when the environment holds a target", () => {
+    process.env.POSTHOG_REGION = "custom";
+    process.env.POSTHOG_CUSTOM_CLOUD_URL = "https://posthog.example.com";
+    process.env.POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID = "client-id";
+    expect(resolveExplicitRegion()).toBe("custom");
+  });
+
+  it("throws when custom has no target", () => {
+    process.env.POSTHOG_REGION = "custom";
+    expect(() => resolveExplicitRegion()).toThrow(/POSTHOG_CUSTOM_CLOUD_URL/);
+  });
+
+  it("throws when custom holds no OAuth client ID", () => {
+    process.env.POSTHOG_REGION = "custom";
+    process.env.POSTHOG_CUSTOM_CLOUD_URL = "https://posthog.example.com";
+    expect(() => resolveExplicitRegion()).toThrow(
+      /POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID/,
+    );
   });
 });

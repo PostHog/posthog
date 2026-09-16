@@ -10,10 +10,25 @@ set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 ARCH="$(uname -m)"
+NODE_MAJOR=""
+
+case "$ARCH" in
+    x86_64)  UV_ARCH="x86_64-unknown-linux-gnu"; NODE_ARCH="x64" ;;
+    aarch64) UV_ARCH="aarch64-unknown-linux-gnu"; NODE_ARCH="arm64" ;;
+    *)       UV_ARCH="$ARCH-unknown-linux-gnu"; NODE_ARCH="$ARCH" ;;
+esac
 
 # --- Parse versions from config files using Python for reliable TOML/JSON parsing ---
-read -r REQUIRED_UV REQUIRED_PYTHON REQUIRED_PNPM < <(python3 -c "
-import json, re, sys
+# One value per line, so a missing value cannot shift the others.
+REQUIRED_UV_SPEC=""
+REQUIRED_PYTHON=""
+REQUIRED_PNPM=""
+{
+    read -r REQUIRED_UV_SPEC || true
+    read -r REQUIRED_PYTHON || true
+    read -r REQUIRED_PNPM || true
+} < <(python3 -c "
+import json, re
 try:
     import tomllib
 except ImportError:
@@ -22,17 +37,16 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-uv_ver = python_ver = pnpm_ver = ''
+uv_spec = python_ver = pnpm_ver = ''
 
 # Parse pyproject.toml
 if tomllib:
     try:
         with open('$PROJECT_DIR/pyproject.toml', 'rb') as f:
             data = tomllib.load(f)
-        # uv required-version: strip specifier prefix (~=, >=, ==, etc.)
-        raw = data.get('tool', {}).get('uv', {}).get('required-version', '')
-        uv_ver = re.sub(r'^[~><=!]+', '', raw)
-        # requires-python: strip specifier prefix
+        # Keep the comparison operator. It decides whether to track the newest uv
+        # release or stay inside one major.minor series.
+        uv_spec = data.get('tool', {}).get('uv', {}).get('required-version', '')
         raw = data.get('project', {}).get('requires-python', '')
         python_ver = re.sub(r'^[~><=!]+', '', raw)
     except Exception:
@@ -48,42 +62,97 @@ try:
 except Exception:
     pass
 
-print(uv_ver, python_ver, pnpm_ver)
-" 2>/dev/null || echo "")
+print(uv_spec)
+print(python_ver)
+print(pnpm_ver)
+" 2>/dev/null || true)
+
+# Print the uv version to install, or nothing when the current one already fits the
+# spec. Version discovery reads PyPI because the egress policy blocks api.github.com.
+resolve_uv_target() {
+    python3 -c "
+import json, re, sys, urllib.request
+
+spec, current = sys.argv[1], sys.argv[2]
+m = re.match(r'\s*([~><=!]*)\s*([0-9][0-9.]*)', spec)
+if not m:
+    sys.exit(0)
+op, floor = (m.group(1) or '=='), m.group(2)
+
+def parts(version):
+    return tuple(int(n) for n in re.findall(r'[0-9]+', version)[:3])
+
+def satisfies(version):
+    if parts(version) < parts(floor):
+        return False
+    # '>=' tracks the newest release. '~=' and '==' hold one major.minor series.
+    return op.startswith('>') or parts(version)[:2] == parts(floor)[:2]
+
+if current and satisfies(current):
+    sys.exit(0)
+
+try:
+    with urllib.request.urlopen('https://pypi.org/pypi/uv/json', timeout=20) as response:
+        releases = json.load(response)['releases']
+except Exception:
+    releases = {}
+
+best = ''
+for version in releases:
+    if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) and satisfies(version):
+        if not best or parts(version) > parts(best):
+            best = version
+
+# Without an index, the floor is the only version known to fit the spec.
+print(best or floor)
+" "$1" "$2" 2>/dev/null || true
+}
+
+# Print the newest uv release on PyPI, or nothing when the index is unreachable.
+latest_uv() {
+    python3 -c "
+import json, urllib.request
+with urllib.request.urlopen('https://pypi.org/pypi/uv/json', timeout=20) as response:
+    print(json.load(response)['info']['version'])
+" 2>/dev/null || true
+}
+
+# Replace the uv binary in place. 'uv self update' cannot cross a major.minor boundary.
+# The callers run this in an '|| true' list, which turns errexit off for the whole
+# body, so each step that must succeed is checked here. Otherwise a corrupt archive
+# reports the stale version as a fresh install.
+install_uv() {
+    local target="$1"
+    local bin_dir tmp url rc=1
+    bin_dir=$(dirname "$(command -v uv 2>/dev/null || echo "/root/.local/bin/uv")")
+    tmp=$(mktemp -d)
+    url="https://github.com/astral-sh/uv/releases/download/${target}/uv-${UV_ARCH}.tar.gz"
+
+    if ! curl -fsSL "$url" -o "$tmp/uv.tar.gz"; then
+        echo "Warning: failed to download uv $target" >&2
+    elif ! tar -xzf "$tmp/uv.tar.gz" -C "$tmp"; then
+        echo "Warning: failed to unpack uv $target" >&2
+    elif ! cp "$tmp/uv-${UV_ARCH}/uv" "$bin_dir/uv"; then
+        echo "Warning: failed to install uv $target into $bin_dir" >&2
+    else
+        # uvx sits beside uv in the archive, and nothing in this repo needs it.
+        cp "$tmp/uv-${UV_ARCH}/uvx" "$bin_dir/uvx" 2>/dev/null || true
+        echo "uv is now $(uv --version 2>/dev/null)"
+        rc=0
+    fi
+
+    rm -rf "$tmp"
+    return "$rc"
+}
 
 # --- 1. Upgrade uv ---
-CURRENT_UV=$(uv --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
+CURRENT_UV=$(uv --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
 
-if [ -n "$REQUIRED_UV" ]; then
-    # ~= means compatible release: ~=0.11.11 allows >=0.11.11, <0.12.0
-    REQ_MAJOR_MINOR=$(echo "$REQUIRED_UV" | cut -d. -f1,2)
-    CUR_MAJOR_MINOR=$(echo "$CURRENT_UV" | cut -d. -f1,2)
-    if [ "$CUR_MAJOR_MINOR" != "$REQ_MAJOR_MINOR" ] || [ "$(printf '%s\n' "$REQUIRED_UV" "$CURRENT_UV" | sort -V | head -1)" != "$REQUIRED_UV" ]; then
-        echo "Upgrading uv from $CURRENT_UV (need ~=$REQUIRED_UV)..."
-        # Find latest compatible patch version from GitHub releases
-        TARGET_UV=$(curl -fsSL "https://api.github.com/repos/astral-sh/uv/releases?per_page=30" 2>/dev/null \
-            | grep -oP '"tag_name": "\K[0-9.]+' \
-            | grep "^${REQ_MAJOR_MINOR}\." \
-            | head -1)
-        TARGET_UV="${TARGET_UV:-$REQUIRED_UV}"
-
-        # Download binary directly from GitHub (uv self update doesn't work across major.minor)
-        UV_BIN_DIR=$(dirname "$(command -v uv 2>/dev/null || echo "/root/.local/bin/uv")")
-        case "$ARCH" in
-            x86_64)  UV_ARCH="x86_64-unknown-linux-gnu" ;;
-            aarch64) UV_ARCH="aarch64-unknown-linux-gnu" ;;
-            *)       UV_ARCH="$ARCH-unknown-linux-gnu" ;;
-        esac
-        TMP_UV=$(mktemp -d)
-        if curl -fsSL "https://github.com/astral-sh/uv/releases/download/${TARGET_UV}/uv-${UV_ARCH}.tar.gz" -o "$TMP_UV/uv.tar.gz" 2>/dev/null; then
-            tar -xzf "$TMP_UV/uv.tar.gz" -C "$TMP_UV"
-            cp "$TMP_UV/uv-${UV_ARCH}/uv" "$UV_BIN_DIR/uv"
-            cp "$TMP_UV/uv-${UV_ARCH}/uvx" "$UV_BIN_DIR/uvx" 2>/dev/null || true
-            echo "uv upgraded to $(uv --version 2>/dev/null)"
-        else
-            echo "Warning: Failed to download uv $TARGET_UV" >&2
-        fi
-        rm -rf "$TMP_UV"
+if [ -n "$REQUIRED_UV_SPEC" ]; then
+    TARGET_UV=$(resolve_uv_target "$REQUIRED_UV_SPEC" "$CURRENT_UV")
+    if [ -n "$TARGET_UV" ]; then
+        echo "Installing uv $TARGET_UV (have ${CURRENT_UV:-none}, need $REQUIRED_UV_SPEC)..."
+        install_uv "$TARGET_UV" || true
     fi
 fi
 
@@ -91,14 +160,25 @@ fi
 if [ -n "$REQUIRED_PYTHON" ]; then
     if ! uv python find "$REQUIRED_PYTHON" >/dev/null 2>&1; then
         echo "Installing Python $REQUIRED_PYTHON via uv..."
-        uv python install "$REQUIRED_PYTHON" 2>/dev/null || true
+        if ! uv python install "$REQUIRED_PYTHON" 2>/dev/null; then
+            # uv only installs the interpreters its own build embeds, so a Python
+            # patch release newer than uv needs a newer uv first.
+            LATEST_UV=$(latest_uv)
+            CURRENT_UV=$(uv --version 2>/dev/null | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+            if [ -n "$LATEST_UV" ] && [ "$LATEST_UV" != "$CURRENT_UV" ]; then
+                echo "Python $REQUIRED_PYTHON is unknown to this uv, trying uv $LATEST_UV..."
+                install_uv "$LATEST_UV" || true
+                uv python install "$REQUIRED_PYTHON" 2>/dev/null || \
+                    echo "Warning: failed to install Python $REQUIRED_PYTHON" >&2
+            fi
+        fi
     fi
 fi
 
 # --- 3. Install Node ---
 NODE_VERSION=""
 if [ -f "$PROJECT_DIR/.nvmrc" ]; then
-    NODE_VERSION=$(cat "$PROJECT_DIR/.nvmrc" | tr -d '[:space:]')
+    NODE_VERSION=$(tr -d '[:space:]' < "$PROJECT_DIR/.nvmrc")
     # Strip leading 'v' if present
     NODE_VERSION="${NODE_VERSION#v}"
 fi
@@ -112,24 +192,17 @@ if [ -n "$NODE_VERSION" ]; then
     if [ "$CURRENT_NODE" != "$NODE_VERSION" ]; then
         echo "Installing Node v${NODE_VERSION}..."
 
-        # Determine arch for download
-        case "$ARCH" in
-            x86_64)  NODE_ARCH="x64" ;;
-            aarch64) NODE_ARCH="arm64" ;;
-            *)       NODE_ARCH="$ARCH" ;;
-        esac
-
         TARBALL="node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
         URL="https://nodejs.org/dist/v${NODE_VERSION}/${TARBALL}"
         TMP_DIR=$(mktemp -d)
 
-        if wget -q -O "$TMP_DIR/$TARBALL" "$URL" 2>/dev/null || curl -fsSL -o "$TMP_DIR/$TARBALL" "$URL" 2>/dev/null; then
+        if wget -q -O "$TMP_DIR/$TARBALL" "$URL" || curl -fsSL -o "$TMP_DIR/$TARBALL" "$URL"; then
             rm -rf "$NODE_DIR"
             mkdir -p "$NODE_DIR"
             tar -xJf "$TMP_DIR/$TARBALL" -C "$NODE_DIR" --strip-components=1
             echo "Node v${NODE_VERSION} installed to $NODE_DIR"
         else
-            echo "Warning: Failed to download Node v${NODE_VERSION}" >&2
+            echo "Warning: failed to download Node v${NODE_VERSION}" >&2
         fi
 
         rm -rf "$TMP_DIR"
@@ -140,7 +213,8 @@ if [ -n "$NODE_VERSION" ]; then
         CURRENT_PNPM=$("$NODE_DIR/bin/pnpm" --version 2>/dev/null || echo "")
         if [ "$CURRENT_PNPM" != "$REQUIRED_PNPM" ]; then
             echo "Installing pnpm@${REQUIRED_PNPM}..."
-            "$NODE_DIR/bin/npm" --prefix "$NODE_DIR" install -g "pnpm@${REQUIRED_PNPM}" 2>/dev/null || true
+            "$NODE_DIR/bin/npm" --prefix "$NODE_DIR" install -g "pnpm@${REQUIRED_PNPM}" 2>/dev/null || \
+                echo "Warning: failed to install pnpm@${REQUIRED_PNPM}" >&2
         fi
     fi
 
@@ -150,10 +224,8 @@ if [ -n "$NODE_VERSION" ]; then
 fi
 
 # Write env updates to CLAUDE_ENV_FILE if available (SessionStart only)
-if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-    {
-        [ -n "$NODE_VERSION" ] && echo "export PATH=\"/opt/node${NODE_MAJOR}/bin:\$PATH\""
-    } >> "$CLAUDE_ENV_FILE"
+if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "$NODE_MAJOR" ]; then
+    echo "export PATH=\"/opt/node${NODE_MAJOR}/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
 fi
 
 exit 0

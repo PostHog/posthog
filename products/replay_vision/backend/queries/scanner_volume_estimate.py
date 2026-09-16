@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied, ValidationError
+
 from posthog.schema import FilterLogicalOperator, RecordingsQuery
 
 from posthog.hogql import ast
@@ -334,6 +336,35 @@ def refresh_scanner_estimate(
     if updated:
         scanner.estimated_monthly_observations = projection
         scanner.estimated_at = estimated_at
+
+
+def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -> bool:
+    """True when an estimate failure means the scanner's experiment targeting cannot resolve an
+    exposed population: a draft that has not launched, a deleted or group-aggregated experiment,
+    no variants, a renamed variant, exposures still computing, or lost creator access. False when
+    the scanner's own query is what fails to build, for example a deleted action or a bad cohort
+    reference; no launch heals that, so callers keep it on their error path. Both groups raise
+    the same DRF ValidationError type inside the recordings query, so this re-resolves the
+    linkage to tell them apart. The extra resolution runs on the failure path only."""
+    targeting = scanner.experiment_targeting if isinstance(scanner.experiment_targeting, dict) else {}
+    experiment_id = targeting.get("experiment_id")
+    if experiment_id is None:
+        return False
+    if isinstance(error, PermissionDenied):
+        # Only the exposure access check raises PermissionDenied inside the recordings query.
+        return True
+    # Deferred: the experiments facade imports posthog.api on init, which circles back into the
+    # recordings query modules this package loads.
+    from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
+
+    try:
+        resolve_exposure_linkage(scanner.team, experiment_id=experiment_id, variant=targeting.get("variant"))
+    except ValidationError:
+        return True
+    except Exception:
+        # The re-resolution failed on infrastructure. Callers treat that as the loud path.
+        return False
+    return False
 
 
 def _clamp_window_days(earliest: object, scan_window_days: int) -> int:

@@ -2228,12 +2228,26 @@ name = "capture-apm-metrics"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "bytes",
  "capture",
  "capture-logs",
+ "chrono",
  "common-alloc",
+ "common-compression",
  "common-metrics",
+ "common-redis",
+ "dashmap 6.1.0",
+ "envconfig",
  "health",
  "limiters",
+ "metrics",
+ "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
+ "rustls 0.23.37",
+ "serde",
+ "serde_json",
+ "siphasher 1.0.2",
+ "thiserror 2.0.18",
  "tokio",
  "tower-http 0.5.2",
  "tracing",
@@ -3014,6 +3028,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-sqlx-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "common-temporal"
 version = "0.1.0"
 dependencies = [
@@ -3477,6 +3500,7 @@ dependencies = [
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "zip 4.6.1",
  "zstd",
@@ -8703,17 +8727,20 @@ dependencies = [
 name = "personhog-identity"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "chrono",
  "common-alloc",
  "common-database",
  "common-metrics",
+ "common-sqlx-macros",
  "envconfig",
  "futures",
  "lifecycle",
  "metrics-exporter-prometheus",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "rand 0.8.5",
  "serde",
@@ -8743,6 +8770,7 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "foyer",
+ "futures",
  "health",
  "k8s-awareness",
  "kube",
@@ -9318,7 +9346,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.5.0"
+version = "0.7.1"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -13908,6 +13936,7 @@ dependencies = [
  "health",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "moka",
  "rdkafka",
  "redis",

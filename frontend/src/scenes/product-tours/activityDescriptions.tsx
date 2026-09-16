@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -22,7 +22,7 @@ export function productTourActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the product tour:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the product tour:{' '}
                     {nameOrLinkToTour(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -33,7 +33,7 @@ export function productTourActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated the product tour:{' '}
+                    <ActivityLogUserName logItem={logItem} /> updated the product tour:{' '}
                     {nameOrLinkToTour(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -44,7 +44,7 @@ export function productTourActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the product tour:{' '}
+                    <ActivityLogUserName logItem={logItem} /> deleted the product tour:{' '}
                     {nameOrLinkToTour(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),

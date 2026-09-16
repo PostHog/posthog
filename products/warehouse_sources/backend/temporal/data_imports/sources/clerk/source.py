@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
     ClerkResumeConfig,
     clerk_source,
@@ -42,7 +40,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLERK,
+            name=ExternalDataSourceType.CLERK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Clerk",
             releaseStatus=ReleaseStatus.GA,
@@ -131,6 +129,12 @@ The secret key starts with `sk_live_`.
             # to this path, not all of api.clerk.com, since a 404 elsewhere can be a genuinely missing
             # record worth investigating rather than an account limitation.
             "404 Client Error: Not Found for url: https://api.clerk.com/v1/redirect_urls": "The redirect URLs table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
+            # Clerk answers the same 404 resource_not_found for jwt_templates on instances/plans
+            # that don't serve the resource. An instance that does serve it returns 200 with an
+            # empty array when no template exists, so the 404 can't mean "none configured". The
+            # unfiltered list request is identical every run, so it re-fails on every schedule.
+            # Scoped to this path for the same reason as redirect_urls above.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates": "The JWT templates table isn't available on your Clerk plan or instance. Turn off syncing for this table.",
             **{reason: reason for reason in RETIRED_ENDPOINTS.values()},
         }
 

@@ -24,7 +24,8 @@ from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
+from products.ai_observability.backend.prompt_references import MAX_PROMPT_REFERENCES
 
 
 class TestLLMPromptAPI(APIBaseTest):
@@ -1459,6 +1460,34 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert results[0]["latest_version"] == 2
         assert results[0]["prompt"] == "Prompt content"
 
+    @patch("posthog.api.llm_prompt.report_team_action")
+    def test_list_with_label_reports_one_fetch_per_returned_prompt(self, mock_report: Any) -> None:
+        self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
+        self.create_prompt_version(name="prompt-a", version=2)
+        self.create_prompt_version(name="prompt-b", version=1)
+        assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
+        mock_report.reset_mock()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
+
+        assert response.status_code == status.HTTP_200_OK
+        fetch_properties = [
+            call.args[2] for call in mock_report.call_args_list if call.args[1] == "llma prompt fetched"
+        ]
+        assert sorted(
+            (p["prompt_name"], p["prompt_version"], p["prompt_label"], p["prompt_is_latest"], p["prompt_fetch_path"])
+            for p in fetch_properties
+        ) == [
+            ("prompt-a", 1, "production", False, "list"),
+            ("prompt-b", 1, "production", True, "list"),
+        ]
+
+        # The unlabeled list backs the prompts UI page and must not count as fetches.
+        mock_report.reset_mock()
+        assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/").status_code == status.HTTP_200_OK
+        assert not any(call.args[1] == "llma prompt fetched" for call in mock_report.call_args_list)
+
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)
         assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
@@ -1657,3 +1686,102 @@ class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
     )
     def test_accepts_valid_label_name(self, _label: str, good_name: str) -> None:
         assert validate_prompt_label_name_value(good_name) == good_name
+
+
+class TestLLMPromptDependenciesAPI(APIBaseTest):
+    def _dependency_rows(self, parent_name: str) -> list[tuple[str, int | None, str | None, int]]:
+        return sorted(
+            LLMPromptDependency.objects.filter(team=self.team, parent_name=parent_name).values_list(
+                "child_name", "child_version", "child_label", "prompt__version"
+            )
+        )
+
+    def test_create_records_references(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "agent",
+                "prompt": (
+                    "@@@prompt:name=guardrails|label=production@@@\n"
+                    "@@@prompt:name=tone|version=3@@@\n"
+                    "@@@prompt:name=guardrails|label=production@@@\n"
+                    "@@@prompt:name=not-a-ref@@@"
+                ),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert self._dependency_rows("agent") == [
+            ("guardrails", None, "production", 1),
+            ("tone", 3, None, 1),
+        ]
+
+    def test_create_without_references_writes_no_rows(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "plain", "prompt": "No tags, only {{variables}}."},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert self._dependency_rows("plain") == []
+
+    def test_publish_records_references_for_the_new_version_only(self):
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|version=1@@@"},
+            format="json",
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/agent/",
+            data={"prompt": "@@@prompt:name=tone|label=prod@@@", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._dependency_rows("agent") == [
+            ("guardrails", 1, None, 1),
+            ("tone", None, "prod", 2),
+        ]
+
+    def test_duplicate_records_references_for_the_copy(self):
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "original", "prompt": "@@@prompt:name=guardrails|label=production@@@"},
+            format="json",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/name/original/duplicate/",
+            data={"new_name": "copy"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert self._dependency_rows("copy") == [("guardrails", None, "production", 1)]
+
+    def test_create_rejects_more_than_the_reference_limit(self):
+        def tags(count: int) -> str:
+            return "\n".join(f"@@@prompt:name=partial-{i}|version=1@@@" for i in range(count))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "over-limit", "prompt": tags(MAX_PROMPT_REFERENCES + 1)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "too_many_references"
+        assert LLMPrompt.objects.filter(team=self.team, name="over-limit").count() == 0
+        assert self._dependency_rows("over-limit") == []
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "at-limit", "prompt": tags(MAX_PROMPT_REFERENCES)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert len(self._dependency_rows("at-limit")) == MAX_PROMPT_REFERENCES

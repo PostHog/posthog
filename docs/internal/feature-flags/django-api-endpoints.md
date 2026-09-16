@@ -49,6 +49,19 @@ All in `posthog/api/feature_flag.py` unless noted otherwise.
 
 Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â€” use `PATCH` with `deleted: true` for soft delete.
 
+The v1 write API rejects an incoming `filters.version` key with HTTP 400 and code
+`reserved_config_version`, regardless of `FEATURE_FLAG_FILTERS_ENFORCED_RULES`.
+Omit that key when creating or updating targeting. The top-level `version` field
+still provides optimistic concurrency control.
+
+Stored filters with an absent version or numeric 1 use the existing v1 path.
+Updates reject other stored formats with `unsupported_config_version`, including writes that omit filters or send `{}`.
+This check does not migrate existing configurations.
+
+Ordinary POST, PUT, and PATCH writes route through the feature flag facade.
+The serializer remains the v1 validation, approval, and persistence adapter.
+See [API write ownership](api-writes.md) for the call path and transaction boundary.
+
 ### Custom actions
 
 | Method | URL                                                     | Description                                                                     |
@@ -59,7 +72,8 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | `POST` | `.../feature_flags/{pk}/create_static_cohort_for_flag/` | Create a static cohort from matched users                                       |
 | `GET`  | `.../feature_flags/{pk}/status/`                        | Flag status (ACTIVE, STALE, DELETED, UNKNOWN)                                   |
 | `GET`  | `.../feature_flags/{pk}/dependent_flags/`               | Flags that depend on this flag                                                  |
-| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Create a usage dashboard for the flag                                           |
+| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Deprecated: create a usage dashboard (sunsets September 25, 2026)               |
+| `POST` | `.../feature_flags/{pk}/enrich_usage_dashboard/`        | Deprecated: enrich an existing legacy usage dashboard (no removal date set)     |
 | `POST` | `.../feature_flags/{pk}/enable/`                        | Set `active: true` only                                                         |
 | `POST` | `.../feature_flags/{pk}/disable/`                       | Set `active: false` only                                                        |
 | `POST` | `.../feature_flags/{pk}/archive/`                       | Set `archived: true`, disabling the flag in the same write when needed          |

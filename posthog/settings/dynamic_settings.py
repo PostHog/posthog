@@ -36,6 +36,12 @@ CONSTANCE_CONFIG = {
         "0 re-evaluates on every build.",
         int,
     ),
+    "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED": (
+        get_from_env("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", True, type_cast=str_to_bool),
+        "Whether HogQL database builds construct revenue-analytics views lazily, on the first query "
+        "that resolves a revenue table. Disable to fall back to building them on every database build.",
+        bool,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -67,7 +73,14 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
+        # Person-on-events v2 reads are the production default for every project created
+        # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
+        # test run that leaves it unset, such as `hogli test products/<name>`, reads the
+        # legacy joined mode instead and fails against snapshots that CI recorded under
+        # v2. The test-mode default carries the same value so a local run matches CI.
+        # Production and self-hosted keep the off default. A test that needs the legacy
+        # mode pins it with override_settings or override_instance_config.
+        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", TEST, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
@@ -278,6 +291,12 @@ CONSTANCE_CONFIG = {
         "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
         int,
     ),
+    "GROWTH_RESCORE_WEBHOOK_SECRET": (
+        get_from_env("GROWTH_RESCORE_WEBHOOK_SECRET", default=""),
+        "Shared secret the wizard-stamp ICP re-score webhook (products/growth/backend/presentation/views/rescore.py) "
+        "checks against the X-PostHog-Webhook-Secret header. Set by the realtime destination that calls it.",
+        str,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -368,6 +387,8 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
+    "GROWTH_RESCORE_WEBHOOK_SECRET",
+    "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
@@ -441,4 +462,5 @@ SECRET_SETTINGS = [
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
     "GITHUB_WEBHOOK_SECRET",
+    "GROWTH_RESCORE_WEBHOOK_SECRET",
 ]

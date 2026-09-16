@@ -176,6 +176,20 @@ class TestAccountRequests(ProvisioningTestBase):
         assert kwargs["team_id"] == team.id
         assert kwargs["partner"] == self.partner
 
+    @patch("ee.api.agentic_provisioning.views.account_requests.capture_provisioning_event")
+    def test_account_creation_disabled_refusal_is_attributed_to_partner(self, mock_capture_event):
+        self.partner.update_provisioning(can_create_accounts=False)
+
+        res = self._post_account_request(self._account_request_payload())
+
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "forbidden"
+        assert not User.objects.filter(email="newuser@example.com").exists()
+        refusals = [call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "error")]
+        assert len(refusals) == 1
+        assert refusals[0].kwargs["error_code"] == "account_creation_disabled"
+        assert refusals[0].kwargs["partner"] == self.partner
+
 
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def setUp(self):

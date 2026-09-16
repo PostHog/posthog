@@ -1098,6 +1098,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     objects.job.run_mode = (
         DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
     )
+    objects.job.full_refresh_reason = None if plan.incremental else plan.reason
     await database_sync_to_async_pool(objects.job.save)()
 
     person_property_sink = await _build_person_property_sink(

@@ -26,6 +26,7 @@ from products.feature_flags.backend.facade.api import (
     ship_variant,
     update_flag,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
@@ -42,6 +43,19 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
+    @parameterized.expand([("user", False), ("system", True)])
+    def test_unsupported_stored_config_cannot_be_updated(self, _name: str, system: bool) -> None:
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        flag = self._create_flag(filters=filters)
+        original_version = flag.version
+        with self.assertRaises(ValidationError) as exc:
+            update_flag(flag, {"active": False}, team=self.team, user=None if system else self.user)
+        assert exc.exception.get_codes() == {"filters": ["unsupported_config_version"]}
+        flag.refresh_from_db()
+        assert flag.active is True
+        assert flag.filters == filters
+        assert flag.version == original_version
+
     def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -763,6 +777,20 @@ class TestExperimentRuleFromFilters:
                 ),
             ),
             (
+                "explicit_version_1",
+                {
+                    "version": 1,
+                    "groups": [{"properties": [], "rollout_percentage": 40}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+                ExperimentRuleConfig(
+                    variants=[{"key": "control", "rollout_percentage": 100}],
+                    rollout_percentage=40,
+                    assign_variant_by=None,
+                    holdout=None,
+                ),
+            ),
+            (
                 "empty_filters",
                 {},
                 ExperimentRuleConfig(variants=[], rollout_percentage=None, assign_variant_by=None, holdout=None),
@@ -801,3 +829,28 @@ class TestExperimentRuleFromFilters:
     )
     def test_derivation(self, _name, filters, expected):
         assert experiment_rule_from_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}, "v2"),
+            (
+                "version_string",
+                {"version": "1", "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "version_boolean",
+                {"version": True, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+            (
+                "unknown_future_version",
+                {"version": 3, "groups": [{"properties": [], "rollout_percentage": 40}]},
+                "unsupported",
+            ),
+        ]
+    )
+    def test_non_v1_formats_do_not_enter_the_v1_branch(self, _name, filters, expected_kind):
+        with pytest.raises(ConfigFormatError) as exc_info:
+            experiment_rule_from_filters(filters)
+        assert exc_info.value.config_format.kind == expected_kind

@@ -1,5 +1,9 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { MlWireVersion } from './privacy/schema'
+
+export type MlProducedLane = 'image' | 'url' | 'metadata'
+
 /** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
 export type MlAnonymizeImpl = 'rust' | 'ts'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
@@ -13,6 +17,15 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
+/** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
+export type MlPrivacyPhase = 'prepare' | 'commit' | 'publish'
+export type MlPrivacyRequest =
+    | 'kms_generate'
+    | 'kms_decrypt'
+    | 'kms_wait'
+    | 'dynamodb_read'
+    | 'dynamodb_put'
+    | 'dynamodb_put_if_absent'
 export type MlImageSourceKind = 'inline' | 'url'
 
 const URL_BYTES_SAMPLE_RATE = 16
@@ -48,6 +61,12 @@ export class MlMirrorMetrics {
         name: 'recording_blob_ingestion_v2_ml_urls_collected',
         help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
         labelNames: ['outcome'],
+    })
+
+    private static readonly mlProducedVersion = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_produced_version_total',
+        help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
+        labelNames: ['lane', 'version'],
     })
 
     private static readonly mlImageReferencesByProperty = new Counter({
@@ -92,9 +111,9 @@ export class MlMirrorMetrics {
         help: 'Bytes of collected images delivered to the scrub topic (acked)',
     })
 
-    private static readonly mlImagePseudoTeamInvalid = new Counter({
-        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
-        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
+    private static readonly mlImageTeamIdInvalid = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_team_id_invalid',
+        help: 'Messages whose team ID failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
     private static readonly mlUrlBytes = new Histogram({
@@ -107,6 +126,18 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlPrivacyPhaseDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_privacy_phase_duration_ms',
+        help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
+        labelNames: ['phase'],
+        buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
+    })
+    private static readonly mlPrivacyRequestDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_privacy_request_duration_ms',
+        help: 'Duration of one KMS or DynamoDB request from the ML key store, and for kms_wait the time a KMS request spent queued behind the per-pod rate limit before it was sent',
+        labelNames: ['request'],
+        buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, Infinity],
+    })
     private static readonly mlUrlsPerRecord = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_urls_per_record',
         help: 'URLs packed into one record on the fetch topic. Bounded in practice by the collector cap per message, since a record holds one domain from one message',
@@ -117,6 +148,14 @@ export class MlMirrorMetrics {
         help: 'Serialized bytes of one record on the fetch topic. Read against librdkafka message.max.bytes, which this producer leaves at its 1,000,000 byte default: the packing budget is what keeps a record under it',
         buckets: [1024, 8192, 65536, 262144, 524288, 1_000_000],
     })
+
+    public static observeMlPrivacyPhase(phase: MlPrivacyPhase, ms: number): void {
+        this.mlPrivacyPhaseDuration.labels(phase).observe(ms)
+    }
+
+    public static observeMlPrivacyRequest(request: MlPrivacyRequest, ms: number): void {
+        this.mlPrivacyRequestDuration.labels(request).observe(ms)
+    }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
         this.mlAnonymizeDuration.labels(impl, route).observe(ms)
@@ -134,6 +173,12 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlProducedVersion(lane: MlProducedLane, version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.mlProducedVersion.labels(lane, version).inc(count)
+        }
     }
 
     public static incrementMlImageReferencesByProperty(
@@ -188,8 +233,8 @@ export class MlMirrorMetrics {
         this.mlImageBytesProduced.inc(bytes)
     }
 
-    public static incrementMlImagePseudoTeamInvalid(): void {
-        this.mlImagePseudoTeamInvalid.inc()
+    public static incrementMlImageTeamIdInvalid(): void {
+        this.mlImageTeamIdInvalid.inc()
     }
 }
 
@@ -203,6 +248,23 @@ const PARTITION_DAY_BUCKETS = [0, 1, 2, 3, 7, 14, 30, 90, 365]
  * buffer stays empty, so flush advances offsets without a write. Kafka lag alone can't see that state.
  */
 export class MlParquetSinkMetrics {
+    private static readonly replayIndexRows = new Counter({
+        name: 'ml_mirror_replay_index_rows_written_total',
+        help: 'Replay index rows uploaded by event kind, including retries',
+        labelNames: ['kind'],
+    })
+    private static readonly replayIndexSkipped = new Counter({
+        name: 'ml_mirror_replay_index_skipped_total',
+        help: 'Replay index blocks or entries omitted by reason',
+        labelNames: ['reason'],
+    })
+    public static incReplayIndexRows(kind: string, count: number): void {
+        this.replayIndexRows.labels(kind).inc(count)
+    }
+    public static incReplayIndexSkipped(reason: 'session_start' | 'invalid_entry' | 'truncated_block'): void {
+        this.replayIndexSkipped.labels(reason).inc()
+    }
+
     private static readonly rowsParsed = new Counter({
         name: 'ml_mirror_parquet_sink_rows_parsed_total',
         help: 'Block-metadata rows parsed from Kafka and accepted into the Parquet buffer',
@@ -247,8 +309,11 @@ export class MlParquetSinkMetrics {
     public static incRowsParsed(count: number): void {
         this.rowsParsed.inc(count)
     }
-    public static incRowsRejected(reason: 'parse_failed' | 'invalid'): void {
-        this.rowsRejected.labels(reason).inc()
+    public static incRowsRejected(
+        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'privacy',
+        count = 1
+    ): void {
+        this.rowsRejected.labels(reason).inc(count)
     }
     public static observeWrite(rows: number, bytes: number): void {
         this.objectsWritten.inc()

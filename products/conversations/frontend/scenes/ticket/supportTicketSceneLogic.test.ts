@@ -5,9 +5,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -57,11 +57,6 @@ jest.mock('~/lib/api', () => {
         },
     }
 })
-
-jest.mock('products/business_knowledge/frontend/generated/api', () => ({
-    businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
-    businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
-}))
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsMessagesFullEmailRetrieve: jest.fn().mockResolvedValue({ content: 'Full email body' }),
@@ -246,6 +241,7 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
     test.each<[string, Record<string, any>, string]>([
         ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
         ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['github comment author', { from_github: true, github_login: 'chris' }, 'chris'],
         ['requester fallback without per-message author', {}, 'Mark'],
     ])('%s', (_name, itemContext, expectedName) => {
         logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])

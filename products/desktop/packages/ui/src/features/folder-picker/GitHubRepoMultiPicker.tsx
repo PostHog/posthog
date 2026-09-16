@@ -10,9 +10,9 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
-  Spinner,
   Text,
 } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useRef } from "react";
 
 interface GitHubRepoMultiPickerProps {
@@ -104,7 +104,7 @@ export function GitHubRepoMultiPicker({
         >
           {isLoading ? (
             <>
-              <Spinner className="size-4" />
+              <Spinner size="md" />
               <Text size="sm" variant="muted">
                 Loading repositories
               </Text>

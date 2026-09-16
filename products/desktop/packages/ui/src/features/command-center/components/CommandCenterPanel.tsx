@@ -22,7 +22,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner as QuillSpinner,
   Text as QuillText,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
@@ -33,6 +32,7 @@ import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -50,6 +50,9 @@ import { useOptionalAuthenticatedClient } from "../../auth/authClient";
 import { useAuthStateValue } from "../../auth/store";
 import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
+import { SpaceSelect } from "../../canvas/components/SpaceSelect";
+import { useTaskChannels } from "../../canvas/hooks/useTaskChannels";
+import { useBluebirdFlag } from "../../feature-flags/useBluebirdFlag";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -102,7 +105,8 @@ function CellStatusBadge({
     taskRunEnvironment: task.latest_run?.environment,
   });
 
-  const label = STATUS_LABEL[status];
+  const displayStatus = cell.hasUnseenCompletion ? "completed" : status;
+  const label = STATUS_LABEL[displayStatus];
   if (label === null) return null;
 
   const taskRunStatus = isCloud
@@ -110,7 +114,9 @@ function CellStatusBadge({
     : undefined;
 
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] ${cell.hasUnseenCompletion ? "bg-primary text-primary-foreground" : "bg-gray-3 text-gray-11"}`}
+    >
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
         isGenerating={status === "running"}
@@ -174,6 +180,18 @@ function EmptyCell({
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
+  const spacesEnabled = useBluebirdFlag();
+  const { channels, personalChannel } = useTaskChannels({
+    enabled: spacesEnabled,
+  });
+  const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
+  // A task created without a space lands in #me, so the chip starts there. The
+  // flag gates the chip here rather than through the query, whose cache another
+  // surface may have already filled.
+  const spaceId = spacesEnabled
+    ? (pickedSpaceId ?? personalChannel?.id ?? null)
+    : null;
+  const space = channels.find((c) => c.id === spaceId);
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
@@ -234,6 +252,8 @@ function EmptyCell({
     if (!sessionId) return;
     stopCreating(sessionId);
     clearComposerDraft(sessionId);
+    // The next task in this tile starts from #me again, like its prompt draft.
+    setPickedSpaceId(null);
   }, [stopCreating, sessionId]);
 
   useEffect(() => {
@@ -271,6 +291,20 @@ function EmptyCell({
             onTaskCreated={handleTaskCreated}
             showNewTaskSuggestions={false}
             allowNoRepo
+            channelId={spaceId ?? undefined}
+            channelRepositories={space?.repositories}
+            channelGithubIntegration={space?.github_integration}
+            spaceSelector={
+              spaceId
+                ? ({ disabled }) => (
+                    <SpaceSelect
+                      value={spaceId}
+                      onChange={setPickedSpaceId}
+                      disabled={disabled}
+                    />
+                  )
+                : undefined
+            }
           />
         </div>
       </div>
@@ -454,11 +488,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -579,9 +609,7 @@ function CanvasCell({
       </div>
       <div className="min-h-0 flex-1">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
+          <LoadingState />
         ) : dashboard?.kind === "grid" ? (
           <GridCanvasView canvasId={canvasId} interactive={false} />
         ) : dashboard ? (
@@ -628,7 +656,9 @@ function PopulatedCell({
   }, [clearCell, cell.cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
+    <div
+      className={`flex h-full flex-col ${cell.hasUnseenCompletion ? "ring-2 ring-primary ring-inset" : ""}`}
+    >
       <Flex
         align="center"
         gap="2"
@@ -680,7 +710,7 @@ function PopulatedCell({
           isActiveSession={isActiveSession}
         />
       </Flex>
-    </Flex>
+    </div>
   );
 }
 

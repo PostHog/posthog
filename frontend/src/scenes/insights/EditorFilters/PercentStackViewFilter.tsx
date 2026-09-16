@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { insightLogic } from '../insightLogic'
 

@@ -10,7 +10,9 @@ from posthog.models import Team
 
 from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerResolutionDiagnostics,
+    normalized_user_uuids_from_reviewer_payloads,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,15 +28,36 @@ ReviewerSuggestionSource = Literal["pipeline", "scout", "scout_edit", "custom_ag
 class ReviewerLinkability:
     linkable_logins: list[str]
     unlinkable_logins: list[str]
+    linkable_user_uuids: list[str]
+    unlinkable_user_uuids: list[str]
+
+    @property
+    def linkable_count(self) -> int:
+        return len(self.linkable_logins) + len(self.linkable_user_uuids)
+
+    @property
+    def unlinkable_count(self) -> int:
+        return len(self.unlinkable_logins) + len(self.unlinkable_user_uuids)
 
 
-def split_reviewer_linkability(team_id: int, github_logins: list[str]) -> ReviewerLinkability:
-    """Split suggested-reviewer GitHub logins by whether they resolve to an org member."""
+def split_reviewer_linkability(
+    team_id: int, github_logins: list[str], user_uuids: list[str] | None = None
+) -> ReviewerLinkability:
+    """Split suggested reviewers by whether they resolve to an active org member.
+
+    `user_uuids` are the reviewers stored by PostHog user alone. Only the write paths that resolve
+    membership before writing can vouch for them; the generic artefact API stores any well-formed
+    uuid, so they are resolved here the same way logins are rather than trusted.
+    """
     normalized = list(dict.fromkeys(login.strip().lower() for login in github_logins if login and login.strip()))
     login_to_user = resolve_org_github_login_to_users(team_id, normalized)
+    normalized_uuids = sorted(normalized_user_uuids_from_reviewer_payloads({"user_uuid": u} for u in user_uuids or []))
+    uuid_to_user = resolve_org_users_by_uuid(team_id, normalized_uuids) if normalized_uuids else {}
     return ReviewerLinkability(
         linkable_logins=[login for login in normalized if login in login_to_user],
         unlinkable_logins=[login for login in normalized if login not in login_to_user],
+        linkable_user_uuids=[u for u in normalized_uuids if u in uuid_to_user],
+        unlinkable_user_uuids=[u for u in normalized_uuids if u not in uuid_to_user],
     )
 
 
@@ -44,16 +67,22 @@ def capture_suggested_reviewers_resolved(
     report_id: str,
     github_logins: list[str],
     source: ReviewerSuggestionSource,
+    user_uuids: list[str] | None = None,
     correction_notes_written: int | None = None,
     correction_note_targets: int | None = None,
 ) -> None:
     """Emit `signals_suggested_reviewers_resolved` when a report's suggested reviewers are persisted.
 
-    Suggested reviewers are stored as bare GitHub logins; the login -> PostHog user mapping only
-    happens downstream (Slack routing, autostart, API read), where an unmapped login falls through
-    silently. A report whose logins map to nobody cannot be routed to a person, yet still counts as
-    "assigned" in `suggested_reviewers`-based metrics. This event records the linkable/unlinkable
-    split at suggestion time so that bucket is measurable.
+    A reviewer stored by GitHub login is only linked to a PostHog user downstream (Slack routing,
+    autostart, API read), where an unmapped login falls through silently. A report whose logins map
+    to nobody cannot be routed to a person, yet still counts as "assigned" in
+    `suggested_reviewers`-based metrics. This event records the linkable/unlinkable split at
+    suggestion time so that bucket is measurable.
+
+    `user_uuids` are the reviewers identified by PostHog user alone, with no GitHub login. One that
+    resolves to an active org member is linkable and is reported in `user_uuid_only_count`, kept
+    separate because autostart still needs a login to run as someone. One that does not resolve is
+    unlinkable like an unknown login: nothing downstream will route it to a person.
 
     A human edit that changed the set also steers the scouts holding the routing memory it
     corrects (`reviewer_correction_notes.py`). `correction_notes_written` and
@@ -64,16 +93,16 @@ def capture_suggested_reviewers_resolved(
     Best-effort: never raises, so analytics can't break report generation.
     """
     try:
-        linkability = split_reviewer_linkability(team_id, github_logins)
-        if linkability.unlinkable_logins:
+        linkability = split_reviewer_linkability(team_id, github_logins, user_uuids)
+        if linkability.unlinkable_count:
             # GitHub logins are member PII, so logs carry counts only; the logins themselves go in
             # the event properties, the same internal-analytics surface the artefact already feeds.
             logger.info(
-                "suggested reviewers for report %s (team %d): %d of %d login(s) have no PostHog user",
+                "suggested reviewers for report %s (team %d): %d of %d reviewer(s) have no PostHog user",
                 report_id,
                 team_id,
-                len(linkability.unlinkable_logins),
-                len(linkability.linkable_logins) + len(linkability.unlinkable_logins),
+                linkability.unlinkable_count,
+                linkability.linkable_count + linkability.unlinkable_count,
             )
         team = Team.objects.select_related("organization").get(id=team_id)
         posthoganalytics.capture(
@@ -83,12 +112,14 @@ def capture_suggested_reviewers_resolved(
                 "team_id": team_id,
                 "report_id": report_id,
                 "source": source,
-                "suggested_count": len(linkability.linkable_logins) + len(linkability.unlinkable_logins),
-                "linkable_count": len(linkability.linkable_logins),
-                "unlinkable_count": len(linkability.unlinkable_logins),
+                "suggested_count": linkability.linkable_count + linkability.unlinkable_count,
+                "linkable_count": linkability.linkable_count,
+                "unlinkable_count": linkability.unlinkable_count,
                 "linkable_logins": linkability.linkable_logins[:_MAX_LOGINS_PER_EVENT],
                 "unlinkable_logins": linkability.unlinkable_logins[:_MAX_LOGINS_PER_EVENT],
-                "all_unlinkable": bool(linkability.unlinkable_logins) and not linkability.linkable_logins,
+                "user_uuid_only_count": len(linkability.linkable_user_uuids),
+                "unlinkable_user_uuid_count": len(linkability.unlinkable_user_uuids),
+                "all_unlinkable": bool(linkability.unlinkable_count) and not linkability.linkable_count,
                 **(
                     {}
                     if correction_notes_written is None

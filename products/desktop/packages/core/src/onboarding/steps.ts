@@ -2,26 +2,16 @@ export type OnboardingStep =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   "project-select",
   "consent",
   "connect-github",
   "install-cli",
-  "select-repo",
 ];
 
-export interface DetectedRepo {
-  organization: string;
-  repository: string;
-  fullName: string;
-  remote?: string;
-  branch?: string;
-}
-
-export function computeActiveSteps(options: {
+export interface StepGates {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
   /** Undefined while the local git and gh checks are loading. */
@@ -29,7 +19,9 @@ export function computeActiveSteps(options: {
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
   consentRequired: boolean | undefined;
-}): OnboardingStep[] {
+}
+
+export function computeActiveSteps(options: StepGates): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "consent" && options.consentRequired === false) return false;
@@ -46,13 +38,33 @@ export function computeActiveSteps(options: {
 }
 
 /**
+ * Whether a gate that governs `step` has not answered yet. An unanswered gate
+ * keeps its step in the active set, so the step is on screen but a later answer
+ * can still take it away. Analytics waits for this to be false, or it records a
+ * view for a step the person never had to complete.
+ */
+export function stepGatePending(
+  step: OnboardingStep,
+  options: StepGates,
+): boolean {
+  if (step === "project-select") return options.projectCount === undefined;
+  if (step === "consent") return options.consentRequired === undefined;
+  if (step === "install-cli") {
+    return (
+      options.hasGithubIntegration === undefined ||
+      options.cliReady === undefined
+    );
+  }
+  return false;
+}
+
+/**
  * Where to send the user when the step they are standing on drops out of
  * `activeSteps` (the conditional steps appear and disappear as their async
  * gates resolve). Prefers the next remaining step in canonical order — the
  * user was moving forward — and falls back to the closest earlier one, so a
  * vanishing step never resets progress to the start of the flow. Returns
- * `step` unchanged when it is still active, or when `activeSteps` is empty
- * (degenerate input: the flow always keeps at least the select-repo step).
+ * `step` unchanged when it is still active, or when `activeSteps` is empty.
  */
 export function nearestActiveStep(
   activeSteps: OnboardingStep[],
@@ -80,6 +92,17 @@ export function isLastStep(
   currentIndex: number,
 ): boolean {
   return currentIndex === activeSteps.length - 1;
+}
+
+export function isFinalActiveStepRemoved(
+  previousActiveSteps: OnboardingStep[],
+  activeSteps: OnboardingStep[],
+  currentStep: OnboardingStep,
+): boolean {
+  return (
+    previousActiveSteps.at(-1) === currentStep &&
+    !activeSteps.includes(currentStep)
+  );
 }
 
 export function nextStep(

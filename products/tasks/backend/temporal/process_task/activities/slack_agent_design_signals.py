@@ -26,7 +26,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import TaskRun as TaskRunModel
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
 
 # Reuse the ACP event helpers, signal dispatcher, and SSE reconnect tuning from relay_sandbox_events
 # so the two relays derive/emit signals and drive their SSE transport from identical logic.
@@ -90,7 +90,10 @@ class SlackAgentDesignSignalEmitter:
         if is_turn_complete(event_data):
             if self._turn_active:
                 self._turn_active = False
-                return [("turn_completed", None)]
+                # The trace id rides the signal because this event is the only place it
+                # appears: the reply the relay posts closes the turn, and the thumbs under
+                # it report against that turn.
+                return [("turn_completed", turn_complete_trace_id(event_data))]
             return []
 
         signals: list[tuple[str, Any]] = []

@@ -158,7 +158,6 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
-    NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -199,6 +198,7 @@ export enum NodeKind {
     MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPModelBreakdownQuery = 'MCPModelBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
@@ -241,7 +241,6 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -286,6 +285,7 @@ export type AnyDataNode =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -357,7 +357,6 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
-    | NonIntegratedConversionsTableQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -420,6 +419,7 @@ export type QuerySchema =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -524,7 +524,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    customBotDefinitions?: CustomBotDefinition[]
+    customBotDefinitions?: CustomBotRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -584,6 +584,64 @@ export interface AccessControlFilterWarning {
     resources: string[]
     /** Human-readable warning shown to the user */
     message: string
+}
+
+/**
+ * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
+ * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
+ */
+export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+
+/**
+ * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
+ * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
+ * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
+ * range comes from `{filters}` and the insight left it open.
+ */
+export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
+
+/** One finding of a query's analysis. */
+export interface QueryScanWarning {
+    kind: QueryScanFindingKind
+    /** Only with `no_event_filter` and `no_start_date`. */
+    reason?: QueryScanFindingReason
+    /** Shown to the person: what happened and what to do. */
+    message: string
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** The one fact the finding rests on. */
+    evidence?: string
+}
+
+/** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
+export interface QueryScanAnalysis {
+    /** Empty when the analysis found nothing to fix. */
+    findings: QueryScanWarning[]
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string
+}
+
+/** What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings. */
+export interface QueryScanSummary {
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: integer
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: integer
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysis
+}
+
+/** From `GET /query/scan/{cache_key}`: the analysis once the job has stored it. Empty while the job runs, 404 when nothing is stored. */
+export interface QueryScanResponse {
+    analysis?: QueryScanAnalysis
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
@@ -1232,7 +1290,6 @@ export type DataTableNodeSourceUnion =
     | SessionsQuery
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
-    | NonIntegratedConversionsTableQuery
     | ErrorTrackingQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
@@ -1268,7 +1325,6 @@ export interface DataTableNode
                     | SessionsQuery
                     | MarketingAnalyticsTableQuery
                     | MarketingAnalyticsAggregatedQuery
-                    | NonIntegratedConversionsTableQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -1371,6 +1427,26 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface MetricChartSettings {
+    /** Which value the resting headline shows: the latest point, the total, or the average of the returned points.
+     * @default latest */
+    summary?: 'total' | 'average' | 'latest'
+    /** Show the change pill comparing the first point to the latest point.
+     * @default true */
+    showChange?: boolean
+    /** Change pill color when the series went up. Defaults to green. */
+    changeIncreaseColor?: string
+    /** Change pill color when the series went down. Defaults to red. */
+    changeDecreaseColor?: string
+    /** Color the sparkline by whether the series went up or down.
+     * @default false */
+    colorByDirection?: boolean
+    /** Sparkline color when the series went up. Defaults to green. */
+    lineIncreaseColor?: string
+    /** Sparkline color when the series went down. Defaults to red. */
+    lineDecreaseColor?: string
+}
+
 export interface BoxPlotSettings {
     xAxisColumn?: string | null
     seriesColumn?: string | null
@@ -1421,6 +1497,7 @@ export interface ChartSettings {
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
     boxPlot?: BoxPlotSettings
+    metric?: MetricChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -1926,6 +2003,8 @@ export interface CompareFilter {
 export interface IntegrationFilter {
     /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
     integrationSourceIds?: string[]
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -2694,6 +2773,8 @@ interface CachedQueryResponseMixin {
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
     query_metadata?: object
+    /** The rows and time of the run that produced these results, with its analysis once it is stored. */
+    query_scan?: QueryScanSummary
 }
 
 type CachedQueryResponse<T> = T & CachedQueryResponseMixin
@@ -2774,6 +2855,11 @@ export type QueryStatus = {
     task_id?: string
     query_progress?: ClickhouseQueryProgress
     labels?: string[]
+    bytes_read?: integer
+    budget_remaining_bytes?: integer
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string
+    query_scan?: QueryScanSummary
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase {
@@ -2896,6 +2982,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3221,9 +3309,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3392,6 +3482,41 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One model's share of MCP tool calls. */
+export interface MCPModelBreakdownItem {
+    model: string
+    total_calls: integer
+}
+
+export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    /** Whether another page of individual model identifiers is available. */
+    hasMore?: boolean
+    results: MCPModelBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by captured model identity. */
+export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
+    kind: NodeKind.MCPModelBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+    includeAllModels?: boolean
+    /**
+     * Page size when includeAllModels is enabled.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: integer
+    /**
+     * Number of individual models to skip when includeAllModels is enabled.
+     * @minimum 0
+     */
+    offset?: integer
+}
+
+export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
@@ -3813,6 +3938,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -4593,7 +4719,8 @@ export interface MetricsQueryClause {
 export interface MetricsQueryPoint {
     /** Bucket start, ISO 8601 */
     time: string
-    value: number
+    /** The bucket's aggregate; null when it isn't representable (a gap). */
+    value: number | null
 }
 
 export interface MetricsQuerySeries {
@@ -4603,6 +4730,8 @@ export interface MetricsQuerySeries {
     metricName?: string
     /** Clause alias that produced this series (`formula` for the formula result) */
     clause?: string
+    /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+    unit?: string
 }
 
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4611,14 +4740,29 @@ export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
 /** How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series. */
-export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat'
+export type MetricsDisplayType = 'line' | 'area' | 'bar' | 'stat' | 'gauge' | 'bargauge' | 'table' | 'heatmap'
 
 /** Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed.
  * Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10'). */
 export type MetricsAxisScale = 'linear' | 'log'
 
-/** Which summary the `stat` display's headline value shows. */
+/** Which summary the `stat` display's headline value shows.
+ * @deprecated Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working. */
 export type MetricsStatSummary = 'latest' | 'average' | 'total'
+
+/** How a series collapses to one number for the scalar panels and legend calcs. */
+export type MetricsReducer = 'last' | 'mean' | 'min' | 'max' | 'sum' | 'delta'
+
+/** A threshold band: `color` applies from `value` up to the next step. */
+export interface MetricsThreshold {
+    /** Lower bound of this band. The lowest step is the base color below every other step. */
+    value: number
+    /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+    color: string
+}
+
+/** How a null bucket renders on a time-series chart. */
+export type MetricsNullMode = 'gap' | 'zero' | 'connect'
 
 export interface MetricsYAxisSettings {
     /** @default linear */
@@ -4642,8 +4786,21 @@ export interface MetricsDisplaySettings {
     goalLines?: GoalLine[]
     yAxis?: MetricsYAxisSettings
     /** `stat` display only: which summary the headline value shows.
-     * @default latest */
+     * @default latest
+     * @deprecated Use `reduce`. */
     statSummary?: MetricsStatSummary
+    /** How scalar panels and legend calcs collapse a series to one number.
+     * @default last */
+    reduce?: MetricsReducer
+    /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+    unit?: string
+    /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+    thresholds?: MetricsThreshold[]
+    /** How a null bucket renders on a time-series chart.
+     * @default gap */
+    nullMode?: MetricsNullMode
+    /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+    legendCalcs?: MetricsReducer[]
 }
 
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
@@ -5165,15 +5322,6 @@ export interface FileSystemViewLogEntry {
     type: string
     ref: string
     viewed_at: string
-}
-
-export interface PersistedFolder {
-    id: string
-    type: string
-    protocol: string
-    path: string
-    created_at: string
-    updated_at: string
 }
 
 export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
@@ -6266,7 +6414,10 @@ export interface DateRange {
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
      */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now".
+     * A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment
+     * of that day in the project timezone, unless explicitDate is set.
+     */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.
@@ -6828,22 +6979,32 @@ export enum CustomBotField {
 export enum CustomBotMatcher {
     Contains = 'contains',
     Regex = 'regex',
+    /** Case-sensitive equality against the whole property value. */
+    Exact = 'exact',
     /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
     Cidr = 'cidr',
 }
 
-/** A bot a project defines itself, on top of PostHog's built-in bot list. */
-export interface CustomBotDefinition {
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-    /** The event property this rule reads. */
+/** One condition of a project's bot rule. */
+export interface CustomBotCondition {
+    /** The event property this condition reads. */
     key: CustomBotField
     /** Matched against the property named by `key`. */
     pattern: string
     matcher: CustomBotMatcher
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one rule
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotRule {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
     /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
     category?: string
-    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperator
+    items: CustomBotCondition[]
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of rules
 }
 
 export enum DefaultChannelTypes {
@@ -7652,47 +7813,6 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
-/** Columns for non-integrated conversions table */
-export enum NonIntegratedConversionsColumnsSchemaNames {
-    Source = 'Source',
-    Campaign = 'Campaign',
-}
-
-export interface NonIntegratedConversionsTableQuery extends Omit<
-    WebAnalyticsQueryBase<NonIntegratedConversionsTableQueryResponse>,
-    'orderBy'
-> {
-    kind: NodeKind.NonIntegratedConversionsTableQuery
-    /** Return a limited set of data. Will use default columns if empty. */
-    select?: HogQLExpression[]
-    /** Columns to order by */
-    orderBy?: MarketingAnalyticsOrderBy[]
-    /** Number of rows to return */
-    limit?: integer
-    /** Number of rows to skip before returning rows */
-    offset?: integer
-    /** Filter test accounts */
-    filterTestAccounts?: boolean
-    /** Compare to date range */
-    compareFilter?: CompareFilter
-    /** Draft conversion goal that can be set in the UI without saving */
-    draftConversionGoal?: ConversionGoalFilter | null
-}
-
-export interface NonIntegratedConversionsTableQueryResponse extends AnalyticsQueryResponseBase {
-    results: MarketingAnalyticsItem[][]
-    types?: unknown[]
-    columns?: unknown[]
-    hogql?: string
-    samplingRate?: SamplingRate
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-}
-
-export type CachedNonIntegratedConversionsTableQueryResponse =
-    CachedQueryResponse<NonIntegratedConversionsTableQueryResponse>
-
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -8043,1538 +8163,6 @@ export interface CoreEvent {
     filter: EventsNode | ActionsNode | DataWarehouseNode
 }
 
-export interface SourceFieldSSHTunnelConfig {
-    type: 'ssh-tunnel'
-    label: string
-    name: string
-}
-
-export interface SourceFieldOauthConfig {
-    type: 'oauth'
-    name: string
-    label: string
-    required: boolean
-    kind: string
-    requiredScopes?: string
-}
-
-export type SourceFieldInputConfigType =
-    | 'text'
-    | 'email'
-    | 'search'
-    | 'url'
-    | 'password'
-    | 'time'
-    | 'number'
-    | 'textarea'
-
-export interface SourceFieldInputConfig {
-    type: SourceFieldInputConfigType
-    name: string
-    label: string
-    required: boolean
-    placeholder: string
-    caption?: string
-    /**
-     * Marks this field as containing sensitive data. The value is stripped from
-     * API responses regardless of the rendering `type` (so a multi-line PEM
-     * blob can use `textarea` and still be redacted). Required: source authors
-     * must explicitly classify every field.
-     */
-    secret: boolean
-}
-
-export interface SourceFieldOauthAccountSelectConfig {
-    type: 'oauth-account-select'
-    name: string
-    label: string
-    /** Name of the OAuth integration id field this account selector reads from. */
-    integrationField: string
-    /** Integration kind to validate and route the account fetch through. */
-    integrationKind: string
-    placeholder?: string
-    caption?: string
-    required?: boolean
-    /** Allow selecting multiple values; the field's payload value becomes string[]. */
-    multiple?: boolean
-    /**
-     * Keep the field in the config tree (so its value parses and survives job_inputs
-     * redaction) without rendering it in the source form. Used for legacy fields that
-     * a newer field supersedes.
-     */
-    hidden?: boolean
-}
-
-export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
-
-export interface SourceFieldSelectConfigOption {
-    label: string
-    value: string
-    fields?: SourceFieldConfig[]
-}
-
-export interface SourceFieldSelectConfig {
-    type: 'select'
-    name: string
-    label: string
-    required: boolean
-    defaultValue: string
-    options: SourceFieldSelectConfigOption[]
-    converter?: SourceFieldSelectConfigConverter
-    caption?: string
-    /** Allow selecting multiple values; the field's payload value becomes string[]. */
-    multiple?: boolean
-}
-
-export interface SourceFieldSwitchGroupConfig {
-    type: 'switch-group'
-    name: string
-    label: string
-    default: string | number | boolean
-    fields: SourceFieldConfig[]
-    caption?: string
-}
-
-export interface SourceFieldFileUploadJsonFormatConfig {
-    format: '.json'
-    keys: '*' | string[]
-}
-
-export interface SourceFieldFileUploadConfig {
-    type: 'file-upload'
-    name: string
-    label: string
-    fileFormat: SourceFieldFileUploadJsonFormatConfig
-    required: boolean
-}
-
-export type SourceFieldConfig =
-    | SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-
-export interface SuggestedTable {
-    table: string
-    tooltip?: string | null
-}
-
-export const dataWarehouseSourceCategories = [
-    'Databases',
-    'File storage',
-    'Advertising',
-    'Marketing & email',
-    'CRM',
-    'Sales',
-    'Customer support',
-    'Payments & billing',
-    'Finance & accounting',
-    'Analytics',
-    'Engineering & monitoring',
-    'Productivity',
-    'HR & recruiting',
-    'Communication',
-    'E-commerce',
-] as const
-export type DataWarehouseSourceCategory = (typeof dataWarehouseSourceCategories)[number]
-
-export interface SourceConfig {
-    name: ExternalDataSourceType
-    label?: string
-    docsUrl?: string
-    caption?: string | any
-    permissionsCaption?: string
-    fields: SourceFieldConfig[]
-    disabledReason?: string | null
-    existingSource?: boolean
-    unreleasedSource?: boolean
-    releaseStatus?: 'alpha' | 'beta' | 'ga'
-    iconPath: string
-    featureFlag?: string
-    iconClassName?: string
-    webhookSetupCaption?: string
-    webhookFields?: SourceFieldConfig[]
-    /**
-     * If true, the source does not support automatic webhook registration via API
-     * (e.g. Slack — the user must paste the URL into the source's app settings).
-     * Adjusts the setup UI copy to avoid promising automatic registration.
-     */
-    webhookManualOnly?: boolean
-
-    /**
-     * Tables to suggest enabling, with optional tooltip explaining why
-     * @default []
-     */
-    suggestedTables?: SuggestedTable[]
-
-    /**
-     * Whether this source should be prominently displayed in onboarding flows
-     * @default false
-     */
-    featured?: boolean
-
-    /**
-     * Whether the source-creation wizard should expose the per-column projection picker.
-     * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
-     * for drivers that ignore `enabled_columns` at sync time.
-     * @default false
-     */
-    supportsColumnSelection?: boolean
-
-    /**
-     * Catalog bucket this source is grouped under in the new-source wizard. Optional at the
-     * type level so partial/in-progress sources don't break, but every registered source must
-     * set one (enforced by a test). See `dataWarehouseSourceCategories`.
-     */
-    category?: DataWarehouseSourceCategory
-
-    /**
-     * Extra search terms (alternate spellings, acronyms) for the catalog search, e.g.
-     * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
-     */
-    keywords?: string[]
-}
-
-export const externalDataSources = [
-    'Ashby',
-    'Supabase',
-    'CustomerIO',
-    'Github',
-    'Stripe',
-    'Hubspot',
-    'Postgres',
-    'MySQL',
-    'MSSQL',
-    'Zendesk',
-    'Snowflake',
-    'Salesforce',
-    'Vitally',
-    'BigQuery',
-    'Chargebee',
-    'Clerk',
-    'RevenueCat',
-    'Polar',
-    'GoogleAds',
-    'GoogleSearchConsole',
-    'MetaAds',
-    'Klaviyo',
-    'Mailchimp',
-    'Braze',
-    'Mailjet',
-    'Redshift',
-    'GoogleSheets',
-    'MongoDB',
-    'TemporalIO',
-    'DoIt',
-    'LinkedinAds',
-    'RedditAds',
-    'TikTokAds',
-    'BingAds',
-    'Shopify',
-    'Attio',
-    'SnapchatAds',
-    'Linear',
-    'Intercom',
-    'Amplitude',
-    'Mixpanel',
-    'Jira',
-    'ActiveCampaign',
-    'Marketo',
-    'Adjust',
-    'AppsFlyer',
-    'Freshdesk',
-    'GoogleAnalytics',
-    'Pipedrive',
-    'SendGrid',
-    'Slack',
-    'PagerDuty',
-    'Asana',
-    'Notion',
-    'Airtable',
-    'Greenhouse',
-    'BambooHR',
-    'Lever',
-    'GitLab',
-    'Datadog',
-    'Sentry',
-    'Pendo',
-    'FullStory',
-    'AmazonAds',
-    'PinterestAds',
-    'AppleSearchAds',
-    'QuickBooks',
-    'Xero',
-    'NetSuite',
-    'WooCommerce',
-    'BigCommerce',
-    'PayPal',
-    'Square',
-    'Zoom',
-    'Trello',
-    'Monday',
-    'ClickUp',
-    'Confluence',
-    'Recurly',
-    'SalesLoft',
-    'Outreach',
-    'Gong',
-    'Calendly',
-    'Typeform',
-    'Iterable',
-    'ZohoCRM',
-    'Close',
-    'Oracle',
-    'DynamoDB',
-    'Elasticsearch',
-    'Kafka',
-    'LaunchDarkly',
-    'Braintree',
-    'Recharge',
-    'HelpScout',
-    'Gorgias',
-    'Instagram',
-    'YouTubeAnalytics',
-    'FacebookPages',
-    'TwitterAds',
-    'Workday',
-    'ServiceNow',
-    'Pardot',
-    'Copper',
-    'Front',
-    'ChartMogul',
-    'Zuora',
-    'Paddle',
-    'CircleCI',
-    'CockroachDB',
-    'Firebase',
-    'AzureBlob',
-    'GoogleDrive',
-    'OneDrive',
-    'SharePoint',
-    'Box',
-    'SFTP',
-    'MicrosoftTeams',
-    'Aircall',
-    'Webflow',
-    'Okta',
-    'Auth0',
-    'Productboard',
-    'Smartsheet',
-    'Wrike',
-    'Plaid',
-    'SurveyMonkey',
-    'Eventbrite',
-    'RingCentral',
-    'Twilio',
-    'Freshsales',
-    'Shortcut',
-    'ConvertKit',
-    'Drip',
-    'CampaignMonitor',
-    'MailerLite',
-    'Omnisend',
-    'Brevo',
-    'Postmark',
-    'Granola',
-    'BuildBetter',
-    'Convex',
-    'ClickHouse',
-    'Plain',
-    'Resend',
-    'PgAnalyze',
-    'WorkOS',
-    'AmazonS3',
-    'GoogleCloudStorage',
-    'Databricks',
-    'Dynamics365',
-    'SalesforceMarketingCloud',
-    'Db2',
-    'Heap',
-    'AdobeAnalytics',
-    'Matomo',
-    'Optimizely',
-    'Adyen',
-    'GoCardless',
-    'Mollie',
-    'CheckoutCom',
-    'Branch',
-    'Criteo',
-    'Outbrain',
-    'Taboola',
-    'AdRoll',
-    'DisplayVideo360',
-    'GoogleAdManager',
-    'CampaignManager360',
-    'SearchAds360',
-    'AdobeCommerce',
-    'AmazonSellingPartner',
-    'Ebay',
-    'Commercetools',
-    'LightspeedRetail',
-    'Shipmail',
-    'ShipStation',
-    'ConstantContact',
-    'Mailgun',
-    'Eloqua',
-    'Sailthru',
-    'Ortto',
-    'Attentive',
-    'Kustomer',
-    'Dixa',
-    'Gladly',
-    'Qualtrics',
-    'AzureDevOps',
-    'Rollbar',
-    'Opsgenie',
-    'IncidentIo',
-    'Pingdom',
-    'Cloudflare',
-    'CosmosDB',
-    'PlanetScaleMySQL',
-    'PlanetScalePostgres',
-    'SapHana',
-    'Rippling',
-    'HiBob',
-    'Personio',
-    'Deel',
-    'AdpWorkforceNow',
-    'Paylocity',
-    'Gusto',
-    'CultureAmp',
-    'Lattice',
-    'SageIntacct',
-    'FreshBooks',
-    'Expensify',
-    'Ramp',
-    'Brex',
-    'Coupa',
-    'SapConcur',
-    'Apollo',
-    'Crunchbase',
-    'ZoomInfo',
-    'Clari',
-    'Chorus',
-    'Coda',
-    'Guru',
-    'Dropbox',
-    'Docusign',
-    'PandaDoc',
-    'SapErp',
-    'SapSuccessFactors',
-    'OracleEbs',
-    'OracleFusion',
-    'AmazonSNS',
-    'AmazonEventBridge',
-    'AmazonSQS',
-    'AmazonKinesis',
-    'AmazonCloudWatch',
-    'OpenAIAds',
-    'OneHundredMs',
-    'SevenShifts',
-    'AcuityScheduling',
-    'AgileCRM',
-    'Aha',
-    'Airbyte',
-    'Akeneo',
-    'Algolia',
-    'AlpacaBrokerAPI',
-    'ApifyDataset',
-    'Appcues',
-    'Appfigures',
-    'Appfollow',
-    'Apptivo',
-    'AssemblyAI',
-    'Awin',
-    'AwsCloudTrail',
-    'AzureTableStorage',
-    'Babelforce',
-    'Basecamp',
-    'Beamer',
-    'BigMailer',
-    'Bluetally',
-    'BoldSign',
-    'BreezyHR',
-    'Bugsnag',
-    'Buildkite',
-    'Bunny',
-    'Buzzsprout',
-    'CalCom',
-    'CallRail',
-    'Campayn',
-    'Canny',
-    'CapsuleCRM',
-    'CaptainData',
-    'CartCom',
-    'CastorEDC',
-    'Chameleon',
-    'Chargedesk',
-    'Chargify',
-    'Chift',
-    'Churnkey',
-    'Cin7',
-    'CiscoMeraki',
-    'Clazar',
-    'Clockify',
-    'Clockodo',
-    'Cloudbeds',
-    'Coassemble',
-    'Codefresh',
-    'Concord',
-    'ConfigCat',
-    'Couchbase',
-    'Curve',
-    'Customerly',
-    'Datascope',
-    'Dbt',
-    'Demodesk',
-    'Deputy',
-    'DevinAI',
-    'Docuseal',
-    'Dolibarr',
-    'Dremio',
-    'DropboxSign',
-    'Dwolla',
-    'EConomic',
-    'Easypost',
-    'Easypromos',
-    'Elasticemail',
-    'EmailOctopus',
-    'EmploymentHero',
-    'Encharge',
-    'Eventee',
-    'Eventzilla',
-    'Everhour',
-    'EZOfficeInventory',
-    'Factorial',
-    'Fastbill',
-    'Fastly',
-    'Fauna',
-    'Feishu',
-    'Fillout',
-    'Finage',
-    'Firebolt',
-    'FireHydrant',
-    'Fleetio',
-    'Flexmail',
-    'Flexport',
-    'FloatApp',
-    'Flowlu',
-    'Formbricks',
-    'FreeAgent',
-    'Freightview',
-    'Freshcaller',
-    'Freshchat',
-    'Freshservice',
-    'Fulcrum',
-    'GainsightPx',
-    'GitBook',
-    'Glassfrog',
-    'Goldcast',
-    'GoLogin',
-    'Grafana',
-    'GreytHr',
-    'Gridly',
-    'Harness',
-    'Height',
-    'Hellobaton',
-    'HighLevel',
-    'HoorayHR',
-    'Hubplanner',
-    'Humanitix',
-    'Huntr',
-    'Inflowinventory',
-    'InforNexus',
-    'Insightful',
-    'Insightly',
-    'Instantly',
-    'Instatus',
-    'Intruder',
-    'Invoiced',
-    'Invoiceninja',
-    'JamfPro',
-    'JobNimbus',
-    'Jotform',
-    'JudgeMeReviews',
-    'JustCall',
-    'JustSift',
-    'K6Cloud',
-    'Katana',
-    'Keka',
-    'Kisi',
-    'Kissmetrics',
-    'Klarna',
-    'Klaus',
-    'Lago',
-    'Leadfeeder',
-    'Lemlist',
-    'LessAnnoyingCRM',
-    'LinkedinPages',
-    'Linkrunner',
-    'Linnworks',
-    'Lob',
-    'Lokalise',
-    'Looker',
-    'Luma',
-    'MailerSend',
-    'Mailosaur',
-    'Mailtrap',
-    'Mantle',
-    'Mention',
-    'MercadoAds',
-    'Merge',
-    'Metabase',
-    'Metricool',
-    'MicrosoftDataverse',
-    'MicrosoftEntraId',
-    'MicrosoftLists',
-    'Miro',
-    'Missive',
-    'MixMax',
-    'Mode',
-    'Mux',
-    'MyHours',
-    'N8n',
-    'Navan',
-    'NebiusAI',
-    'Nexiopay',
-    'NinjaOneRMM',
-    'NoCRM',
-    'NorthpassLMS',
-    'Nutshell',
-    'Nylas',
-    'Oncehub',
-    'Onepagecrm',
-    'OneSignal',
-    'Onfleet',
-    'OpinionStage',
-    'OPUSWatch',
-    'Orb',
-    'Orbit',
-    'Oura',
-    'Oveit',
-    'PabblySubscriptionsBilling',
-    'Paperform',
-    'Papersign',
-    'Partnerize',
-    'PartnerStack',
-    'PayFit',
-    'Paystack',
-    'Pennylane',
-    'Perk',
-    'PersistIq',
-    'Persona',
-    'Phyllo',
-    'Picqer',
-    'Pipeliner',
-    'PivotalTracker',
-    'Piwik',
-    'Planhat',
-    'Plausible',
-    'Poplar',
-    'PrestaShop',
-    'Pretix',
-    'Primetric',
-    'Printavo',
-    'Printify',
-    'Productive',
-    'Pylon',
-    'Qonto',
-    'Qualaroo',
-    'Railz',
-    'RDStationMarketing',
-    'Recruitee',
-    'Reddit',
-    'ReferralHero',
-    'RentCast',
-    'Repairshopr',
-    'ReplyIo',
-    'RetailExpress',
-    'Retently',
-    'RevolutMerchant',
-    'RocketChat',
-    'Rocketlane',
-    'Rootly',
-    'Ruddr',
-    'SafetyCulture',
-    'SageHR',
-    'Salesflare',
-    'SAPFieldglass',
-    'SavvyCal',
-    'Secoda',
-    'Segment',
-    'Sendowl',
-    'SendPulse',
-    'Senseforce',
-    'Serpstat',
-    'Sharetribe',
-    'Shippo',
-    'ShopWired',
-    'Shortio',
-    'Shutterstock',
-    'SigmaComputing',
-    'SignNow',
-    'SimpleCast',
-    'Simplesat',
-    'Smaily',
-    'SmartEngage',
-    'Smartreach',
-    'Smartwaiver',
-    'SolarwindsServiceDesk',
-    'SonarCloud',
-    'SparkPost',
-    'SplitIo',
-    'SpotifyAds',
-    'SpotlerCRM',
-    'Squarespace',
-    'Statsig',
-    'Statuspage',
-    'Stigg',
-    'Strava',
-    'SurveySparrow',
-    'Survicate',
-    'Svix',
-    'Systeme',
-    'Tavus',
-    'Teamtailor',
-    'Teamwork',
-    'Tempo',
-    'Testrail',
-    'Thinkific',
-    'ThinkificCourses',
-    'ThriveLearning',
-    'Ticketmaster',
-    'TicketTailor',
-    'TickTick',
-    'Timely',
-    'Tinyemail',
-    'Todoist',
-    'Toggl',
-    'TrackPMS',
-    'Tremendous',
-    'TrustPilot',
-    'Twitter',
-    'TyntecSMS',
-    'Unleash',
-    'UpPromote',
-    'Uptick',
-    'Uservoice',
-    'Vantage',
-    'Veeqo',
-    'Vercel',
-    'VismaEconomic',
-    'VWO',
-    'Waiteraid',
-    'Wasabi',
-    'WhenIWork',
-    'Wordpress',
-    'Workable',
-    'Workflowmax',
-    'Workramp',
-    'Wufoo',
-    'Xsolla',
-    'YandexMetrica',
-    'Yotpo',
-    'Ynab',
-    'Younium',
-    'YouSign',
-    'YoutubeData',
-    'ZapierSupportedStorage',
-    'ZapSign',
-    'ZendeskSell',
-    'ZendeskSunshine',
-    'Zenefits',
-    'Zenloop',
-    'ZohoAnalytics',
-    'ZohoBigin',
-    'ZohoBilling',
-    'ZohoBooks',
-    'ZohoCampaign',
-    'ZohoDesk',
-    'ZohoExpense',
-    'ZohoInventory',
-    'ZohoInvoice',
-    'ZonkaFeedback',
-    'AlphaVantage',
-    'Aviationstack',
-    'Bitly',
-    'Blogger',
-    'Breezometer',
-    'CareQualityCommission',
-    'Cimis',
-    'CoinApi',
-    'CoinGecko',
-    'CoinMarketCap',
-    'DingConnect',
-    'Dockerhub',
-    'ExchangeRatesApi',
-    'FinancialModelling',
-    'Finnhub',
-    'Finnworlds',
-    'Giphy',
-    'Gmail',
-    'GNews',
-    'GoogleCalendar',
-    'GoogleClassroom',
-    'GoogleDirectory',
-    'GoogleForms',
-    'GooglePageSpeedInsights',
-    'GoogleTasks',
-    'GoogleWebfonts',
-    'GoogleWorkspaceAdminReports',
-    'HuggingFace',
-    'IlluminaBasespace',
-    'Imagga',
-    'Interzoid',
-    'IP2Whois',
-    'KYVE',
-    'Marketstack',
-    'Mendeley',
-    'Nasa',
-    'NewYorkTimes',
-    'NewsApi',
-    'NewsData',
-    'OpenDataDc',
-    'OpenExchangeRates',
-    'OpenAQ',
-    'OpenFDA',
-    'OpenWeather',
-    'Outlook',
-    'Perigon',
-    'Pexels',
-    'Pocket',
-    'Polygon',
-    'PyPI',
-    'Recreation',
-    'RKICovid',
-    'Rss',
-    'SimFin',
-    'StockData',
-    'Guardian',
-    'TMDb',
-    'TVMaze',
-    'TwelveData',
-    'Ubidots',
-    'USCensus',
-    'Watchmode',
-    'WikipediaPageviews',
-    'YahooFinance',
-    'Clarifai',
-    'Adapty',
-    'Braintrust',
-    'StreamElements',
-    'Streamlabs',
-    'Datorama',
-    'Ahrefs',
-    'Lightfield',
-    'Appstack',
-    'Razorpay',
-    'Neon',
-    'NewRelic',
-    'Custom',
-    'Tile38',
-    'Chatwoot',
-    'Sanity',
-    'Metronome',
-    'Jobber',
-    'Knock',
-    'Leexi',
-    'RB2B',
-    'Superwall',
-    'Liana',
-    'TawkTo',
-    'Hightouch',
-    'LemonSqueezy',
-    'Ikas',
-    'Talkwalker',
-    'NextdoorAds',
-    'AppLovin',
-    'Baserow',
-    'Plunk',
-    'Dub',
-    'AirOps',
-    'Podium',
-    'Loops',
-    'Redis',
-    'Mercury',
-    'Gojiberry',
-    'Teachable',
-    'PeecAI',
-    'Healthchecks',
-    'Impact',
-    'ImpactPartner',
-    'AikidoSecurity',
-    'Alguna',
-    'Anthropic',
-    'Appwrite',
-    'BlandAI',
-    'BrowseAI',
-    'BrowserUse',
-    'ChartHop',
-    'Cody',
-    'Cursor',
-    'Decagon',
-    'Deepgram',
-    'ElevenLabs',
-    'Harvey',
-    'Hyperspell',
-    'Langfuse',
-    'LingoDev',
-    'M3ter',
-    'Maxio',
-    'Metorial',
-    'OpenRouter',
-    'TogetherAI',
-    'Vapi',
-    'Vespa',
-    'Writesonic',
-    'Aiven',
-    'Aviator',
-    'Backblaze',
-    'Baseten',
-    'Browserbase',
-    'Cohere',
-    'DenoDeploy',
-    'DigitalOcean',
-    'E2B',
-    'Fintoc',
-    'Firecrawl',
-    'FireworksAI',
-    'FlyIo',
-    'Groq',
-    'GrowthBook',
-    'Gumloop',
-    'Hatchet',
-    'Helicone',
-    'Heroku',
-    'Hetzner',
-    'HeyGen',
-    'Infisical',
-    'Inngest',
-    'KapaAI',
-    'Kernel',
-    'Koyeb',
-    'LambdaLabs',
-    'LangSmith',
-    'Linode',
-    'LlamaCloud',
-    'Mem0',
-    'Metriport',
-    'Mintlify',
-    'MistralAI',
-    'Mono',
-    'Netlify',
-    'Northflank',
-    'OpenAI',
-    'Pinecone',
-    'PlatformSh',
-    'PromptingCompany',
-    'PromptWatch',
-    'Qdrant',
-    'Render',
-    'Replicate',
-    'RetellAI',
-    'Roark',
-    'RunPod',
-    'ScaleAI',
-    'Scaleway',
-    'SigNoz',
-    'Sim',
-    'Skyvern',
-    'Slash',
-    'Synthesia',
-    'Telli',
-    'TerraApi',
-    'TriggerDev',
-    'Turso',
-    'TwelveLabs',
-    'Twenty',
-    'Unstructured',
-    'Upstash',
-    'Vellum',
-    'Vultr',
-    'Windmill',
-    'Zep',
-    'Hex',
-    'Singular',
-    'Swonkie',
-    'Sumsub',
-    'GoogleChat',
-    'Kickscale',
-    'Zellify',
-    'RudderStack',
-    'DodoPayments',
-    'Salestrics',
-    'Doppler',
-    'Usersnap',
-    'Asknicely',
-    'Featurebase',
-    'Frill',
-    'Bettermode',
-    'Dynatrace',
-    'Honeycomb',
-    'SumoLogic',
-    'LogzIO',
-    'Coralogix',
-    'BetterStack',
-    'Raygun',
-    'Honeybadger',
-    'Airbrake',
-    'Appsignal',
-    'Appdynamics',
-    'Instana',
-    'SplunkObservabilityCloud',
-    'Uptimerobot',
-    'Statuscake',
-    'Tailscale',
-    'Flagsmith',
-    'Xmatters',
-    'Squadcast',
-    'Zenduty',
-    'Cronitor',
-    'Jenkins',
-    'Bitbucket',
-    'Gitea',
-    'Teamcity',
-    'TravisCI',
-    'Semaphore',
-    'CircleciInsights',
-    'OctopusDeploy',
-    'Sourcegraph',
-    'Bitrise',
-    'Gerrit',
-    'TerraformCloud',
-    'PulumiCloud',
-    'Spacelift',
-    'Railway',
-    'Argocd',
-    'PrefectCloud',
-    'DagsterCloud',
-    'Env0',
-    'Kubecost',
-    'Snyk',
-    'Semgrep',
-    'Veracode',
-    'Checkmarx',
-    'Gitguardian',
-    'QualysVmdr',
-    'Rapid7Insightvm',
-    'TenableVulnerabilityManagement',
-    'Sentinelone',
-    'Lacework',
-    'OrcaSecurity',
-    'Drata',
-    'Secureframe',
-    'CiscoDuo',
-    'Jumpcloud',
-    'OnePassword',
-    'Stytch',
-    'Sonarqube',
-    'Codecov',
-    'Coveralls',
-    'Codacy',
-    'Deepsource',
-    'Linearb',
-    'Jellyfish',
-    'Swarmia',
-    'Packagist',
-    'Nuget',
-    'CratesIO',
-    'SonatypeNexus',
-    'JfrogArtifactory',
-    'Snowplow',
-    'WeightsAndBiases',
-    'MonteCarlo',
-    'Metaplane',
-    'Datahub',
-    'ClickhouseCloud',
-    'ConfluentCloud',
-    'KongKonnect',
-    'Kandji',
-    'Automox',
-    'Autumn',
-    'GetStream',
-    'Octolens',
-    'Kajabi',
-    'Shopware',
-    'Dubsado',
-    'Campfire',
-    'Crisp',
-    'Kommo',
-    'GoogleMerchantCenter',
-    'Axiom',
-    'Plivo',
-    'DataForSEO',
-    'Sleekplan',
-    'AbTasty',
-    'Ably',
-    'AbnormalSecurity',
-    'Acast',
-    'Acculynx',
-    'Actionstep',
-    'Aftership',
-    'AhaIdeas',
-    'AkamaiReporting',
-    'Alation',
-    'Alegra',
-    'Allegro',
-    'AnodotCost',
-    'Anomalo',
-    'Apaleo',
-    'Apitally',
-    'AppStoreConnect',
-    'Appdirect',
-    'Appfolio',
-    'Arxiv',
-    'Asaas',
-    'Astronomer',
-    'Athenahealth',
-    'Atlan',
-    'AutodeskConstructionCloud',
-    'Avalara',
-    'AwsAthena',
-    'AwsBatch',
-    'AwsBudgets',
-    'AwsCloudformation',
-    'AwsComputeOptimizer',
-    'AwsConfig',
-    'AwsConnect',
-    'AwsCostAndUsageReport',
-    'AwsCostAnomalyDetection',
-    'AwsCostExplorer',
-    'AwsGlueDataCatalog',
-    'AwsGuardduty',
-    'AwsHealth',
-    'AwsIamAccessAnalyzer',
-    'AwsInspector',
-    'AwsMacie',
-    'AwsOrganizations',
-    'AwsRdsPerformanceInsights',
-    'AwsSagemaker',
-    'AwsSavingsPlans',
-    'AwsSecurityHub',
-    'AwsSes',
-    'AwsStepFunctions',
-    'AwsSupport',
-    'AwsSystemsManager',
-    'AwsTrustedAdvisor',
-    'AwsWaf',
-    'AwsXray',
-    'AzureActivityLog',
-    'AzureAdvisor',
-    'AzureApiManagement',
-    'AzureApplicationInsights',
-    'AzureCostManagement',
-    'AzureDataExplorer',
-    'AzureDataFactory',
-    'AzureLogAnalytics',
-    'AzureMonitorAlerts',
-    'AzureMonitorMetrics',
-    'AzureOpenaiUsage',
-    'AzurePolicyInsights',
-    'AzureReservations',
-    'AzureResourceGraph',
-    'AzureResourceHealth',
-    'AzureServiceHealth',
-    'AzureSynapse',
-    'BackMarket',
-    'Beehiiv',
-    'Bigeye',
-    'BillCom',
-    'Billomat',
-    'BingWebmasterTools',
-    'Bitwarden',
-    'BlackbaudRaisersEdgeNxt',
-    'BlackboardLearn',
-    'Bling',
-    'Bloomerang',
-    'Bluesky',
-    'BolRetailer',
-    'Boulevard',
-    'Buffer',
-    'Bugherd',
-    'Buildium',
-    'Buttondown',
-    'BuyMeACoffee',
-    'Calendarific',
-    'Calibre',
-    'CanvasLms',
-    'Captivate',
-    'Cashfree',
-    'CastAi',
-    'Catchpoint',
-    'CdcOpenData',
-    'Census',
-    'Checkly',
-    'CircleSo',
-    'Classy',
-    'Cleartax',
-    'Clever',
-    'Clevertap',
-    'Cliniko',
-    'Clio',
-    'Clip',
-    'Cloudability',
-    'Cloudsmith',
-    'Cloudzero',
-    'Clover',
-    'Codemagic',
-    'Codescene',
-    'Collibra',
-    'Companycam',
-    'Conekta',
-    'ContaAzul',
-    'Contentsquare',
-    'Cortex',
-    'Courier',
-    'Crossref',
-    'CrowdstrikeFalcon',
-    'CubeCloud',
-    'D2lBrightspace',
-    'Dayforce',
-    'Debugbear',
-    'Descope',
-    'Develocity',
-    'Dialpad',
-    'Discord',
-    'Discourse',
-    'Donorbox',
-    'Doorloop',
-    'Dovetail',
-    'Drchrono',
-    'Dynamics365BusinessCentral',
-    'EcbDataPortal',
-    'Emarsys',
-    'Embrace',
-    'Entsoe',
-    'Eppo',
-    'Etsy',
-    'Eurostat',
-    'Faire',
-    'FarosAi',
-    'Fieldpulse',
-    'Fieldwire',
-    'Filevine',
-    'Finout',
-    'Five9',
-    'FlexeraCloudCost',
-    'Flutterwave',
-    'Fortnox',
-    'Fourthwall',
-    'Fred',
-    'Frontegg',
-    'FusionAuth',
-    'G2',
-    'Gcore',
-    'GcpApigee',
-    'GcpArtifactRegistry',
-    'GcpBigtable',
-    'GcpChronicle',
-    'GcpCloudAssetInventory',
-    'GcpCloudBilling',
-    'GcpCloudBuild',
-    'GcpCloudDeploy',
-    'GcpCloudDns',
-    'GcpCloudFunctions',
-    'GcpCloudLogging',
-    'GcpCloudMonitoring',
-    'GcpCloudRun',
-    'GcpCloudSpanner',
-    'GcpCloudSql',
-    'GcpCloudTrace',
-    'GcpCloudWorkflows',
-    'GcpComputeEngine',
-    'GcpContainerAnalysis',
-    'GcpDataflow',
-    'GcpDataplex',
-    'GcpDataproc',
-    'GcpErrorReporting',
-    'GcpGke',
-    'GcpPubsub',
-    'GcpRecaptchaEnterprise',
-    'GcpRecommender',
-    'GcpSecurityCommandCenter',
-    'Gdelt',
-    'GenesysCloud',
-    'Getdx',
-    'Ghost',
-    'Givebutter',
-    'Gleif',
-    'GooglePlayConsole',
-    'Guesty',
-    'Gumroad',
-    'HarnessCcm',
-    'HarnessSei',
-    'Harvest',
-    'Healthie',
-    'Hitpay',
-    'Hivebrite',
-    'Holded',
-    'Hostaway',
-    'HousecallPro',
-    'Humanitec',
-    'ImfData',
-    'Imperva',
-    'InfluxdbCloud',
-    'Iyzico',
-    'Jobtread',
-    'Kameleoon',
-    'KauflandMarketplace',
-    'Kestra',
-    'Kick',
-    'Kinde',
-    'Kion',
-    'Knowbe4',
-    'Komodor',
-    'Labelbox',
-    'Lawmatics',
-    'Learnworlds',
-    'LexwareOffice',
-    'Lightdash',
-    'Lodgify',
-    'Logicmonitor',
-    'Logrocket',
-    'LoopReturns',
-    'Mastodon',
-    'Meetup',
-    'Memberful',
-    'MercadoPago',
-    'Meteostat',
-    'Mews',
-    'Mezmo',
-    'Microsoft365UsageReports',
-    'MicrosoftAdvertising',
-    'MicrosoftClarity',
-    'MicrosoftDefenderCloudApps',
-    'MicrosoftDefenderEndpoint',
-    'MicrosoftDefenderForCloud',
-    'MicrosoftIntune',
-    'MicrosoftPurview',
-    'MicrosoftPurviewAudit',
-    'MicrosoftSentinel',
-    'MicrosoftTeamsCallRecords',
-    'Midtrans',
-    'MightyNetworks',
-    'Mindbody',
-    'Mirakl',
-    'Moesif',
-    'Moneybird',
-    'Moodle',
-    'Motherduck',
-    'Mycase',
-    'NagerDate',
-    'NeonCrm',
-    'Nexhealth',
-    'NoaaCdo',
-    'Nobl9',
-    'Nolt',
-    'Nops',
-    'NpmRegistry',
-    'Oecd',
-    'Okendo',
-    'Omni',
-    'Onelogin',
-    'OpenDental',
-    'OpenMeteo',
-    'Openalex',
-    'Opencorporates',
-    'Openfec',
-    'OpnPayments',
-    'Opslevel',
-    'OttoMarket',
-    'Ownerrez',
-    'Pagbank',
-    'Patreon',
-    'Pax8',
-    'Paychex',
-    'Paymob',
-    'Paymongo',
-    'Phonepe',
-    'Pike13',
-    'Pingone',
-    'PinterestOrganic',
-    'PlanningCenter',
-    'PluralsightFlow',
-    'Podbean',
-    'Postscript',
-    'PowerBiAdmin',
-    'Practicepanther',
-    'Preset',
-    'Procore',
-    'Productiv',
-    'ProofpointTap',
-    'Propertyware',
-    'Pubnub',
-    'Quay',
-    'Raken',
-    'RedpandaCloud',
-    'RentManager',
-    'Reverb',
-    'RocketMatter',
-    'Rubygems',
-    'Scalr',
-    'SecEdgar',
-    'SelectStar',
-    'SemanticScholar',
-    'Semrush',
-    'ServiceFusion',
-    'Servicem8',
-    'Servicetitan',
-    'Servicetrade',
-    'Sevdesk',
-    'Similarweb',
-    'Simpro',
-    'Sinch',
-    'Singlestore',
-    'Site24x7',
-    'Sleuth',
-    'Smartlook',
-    'Smartrecruiters',
-    'Smokeball',
-    'SodaCloud',
-    'Speedcurve',
-    'SpotIo',
-    'Sprig',
-    'Sprinklr',
-    'SproutSocial',
-    'StackOverflowForTeams',
-    'Stockx',
-    'TackleIo',
-    'Talkdesk',
-    'TeamupFitness',
-    'Tebra',
-    'Telnyx',
-    'Ternary',
-    'Thoughtspot',
-    'Thousandeyes',
-    'Threads',
-    'TiktokShop',
-    'TinyErp',
-    'Tinybird',
-    'Tipalti',
-    'Toast',
-    'Torii',
-    'Transistor',
-    'TrunkIo',
-    'Trustradius',
-    'Twitch',
-    'TwoC2p',
-    'UkCompaniesHouse',
-    'UkOns',
-    'UnComtrade',
-    'UsBea',
-    'UsBls',
-    'UsEia',
-    'UsTreasuryFiscalData',
-    'Vanta',
-    'Vendr',
-    'Virtuous',
-    'Vonage',
-    'WalmartMarketplace',
-    'Waydev',
-    'Wayfair',
-    'WhatsappBusinessManagement',
-    'WhoGho',
-    'Whop',
-    'Wiz',
-    'Wompi',
-    'Workiz',
-    'WorldBank',
-    'Xendit',
-    'Yoco',
-    'ZalandoZdirect',
-    'Zluri',
-    'Zylo',
-    'Tally',
-    'Nuntly',
-    'Vturb',
-    'Meltwater',
-    'UserCom',
-    'Latitude',
-    'Workato',
-    'SideShift',
-    'DuckLake',
-    'Starburst',
-    'Trino',
-    'Easybill',
-    'Bexio',
-    'Umami',
-    'Manychat',
-    'Kickstarter',
-    'Typesense',
-    'FirstPromoter',
-    'Zero',
-    'Inth',
-    'BCMS',
-    'Convonite',
-    'Hookdeck',
-    'Billit',
-    'Moxie',
-    'TripleWhale',
-    'Directus',
-    'Clay',
-    'TradableBits',
-    'Swan',
-    'Hyros',
-    'Odoo',
-    'Airbridge',
-    'Snovio',
-    'Raisely',
-    'WindsorAi',
-    'Wix',
-    'Sevalla',
-    'Motion',
-    'Framer',
-    'Cloudinary',
-    'Uploadcare',
-    'WHMCS',
-    'MSG91',
-    'Depot',
-    'Schematic',
-    'Dokploy',
-    'RakutenAdvertising',
-    'Zitadel',
-    'DeelFlows',
-    'Hootsuite',
-    'WisprFlow',
-    'SamCart',
-    'IronSourceAds',
-    'MicrosoftExcel',
-    'Profound',
-    'Airwallex',
-    'Polymarket',
-    'Kalshi',
-    'Capterra',
-    'GooglePostmasterTools',
-    'Growi',
-    'Clarify',
-    'DatoCMS',
-    'WPSOffice',
-    'TeraBox',
-    'SimonData',
-    'CommissionJunction',
-    'Liveblocks',
-    'NationBuilder',
-    'Tana',
-    'Zenchef',
-    'Lovable',
-    'Anvil',
-    'Coolify',
-    'SocialPilot',
-    'RoktAds',
-    'Strato',
-    'Medusa',
-    'Membrain',
-    'RecallAI',
-    'Tenjin',
-    'Folk',
-    'Cybersource',
-] as const
-
-export type ExternalDataSourceType = (typeof externalDataSources)[number]
-
 export const VALID_NATIVE_MARKETING_SOURCES = [
     'GoogleAds',
     'LinkedinAds',
@@ -9823,6 +8411,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -10172,12 +8765,22 @@ export enum ProductIntentContext {
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = 'session_replay_save_filters_as_scanner',
+
+    // Replay Vision
+    // Shallow: dwelled on the scanner list long enough to have read it. Deliberately not a bare
+    // pageview — a mount-and-bounce must not start the activation clock for the team.
+    REPLAY_VISION_VIEWED = 'replay_vision_viewed',
+    // Deep, both registered server-side so agent/API callers count too, not just the app.
+    REPLAY_VISION_SCANNER_CREATED = 'replay_vision_scanner_created',
+    REPLAY_VISION_SCAN_TRIGGERED = 'replay_vision_scan_triggered',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
     ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+    ERROR_TRACKING_SCAN_WITH_VISION = 'error_tracking_scan_with_vision',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',

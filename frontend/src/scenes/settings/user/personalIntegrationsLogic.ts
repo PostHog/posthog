@@ -18,7 +18,7 @@ import {
 } from '~/generated/core/api'
 import type { UserGitHubIntegrationItemApi } from '~/generated/core/api.schemas'
 
-import type { TeamPublicType, TeamType, UserBasicType } from '../../../types'
+import type { TeamPublicType, TeamType } from '../../../types'
 
 export interface PersonalGitHubIntegration {
     kind: 'github'
@@ -115,126 +115,10 @@ export interface personalIntegrationsLogicValues {
 export interface personalIntegrationsLogicActions {
     loadProjectIntegrations: () => any // integrationsLogic
     projectIntegrationsLoaded: (
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?:
-                | null
-                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
-                | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[],
+        integrations: import('../../../types').IntegrationType[],
         payload?: any
     ) => {
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?:
-                | null
-                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
-                | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[]
+        integrations: import('../../../types').IntegrationType[]
         payload?: any
     } // integrationsLogic
     connectGitHub: () => {

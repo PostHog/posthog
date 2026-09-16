@@ -19,11 +19,11 @@ import type {
     ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
+    ExternalDataSourceBulkUpdateSchemasApi,
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceSerializersApi,
-    ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesListParams,
@@ -40,9 +40,9 @@ import type {
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
     PatchedExternalDataSchemaApi,
-    PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
     SchemaDestinationsApi,
+    SourceConfigMapResponseApi,
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
@@ -439,6 +439,9 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/reload/`
 }
 
+/**
+ * Trigger a sync for the schema using its configured sync method. Most methods keep the existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds the whole table on every run. To force a rebuild from the source, use resync.
+ */
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
@@ -454,6 +457,9 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
     return `/api/projects/${projectId}/external_data_schemas/${id}/resync/`
 }
 
+/**
+ * Request a full resync of the schema. For sources that can backfill, this drops the warehouse table and re-imports every row from the source, so existing data is deleted first. A webhook-only schema cannot backfill, so it keeps its existing table and resumes ingestion instead. To sync without requesting a rebuild, use reload.
+ */
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
@@ -593,24 +599,8 @@ export const externalDataSourcesDestroy = async (
     })
 }
 
-export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
-    projectId: string,
-    id: string,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/?${stringifiedParams}`
-        : `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
+export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/bulk_update_schemas/`
 }
 
 /**
@@ -619,19 +609,15 @@ export const getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl = (
 export const externalDataSourcesBulkUpdateSchemasPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceBulkUpdateSchemasApi?: PatchedExternalDataSourceBulkUpdateSchemasApi,
-    params?: ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
+    externalDataSourceBulkUpdateSchemasApi: ExternalDataSourceBulkUpdateSchemasApi,
     options?: RequestInit
-): Promise<PaginatedExternalDataSchemaListApi> => {
-    return apiMutator<PaginatedExternalDataSchemaListApi>(
-        getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceBulkUpdateSchemasApi),
-        }
-    )
+): Promise<ExternalDataSchemaApi[]> => {
+    return apiMutator<ExternalDataSchemaApi[]>(getExternalDataSourcesBulkUpdateSchemasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceBulkUpdateSchemasApi),
+    })
 }
 
 export const getExternalDataSourcesCdcStatusRetrieveUrl = (projectId: string, id: string) => {
@@ -1380,8 +1366,8 @@ export const externalDataSourcesWizardRetrieve = async (
     projectId: string,
     params?: ExternalDataSourcesWizardRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+): Promise<SourceConfigMapResponseApi> => {
+    return apiMutator<SourceConfigMapResponseApi>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

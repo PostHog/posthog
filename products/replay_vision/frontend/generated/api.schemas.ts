@@ -520,6 +520,27 @@ export interface ScannerSnapshotApi {
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
     scanner_config: unknown
+    /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
+    verify_positives: string
+}
+
+/**
+ * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
+ */
+export interface VerificationRecordApi {
+    /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
+    mode: string
+    /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
+    draws: string[]
+    /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
+    resolved_verdict: string
+    /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
+    served_verdict: string
+    /**
+     * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
+     * @nullable
+     */
+    skipped_reason: string | null
 }
 
 /**
@@ -533,6 +554,8 @@ export interface ScannerResultApi {
      * @minimum 0
      */
     signals_count: number
+    /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
+    verification: VerificationRecordApi | null
 }
 
 /**
@@ -626,6 +649,8 @@ export interface ReplayObservationApi {
     readonly next_observation_id: string | null
     /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
     readonly label: ReplayObservationLabelApi | null
+    /** Whether the calling user has opened this observation. */
+    readonly viewed: boolean
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -1719,7 +1744,7 @@ export interface SignalScoutSlackDestinationApi {
      * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
-    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post. */
+    /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
     thread_reports?: boolean
 }
 
@@ -1757,6 +1782,38 @@ export type SignalScoutConfigOptionsApiStructuredOutputSchema = { [key: string]:
  * Schedule, enablement, and delivery options accepted while creating a scout.
  */
 export interface SignalScoutConfigOptionsApi {
+    /**
+     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * @maxLength 200
+     * @nullable
+     */
+    model?: string | null
+    /**
+     * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
+     * @maxItems 10
+     */
+    tags?: string[]
+    /**
+     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
+     * @nullable
+     */
+    structured_output_schema?: SignalScoutConfigOptionsApiStructuredOutputSchema
+    /**
+     * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+     * @maxItems 100
+     */
+    mcp_gateway_server_ids?: string[]
+    /**
+     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
+     */
+    write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -1782,32 +1839,6 @@ export interface SignalScoutConfigOptionsApi {
      * @nullable
      */
     run_cron_schedule?: string | null
-    /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-     * @maxLength 200
-     * @nullable
-     */
-    model?: string | null
-    /**
-     * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
-     * @maxItems 10
-     */
-    tags?: string[]
-    /**
-     * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
-     * @nullable
-     */
-    structured_output_schema?: SignalScoutConfigOptionsApiStructuredOutputSchema
-    /**
-     * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
-     * @maxItems 100
-     */
-    mcp_gateway_server_ids?: string[]
-    /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
-     */
-    write_scopes?: string[]
 }
 
 /**
@@ -1843,6 +1874,13 @@ export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutO
 export const ScoutOriginEnumApi = {
     Canonical: 'canonical',
     Custom: 'custom',
+} as const
+
+export type ScoutRoleEnumApi = (typeof ScoutRoleEnumApi)[keyof typeof ScoutRoleEnumApi]
+
+export const ScoutRoleEnumApi = {
+    Specialist: 'specialist',
+    Operational: 'operational',
 } as const
 
 /**
@@ -1893,8 +1931,15 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /**
+     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * @maxLength 200
+     */
+    display_name?: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
+    /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
+    readonly scout_role: ScoutRoleEnumApi
     /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
     readonly owners: readonly UserBasicApi[]
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -1948,8 +1993,14 @@ export interface SignalScoutConfigApi {
      */
     readonly mcp_gateway_server_ids: readonly string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 7
+     * GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 8
      */
     readonly write_scopes: readonly string[]
     /**
@@ -2059,6 +2110,8 @@ export interface DraftScannerResponseApi {
      * @nullable
      */
     credit_limit: number | null
+    /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
+    experiment_targeting: ScannerExperimentTargetingApi | null
     /**
      * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable
@@ -2261,6 +2314,115 @@ export interface TagSuggestionApi {
 export interface SuggestTagsResponseApi {
     /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
     suggestions: TagSuggestionApi[]
+}
+
+/**
+ * * `signal_emitted` - Signal Emitted
+ * * `unusual_verdict` - Unusual Verdict
+ * * `notable` - Notable
+ * * `verdict_yes` - Verdict Yes
+ * * `outlier_score` - Outlier Score
+ * * `rare_tag` - Rare Tag
+ * * `novel_summary` - Novel Summary
+ * * `friction` - Friction
+ * * `unviewed_recent` - Unviewed Recent
+ * * `recent` - Recent
+ */
+export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeof WatchFeedReasonEnumApi]
+
+export const WatchFeedReasonEnumApi = {
+    SignalEmitted: 'signal_emitted',
+    UnusualVerdict: 'unusual_verdict',
+    Notable: 'notable',
+    VerdictYes: 'verdict_yes',
+    OutlierScore: 'outlier_score',
+    RareTag: 'rare_tag',
+    NovelSummary: 'novel_summary',
+    Friction: 'friction',
+    UnviewedRecent: 'unviewed_recent',
+    Recent: 'recent',
+} as const
+
+/**
+ * Machine-readable reason an observation made the feed; the frontend renders the copy.
+ */
+export interface WatchFeedReasonApi {
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+     *
+     * * `signal_emitted` - Signal Emitted
+     * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
+     * * `verdict_yes` - Verdict Yes
+     * * `outlier_score` - Outlier Score
+     * * `rare_tag` - Rare Tag
+     * * `novel_summary` - Novel Summary
+     * * `friction` - Friction
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent */
+    kind: WatchFeedReasonEnumApi
+    /**
+     * Signals this observation emitted, for `signal_emitted`.
+     * @nullable
+     */
+    signals_count?: number | null
+    /**
+     * The monitor's answer, for `unusual_verdict`.
+     * @nullable
+     */
+    verdict?: string | null
+    /**
+     * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
+     * @nullable
+     */
+    verdict_share?: number | null
+    /**
+     * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+     * @nullable
+     */
+    notability?: number | null
+    /**
+     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * @nullable
+     */
+    notability_reason?: string | null
+    /**
+     * The observation's score, for `outlier_score`.
+     * @nullable
+     */
+    score?: number | null
+    /**
+     * The scanner's mean score in the window, for `outlier_score`.
+     * @nullable
+     */
+    window_mean?: number | null
+    /**
+     * The rare tag that ranked the observation, for `rare_tag`.
+     * @nullable
+     */
+    tag?: string | null
+    /**
+     * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
+     * @nullable
+     */
+    tag_share?: number | null
+}
+
+/**
+ * One feed entry: the observation plus why it ranked.
+ */
+export interface WatchFeedItemApi {
+    /** The observation, in the standard shape. */
+    observation: ReplayObservationApi
+    /** Why this observation made the feed. */
+    reason: WatchFeedReasonApi
+}
+
+/**
+ * Response of GET /vision/scanners/watch_feed/.
+ */
+export interface WatchFeedResponseApi {
+    /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
+    results: WatchFeedItemApi[]
 }
 
 export type VisionAlertsListParams = {
@@ -2695,3 +2857,47 @@ export type VisionScannersPromptSuggestionsListParams = {
      */
     offset?: number
 }
+
+export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Feed items to return, at most 50. The feed is bounded, not paginated.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
+     * @minLength 1
+     */
+    scanner_ids?: string
+    /**
+     * Restrict the feed to observations from scanners of this type.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * @minLength 1
+     */
+    scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+}
+
+export type VisionScannersWatchFeedRetrieveScannerType =
+    (typeof VisionScannersWatchFeedRetrieveScannerType)[keyof typeof VisionScannersWatchFeedRetrieveScannerType]
+
+export const VisionScannersWatchFeedRetrieveScannerType = {
+    Monitor: 'monitor',
+    Classifier: 'classifier',
+    Scorer: 'scorer',
+    Summarizer: 'summarizer',
+} as const

@@ -32,7 +32,7 @@ unit-testable against the real `git` binary without booting the app
   instructions to fetch the real skill with `skill-get` / `skill-file-get` when it is invoked, so a
   sandbox gets discovery for a few KB and skill content only moves over MCP when a skill is used.
   `content=full` writes the rendered `SKILL.md`, bundled files and Codex sidecar. Newest first,
-  `limit` skills (default 20, at most 100; every skill in the zip costs the agent prompt context on
+  `limit` skills (default 50, at most 100; every skill in the zip costs the agent prompt context on
   each turn) and 5 MB uncompressed for `full`; the walk stops at the first skill that would cross a
   cap, and sizes are checked from column byte counts before any content loads.
   `X-Skills-Included`, `X-Skills-Dropped` (over the cap) and `X-Skills-Skipped` (failed the spec
@@ -64,9 +64,12 @@ unit-testable against the real `git` binary without booting the app
 
 ## Spec mapping (storage → SKILL.md)
 
-- `allowed_tools` (stored list) → `allowed-tools` (spec's hyphenated, space-separated string)
+- `allowed_tools` (stored list) → `allowed-tools` (spec's hyphenated, space-separated string). A harness that
+  reads the file treats it as pre-approved; a host that loads the skill over MCP ignores it until the user
+  approves the grant. See `docs/internal/skills/skills-over-mcp.md`.
 - platform `version` → `metadata.version` (the spec defines no top-level version field)
-- `description` is validated against the spec's 1024 limit on export (`validate_for_export`)
+- `description` is validated against the spec's 1024 limit on export (`compute_spec_problems`, which also
+  decides whether a skill is packageable at all; the API reports its output as `spec_problems`)
 
 ## Cross-agent portability
 
@@ -102,11 +105,13 @@ an update). The minted token lives in the user's OS keychain / git credential st
 
 ## Versioning / auto-update
 
-Claude Code re-pulls when the `version` in `marketplace.json` / `plugin.json` changes. We
-derive it from team content (`compute_plugin_version` keyed on the latest skill change time, in
-milliseconds) so any publish/archive bumps it forward monotonically with zero manual semver.
-The synthesized repo is cached on `team_id` + that version, so repeated clones and auto-update
-polls reuse one synthesis and the cache invalidates automatically on any change.
+Claude Code re-pulls when the `version` in `marketplace.json` / `plugin.json` changes.
+`compute_plugin_version` uses the latest skill change time in microseconds.
+Publishes and archives update this timestamp.
+The synthesized repository cache uses the team ID and version, so repeated clones reuse the same repository.
+Each request reads the version without a time-based cache so a pull sees a change reported by the skills list.
+The shared version function is `api/skill_services.py:team_skills_version`.
+See [skills list conditional requests](../../../../docs/internal/skills/skills-list-conditional-requests.md) for the version's limits and the list ETag.
 
 > **Open question (the spike answers it):** whether Claude Code re-pulls on any version
 > _difference_ or only strictly-greater, and whether background auto-update reliably re-auths

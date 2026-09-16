@@ -3,7 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tasks/api'
-import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
+import {
+    ChannelInstructionsBaseVersionSchema,
+    TaskAgentCreateSchema,
+    TaskAgentRunCreateSchema,
+} from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -528,6 +532,60 @@ const loopsRunsRetrieve = (): ToolBase<
     },
 })
 
+const TasksConfigCreateSchema = () => {
+    const TasksConfigCreateBody = orvalSchemas.TasksConfigCreateBody()
+    return TasksConfigCreateBody
+}
+
+const tasksConfigCreate = (): ToolBase<
+    ReturnType<typeof TasksConfigCreateSchema>,
+    Schemas.TasksTeamConfigResponse
+> => ({
+    name: 'tasks-config-create',
+    schema: TasksConfigCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        const result = await context.api.request<Schemas.TasksTeamConfigResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TasksConfigListSchema = () => {
+    const TasksConfigListQueryParams = orvalSchemas.TasksConfigListQueryParams()
+    return TasksConfigListQueryParams
+}
+
+const tasksConfigList = (): ToolBase<ReturnType<typeof TasksConfigListSchema>, Schemas.TasksTeamConfigResponse> => ({
+    name: 'tasks-config-list',
+    schema: TasksConfigListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TasksTeamConfigResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/config/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
 const TasksCreateSchema = () => {
     const TasksCreateBody = orvalSchemas.TasksCreateBody()
     return TasksCreateBody.omit({
@@ -550,6 +608,7 @@ const TasksCreateSchema = () => {
         pending_user_artifact_ids: true,
         auto_publish: true,
         channel: true,
+        start_run: true,
         signal_report_discussion_question: true,
         naming_source: true,
         sandbox_environment_id: true,
@@ -564,7 +623,10 @@ const TasksCreateSchema = () => {
     })
 }
 
-const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
+const tasksCreate = (): ToolBase<
+    ReturnType<typeof TasksCreateSchema>,
+    WithPostHogUrl<Schemas.TaskCreateResponseDTO>
+> => ({
     name: 'tasks-create',
     schema: TasksCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksCreateSchema>>) => {
@@ -579,7 +641,7 @@ const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostH
         if (params.repository !== undefined) {
             body['repository'] = params.repository
         }
-        const result = await context.api.request<Schemas.TaskDetailDTO>({
+        const result = await context.api.request<Schemas.TaskCreateResponseDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             body,
@@ -592,8 +654,40 @@ const tasksCreate = (): ToolBase<ReturnType<typeof TasksCreateSchema>, WithPostH
             'origin_product',
             'repository',
             'internal',
+            'latest_run.id',
+            'latest_run.stage',
+            'latest_run.status',
+            'run_error',
             'created_at',
             'updated_at',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
+
+const TasksCreateAndRunSchema = () => TaskAgentCreateSchema
+
+const tasksCreateAndRun = (): ToolBase<ReturnType<typeof TasksCreateAndRunSchema>, Schemas.TaskCreateResponseDTO> => ({
+    name: 'tasks-create-and-run',
+    schema: TasksCreateAndRunSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksCreateAndRunSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = TasksCreateAndRunSchema().parse(params)
+        const result = await context.api.request<Schemas.TaskCreateResponseDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
+            body: parsedParams,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'task_number',
+            'title',
+            'description',
+            'repository',
+            'latest_run.id',
+            'latest_run.stage',
+            'latest_run.status',
+            'run_error',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
@@ -606,20 +700,22 @@ const TasksListSchema = () => {
 
 const tasksList = (): ToolBase<
     ReturnType<typeof TasksListSchema>,
-    WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>
+    WithPostHogUrl<Schemas.PaginatedTaskListItemList>
 > => ({
     name: 'tasks-list',
     schema: TasksListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
+        const result = await context.api.request<Schemas.PaginatedTaskListItemList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
+                basic: params.basic,
                 channel: params.channel,
                 ci_status: params.ci_status,
+                client_provenance: params.client_provenance,
                 commented_by: params.commented_by,
                 created_by: params.created_by,
                 exclude_origin_product: params.exclude_origin_product,
@@ -673,6 +769,81 @@ const tasksList = (): ToolBase<
     },
 })
 
+const TasksMeConfigCreateSchema = () => {
+    const TasksMeConfigCreateBody = orvalSchemas.TasksMeConfigCreateBody()
+    return TasksMeConfigCreateBody
+}
+
+const tasksMeConfigCreate = (): ToolBase<
+    ReturnType<typeof TasksMeConfigCreateSchema>,
+    Schemas.TasksUserConfigResponse
+> => ({
+    name: 'tasks-me-config-create',
+    schema: TasksMeConfigCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        const result = await context.api.request<Schemas.TasksUserConfigResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TasksMeConfigListSchema = () => {
+    const TasksMeConfigListQueryParams = orvalSchemas.TasksMeConfigListQueryParams()
+    return TasksMeConfigListQueryParams
+}
+
+const tasksMeConfigList = (): ToolBase<
+    ReturnType<typeof TasksMeConfigListSchema>,
+    Schemas.TasksUserConfigResponse
+> => ({
+    name: 'tasks-me-config-list',
+    schema: TasksMeConfigListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TasksUserConfigResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const TasksModelsRetrieveSchema = () => z.object({})
+
+const tasksModelsRetrieve = (): ToolBase<
+    ReturnType<typeof TasksModelsRetrieveSchema>,
+    Schemas.ModelCatalogueResponse
+> => ({
+    name: 'tasks-models-retrieve',
+    schema: TasksModelsRetrieveSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof TasksModelsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ModelCatalogueResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/models/`,
+        })
+        return result
+    },
+})
+
 const TasksRetrieveSchema = () => {
     const TasksRetrieveParams = orvalSchemas.TasksRetrieveParams()
     return TasksRetrieveParams.omit({ project_id: true })
@@ -691,6 +862,35 @@ const tasksRetrieve = (): ToolBase<ReturnType<typeof TasksRetrieveSchema>, WithP
             'latest_run.log_url',
             'latest_run.state.sandbox_connect_token',
             'latest_run.state.sandbox_url',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
+    },
+})
+
+const TasksRunCreateSchema = () => TaskAgentRunCreateSchema
+
+const tasksRunCreate = (): ToolBase<ReturnType<typeof TasksRunCreateSchema>, Schemas.TaskRunResponse> => ({
+    name: 'tasks-run-create',
+    schema: TasksRunCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksRunCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = TasksRunCreateSchema().parse(params)
+        const { id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.TaskRunResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(id))}/run/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'run_error',
+            'id',
+            'task_number',
+            'title',
+            'description',
+            'repository',
+            'latest_run.id',
+            'latest_run.stage',
+            'latest_run.status',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
@@ -813,9 +1013,16 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-retrieve': loopsRetrieve,
     'loops-run-create': loopsRunCreate,
     'loops-runs-retrieve': loopsRunsRetrieve,
+    'tasks-config-create': tasksConfigCreate,
+    'tasks-config-list': tasksConfigList,
     'tasks-create': tasksCreate,
+    'tasks-create-and-run': tasksCreateAndRun,
     'tasks-list': tasksList,
+    'tasks-me-config-create': tasksMeConfigCreate,
+    'tasks-me-config-list': tasksMeConfigList,
+    'tasks-models-retrieve': tasksModelsRetrieve,
     'tasks-retrieve': tasksRetrieve,
+    'tasks-run-create': tasksRunCreate,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
     'tasks-runs-session-logs-retrieve': tasksRunsSessionLogsRetrieve,

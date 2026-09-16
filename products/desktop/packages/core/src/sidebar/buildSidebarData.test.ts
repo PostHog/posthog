@@ -167,12 +167,20 @@ describe("deriveTaskRunState", () => {
       false,
     ],
     [
-      "a local agent streams output",
+      "a local agent has a current prompt",
       "in_progress",
       "local",
       undefined,
-      { taskRunId: "run-1", isPromptPending: true },
+      { taskRunId: "run-1", isPromptPending: true, currentPromptId: 1 },
       true,
+    ],
+    [
+      "a reconnected local session has no current prompt",
+      "in_progress",
+      "local",
+      undefined,
+      { taskRunId: "run-1", isPromptPending: true, currentPromptId: null },
+      false,
     ],
     [
       "an old local session streams output",

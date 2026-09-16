@@ -5,10 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
@@ -96,6 +97,12 @@ class SignalsResponse(BaseModel, frozen=True):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_time_ranges(self) -> "SignalsResponse":
+        if any(signal.end_time < signal.start_time for signal in self.signals):
+            raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
 
 @dataclass(frozen=True)
 class MissionStep:
@@ -125,6 +132,36 @@ def confidence_field() -> Any:
     return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
+_NOTABILITY_REASON_DESCRIPTION = (
+    "One sentence a product team would read to decide whether to watch this session, naming the concrete moment "
+    "that makes it worth their time. Write it even when nothing stands out, saying so plainly."
+)
+_NOTABILITY_DESCRIPTION = (
+    "How much a product team would benefit from watching this session, 0.0 to 1.0 with one decimal. "
+    "Apply the notability calibration rules from the system prompt."
+)
+
+
+def notability_reason_field() -> Any:
+    """`notability_reason` field for LLM-response schemas. Declared before `notability` so the model names the
+    moment before scoring it.
+
+    Optional on purpose: this rides every scan in the product, and a required field would turn a model that
+    skipped it into a failed, already-paid observation. Readers fall back when it is absent.
+    """
+    return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
+
+
+def notability_field() -> Any:
+    """`notability` field for LLM-response schemas.
+
+    Judges the session on its own merits — friction, failure, confusion, surprise — rather than on the scanner's
+    question, so a scan whose own answer is a non-event can still flag a session worth watching. Optional for the
+    same reason as `notability_reason`.
+    """
+    return Field(default=None, ge=0, le=1, description=_NOTABILITY_DESCRIPTION)
+
+
 @frozen
 class EmbeddingDocument:
     """One embedding row's identity and text: `rendering` names which field of the output it came from."""
@@ -137,6 +174,11 @@ class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
     confidence: float = confidence_field()
+    # Optional because observations scanned before notability shipped have neither field; readers must treat
+    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics. Uses the
+    # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
+    notability: float | None = notability_field()
+    notability_reason: str | None = notability_reason_field()
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
@@ -153,8 +195,8 @@ class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
-    names it `summary`); the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
+    side mission, when enabled, is always the final turn.
     """
 
     prompt: str
@@ -162,7 +204,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
-    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
@@ -183,24 +225,29 @@ class BaseScanner(BaseModel, frozen=True):
         *,
         team_name: str,
         session_metadata: dict[str, Any] | None = None,
+        session_identity: dict[str, Any] | None = None,
         navigation: list[dict[str, Any]] | None = None,
         navigation_dropped: int = 0,
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
+        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
-        session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
-        `types.py` import, which would close an import cycle)."""
+        session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
+        this module free of a `types.py` import, which would close an import cycle)."""
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
             session_metadata=session_metadata or {},
+            session_identity=session_identity or None,
             navigation=navigation or [],
             navigation_dropped=navigation_dropped,
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
+            tool_budget=tool_budget,
+            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
         )
 
     def core_steps(self) -> list[MissionStep]:

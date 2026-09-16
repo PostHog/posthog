@@ -154,7 +154,7 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
 
@@ -181,7 +181,7 @@ class TestTaskRunMetrics(TestCase):
             patch.object(facade, "signal_task_run_user_message", side_effect=_terminalize_during_signal),
             self.assertRaises(facade.WarmRunActivationUnavailable),
         ):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
         assert _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels) == activated_before
@@ -223,7 +223,7 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before
 

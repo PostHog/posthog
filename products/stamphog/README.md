@@ -39,7 +39,7 @@ The sandbox clones and checks out the PR head for every review, so the reviewer'
 The engine is told the checkout is the head (`head_checkout=True`) so it never builds the Action's separate head worktree, and the prompt flags the PR as stacked (`PRData.stacked`, keyed on the repo's actual default branch).
 The diff stays scoped `base...head`.
 When the parent merges and GitHub retargets the child onto the default branch, the diff changes without a push: the webhook path retracts the standing approval and queues a fresh run, and `post_verdict` rechecks the live base (ref and SHA) against the reviewed one before posting.
-Engine details: [`tools/pr-approval-agent/README.md`](../../tools/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
+Engine details: [`packages/pr-approval-agent/README.md`](packages/pr-approval-agent/README.md#stacked-prs-graphite--git-stacks).
 
 ## Configuration
 
@@ -47,4 +47,4 @@ Per-repo settings live on `StamphogRepoConfig` (synced via the GitHub App instal
 
 ## Security model, in one paragraph
 
-The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets: it gets a per-run gateway token (a `phe_` scoped token pinned to `product=aio_stamphog` and capped at $5 on the Go ai-gateway, or an OAuth token scoped to `llm_gateway:read` + the server-mint marker on the legacy gateway's stamphog route), egress is fenced to an explicit domain allowlist, posted bodies are scrubbed and markdown-image-neutralized, and approvals are governed by a strict supersession protocol so no approval survives events it shouldn't (pushes, re-reviews, repo disable). Details and invariants: [AGENTS.md](AGENTS.md).
+The sandbox runs an LLM over untrusted PR content, so it holds no long-lived secrets: it gets a per-run `phe_` scoped token from the Go ai-gateway (pinned to `product=aio_stamphog`, capped at $5 and one hour, revoked when the sandbox is destroyed), egress is fenced to an explicit domain allowlist, posted bodies are scrubbed and markdown-image-neutralized, and approvals are governed by a strict supersession protocol so no approval survives events it shouldn't (pushes, re-reviews, repo disable). Details and invariants: [AGENTS.md](AGENTS.md).

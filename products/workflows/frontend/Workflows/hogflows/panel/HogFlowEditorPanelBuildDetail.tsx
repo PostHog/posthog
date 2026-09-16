@@ -9,12 +9,13 @@ import {
     LemonCollapse,
     LemonDivider,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
@@ -27,9 +28,13 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isEmailAction, isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
+import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
-import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
+import {
+    WORKFLOW_VARIABLE_TYPE_OPTIONS,
+    hogFlowOutputMappingLogic,
+    sanitizeVariableKey,
+} from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
@@ -40,7 +45,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         useValues(hogFlowOutputMappingLogic(logicProps))
     const {
         setSelectedActionId,
-        setMappings,
         updateMappingResultPath,
         addMapping,
         removeMapping,
@@ -49,6 +53,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
         cancelPendingPath,
         runOutputTest,
         applySuggestion,
+        setMappingVariable,
+        setVariableType,
     } = useActions(hogFlowOutputMappingLogic(logicProps))
 
     useEffect(() => {
@@ -62,6 +68,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     }
 
     const action = selectedNode.data
+    // A real run of this step starts an agent and parks for minutes, so the panel offers the
+    // known result fields instead of a live test call.
+    const isAiTaskAction = action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
 
     const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
@@ -76,49 +85,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const hideFiltersPanel = isBranchingStep && !hasLegacyBranchingFilters
 
     return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
-                <div className="flex flex-col gap-1">
-                    <EditableField
-                        name="step-name"
-                        value={action.name}
-                        onSave={(value) => {
-                            const trimmed = value.trim()
-                            if (trimmed) {
-                                setWorkflowAction(action.id, { ...action, name: trimmed })
-                            }
-                        }}
-                        placeholder="Step name"
-                        minLength={1}
-                        saveOnBlur
-                        clickToEdit
-                        compactButtons
-                        compactIcon
-                        className="font-semibold text-base"
-                        data-attr="workflow-step-name"
-                    />
-                    {!isScheduleTrigger(action) && (
-                        <EditableField
-                            name="step-description"
-                            value={action.description || ''}
-                            onSave={(value) => setWorkflowAction(action.id, { ...action, description: value.trim() })}
-                            placeholder="Add a description (optional)"
-                            multiline
-                            saveOnBlur
-                            clickToEdit
-                            compactButtons
-                            compactIcon
-                            className="text-sm text-secondary"
-                            data-attr="workflow-step-description"
-                        />
-                    )}
-                </div>
-                <LemonDivider className="my-2" />
                 <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
                     {Step?.renderConfiguration(selectedNode)}
                 </ErrorBoundary>
@@ -210,32 +183,49 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >
                                                     <div className="flex items-center gap-1">
                                                         <LemonField.Pure label="Variable" className="flex-1">
-                                                            <LemonSelect
-                                                                options={[
-                                                                    { value: '', label: 'Select variable...' },
-                                                                    ...(workflow.variables || [])
-                                                                        .filter(
-                                                                            ({ key }) =>
-                                                                                key === mapping.key ||
-                                                                                !mappings.some((m) => m.key === key)
-                                                                        )
-                                                                        .map(({ key }) => ({
-                                                                            value: key,
-                                                                            label: key,
-                                                                        })),
-                                                                ]}
-                                                                value={mapping.key || ''}
-                                                                onChange={(value) => {
-                                                                    const updated = [...mappings]
-                                                                    updated[index] = {
-                                                                        ...updated[index],
-                                                                        key: value || '',
-                                                                    }
-                                                                    setMappings(updated)
-                                                                }}
+                                                            <LemonInputSelect
+                                                                mode="single"
+                                                                allowCustomValues
+                                                                placeholder="Select or type a new name"
+                                                                formatCreateLabel={(input) =>
+                                                                    `Create variable "${input}"`
+                                                                }
+                                                                inputTransform={sanitizeVariableKey}
+                                                                options={(workflow.variables || [])
+                                                                    .filter(
+                                                                        ({ key }) =>
+                                                                            key === mapping.key ||
+                                                                            !mappings.some((m) => m.key === key)
+                                                                    )
+                                                                    .map(({ key }) => ({ key, label: key }))}
+                                                                value={mapping.key ? [mapping.key] : []}
+                                                                onChange={([value]) =>
+                                                                    setMappingVariable(index, value || '')
+                                                                }
                                                                 size="small"
                                                             />
                                                         </LemonField.Pure>
+                                                        {mapping.key && (
+                                                            <LemonField.Pure label="Type">
+                                                                <LemonSelect
+                                                                    options={WORKFLOW_VARIABLE_TYPE_OPTIONS}
+                                                                    value={
+                                                                        WORKFLOW_VARIABLE_TYPE_OPTIONS.find(
+                                                                            ({ value }) =>
+                                                                                value ===
+                                                                                workflow.variables?.find(
+                                                                                    (v) => v.key === mapping.key
+                                                                                )?.type
+                                                                        )?.value ?? null
+                                                                    }
+                                                                    placeholder="Other"
+                                                                    onChange={(type) =>
+                                                                        type && setVariableType(mapping.key, type)
+                                                                    }
+                                                                    size="small"
+                                                                />
+                                                            </LemonField.Pure>
+                                                        )}
                                                         <LemonButton
                                                             icon={<IconX />}
                                                             size="small"
@@ -245,7 +235,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     </div>
                                                     <LemonField.Pure
                                                         label="Result path"
-                                                        info="Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                        info={
+                                                            isAiTaskAction
+                                                                ? "Specify a path within the step result to store. A path like 'output.verdict' asks the agent to return that field, typed like the variable. Leave blank for the entire result."
+                                                                : "Specify a path within the step result to store, e.g. 'body.results[0].id'. Leave blank for the entire result."
+                                                        }
                                                         className="w-full"
                                                     >
                                                         <LemonInput
@@ -256,7 +250,9 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                             prefix={<span>result.</span>}
                                                             value={mapping.result_path}
                                                             onChange={(value) => updateMappingResultPath(index, value)}
-                                                            placeholder="body.results[0].id"
+                                                            placeholder={
+                                                                isAiTaskAction ? 'output.verdict' : 'body.results[0].id'
+                                                            }
                                                             size="small"
                                                         />
                                                     </LemonField.Pure>
@@ -289,17 +285,19 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 >
                                                     Add mapping
                                                 </LemonButton>
-                                                <LemonButton
-                                                    icon={<IconPlay />}
-                                                    size="small"
-                                                    type="primary"
-                                                    className={shakePickButton ? 'animate-shake' : ''}
-                                                    loading={testLoading}
-                                                    tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                    onClick={runOutputTest}
-                                                >
-                                                    Pick from response
-                                                </LemonButton>
+                                                {!isAiTaskAction && (
+                                                    <LemonButton
+                                                        icon={<IconPlay />}
+                                                        size="small"
+                                                        type="primary"
+                                                        className={shakePickButton ? 'animate-shake' : ''}
+                                                        loading={testLoading}
+                                                        tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
+                                                        onClick={runOutputTest}
+                                                    >
+                                                        Pick from response
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                             {testError && (
                                                 <LemonBanner type="error" className="w-full">
@@ -370,13 +368,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             )}
                                             <LemonDivider className="my-1" />
                                             <LemonButton
-                                                icon={<IconPlus />}
                                                 sideIcon={<IconExternal />}
                                                 size="small"
                                                 type="secondary"
                                                 onClick={() => setMode('variables')}
                                             >
-                                                New variable
+                                                View all workflow variables
                                             </LemonButton>
                                         </div>
                                     ),
@@ -430,7 +427,17 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                       ]),
                                 {
                                     key: 'on_error',
-                                    header: <span className="flex-1">Error handling</span>,
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Error handling</span>
+                                            <LemonTag
+                                                size="small"
+                                                type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                            >
+                                                {action.on_error === 'continue' ? 'Continue on error' : 'Exit on error'}
+                                            </LemonTag>
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -34,7 +34,7 @@ def _item(change_pct: float | None) -> MarketingAnalyticsItem:
     )
 
 
-@freeze_time("2026-06-15T12:00:00Z")
+@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 class TestCostsPrecomputeTtlSchedule(BaseTest):
     """The read path and the Dagster warmer both build their schedule here.
 
