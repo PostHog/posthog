@@ -33,7 +33,7 @@ hand-pick which tables sync or set non-default sync types per table.
 | `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source               |
 | `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)                                              |
 | `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow; not available over MCP)        |
-| `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response                                            |
+| `external-data-sources-create`                         | Advanced create — takes a `schemas` array of the tables to sync; it discovers the tables itself                           |
 | `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                                                           |
 | `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered                                                   |
 | `external-data-sources-create-webhook-create`          | Register a webhook with the external service after source creation                                                        |
@@ -110,25 +110,30 @@ Notes specific to this path:
 
 ## Advanced: hand-pick tables (three-step flow)
 
-Use this when the user wants to choose exactly which tables sync or set non-default sync types. Don't try to shortcut
-to `external-data-sources-create` — you need the db-schema response to build a valid `schemas` payload.
+Use this when the user wants to choose exactly which tables sync or set non-default sync types. The db-schema
+response lists the sync methods and incremental fields each table supports, so build the `schemas` payload from it
+when you can reach it.
 
 **`external-data-sources-db-schema` is not exposed over MCP** (`enabled: false` in
 `products/warehouse_sources/mcp/tools.yaml`), so an MCP agent cannot complete this flow. Steps 1 to 3 below record
 the API contract for the in-app wizard and for direct API callers.
 
-Over MCP there is no equal substitute. One-step setup plus `external-data-schemas-partial-update` comes closest, but
-it does not reach the same end state:
+Over MCP, hand-pick the tables with `external-data-sources-create`, which is exposed. It runs its own discovery and
+rejects any name it did not find ("Schemas given do not exist in source"), so a `schemas` array of the names the
+user chose is enough without a db-schema call. Read each table's supported sync methods with
+`external-data-schemas-incremental-fields-create` afterwards, then set them with
+`external-data-schemas-partial-update`.
 
-- Setup enables every discovered table and starts a billable import for each one straight away. A later
-  `partial-update` pauses the next sync. It does not stop the run already going and it does not remove the rows it
-  imported, so the user pays for the tables they did not want.
+Do not stand in for that with one-step setup plus `external-data-schemas-partial-update`. It does not reach the same
+end state:
+
+- Setup enables every discovered table and starts an import for each one straight away. A later `partial-update`
+  pauses the next sync. It does not stop the run already going and it does not remove the rows it imported, so the
+  tables the user did not want are already in the warehouse. A source syncs free for its first seven days, so the
+  cost arrives later, once those tables keep their 6h cadence.
 - Setup can register a remote webhook. A schema update does not remove it.
 - CDC is out of reach. `external-data-sources-enable-cdc-create` is not exposed over MCP either, so
   `partial-update` can store `sync_type: "cdc"` on a source that has no CDC provisioning behind it.
-
-When the user hand-picks tables and those extra imports matter, send them to the in-app wizard rather than
-approximate this flow over MCP.
 
 ```text
          ┌────────────────────┐
@@ -202,7 +207,8 @@ through `data-warehouse-source-connect-link`, not in chat — see the field rule
 ### Step 2 — Validate credentials and discover tables
 
 Call `external-data-sources-db-schema` with `source_type` plus all credential fields. This call reads raw values
-and is not exposed over MCP, so an MCP agent stops here and uses the one-step setup instead.
+and is not exposed over MCP, so an MCP agent skips this step and passes the table names straight to
+`external-data-sources-create`, which discovers the tables itself.
 
 It does two things at once:
 
@@ -383,7 +389,9 @@ If the user wants near-real-time replication from Postgres:
 - **Always validate creds before create.** The create endpoint will accept invalid creds and then fail
   asynchronously — the source appears in the list with status `Error` and no tables. Skipping the validation step
   just pushes the failure into the background. Direct API callers validate with db-schema. Over MCP that tool is not
-  exposed, so use the one-step setup, which validates the credentials server-side before it creates anything.
+  exposed, so lean on the create paths: the one-step setup validates the credentials server-side before it creates
+  anything, and `external-data-sources-create` discovers the tables against the live source and returns a 400
+  without leaving a source behind when that fails.
 - **Present the table list before creating.** Large databases may have hundreds of tables. Don't auto-select them all
   — row counts and relevance matter for billing. Let the user opt in explicitly.
 - **Don't invent schemas.** Every entry in the `schemas` array must correspond to a real table from the db-schema
