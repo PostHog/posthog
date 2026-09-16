@@ -180,6 +180,16 @@ export const McpAnalyticsMissingCapabilitiesCreateBody = /* @__PURE__ */ zod.obj
 export const mcpAnalyticsSessionsIntentDigestBodyCallerKindDefault = `people`
 
 export const McpAnalyticsSessionsIntentDigestBody = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            'Start of the window to summarize, as an ISO timestamp or a relative value like -7d. Defaults to the recent lookback.'
+        ),
+    date_to: zod
+        .string()
+        .nullish()
+        .describe('End of the window to summarize, same formats as date_from. Defaults to now.'),
     caller_kind: zod
         .enum(['people', 'automations', 'all'])
         .describe('\* `people` - PEOPLE\n\* `automations` - AUTOMATIONS\n\* `all` - ALL')

@@ -69,14 +69,17 @@ def caller_kind_expr(kind: "str | None") -> ast.Expr | None:
     `kind` takes any of `MCPCallerKind`'s values, typed as plain `str` because callers pass both
     the generated `schema.MCPCallerKind` enum (itself a str subclass) and, from the intent-digest
     endpoint, a raw request string. `kind` is never string-interpolated: "people"/"automations"
-    compile to the fixed `_PEOPLE_SQL` predicate or its negation, and any other value (including
-    None and "all") applies no filter at all, keeping every existing caller's results unchanged.
+    compile to the fixed `_PEOPLE_SQL` predicate or its negation; None and "all" apply no filter,
+    keeping every existing caller's results unchanged. Anything else raises, so a typo in a
+    request never silently widens the segment to everything.
     """
     if kind == "people":
         return parse_expr(_PEOPLE_SQL)
     if kind == "automations":
         return parse_expr(f"NOT ({_PEOPLE_SQL})")
-    return None
+    if kind is None or kind == "all":
+        return None
+    raise ValueError(f"Unsupported caller kind: {kind!r}")
 
 
 def tool_scope_exprs(tool: str) -> list[ast.Expr]:

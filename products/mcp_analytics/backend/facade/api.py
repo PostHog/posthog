@@ -3,6 +3,8 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.schema import DateRange
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
@@ -126,14 +128,16 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     return logic.generate_session_intent(team, session_id=session_id, date_from=date_from)
 
 
-def generate_intent_digest(team: Team, caller_kind: str = "people") -> contracts.IntentDigest:
+def generate_intent_digest(
+    team: Team, caller_kind: str = "people", date_range: DateRange | None = None
+) -> contracts.IntentDigest:
     """Generate (or return the cached) project-level digest of what agents are trying to do.
 
     Powers the dashboard's activity tab: a one-sentence summary plus semantic themes. Cached
     both by intent corpus and by recency (each namespaced by ``caller_kind``), so a quiet project
     regenerates only when its intents change and a busy one regenerates at a bounded rate.
     """
-    return logic.generate_intent_digest(team, caller_kind=caller_kind)
+    return logic.generate_intent_digest(team, caller_kind=caller_kind, date_range=date_range)
 
 
 def get_activity_overview(team: Team) -> contracts.ActivityOverview:

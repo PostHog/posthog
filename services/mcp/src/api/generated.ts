@@ -47480,6 +47480,8 @@ export namespace Schemas {
     }
 
     export interface MCPModelBreakdownItem {
+      error_rate_pct: number;
+      errors: number;
       model: string;
       total_calls: number;
     }
@@ -48214,13 +48216,13 @@ export namespace Schemas {
       clients: number;
       /** Share of calls carrying a non-empty $mcp_intent. */
       intent_pct: number;
-      /** People whose first-ever call landed inside the window. */
+      /** People with no call in the 60 days before the window, so a long-dormant person counts as new again. */
       new_people: number;
       /** Share of new people whose first call in the window errored. */
       new_people_first_call_failed_pct: number;
       /** Distinct people who called a tool in the window. */
       people: number;
-      /** People who called a tool before the window and again inside it. */
+      /** People with a call in the 60 days before the window and again inside it. */
       returning_people: number;
       sessions: number;
       success_pct: number;
@@ -53236,6 +53238,16 @@ export namespace Schemas {
     }
 
     export interface MCPIntentDigestRequest {
+      /**
+         * Start of the window to summarize, as an ISO timestamp or a relative value like -7d. Defaults to the recent lookback.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the window to summarize, same formats as date_from. Defaults to now.
+         * @nullable
+         */
+      date_to?: string | null;
       /** Which caller segment to summarize. 'people' (the default) excludes PostHog's own hosted-server automated run types; 'automations' includes only them; 'all' includes both. Customer servers never set the underlying property, so their traffic is always 'people'.
        *
        * * `people` - PEOPLE

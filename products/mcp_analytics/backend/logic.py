@@ -30,6 +30,7 @@ from products.mcp_analytics.backend.constants import (
     MCP_TOOL_CALL_EVENT,
 )
 from products.mcp_analytics.backend.facade import contracts, enums
+from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -377,7 +378,9 @@ def _cached_digest(cached: object) -> contracts.IntentDigest | None:
     )
 
 
-def generate_intent_digest(team: Team, caller_kind: str = "people") -> contracts.IntentDigest:
+def generate_intent_digest(
+    team: Team, caller_kind: str = "people", date_range: DateRange | None = None
+) -> contracts.IntentDigest:
     """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
 
     A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
@@ -397,18 +400,28 @@ def generate_intent_digest(team: Team, caller_kind: str = "people") -> contracts
     theme shares consistent with the total the card displays. Both keys are namespaced by
     ``caller_kind`` so the two segments never serve each other's cached digest.
 
+    ``date_range`` bounds the corpus to the window the caller is looking at, so the themes and
+    the cards next to them describe the same calls; without it the corpus is the recent lookback.
+
     A project with no recorded intents returns a null digest without an LLM call. Raises
     ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
-    intents = intent_generation.fetch_recent_project_intents(team, caller_kind=caller_kind)
+    window = mcp_query_date_range(team, date_range) if date_range is not None else None
+    intents = intent_generation.fetch_recent_project_intents(
+        team,
+        caller_kind=caller_kind,
+        date_from=window.date_from_as_hogql() if window else None,
+        date_to=window.date_to_as_hogql() if window else None,
+    )
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0)
 
     corpus_hash = hashlib.sha256(
         "\x00".join(f"{intent}\x01{tool}\x01{is_error}" for intent, tool, is_error in intents).encode()
     ).hexdigest()
-    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{caller_kind}/{corpus_hash}")
-    recent_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{caller_kind}/recent")
+    scope = f"{caller_kind}/{date_range.date_from if date_range else ''}/{date_range.date_to if date_range else ''}"
+    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{scope}/{corpus_hash}")
+    recent_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{scope}/recent")
     for key in (corpus_key, recent_key):
         cached = _cached_digest(cache.get(key))
         if cached is not None:

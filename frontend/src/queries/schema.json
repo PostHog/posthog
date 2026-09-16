@@ -33154,7 +33154,7 @@
                 },
                 "new_people": {
                     "$ref": "#/definitions/integer",
-                    "description": "People whose first-ever call landed inside the window."
+                    "description": "People with no call in the 60 days before the window, so a long-dormant person counts as new again."
                 },
                 "new_people_first_call_failed_pct": {
                     "description": "Share of new people whose first call in the window errored.",
@@ -33166,7 +33166,7 @@
                 },
                 "returning_people": {
                     "$ref": "#/definitions/integer",
-                    "description": "People who called a tool before the window and again inside it."
+                    "description": "People with a call in the 60 days before the window and again inside it."
                 },
                 "sessions": {
                     "$ref": "#/definitions/integer"

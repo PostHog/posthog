@@ -10,6 +10,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import DateRange
+
 from posthog.models.utils import uuid7
 from posthog.utils import generate_cache_key
 
@@ -446,7 +448,9 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
 
 class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _seed_intent_event(self, intent: str, *, scope_preset: str | None = None) -> None:
+    def _seed_intent_event(
+        self, intent: str, *, scope_preset: str | None = None, age: timedelta = timedelta(0)
+    ) -> None:
         properties: dict[str, Any] = {
             "$session_id": str(uuid7()),
             "$mcp_tool_name": "query_run",
@@ -458,9 +462,25 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
             team=self.team,
             event="$mcp_tool_call",
             distinct_id="seed",
-            timestamp=datetime.now(tz=UTC),
+            timestamp=datetime.now(tz=UTC) - age,
             properties=properties,
         )
+
+    def test_date_range_scopes_the_corpus_and_cache_key(self) -> None:
+        # The overview asks for the window it shows; an intent from outside it must not shape the
+        # themes, and the windowed digest must not serve the unwindowed one from cache.
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        self._seed_intent_event("old investigation", age=timedelta(days=20))
+        parsed = intent_generation.IntentThemesSchema(summary="Summary.", themes=[])
+
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
+            windowed = api.generate_intent_digest(self.team, date_range=DateRange(date_from="-7d"))
+            unwindowed = api.generate_intent_digest(self.team)
+
+        assert windowed.intent_count == 1
+        assert unwindowed.intent_count == 2
+        assert mock_summarize.call_count == 2
 
     def test_no_intents_returns_null_digest_without_llm(self) -> None:
         with patch.object(intent_generation, "summarize_project_intents") as mock_summarize:

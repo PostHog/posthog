@@ -338,6 +338,16 @@ class MCPIntentThemeSerializer(serializers.Serializer):
 
 
 class MCPIntentDigestRequestSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the window to summarize, as an ISO timestamp or a relative value like -7d. Defaults to the recent lookback.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="End of the window to summarize, same formats as date_from. Defaults to now.",
+    )
     caller_kind = serializers.ChoiceField(
         choices=[(kind.value, kind.name) for kind in MCPCallerKind],
         required=False,

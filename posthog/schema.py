@@ -5963,14 +5963,19 @@ class MCPOverviewSummary(BaseModel):
     calls: int
     clients: int = Field(..., description="Distinct resolved harness labels seen in the window.")
     intent_pct: float = Field(..., description="Share of calls carrying a non-empty $mcp_intent.")
-    new_people: int = Field(..., description="People whose first-ever call landed inside the window.")
+    new_people: int = Field(
+        ...,
+        description=(
+            "People with no call in the 60 days before the window, so a long-dormant person counts as new again."
+        ),
+    )
     new_people_first_call_failed_pct: float = Field(
         ..., description="Share of new people whose first call in the window errored."
     )
     people: int = Field(..., description="Distinct people who called a tool in the window.")
     returning_people: int = Field(
         ...,
-        description="People who called a tool before the window and again inside it.",
+        description=("People with a call in the 60 days before the window and again inside it."),
     )
     sessions: int
     success_pct: float

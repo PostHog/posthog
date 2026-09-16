@@ -194,20 +194,30 @@ LIMIT {limit}
 """
 
 
-def fetch_recent_project_intents(team: Team, caller_kind: str | None = None) -> list[tuple[str, str, bool]]:
+def fetch_recent_project_intents(
+    team: Team,
+    caller_kind: str | None = None,
+    date_from: ast.Expr | None = None,
+    date_to: ast.Expr | None = None,
+) -> list[tuple[str, str, bool]]:
     """Return the project's most recent ``($mcp_intent, tool_name, is_error)`` triples, newest first.
 
     ``caller_kind`` scopes to one caller segment (people/automations/all), or applies no filter
-    when None — see ``hogql_queries.base.caller_kind_expr``.
+    when None — see ``hogql_queries.base.caller_kind_expr``. ``date_from``/``date_to`` bound the
+    corpus to a window; without them the scan covers the last ``DIGEST_LOOKBACK``.
     """
     exprs: list[ast.Expr] = [
         parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
         parse_expr(
             "timestamp >= {date_from}",
-            placeholders={"date_from": ast.Constant(value=timezone.now() - DIGEST_LOOKBACK)},
+            placeholders={"date_from": date_from or ast.Constant(value=timezone.now() - DIGEST_LOOKBACK)},
         ),
-        parse_expr("coalesce(properties.$mcp_intent, '') != ''"),
+        # Same predicate as the query runners' has_intent: an SDK can send "{}" for an empty
+        # context object, which is not an intent anyone can group.
+        parse_expr("notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}'"),
     ]
+    if date_to is not None:
+        exprs.append(parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_to}))
     kind_expr = caller_kind_expr(caller_kind)
     if kind_expr is not None:
         exprs.append(kind_expr)

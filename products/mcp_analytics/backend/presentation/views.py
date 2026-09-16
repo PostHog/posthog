@@ -12,6 +12,8 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import DateRange
+
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -277,7 +279,13 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], url_path="intent_digest")
     def intent_digest(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
-            digest = api.generate_intent_digest(self.team, caller_kind=request.validated_data["caller_kind"])
+            data = request.validated_data
+            date_range = (
+                DateRange(date_from=data.get("date_from"), date_to=data.get("date_to"))
+                if data.get("date_from") or data.get("date_to")
+                else None
+            )
+            digest = api.generate_intent_digest(self.team, caller_kind=data["caller_kind"], date_range=date_range)
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent digest generation is unavailable (LLM not configured)."},

@@ -216,8 +216,10 @@ class MCPOverviewSummaryQueryRunner(AnalyticsQueryRunner[MCPOverviewSummaryQuery
 
         row = (response.results or [None])[0]
         results: list[MCPOverviewSummary] = []
-        if row and int(row[4] or 0) > 0:
-            automation_calls, automation_sessions = self._automation_totals()
+        # Resolved before the people check: an automation-only range still has to say that the
+        # hidden segment exists, or the page reads as "no one called" while scouts ran all week.
+        automation_calls, automation_sessions = self._automation_totals()
+        if row and (int(row[4] or 0) > 0 or automation_calls > 0):
             results = [
                 MCPOverviewSummary(
                     people=int(row[0] or 0),

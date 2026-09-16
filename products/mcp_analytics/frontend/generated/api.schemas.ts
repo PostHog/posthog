@@ -623,6 +623,16 @@ export const CallerKindEnumApi = {
 } as const
 
 export interface MCPIntentDigestRequestApi {
+    /**
+     * Start of the window to summarize, as an ISO timestamp or a relative value like -7d. Defaults to the recent lookback.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * End of the window to summarize, same formats as date_from. Defaults to now.
+     * @nullable
+     */
+    date_to?: string | null
     /** Which caller segment to summarize. 'people' (the default) excludes PostHog's own hosted-server automated run types; 'automations' includes only them; 'all' includes both. Customer servers never set the underlying property, so their traffic is always 'people'.
      *
      * * `people` - PEOPLE

@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MCPOverviewSummary, MCPOverviewSummaryQuery
 
+from products.mcp_analytics.backend.hogql_queries.base import caller_kind_expr
 from products.mcp_analytics.backend.hogql_queries.overview_summary import (
     NEW_PEOPLE_LOOKBACK_DAYS,
     MCPOverviewSummaryQueryRunner,
@@ -145,6 +146,26 @@ class TestMCPOverviewSummaryQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
         assert summary is not None
         assert summary.automation_calls == 0
         assert summary.automation_sessions == 0
+
+    def test_automation_only_window_still_reports_the_hidden_segment(self) -> None:
+        self._emit(
+            distinct_id="automation-1",
+            timestamp=NOW - timedelta(days=5),
+            session_id="b",
+            properties={"$mcp_scope_preset": "scout"},
+        )
+        flush_persons_and_events()
+
+        summary = self._summarize(callerKind="people")
+
+        assert summary is not None
+        assert (summary.people, summary.calls) == (0, 0)
+        assert (summary.automation_calls, summary.automation_sessions) == (1, 1)
+
+    @parameterized.expand([("typo", "peoples"), ("empty", ""), ("upper", "PEOPLE")])
+    def test_rejects_unknown_caller_kinds(self, _name: str, kind: str) -> None:
+        with self.assertRaises(ValueError):
+            caller_kind_expr(kind)
 
     def test_automation_totals_populated_when_scoped_to_people(self) -> None:
         self._emit(distinct_id="d1", timestamp=NOW - timedelta(days=5), session_id="a")

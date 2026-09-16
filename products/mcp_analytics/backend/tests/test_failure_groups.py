@@ -173,6 +173,22 @@ class TestMCPFailureGroupsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert groups[0].next_retried_failed_pct == 0.0
         assert groups[0].next_switched_pct == 0.0
 
+    def test_sessionless_calls_do_not_read_as_each_others_retry(self) -> None:
+        # Two people whose SDK sent no session id: without a per-call journey they would share
+        # one partition and the second call would read as the first one's retry.
+        self._emit(distinct_id="d1", session_id="", timestamp=NOW, tool="query_run", is_error=True)
+        self._emit(
+            distinct_id="d2", session_id="", timestamp=NOW + timedelta(seconds=5), tool="query_run", is_error=True
+        )
+        flush_persons_and_events()
+
+        groups = self._groups()
+
+        assert len(groups) == 1
+        assert groups[0].calls == 2
+        assert groups[0].next_ended_pct == 100.0
+        assert groups[0].next_retried_failed_pct == 0.0
+
     @parameterized.expand(
         [
             ("unset_defaults_to_five", None, 5),

@@ -3479,9 +3479,9 @@ export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelB
 export interface MCPOverviewSummary {
     /** Distinct people who called a tool in the window. */
     people: integer
-    /** People whose first-ever call landed inside the window. */
+    /** People with no call in the 60 days before the window, so a long-dormant person counts as new again. */
     new_people: integer
-    /** People who called a tool before the window and again inside it. */
+    /** People with a call in the 60 days before the window and again inside it. */
     returning_people: integer
     /** Share of new people whose first call in the window errored. */
     new_people_first_call_failed_pct: number

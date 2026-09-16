@@ -93,12 +93,15 @@ class MCPFailureGroupsQueryRunner(AnalyticsQueryRunner[MCPFailureGroupsQueryResp
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The CTE covers every call (not just errors) in the window, so the window function can
         # see each errored call's neighbour regardless of whether that neighbour also errored;
-        # only the outer aggregate restricts to errored rows.
+        # only the outer aggregate restricts to errored rows. A call with no session id is its own
+        # journey: otherwise every sessionless call would share one partition and the next
+        # unrelated event by timestamp would read as the agent's retry.
         return parse_select(
             """
             WITH calls AS (
                 SELECT
                     $session_id AS session_id,
+                    coalesce(nullIf($session_id, ''), toString(uuid)) AS journey_id,
                     timestamp,
                     person_id,
                     {effective_tool} AS tool,
@@ -113,6 +116,7 @@ class MCPFailureGroupsQueryRunner(AnalyticsQueryRunner[MCPFailureGroupsQueryResp
             with_next AS (
                 SELECT
                     session_id,
+                    journey_id,
                     person_id,
                     tool,
                     is_error,
@@ -121,11 +125,11 @@ class MCPFailureGroupsQueryRunner(AnalyticsQueryRunner[MCPFailureGroupsQueryResp
                     has_intent,
                     intent,
                     leadInFrame(tool, 1, '') OVER (
-                        PARTITION BY session_id ORDER BY timestamp
+                        PARTITION BY journey_id ORDER BY timestamp
                         ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                     ) AS next_tool,
                     leadInFrame(is_error, 1, false) OVER (
-                        PARTITION BY session_id ORDER BY timestamp
+                        PARTITION BY journey_id ORDER BY timestamp
                         ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                     ) AS next_is_error
                 FROM calls
