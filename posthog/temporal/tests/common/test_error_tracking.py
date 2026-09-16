@@ -16,6 +16,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
+from posthog.hogql_queries.query_failure_handling import build_failure_exception
+from posthog.query_cache.failures import QueryFailureRecord
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -200,6 +202,34 @@ class ExpectedControlFlowActivityWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         await workflow.execute_activity(
             expected_control_flow_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def query_breaker_replay_activity(inputs: OptionallyFailingInputs) -> None:
+    # An open query circuit breaker rebuilds a remembered failure instead of running ClickHouse.
+    # The first failure was captured where it happened, so the replay must not mint a second issue.
+    raise build_failure_exception(
+        QueryFailureRecord(
+            kind="too_many_bytes",
+            detail="Limit for bytes to read exceeded",
+            consecutive_failures=3,
+            last_failed_at=dt.datetime.now(dt.UTC),
+            open_until=dt.datetime.now(dt.UTC) + dt.timedelta(minutes=2),
+        )
+    )
+
+
+@workflow.defn
+class QueryBreakerReplayActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            query_breaker_replay_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
             heartbeat_timeout=dt.timedelta(seconds=5),
@@ -457,6 +487,35 @@ async def test_expected_control_flow_application_error_is_not_captured(temporal_
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "ExpectedControlFlowActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_query_breaker_replay_is_not_captured(temporal_client: Client):
+    """A query circuit-breaker replay is a rebuild of a failure error tracking already holds, and
+    ClickHouse never ran it. The interceptor must re-raise it without reporting it, the way the
+    request path does, or one open breaker mints an issue per replay."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[QueryBreakerReplayActivityWorkflow],
+            activities=[query_breaker_replay_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "QueryBreakerReplayActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,

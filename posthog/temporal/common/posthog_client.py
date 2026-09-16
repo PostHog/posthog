@@ -53,13 +53,17 @@ def is_expected_activity_failure(error: BaseException) -> bool:
     egress-budget backpressure (a deliberate "defer and retry later" signal that our rate limiter
     already records via record_outbound_decision), errors explicitly marked non-reportable
     (expected customer/upstream conditions, e.g. a REST API serving a login page instead of JSON),
-    expected-control-flow ApplicationErrors (activity-retry-as-poll probes), and a saturated or
-    restarting database that clears on its own.
+    expected-control-flow ApplicationErrors (activity-retry-as-poll probes), a saturated or
+    restarting database that clears on its own, and a query failure error tracking already holds:
+    a query circuit-breaker replay or a single-flight follower, neither of which ClickHouse ran.
 
     The activity interceptor below re-raises these without reporting them. An activity that also
     captures locally must apply the same filter, or a worker drain mints an error tracking issue
     that nobody can action.
     """
+    # Deferred: keeps the HogQL query stack off the import path of every Temporal worker.
+    from posthog.hogql_queries.query_failure_handling import captured_elsewhere  # noqa: PLC0415
+
     return (
         temporalio.exceptions.is_cancelled_exception(error)
         or isinstance(error, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
@@ -68,6 +72,7 @@ def is_expected_activity_failure(error: BaseException) -> bool:
             and error.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
         )
         or is_transient_db_error(error)
+        or captured_elsewhere(error)
     )
 
 

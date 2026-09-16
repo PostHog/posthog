@@ -30,6 +30,7 @@ from posthog.exceptions import (
     DatabaseSchemaUnavailable,
 )
 from posthog.hogql_queries.query_failure_handling import (
+    BREAKER_REPLAY_SUFFIX,
     budget_for_limit_context,
     build_failure_exception,
     classify_failure,
@@ -193,10 +194,7 @@ class TestQueryFailureHandling(SimpleTestCase):
             assert isinstance(error, ClickHouseQueryTimeOut)
             assert error.status_code == 504
             assert getattr(error, "served_from_query_failure_cache", False)
-            detail = str(error.detail)
-            assert detail.startswith(original_detail)
-            assert "This query failed the same way 3 times in a row" in detail
-            assert detail.endswith("It can run again in about 2 minutes.")
+            assert str(error.detail) == f"{original_detail} {BREAKER_REPLAY_SUFFIX}"
 
     def test_build_failure_exception_matches_fresh_too_many_bytes_shape(self):
         record = _record("too_many_bytes", 1, "Limit for bytes to read exceeded: 1.10 TB, maximum: 1.00 TB")
@@ -207,15 +205,14 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert error.get_codes() == ["too_many_bytes"]
         assert "was not run again" in str(error.detail)
 
-    def test_build_failure_exception_first_failure_wording(self):
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
-            original_detail = str(ClickHouseQueryMemoryLimitExceeded().detail)
-            record = _record("memory_limit", 1, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
+    def test_build_failure_exception_message_does_not_move_between_replays(self):
+        """The replay message is what error tracking groups on, so neither the failure count nor
+        the remaining wait may reach it: one open breaker must stay one issue group."""
+        original_detail = str(ClickHouseQueryMemoryLimitExceeded().detail)
+        first = _record("memory_limit", 1, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
+        later = _record("memory_limit", 7, original_detail, open_until=datetime.now(UTC) + timedelta(hours=4))
 
-            error = build_failure_exception(record)
-            assert isinstance(error, ClickHouseQueryMemoryLimitExceeded)
-            assert error.status_code == 513
-            detail = str(error.detail)
-            assert detail.startswith(original_detail)
-            assert "This query failed in a way that will repeat" in detail
-            assert detail.endswith("It can run again in about 2 minutes.")
+        first_error = build_failure_exception(first)
+        assert isinstance(first_error, ClickHouseQueryMemoryLimitExceeded)
+        assert first_error.status_code == 513
+        assert str(first_error.detail) == str(build_failure_exception(later).detail)
