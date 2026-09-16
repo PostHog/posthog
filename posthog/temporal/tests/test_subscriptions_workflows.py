@@ -350,7 +350,7 @@ async def test_subscription_delivery_scheduling(
         ):
             await activity_environment.client.execute_workflow(
                 ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
+                ScheduleAllSubscriptionsWorkflowInputs(due_before="2022-02-02T09:10:00+00:00"),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
