@@ -1,10 +1,10 @@
 import base64
-import importlib
+from io import StringIO
 
 from posthog.test.base import BaseTest
 
+from django.core.management import call_command
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
@@ -13,10 +13,6 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.integration import Integration
-
-migration = importlib.import_module("posthog.migrations.1362_apns_environment_integration_id")
-
-MIGRATE_FROM = ("posthog", "1361_asyncdeletion_event_deletion_type")
 
 
 def a_signing_key() -> str:
@@ -34,10 +30,9 @@ def stored_ciphertext(pk: int) -> str:
         return cursor.fetchone()[0]
 
 
-class TestApnsEnvironmentMigration(BaseTest):
-    def run_migration(self) -> None:
-        executor = MigrationExecutor(connection)
-        migration.normalize_apns_integrations(executor.loader.project_state(MIGRATE_FROM).apps, None)
+class TestNormalizeApnsIntegrations(BaseTest):
+    def run_command(self, *, dry_run: bool = False) -> None:
+        call_command("normalize_apns_integrations", *(["--dry-run"] if dry_run else []))
 
     def an_integration(
         self, *, environment, bundle_id="com.example.app", team_id="TEAMID1234", signing_key=None, integration_id=None
@@ -55,11 +50,42 @@ class TestApnsEnvironmentMigration(BaseTest):
             sensitive_config={"signing_key": signing_key if signing_key is not None else a_signing_key().strip()},
         )
 
+    def test_a_dry_run_reports_the_changes_and_writes_nothing(self):
+        key = a_signing_key().strip()
+        sandbox = self.an_integration(environment="sandbox", signing_key=f"  {key}")
+        ciphertext_before = stored_ciphertext(sandbox.pk)
+        output = StringIO()
+
+        call_command("normalize_apns_integrations", "--dry-run", stdout=output)
+        sandbox.refresh_from_db()
+
+        assert sandbox.integration_id == "TEAMID1234.com.example.app"
+        assert sandbox.sensitive_config["signing_key"] == f"  {key}"
+        assert stored_ciphertext(sandbox.pk) == ciphertext_before
+        reported = output.getvalue()
+        assert "TEAMID1234.com.example.app:sandbox" in reported
+        assert "signing key" in reported
+
+    def test_a_dry_run_reports_what_the_real_run_does(self):
+        # The sandbox row gives up the bare id and the padded production row takes it. Reading the
+        # database for that id during a dry run would call the production row blocked.
+        self.an_integration(environment="sandbox")
+        self.an_integration(
+            environment="production", team_id=" TEAMID1234", integration_id=" TEAMID1234.com.example.app"
+        )
+        dry, real = StringIO(), StringIO()
+
+        call_command("normalize_apns_integrations", "--dry-run", stdout=dry)
+        call_command("normalize_apns_integrations", stdout=real)
+
+        assert dry.getvalue().count("id becomes") == real.getvalue().count("id becomes") == 2
+        assert "blocked" not in dry.getvalue().replace("0 blocked", "")
+
     def test_a_sandbox_row_frees_the_bare_id_for_the_production_row(self):
         sandbox = self.an_integration(environment="sandbox")
         production = self.an_integration(environment="production", bundle_id="com.example.other")
 
-        self.run_migration()
+        self.run_command()
         sandbox.refresh_from_db()
         production.refresh_from_db()
 
@@ -72,7 +98,7 @@ class TestApnsEnvironmentMigration(BaseTest):
             environment="production", team_id=" TEAMID1234", integration_id=" TEAMID1234.com.example.app"
         )
 
-        self.run_migration()
+        self.run_command()
         sandbox.refresh_from_db()
         padded.refresh_from_db()
 
@@ -90,7 +116,7 @@ class TestApnsEnvironmentMigration(BaseTest):
             )
         before = stored_ciphertext(stranded.pk)
 
-        self.run_migration()
+        self.run_command()
         stranded.refresh_from_db()
 
         assert stranded.integration_id == "TEAMID1234.com.example.app:sandbox"
@@ -100,7 +126,7 @@ class TestApnsEnvironmentMigration(BaseTest):
         integration = self.an_integration(environment="sandbox")
         before = stored_ciphertext(integration.pk)
 
-        self.run_migration()
+        self.run_command()
         integration.refresh_from_db()
 
         assert integration.integration_id.endswith(":sandbox")
@@ -110,7 +136,7 @@ class TestApnsEnvironmentMigration(BaseTest):
         key = a_signing_key().strip()
         integration = self.an_integration(environment="production", signing_key=f"  {key}  ")
 
-        self.run_migration()
+        self.run_command()
         integration.refresh_from_db()
 
         assert integration.sensitive_config["signing_key"] == key
@@ -121,7 +147,7 @@ class TestApnsEnvironmentMigration(BaseTest):
         integration.config = {**integration.config, "bundle_id": 12345}
         integration.save(update_fields=["config"])
 
-        self.run_migration()
+        self.run_command()
         integration.refresh_from_db()
 
         assert integration.integration_id == "TEAMID1234.com.example.app"
@@ -132,7 +158,7 @@ class TestApnsEnvironmentMigration(BaseTest):
             environment="production", team_id="TEAMID1234 ", integration_id="TEAMID1234.com.example.app "
         )
 
-        self.run_migration()
+        self.run_command()
         first.refresh_from_db()
         second.refresh_from_db()
 
@@ -158,7 +184,7 @@ class TestApnsEnvironmentMigration(BaseTest):
                 [self.team.id, raw_config],
             )
 
-        self.run_migration()
+        self.run_command()
         healthy.refresh_from_db()
 
         assert healthy.integration_id == "TEAMID1234.com.example.app:sandbox"
@@ -174,7 +200,7 @@ class TestApnsEnvironmentMigration(BaseTest):
             sensitive_config={"signing_key": a_signing_key().strip()},
         )
 
-        self.run_migration()
+        self.run_command()
         mine.refresh_from_db()
         theirs.refresh_from_db()
 
