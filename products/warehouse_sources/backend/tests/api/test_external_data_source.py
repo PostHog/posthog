@@ -5482,6 +5482,12 @@ class TestExternalDataSource(APIBaseTest):
             for table in STRIPE_ENDPOINTS:
                 assert table in table_names
 
+            balance_transaction = next(
+                table for table in results if table["table"] == STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME
+            )
+            assert balance_transaction["declared_incremental_field"] == "created"
+            assert balance_transaction["declared_incremental_field_type"] == "integer"
+
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_database_schema_does_not_request_row_counts(self, mock_get_source):
         parsed_config = Mock()
@@ -5582,6 +5588,8 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_available": None,
                     "xmin_available": False,
                     "incremental_field": "id",
+                    "declared_incremental_field": None,
+                    "declared_incremental_field_type": None,
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
@@ -5660,6 +5668,8 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_available": None,
                     "xmin_available": False,
                     "incremental_field": "id",
+                    "declared_incremental_field": None,
+                    "declared_incremental_field_type": None,
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,

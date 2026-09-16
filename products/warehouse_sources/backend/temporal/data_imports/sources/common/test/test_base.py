@@ -1,3 +1,5 @@
+from typing import Any
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfig
@@ -9,7 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
+    SQLSourceImplementation,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 
 class _DescriptionsOnlySource(_BaseSource[Config]):
@@ -66,3 +73,47 @@ def test_table_prefix_hook_defaults_to_the_plain_descriptions() -> None:
 )
 def test_error_message_matches(_name, error_msg, patterns, expected):
     assert error_message_matches(error_msg, patterns) is expected
+
+
+class _CursorDeclaringSource(_BaseSource[Config]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        raise NotImplementedError()
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        raise NotImplementedError()
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return {}
+
+
+class _SqlLikeSource(SQLSource[Config]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        raise NotImplementedError()
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        raise NotImplementedError()
+
+    @property
+    def get_implementation(self) -> SQLSourceImplementation[Config, Any, Any]:
+        raise NotImplementedError()
+
+
+def test_only_a_connector_declared_cursor_is_offered_for_auto_selection() -> None:
+    # Withholding a declared cursor drops that table to a full re-import on every run. Offering a
+    # SQL source's column would pin the sync to a value that may never advance after the import.
+    fields: list[IncrementalField] = [
+        {
+            "label": "generated_timestamp",
+            "type": IncrementalFieldType.Integer,
+            "field": "generated_timestamp",
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ]
+    schema = SourceSchema(name="tickets", supports_incremental=True, supports_append=True, incremental_fields=fields)
+
+    assert _CursorDeclaringSource().declared_incremental_field_for_schema(schema) == fields[0]
+    assert _SqlLikeSource().declared_incremental_field_for_schema(schema) is None

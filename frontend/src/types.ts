@@ -6617,6 +6617,10 @@ export interface ExternalDataSourceSyncSchema {
     incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     incremental_fields: IncrementalField[]
+    /** The cursor the connector declares for this table. Null for SQL sources, whose candidates
+     *  are the user's own columns and may never advance after the first import. */
+    declared_incremental_field?: string | null
+    declared_incremental_field_type?: string | null
     incremental_available: boolean
     append_available: boolean
     cdc_available?: boolean

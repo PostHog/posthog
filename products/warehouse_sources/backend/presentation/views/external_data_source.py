@@ -3560,6 +3560,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
+        # The cursor the connector declares, for a client that picks a sync method without asking.
+        declared_cursors = {schema.name: source.declared_incremental_field_for_schema(schema) for schema in schemas}
         data = [
             {
                 "table": schema.name,
@@ -3572,6 +3574,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
+                else None,
+                "declared_incremental_field": declared_cursors[schema.name]["field"]
+                if declared_cursors[schema.name]
+                else None,
+                "declared_incremental_field_type": str(declared_cursors[schema.name]["field_type"])
+                if declared_cursors[schema.name]
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
