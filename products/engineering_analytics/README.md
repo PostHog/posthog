@@ -87,6 +87,10 @@ graph LR
 
 ## The goal: CI Signals for PostHog Desktop
 
+Backend pytest retries retain their failed-attempt diagnostics even when the job passes.
+The job-log collector uses recovered-test spans to include those successful jobs, and keeps their original conclusion.
+See [Backend test retries](../../docs/internal/backend-test-retries.md) for the retry budget and reporting path.
+
 Valuable CI conditions ("this check is flaky", "master went red at SHA X", "this PR is wedged on a failing required check") become [Signals](../signals): grouped, researched against the repository, and handed to PostHog Desktop for autonomous remediation.
 Detection is defined once in `logic/` over the read layer, so the emitter and the MCP tools share one definition.
 Shortening ready-for-review-to-merge is the headline metric this serves.

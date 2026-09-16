@@ -1,14 +1,14 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
-import { MlPrivacyBatchController } from './batch-controller'
+import { MlKeyBatchController } from './batch-controller'
 import { MlKeyEncryption } from './crypto'
-import { MlPrivacyDynamoDB } from './dynamodb'
+import { MlKeyDynamoDB } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlKafkaEncryption } from './transport'
+import { MlKafkaTransport } from './transport'
 
-export interface MlPrivacyConfig {
+export interface MlKeyManagerConfig {
     AI_RESEARCH_REPLAY_KEY_TABLE: string
     AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
     AI_RESEARCH_REPLAY_AWS_REGION: string
@@ -18,17 +18,17 @@ export interface MlPrivacyConfig {
     SESSION_RECORDING_DYNAMODB_ENDPOINT?: string
 }
 
-export class MlPrivacyRuntime {
+export class MlKeyManager {
     public readonly encryption: MlKeyEncryption
     public readonly reader: MlKeyReader
-    public readonly controller: MlPrivacyBatchController
-    public readonly kafka: MlKafkaEncryption
+    public readonly controller: MlKeyBatchController
+    public readonly kafka: MlKafkaTransport
     private readonly dynamo: DynamoDBClient
     private readonly kms: KMSClient
 
-    constructor(config: MlPrivacyConfig) {
+    constructor(config: MlKeyManagerConfig) {
         if (!config.AI_RESEARCH_REPLAY_KEY_TABLE || !config.AI_RESEARCH_REPLAY_KMS_KEY_ARN) {
-            throw new Error('ML privacy requires a DynamoDB table and a KMS key ARN')
+            throw new Error('ML key manager requires a DynamoDB table and a KMS key ARN')
         }
         this.dynamo = new DynamoDBClient({
             region: config.AI_RESEARCH_REPLAY_AWS_REGION,
@@ -36,7 +36,7 @@ export class MlPrivacyRuntime {
             maxAttempts: 3,
         })
         this.kms = new KMSClient({ region: config.AI_RESEARCH_REPLAY_AWS_REGION, maxAttempts: 3 })
-        const db = new MlPrivacyDynamoDB(this.dynamo, config.AI_RESEARCH_REPLAY_KEY_TABLE)
+        const db = new MlKeyDynamoDB(this.dynamo, config.AI_RESEARCH_REPLAY_KEY_TABLE)
         this.encryption = new MlKeyEncryption(
             this.kms,
             config.AI_RESEARCH_REPLAY_KMS_KEY_ARN,
@@ -46,12 +46,12 @@ export class MlPrivacyRuntime {
             config.AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND
         )
         this.reader = new MlKeyReader(db, this.encryption)
-        this.controller = new MlPrivacyBatchController(new MlSessionKeyStore(db, this.encryption), this.encryption)
-        this.kafka = new MlKafkaEncryption(this.reader)
+        this.controller = new MlKeyBatchController(new MlSessionKeyStore(db, this.encryption), this.encryption)
+        this.kafka = new MlKafkaTransport(this.reader)
     }
 
     public start(): Promise<void> {
-        return this.encryption.start()
+        return Promise.resolve()
     }
 
     public stop(): void {
