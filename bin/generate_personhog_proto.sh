@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROTO_DIR="$REPO_ROOT/proto"
-OUT_DIR="$REPO_ROOT/common/personhog_proto"
+OUT_DIR="$REPO_ROOT/packages/personhog-proto"
 
 python -c "import grpc_tools" 2>/dev/null || { echo "Error: grpcio-tools is not installed. Run: uv sync" >&2; exit 1; }
 
