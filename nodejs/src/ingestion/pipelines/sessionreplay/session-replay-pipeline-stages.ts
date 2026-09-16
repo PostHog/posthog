@@ -1,27 +1,37 @@
+import { Message } from 'node-rdkafka'
+
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { ChunkPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { EventHeaders } from '~/types'
 
 import { NewSessionFlag, Recordable, SessionReplayHeaders } from './pipeline-types'
 import { RecordSessionEventStepInput } from './record-session-event-step'
+import { RetentionLookupContext } from './session-batch-context'
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
-import type { SessionReplayPipelineConfig, SessionReplayPipelineInput } from './session-replay-pipeline'
+import type { SessionReplayPipelineConfig } from './session-replay-pipeline'
 import { createResolveKeyStep } from './session-resolve-key-step'
 import { RetentionPeriod } from './shared/constants'
-import { createTeamFilterStep } from './team-filter-step'
+import { TeamFilterStepOutput, createTeamFilterStep } from './team-filter-step'
 import { TeamForReplay } from './teams/types'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
-type ValidatedReplayInput = SessionReplayPipelineInput & { headers: SessionReplayHeaders; team: TeamForReplay }
+/** What preprocessing needs from an element. The main lane stamps the full recorder; a lane that overlaps batches stamps only the retention lookup. */
+export type SessionReplayPreprocessingInput = { message: Message } & RetentionLookupContext
+/** A preprocessed element: the headers validated and the team resolved. */
+export type PreprocessedReplayInput<I> = Omit<I & { headers: EventHeaders }, 'headers'> & {
+    headers: SessionReplayHeaders
+} & TeamFilterStepOutput
+type ValidatedReplayInput = SessionReplayPreprocessingInput & { headers: SessionReplayHeaders; team: TeamForReplay }
 
-export function addSessionReplayPreprocessing<C>(
-    builder: StartPipelineBuilder<SessionReplayPipelineInput, C>,
+export function addSessionReplayPreprocessing<I extends SessionReplayPreprocessingInput, C>(
+    builder: StartPipelineBuilder<I, C>,
     config: Pick<SessionReplayPipelineConfig, 'eventIngestionRestrictionManager' | 'overflowMode' | 'teamService'>
-): PipelineBuilder<SessionReplayPipelineInput, ValidatedReplayInput, C, OverflowOutput> {
+): PipelineBuilder<I, PreprocessedReplayInput<I>, C, OverflowOutput> {
     const { eventIngestionRestrictionManager, overflowMode, teamService } = config
     return (
         builder
