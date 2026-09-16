@@ -32,7 +32,7 @@ hand-pick which tables sync or set non-default sync types per table.
 | `data-warehouse-source-connect-link`                   | **Preferred for credentials** — get a secure browser/OAuth link so the user authenticates without pasting secrets in chat |
 | `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source               |
 | `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)                                              |
-| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow)                                |
+| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow; not available over MCP)        |
 | `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response                                            |
 | `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                                                           |
 | `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered                                                   |
@@ -112,6 +112,11 @@ Notes specific to this path:
 
 Use this when the user wants to choose exactly which tables sync or set non-default sync types. Don't try to shortcut
 to `external-data-sources-create` — you need the db-schema response to build a valid `schemas` payload.
+
+**`external-data-sources-db-schema` is not exposed over MCP** (`enabled: false` in
+`products/warehouse_sources/mcp/tools.yaml`), so an MCP agent cannot complete this flow. Steps 1 to 3 below record
+the API contract for the in-app wizard and for direct API callers. Over MCP, use the one-step setup and then adjust
+each table with `external-data-schemas-partial-update` — that reaches the same end state without a db-schema call.
 
 ```text
          ┌────────────────────┐
@@ -271,6 +276,10 @@ Call `external-data-sources-create` with:
   }
 }
 ```
+
+The example passes credentials inline because that is what the REST endpoint accepts. Prefer
+`{"credential_id": <id>}` in `payload` instead — `create` resolves a stored credential, so the raw password never
+has to reach the chat.
 
 Rules for the `schemas` array:
 
