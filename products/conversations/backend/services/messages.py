@@ -2,7 +2,7 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models.constants import MESSAGE_SOURCE_POSTHOG
+from products.conversations.backend.models.constants import MESSAGE_SOURCE_POSTHOG, Channel
 
 # Ticket messages are stored as comments under this scope.
 TICKET_MESSAGE_SCOPE = "conversations_ticket"
@@ -23,6 +23,15 @@ def is_team_authored(item_context: object, created_by_id: int | None) -> bool:
     return bool(created_by_id and author_type != "customer") or author_type == "AI"
 
 
+def channel_origin_key(channel: str) -> str:
+    return f"from_{channel}"
+
+
+# Server-only: the comments API strips these from client input (RESERVED_ITEM_CONTEXT_KEYS), since a
+# forged flag would stop a reply being delivered and label it as written in the channel.
+CHANNEL_ORIGIN_KEYS = frozenset(channel_origin_key(channel) for channel in Channel.values)
+
+
 def originated_in_channel(item_context: object, channel: str) -> bool:
     """True when the message was ingested from ``channel`` rather than written in PostHog.
 
@@ -30,7 +39,7 @@ def originated_in_channel(item_context: object, channel: str) -> bool:
     on it not to echo a message back where it came from, so a channel that forgets the flag
     loops its own messages back to itself, and message_source reads the same flag.
     """
-    return isinstance(item_context, dict) and bool(item_context.get(f"from_{channel}"))
+    return isinstance(item_context, dict) and bool(item_context.get(channel_origin_key(channel)))
 
 
 def message_source(item_context: object, created_by_id: int | None, ticket_channel: str) -> str:

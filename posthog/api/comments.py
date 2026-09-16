@@ -47,6 +47,7 @@ from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
+from products.conversations.backend.services.messages import CHANNEL_ORIGIN_KEYS
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -89,11 +90,14 @@ def _require_ticket_editor_access(
 # A reservation with no posted root older than this is a crashed send — safe to retry.
 STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 
-# item_context keys the Slack mirror sync stamps server-side. Stripped from client input so a
-# caller can't forge sync state (suppress mirroring of a reply, block ingestion of a real Slack
-# message by squatting on its ts, or spoof a Slack author identity in the discussion UI).
-RESERVED_ITEM_CONTEXT_KEYS = frozenset(
-    {"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"}
+# item_context keys stamped server-side, stripped from client input so a caller can't forge them.
+# The Slack mirror sync's keys: forging them would suppress mirroring of a reply, block ingestion of
+# a real Slack message by squatting on its ts, or spoof a Slack author identity in the discussion UI.
+# Every ticket channel's from_<channel> origin flag: forging one would stop a ticket reply being
+# delivered to the customer and label it as written in that channel.
+RESERVED_ITEM_CONTEXT_KEYS = (
+    frozenset({"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"})
+    | CHANNEL_ORIGIN_KEYS
 )
 
 

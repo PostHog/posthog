@@ -1506,6 +1506,12 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert created["item_context"] == {"is_emoji": False}
 
+    @parameterized.expand([(channel,) for channel in Channel.values])
+    def test_reserved_channel_origin_item_context_keys_are_stripped(self, channel: str) -> None:
+        # A forged origin flag would skip delivering a ticket reply and label it as channel-written.
+        created = self._create_comment({"item_context": {f"from_{channel}": True, "is_private": False}})
+        assert created["item_context"] == {"is_private": False}
+
     def test_ticket_scope_key_cannot_write_non_ticket_comment_via_body_scope(self) -> None:
         comment = Comment.objects.create(
             team=self.team, scope="Notebook", item_id="n1", content="note", created_by=self.user
