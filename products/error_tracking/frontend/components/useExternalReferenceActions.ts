@@ -29,7 +29,11 @@ export function useExternalReferenceActions(source: ExternalReferenceSource): Ex
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     return {
-        integrations: getIntegrationsByKind([...ERROR_TRACKING_INTEGRATIONS]) as ErrorTrackingIntegration[],
+        // An uninstalled or suspended GitHub App keeps its integration row, but it cannot reach
+        // the provider, so an action on that row fails only after the user fills in the dialog.
+        integrations: (getIntegrationsByKind([...ERROR_TRACKING_INTEGRATIONS]) as ErrorTrackingIntegration[]).filter(
+            (integration) => integration.installation_status !== 'unavailable'
+        ),
         loading: !issue || integrationsLoading,
         busy: !!issue && issueLoading,
         createIssue: (integration: ErrorTrackingIntegration): void => {
