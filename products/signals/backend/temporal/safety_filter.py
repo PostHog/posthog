@@ -157,6 +157,7 @@ async def safety_filter(
             stage="safety_filter",
             ai_product="signals_safety",
             model=SAFETY_MODEL,
+            cache_system_prompt=True,
         )
     except EmptyLLMResponseError:
         return SafetyFilterJudgeResponse(

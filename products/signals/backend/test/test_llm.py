@@ -87,6 +87,30 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cache_system_prompt,expected_system",
+    [
+        (False, "s"),
+        (True, [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]),
+    ],
+)
+async def test_cache_system_prompt_marks_the_system_block(cache_system_prompt, expected_system):
+    client = _mock_anthropic_client()
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="safety_filter",
+            ai_product="signals_safety",
+            cache_system_prompt=cache_system_prompt,
+        )
+
+    assert client.messages.create.call_args.kwargs["system"] == expected_system
+
+
+@pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_non_message_response_raises_descriptive_error():
     client = _mock_anthropic_client()
