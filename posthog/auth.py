@@ -1,7 +1,6 @@
 import re
 import hmac
 import time
-import hashlib
 import logging
 import functools
 from abc import abstractmethod
@@ -32,6 +31,7 @@ from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import activity_storage
@@ -1512,12 +1512,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         raw_body = django_request.body.decode()
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
-        expected = hmac.new(
-            signing_secret.encode(),
-            hmac_input.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        expected = hmac_sha256_signature(signing_secret, hmac_input.encode())
+        if not signatures_match(expected, signature):
             raise AuthenticationFailed("Invalid webhook signature.")
 
         try:
