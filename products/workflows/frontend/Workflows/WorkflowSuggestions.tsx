@@ -1,15 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { LemonSwitch, Spinner } from '@posthog/lemon-ui'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
-import { workflowLogic } from './workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
+import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
 
 export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     const {
@@ -21,8 +17,6 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimisationLoading,
         optimisationUnreadable,
     } = useValues(workflowProposalsLogic({ id }))
-    const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
-    const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
 
@@ -43,30 +37,16 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
 
     if (!optimisationEnabled) {
         return (
-            <div className="flex flex-col gap-2 items-start">
-                <h3 className="mb-0">Suggestions are off for this workflow</h3>
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h3 className="mb-0">Suggestions are off for this workflow</h3>
+                    <WorkflowSuggestionsSwitch id={id} />
+                </div>
                 <p className="mb-0 text-secondary">
                     Turn on "Suggest improvements" to have PostHog read how this workflow performs and suggest changes.
                     Only the workflows you turn on are read, and nothing changes until you approve a suggestion and
                     publish it.
                 </p>
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Workflow}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={workflowUserAccessLevel ?? undefined}
-                >
-                    {({ disabledReason }) => (
-                        <LemonSwitch
-                            bordered
-                            label="Suggest improvements"
-                            checked={optimisationEnabled}
-                            disabled={optimisationLoading || !!disabledReason}
-                            tooltip={disabledReason}
-                            onChange={(checked) => setOptimisationEnabled(checked)}
-                            data-attr="workflow-suggestions-enable"
-                        />
-                    )}
-                </AccessControlAction>
             </div>
         )
     }
@@ -74,7 +54,10 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Waiting for you</h3>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h3 className="mb-0">Waiting for you</h3>
+                    <WorkflowSuggestionsSwitch id={id} />
+                </div>
                 {pendingProposals.length === 0 ? (
                     <p className="mb-0 text-secondary">
                         Nothing to review. PostHog reads this workflow's metrics on a schedule and files a suggestion
