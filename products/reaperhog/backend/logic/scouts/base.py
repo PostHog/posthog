@@ -75,7 +75,9 @@ class Scout(Protocol):
 def flag_patterns(key: str, constant: str | None) -> list[str]:
     patterns = [f"'{key}'", f'"{key}"']
     if constant:
-        patterns.append(f"FEATURE_FLAGS.{constant}")
+        # useFeatureFlag takes `keyof typeof FEATURE_FLAGS`, so its call sites spell the quoted
+        # constant name and never the key or the FEATURE_FLAGS.X form.
+        patterns += [f"FEATURE_FLAGS.{constant}", f"'{constant}'", f'"{constant}"']
     return patterns
 
 

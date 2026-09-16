@@ -478,6 +478,7 @@ jobs:
                         - 'products/signals/skills/**'
                         - 'products/review_hog/backend/**'
                         - 'products/reaperhog/backend/**'
+                        - 'products/reaperhog/skills/**'
                         - 'products/business_knowledge/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
