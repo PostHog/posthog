@@ -47,6 +47,7 @@ describe('ImplementButton', () => {
 
     beforeEach(() => {
         initKeaTests()
+        window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
@@ -146,9 +147,37 @@ describe('ImplementButton', () => {
         expect(prompt).toContain('claim the report with inbox-reports-claim')
         expect(prompt).toContain('pr_url to attach it')
         expect(prompt).toContain('release=true')
-        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'implementation prompt')
+        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt for your agent')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
-            expect.objectContaining({ actionType: 'copy_implementation_prompt' })
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'clipboard' },
+            })
+        )
+    })
+
+    it('opens the implementation prompt from the agent list without changing the copy action', async () => {
+        const user = await openMenu()
+        const open = jest.spyOn(window, 'open').mockImplementation()
+
+        await user.click(screen.getByLabelText('Open prompt in an agent'))
+
+        expect(screen.queryByText('PostHog AI')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Claude Code'))
+
+        expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
+        expect(captureInboxReportAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'claude-code' },
+            })
+        )
+
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'prompt for your agent'
         )
     })
 })

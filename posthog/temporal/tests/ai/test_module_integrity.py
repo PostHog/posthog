@@ -123,6 +123,7 @@ class TestSignalsProductModuleIntegrity:
         expected_activities = [
             "dispatch_inbox_slack_notifications_activity",
             "get_inbox_notification_state_activity",
+            "send_report_github_comments_activity",
             "send_report_inbox_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
@@ -169,6 +170,7 @@ class TestSignalsProductModuleIntegrity:
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
+            "run_due_signal_report_checks_activity",
             "run_signals_scout_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",
@@ -185,6 +187,18 @@ class TestSignalsProductModuleIntegrity:
             assert expected in actual_activity_names, (
                 f"Activity '{expected}' is missing from SIGNALS_PRODUCT_ACTIVITIES."
             )
+
+    def test_every_scout_coordinator_activity_is_registered(self):
+        """A name list cannot catch an activity nobody added, and the worker rejects an unknown one."""
+        from products.signals.backend.temporal.agentic import scout_coordinator
+
+        defined = {
+            name
+            for name, value in vars(scout_coordinator).items()
+            if callable(value) and getattr(value, "__temporal_activity_definition", None) is not None
+        }
+        missing = defined - {a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES}
+        assert not missing, f"Activities defined but not registered: {sorted(missing)}"
 
 
 class TestAIObservabilityModuleIntegrity:

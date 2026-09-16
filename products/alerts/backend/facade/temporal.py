@@ -5,6 +5,8 @@ from products.alerts.backend.temporal.workflows import (
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS,
 )
 
 __all__ = [
@@ -12,6 +14,8 @@ __all__ = [
     "DELIVERY_WORKFLOWS",
     "EVALUATION_ACTIVITIES",
     "EVALUATION_WORKFLOWS",
+    "SHARED_ORCHESTRATION_ACTIVITIES",
+    "SHARED_ORCHESTRATION_WORKFLOWS",
     "AlertsProductTelemetryInterceptor",
     "create_alerts_product_check_due_schedule",
 ]

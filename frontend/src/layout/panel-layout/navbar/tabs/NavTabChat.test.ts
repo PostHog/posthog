@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
-import type { Task } from 'products/posthog_ai/frontend/api/types'
+import type { Task, TaskAssigneeFilter } from 'products/posthog_ai/frontend/api/types'
 
 import { groupAiHistory, groupConversations } from './NavTabChat'
 
@@ -48,6 +48,21 @@ const baseTask: Task = {
 }
 
 describe('groupAiHistory', () => {
+    it.each<[TaskAssigneeFilter, boolean]>([
+        ['for_you', true],
+        ['posthog_ai', true],
+        ['slack', false],
+        ['desktop', false],
+        ['my_scouts', false],
+        ['team_scouts', false],
+        ['all_team', true],
+    ])('includes chat history only when it matches %s', (filter, includesChats) => {
+        const items = groupAiHistory([conversation], [baseTask], filter).flatMap((group) => group.items)
+
+        expect(items.some((item) => item.kind === 'conversation')).toBe(includesChats)
+        expect(items.filter((item) => item.kind === 'task')).toHaveLength(1)
+    })
+
     it('combines chats and tasks in updated order', () => {
         const olderConversation = {
             ...conversation,
@@ -94,7 +109,7 @@ describe('groupAiHistory', () => {
     it('shows a chat that has a task only as its task once tasks are merged in', () => {
         const chatWithTask = { ...conversation, task: { id: 'task-id', latest_run: null } }
 
-        const merged = groupAiHistory([chatWithTask], [baseTask], true).flatMap((group) => group.items)
+        const merged = groupAiHistory([chatWithTask], [baseTask], 'for_you', true).flatMap((group) => group.items)
         const chatsOnly = groupAiHistory([chatWithTask], []).flatMap((group) => group.items)
 
         expect(merged.map((item) => item.key)).toEqual(['task:task-id'])

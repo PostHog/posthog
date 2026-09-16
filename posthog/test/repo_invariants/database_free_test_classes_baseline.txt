@@ -107,7 +107,6 @@ posthog/clickhouse/client/test/test_limit.py::TestRateLimit
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
 posthog/helpers/test_markdown_safety.py::TestStripExternalLinks
-posthog/helpers/tests/test_email_utils.py::TestEmailNormalizer
 posthog/helpers/tests/test_encrypted_fields.py::TestEncryptedFields
 posthog/helpers/tests/test_geoip.py::TestGeoIPDBError
 posthog/helpers/tests/test_geoip.py::TestGeoIPError
@@ -117,7 +116,6 @@ posthog/hogql/database/schema/test/test_web_analytics_s3.py::TestWebAnalyticsS3
 posthog/hogql/database/test/test_argmax.py::TestArgmax
 posthog/hogql/database/test/test_postgres_table.py::TestPostgresTablePrimaryKey
 posthog/hogql/database/test/test_s3_table_clickhouse.py::TestS3ParquetTimezoneConversion
-posthog/hogql/functions/test/test_typegen.py::TestTypegen
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestEscapePreservationOnParserOutput
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestParserPathProducesOnlyAllowlistedVerbatimValues
 posthog/hogql/printer/test/test_sql_injection_defenses.py::TestPrintTimeOnlyAllowlists
@@ -320,7 +318,6 @@ products/endpoints/backend/tests/test_rate_limit.py::TestMaterializationCache
 products/engineering_analytics/backend/tests/test_logic_workflows.py::TestCostPerMergeSeries
 products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py::TestPendingUpdateUnionBuilder
 products/error_tracking/backend/test_notifications.py::TestAssignerExcludingResolver
-products/experiments/backend/hogql_queries/test/test_hogql_aggregation_integration.py::TestHogQLAggregationIntegration
 products/experiments/backend/hogql_queries/test/test_hogql_aggregation_utils.py::TestHogQLAggregationUtils
 products/experiments/backend/hogql_queries/test/test_hogql_injection.py::TestHogQLInjectionPrevention
 products/experiments/backend/hogql_queries/test/test_metric_source.py::TestMetricSourceInfo
@@ -331,7 +328,6 @@ products/exports/backend/tasks/test/test_export_utils.py::TestSiteURLReachabilit
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestCleanupStaleFlagDefinitionsExpiryTrackingTask
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestRefreshExpiringFlagDefinitionsCacheEntries
 products/feature_flags/backend/test/test_flags_cache.py::TestExtractCohortIdsFromFlagFilters
-products/feature_flags/backend/test/test_local_evaluation.py::TestExtractCohortIdsFromFilters
 products/growth/backend/temporal/signup_enrichment/tests/test_harmonic_status_poll.py::TestReportStatusPollRunActivity
 products/legal_documents/backend/tests/test_admin.py::TestLegalDocumentInlineRegistration
 products/logs/backend/test/test_logs_url_params.py::TestBuildLogsUrlParams

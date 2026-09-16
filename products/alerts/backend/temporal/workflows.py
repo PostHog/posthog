@@ -1,7 +1,7 @@
 import datetime as dt
 
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, SearchAttributeKey
 from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError, TimeoutType
 
 from posthog.dataclasses import frozen
@@ -13,6 +13,8 @@ with workflow.unsafe.imports_passed_through():
 
     from asgiref.sync import sync_to_async
 
+    from products.alerts.backend.facade.contracts import AlertDemand, DemandDiscoveryInputs
+    from products.alerts.backend.logic.demand import discover_synthetic_demand
     from products.alerts.backend.temporal.postgres import check_postgres_connection
 
 
@@ -22,6 +24,11 @@ POSTGRES_PROBE_FAILURE = "AlertsProductPostgresProbeFailure"
 @frozen
 class AlertsProductInputs:
     pass
+
+
+@activity.defn
+async def alerts_product_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
+    return discover_synthetic_demand(inputs.cutoff)
 
 
 @activity.defn
@@ -60,6 +67,7 @@ class AlertsProductCheckDueWorkflow(PostHogWorkflow):
         try:
             await workflow.execute_activity(
                 alerts_product_check_due_activity,
+                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 schedule_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -85,6 +93,36 @@ class AlertsProductCheckDueWorkflow(PostHogWorkflow):
         )
 
 
+@workflow.defn(name="alerts-product-orchestrate")
+class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsProductInputs
+
+    @workflow.run
+    async def run(self, inputs: AlertsProductInputs) -> None:
+        if workflow.patched("alerts-product-discover-demand-v1"):
+            info = workflow.info()
+            cutoff = info.typed_search_attributes.get(
+                SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), info.workflow_start_time
+            )
+            await workflow.execute_activity(
+                alerts_product_discover_demand_activity,
+                DemandDiscoveryInputs(cutoff=cutoff.isoformat()),
+                start_to_close_timeout=dt.timedelta(seconds=5),
+                schedule_to_close_timeout=dt.timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        await workflow.execute_child_workflow(
+            AlertsProductCheckDueWorkflow.run,
+            inputs,
+            id=f"alerts-product-check-due-{workflow.info().run_id}",
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            execution_timeout=dt.timedelta(seconds=40),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+SHARED_ORCHESTRATION_WORKFLOWS = [AlertsProductOrchestrateWorkflow]
+SHARED_ORCHESTRATION_ACTIVITIES = [alerts_product_discover_demand_activity]
 EVALUATION_WORKFLOWS = [AlertsProductCheckDueWorkflow]
 EVALUATION_ACTIVITIES = [alerts_product_check_due_activity]
 DELIVERY_WORKFLOWS = [AlertsProductDeliverWorkflow]

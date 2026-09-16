@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import errno
+import shlex
 import shutil
 import socket
 import tempfile
@@ -109,17 +110,16 @@ from .config import (
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
-# Reaching a devbox requires a Tailscale ACL grant. Engineers get it from
-# group:engineering in the cloud-infra tailnet policy; without it the Coder
-# control plane (10.70.0.1:443) is simply unroutable and every devbox command
-# fails at the reachability check.
-_TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
+# Reaching a devbox requires a Tailscale ACL grant. The cloud-infra tailnet
+# policy grants group:employees the remote-dev VPC (10.70.0.0/16) that hosts the
+# Coder control plane; without it every devbox command fails at the
+# reachability check.
 _TAILNET_ACCESS_PREREQ = (
-    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
-    "prod-us / prod-eu / internal — those are for CI runners and subnet "
-    "routers), with your email in `group:engineering` in "
-    "posthog-cloud-infra/tailnet-policy.hujson.\n"
-    f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet. The dev, "
+    "prod-us, prod-eu and internal tailnets are for CI runners and subnet "
+    "routers and don't reach devboxes. Every PostHog employee has access "
+    "through `group:employees` in posthog-cloud-infra/tailnet-policy.hujson.\n"
+    "    Still blocked on the right tailnet? Ask Team DevEx."
 )
 
 WORKSPACE_STATUS_COLORS = {
@@ -841,9 +841,9 @@ def devbox_doctor() -> None:
 
     Safe for an agent to run as a probe -- it never prompts or mutates host
     config the way `devbox:setup` does. Run it first when a devbox command
-    fails, and as step zero of the `setting-up-devbox` skill. The tailnet ACL
-    grant is the prerequisite people most often miss, so it is surfaced
-    explicitly whenever the control plane is unreachable.
+    fails, and as step zero of the `setting-up-devbox` skill. The wrong tailnet
+    is the prerequisite people most often miss, so the access prerequisite is
+    surfaced explicitly whenever the control plane is unreachable.
     """
     click.echo(click.style("Devbox doctor", bold=True))
     click.echo(f"  Coder URL: {get_coder_url()}")
@@ -1438,9 +1438,8 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @workspace_argument
 @click.option(
     "--disk",
-    type=click.Choice(["100", "200"]),
-    default="100",
-    help="Disk size in GiB (default: 100)",
+    type=int,
+    help="Disk size in GiB (default: set by the template)",
 )
 @click.option(
     "-t",
@@ -1478,7 +1477,7 @@ def _maybe_hint_region_mismatch(name: str) -> None:
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
-    disk: str,
+    disk: int | None,
     template: str,
     preset: str,
     region: str | None,
@@ -1507,12 +1506,10 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(
-        f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region}, disk={disk}GiB)..."
-    )
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
     create_workspace(
         name,
-        int(disk),
+        disk,
         git_name=config.get("git_name"),
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
@@ -2032,12 +2029,14 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
             _fail(
                 "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
             )
-        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        remote_cmd = ["./bin/hogli", "devbox:cleanup:disk"]
         if prune_docker:
             remote_cmd.append("--docker")
         if prune_cargo:
             remote_cmd.append("--cargo")
-        exec_replace(name, remote_cmd)
+        # `hogli` is not on the devbox PATH, even in a login shell, so run the
+        # checkout's copy from inside the repo.
+        exec_replace(name, ["bash", "-lc", f"cd ~/posthog && {shlex.join(remote_cmd)}"])
         return  # unreachable; exec_replace replaces the process
 
     home = Path.home()
