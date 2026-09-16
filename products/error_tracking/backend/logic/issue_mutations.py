@@ -26,7 +26,9 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
     assignee_property,
+    prepare_issue_lifecycle_event,
     produce_issue_lifecycle_event_on_commit,
+    produce_issue_lifecycle_events_on_commit,
     status_label,
 )
 from products.error_tracking.backend.models import (
@@ -284,6 +286,7 @@ def bulk_update_issues(
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:
                 raise InvalidIssueStatusError
+            transitions = []
             for issue in issues:
                 if issue.status == new_status:
                     continue
@@ -310,13 +313,16 @@ def bulk_update_issues(
                     ),
                 )
                 if new_status in STATUS_CHANGE_EVENTS:
-                    produce_issue_lifecycle_event_on_commit(
-                        event=STATUS_CHANGE_EVENTS[new_status],
-                        issue=issue,
-                        user=user,
-                        status=new_status,
-                        extra_properties={"previous_status": status_label(issue.status)},
+                    transitions.append(
+                        prepare_issue_lifecycle_event(
+                            event=STATUS_CHANGE_EVENTS[new_status],
+                            issue=issue,
+                            user=user,
+                            status=new_status,
+                            extra_properties={"previous_status": status_label(issue.status)},
+                        )
                     )
+            produce_issue_lifecycle_events_on_commit(transitions)
             if changed_issue_ids:
                 ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
                     status=new_status, state_updated_at=timezone.now()

@@ -19,6 +19,7 @@ from rest_framework import status
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
+from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -29,6 +30,7 @@ from posthog.settings import (
 
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -583,13 +585,18 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
 
-    def test_issue_status_update_starts_alert_delivery_with_the_event_uuid(self):
+    def _enable_alerts(self) -> None:
+        with team_scope(self.team.id):
+            ErrorTrackingAlert.objects.create(team=self.team, name="Notify", triggers=["issue_created"])
+
+    def test_issue_status_update_queues_alert_dispatch_with_the_event_uuid(self):
         issue = self.create_issue()
+        self._enable_alerts()
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
             patch(
-                "products.error_tracking.backend.temporal.alerts.dispatch.start_alert_delivery_workflow"
+                "products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay"
             ) as mock_dispatch,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -602,12 +609,56 @@ class TestErrorTracking(APIBaseTest):
         mock_dispatch.assert_called_once()
         kwargs = mock_dispatch.call_args.kwargs
         assert kwargs["team_id"] == self.team.id
-        assert kwargs["event"] == "$error_tracking_issue_resolved"
-        assert kwargs["issue_id"] == str(issue.id)
-        assert kwargs["status"] == "Resolved"
-        assert kwargs["actor_email"] == self.user.email
+        (notification,) = kwargs["notifications"]
+        assert notification["event"] == "$error_tracking_issue_resolved"
+        assert notification["issue_id"] == str(issue.id)
+        assert notification["status"] == "Resolved"
+        assert notification["actor_email"] == self.user.email
         # The delivery workflow and the internal event share the notification id.
-        assert kwargs["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
+        assert notification["notification_id"] == mock_produce.call_args.kwargs["event"].uuid
+
+    def test_issue_status_update_queues_nothing_for_teams_without_alerts(self):
+        issue = self.create_issue()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event"),
+            patch(
+                "products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay"
+            ) as mock_dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_dispatch.assert_not_called()
+
+    def test_issue_bulk_set_status_queues_one_dispatch_task_per_transaction(self):
+        issues = [self.create_issue() for _ in range(3)]
+        self._enable_alerts()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.tasks.tasks.dispatch_error_tracking_alert_deliveries.delay"
+            ) as mock_dispatch,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={"ids": [issue.id for issue in issues], "action": "set_status", "status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_produce.call_count == 3
+        mock_dispatch.assert_called_once()
+        notifications = mock_dispatch.call_args.kwargs["notifications"]
+        assert {n["issue_id"] for n in notifications} == {str(issue.id) for issue in issues}
+        assert {n["notification_id"] for n in notifications} == {
+            call.kwargs["event"].uuid for call in mock_produce.call_args_list
+        }
 
     def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
         issue = self.create_issue()

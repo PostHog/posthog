@@ -1,5 +1,6 @@
 import time
 import asyncio
+import dataclasses
 from datetime import timedelta
 from typing import Any
 
@@ -10,13 +11,19 @@ from django.conf import settings
 
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
+from products.error_tracking.backend.tasks.tasks import dispatch_error_tracking_alert_deliveries
 from products.error_tracking.backend.temporal.alerts.delivery import deliver_alert_notifications, plan_alert_deliveries
-from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
+from products.error_tracking.backend.temporal.alerts.dispatch import (
+    AlertDispatchError,
+    start_alert_delivery_workflow,
+    start_alert_delivery_workflows,
+)
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 
@@ -174,13 +181,17 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
 
 
 class TestAlertDeliveryDispatch(AlertTestMixin):
-    def _dispatch(self) -> None:
-        start_alert_delivery_workflow(
-            team_id=self.team.id,
-            event="$error_tracking_issue_created",
-            issue_id=str(self.issue.id),
-            notification_id="notif-1",
-        )
+    def _dispatch(self, *notification_ids: str) -> None:
+        batch = [
+            self._inputs("$error_tracking_issue_created", notification_id=nid)
+            for nid in notification_ids or ("notif-1",)
+        ]
+        start_alert_delivery_workflows(batch)
+
+    def _temporal(self, start_workflow: AsyncMock | None = None) -> MagicMock:
+        client = MagicMock()
+        client.start_workflow = start_workflow or AsyncMock()
+        return client
 
     def test_dispatch_skips_teams_without_enabled_alerts(self):
         self._create_alert(enabled=False)
@@ -204,8 +215,7 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
 
     def test_dispatch_starts_idempotent_workflow(self):
         self._create_alert()
-        client = MagicMock()
-        client.start_workflow = AsyncMock()
+        client = self._temporal()
         with (
             patch(
                 "products.error_tracking.backend.temporal.alerts.dispatch.async_connect",
@@ -214,7 +224,7 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
             ),
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
         ):
-            self._dispatch()
+            start_alert_delivery_workflow(self._inputs("$error_tracking_issue_created"))
 
         client.start_workflow.assert_called_once()
         args, kwargs = client.start_workflow.call_args
@@ -225,6 +235,49 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         assert kwargs["task_queue"] == settings.ERROR_TRACKING_TASK_QUEUE
         # A redelivered start after completion must be rejected, not rerun.
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+
+    def test_batch_shares_one_connection_and_tolerates_already_started(self):
+        self._create_alert()
+        client = self._temporal(AsyncMock(side_effect=[None, WorkflowAlreadyStartedError("id", "type"), None]))
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.alerts.dispatch.async_connect",
+                new_callable=AsyncMock,
+                return_value=client,
+            ) as connect,
+            patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True) as flag,
+        ):
+            self._dispatch("n-1", "n-2", "n-3")
+
+        connect.assert_awaited_once()
+        flag.assert_called_once()
+        assert client.start_workflow.await_count == 3
+        assert {call.kwargs["id"] for call in client.start_workflow.call_args_list} == {
+            "error-tracking-alert-delivery-n-1",
+            "error-tracking-alert-delivery-n-2",
+            "error-tracking-alert-delivery-n-3",
+        }
+
+    def test_batch_raises_when_any_start_is_not_accepted(self):
+        # The caller retries the whole batch; accepted starts are idempotent, so only the
+        # rejected one takes effect on the retry.
+        self._create_alert()
+        client = self._temporal(AsyncMock(side_effect=[None, RuntimeError("temporal hiccup")]))
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.alerts.dispatch.async_connect",
+                new_callable=AsyncMock,
+                return_value=client,
+            ),
+            patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
+            self.assertRaises(AlertDispatchError),
+        ):
+            self._dispatch("n-1", "n-2")
+
+    def test_batch_rejects_mixed_teams(self):
+        other = self._inputs("$error_tracking_issue_created", notification_id="n-2", team_id=self.team.id + 1)
+        with self.assertRaises(ValueError):
+            start_alert_delivery_workflows([self._inputs("$error_tracking_issue_created"), other])
 
     def test_dispatch_gives_up_on_a_stalled_temporal(self):
         self._create_alert()
@@ -240,12 +293,13 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
         ):
             started = time.monotonic()
-            self._dispatch()
+            with self.assertRaises(TimeoutError):
+                self._dispatch()
 
-        # The web worker gets its thread back well before the stalled connect would return.
+        # The caller gets control back well before the stalled connect would return, and retries.
         assert time.monotonic() - started < 2
 
-    def test_dispatch_swallows_temporal_errors(self):
+    def test_dispatch_raises_temporal_errors_for_the_caller_to_retry(self):
         self._create_alert()
         with (
             patch(
@@ -253,5 +307,19 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
                 side_effect=RuntimeError("temporal down"),
             ),
             patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True),
+            self.assertRaises(RuntimeError),
         ):
             self._dispatch()
+
+    def test_celery_task_rebuilds_inputs_and_starts_the_batch(self):
+        notifications = [
+            dataclasses.asdict(self._inputs("$error_tracking_issue_resolved", notification_id="n-1")),
+            dataclasses.asdict(self._inputs("$error_tracking_issue_resolved", notification_id="n-2")),
+        ]
+        with patch("products.error_tracking.backend.temporal.alerts.dispatch.start_alert_delivery_workflows") as start:
+            dispatch_error_tracking_alert_deliveries(team_id=self.team.id, notifications=notifications)
+
+        start.assert_called_once()
+        (batch,) = start.call_args.args
+        assert [inputs.notification_id for inputs in batch] == ["n-1", "n-2"]
+        assert all(isinstance(inputs, AlertDeliveryWorkflowInputs) for inputs in batch)

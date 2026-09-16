@@ -8,6 +8,7 @@ events see the full picture.
 
 import json
 import uuid
+import dataclasses
 from typing import Any, Optional
 
 from django.db import transaction
@@ -18,10 +19,12 @@ from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson,
 from posthog.models.user import User
 
 from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
+from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -84,14 +87,29 @@ def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
     )
 
 
-def produce_issue_lifecycle_event_on_commit(
+# One Celery task per this many transitions: a bulk status change over thousands of
+# issues fans out into bounded tasks instead of one oversized payload.
+ALERT_DISPATCH_BATCH_SIZE = 200
+
+
+@dataclasses.dataclass(frozen=True)
+class PendingLifecycleEvent:
+    """A transition snapshotted inside the mutation, emitted once it commits."""
+
+    team_id: int
+    internal_event: InternalEventEvent
+    person: Optional[InternalEventPerson]
+    alert_inputs: AlertDeliveryWorkflowInputs
+
+
+def prepare_issue_lifecycle_event(
     *,
     event: str,
     issue: ErrorTrackingIssue,
     user: Optional[User],
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
-) -> None:
+) -> PendingLifecycleEvent:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
     team_id = issue.team_id
@@ -101,8 +119,6 @@ def produce_issue_lifecycle_event_on_commit(
     fingerprint = _issue_fingerprint_for_links(issue)
     current_assignee = _current_assignee_property(issue)
     issue_id = str(issue.id)
-    issue_name = issue.name
-    issue_description = issue.description
     # The notification id names both the internal event and the alert delivery
     # workflow, so redelivered starts and retries stay idempotent per transition.
     notification_id = str(uuid.uuid4())
@@ -110,9 +126,9 @@ def produce_issue_lifecycle_event_on_commit(
     # produce_issue_lifecycle_internal_event), so destination property filters
     # match both paths.
     properties: dict[str, Any] = {
-        "name": issue_name,
-        "description": issue_description,
-        "issue_description": issue_description,
+        "name": issue.name,
+        "description": issue.description,
+        "issue_description": issue.description,
         "first_seen": issue.created_at.isoformat(),
         "severity": issue.severity,
         "status": status_label(status if status is not None else issue.status),
@@ -139,34 +155,78 @@ def produce_issue_lifecycle_event_on_commit(
         )
         actor_email = user.email
 
+    status_property = properties.get("status")
+    assignee_property_value = properties.get("assignee")
+    alert_inputs = AlertDeliveryWorkflowInputs.build(
+        notification_id=notification_id,
+        team_id=team_id,
+        issue_id=issue_id,
+        event=event,
+        issue_name=issue.name,
+        issue_description=issue.description,
+        status=status_property if isinstance(status_property, str) else None,
+        assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
+        actor_email=actor_email,
+    )
+    return PendingLifecycleEvent(
+        team_id=team_id, internal_event=internal_event, person=person, alert_inputs=alert_inputs
+    )
+
+
+def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]) -> None:
+    """Publish the internal events and queue alert dispatch once the transaction commits.
+
+    One call per transaction: a bulk mutation hands over every transition at once so
+    alert dispatch leaves as a handful of Celery tasks instead of one synchronous
+    Temporal start per issue on the web worker.
+    """
+    if not events:
+        return
+    team_ids = {event.team_id for event in events}
+    if len(team_ids) != 1:
+        raise ValueError("Lifecycle events are emitted per team")
+    team_id = events[0].team_id
+
     def _produce() -> None:
-        # Importing the dispatcher pulls in the temporal package aggregator, which
-        # loads every worker-only workflow module; keep it off the web import path.
-        from products.error_tracking.backend.temporal.alerts.dispatch import (  # noqa: PLC0415
-            start_alert_delivery_workflow,
+        for pending in events:
+            try:
+                produce_internal_event(team_id=team_id, event=pending.internal_event, person=pending.person)
+            except Exception:
+                # Already logged by produce_internal_event; alert emission must never
+                # fail the mutation that triggered it.
+                pass
+        # Teams without an enabled alert (nearly all of them) pay one EXISTS query and
+        # queue nothing; the flag is evaluated once, inside the task.
+        if not ErrorTrackingAlert.objects.for_team(team_id).filter(enabled=True).exists():
+            return
+        # The task module imports the Temporal package aggregator, which loads every
+        # worker-only workflow module; keep it off the web import path.
+        from products.error_tracking.backend.tasks.tasks import (  # noqa: PLC0415
+            dispatch_error_tracking_alert_deliveries,
         )
 
-        try:
-            produce_internal_event(team_id=team_id, event=internal_event, person=person)
-        except Exception:
-            # Already logged by produce_internal_event; alert emission must never
-            # fail the mutation that triggered it.
-            pass
-        # Dispatch is deliberately synchronous here: it is double-gated (alert rows,
-        # then flag), swallows every failure, and only flagged teams with alerts pay
-        # the cost. A queued dispatch is planned before any broad rollout.
-        status_property = properties.get("status")
-        assignee_property_value = properties.get("assignee")
-        start_alert_delivery_workflow(
-            team_id=team_id,
-            event=event,
-            issue_id=issue_id,
-            notification_id=notification_id,
-            issue_name=issue_name,
-            issue_description=issue_description,
-            status=status_property if isinstance(status_property, str) else None,
-            assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
-            actor_email=actor_email,
-        )
+        for start in range(0, len(events), ALERT_DISPATCH_BATCH_SIZE):
+            chunk = events[start : start + ALERT_DISPATCH_BATCH_SIZE]
+            dispatch_error_tracking_alert_deliveries.delay(
+                team_id=team_id,
+                notifications=[dataclasses.asdict(pending.alert_inputs) for pending in chunk],
+            )
 
     transaction.on_commit(_produce)
+
+
+def produce_issue_lifecycle_event_on_commit(
+    *,
+    event: str,
+    issue: ErrorTrackingIssue,
+    user: Optional[User],
+    status: Optional[str] = None,
+    extra_properties: Optional[dict[str, Any]] = None,
+) -> None:
+    produce_issue_lifecycle_events_on_commit(
+        [
+            prepare_issue_lifecycle_event(
+                event=event, issue=issue, user=user, status=status, extra_properties=extra_properties
+            )
+        ]
+    )

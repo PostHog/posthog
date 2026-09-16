@@ -72,6 +72,14 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
         }:
             raise ValueError(f"Unknown spike persistence status: {persistence.status}")
 
+        # Before the internal event: a publication failure that exhausts its retries
+        # must not also drop the alert. Starts are idempotent on the notification id.
+        await workflow.execute_activity(
+            "dispatch_issue_spiking_alert_activity",
+            inputs,
+            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+            retry_policy=ACTIVITY_RETRY_POLICY,
+        )
         await workflow.execute_activity(
             "emit_issue_spiking_internal_event_activity",
             inputs,

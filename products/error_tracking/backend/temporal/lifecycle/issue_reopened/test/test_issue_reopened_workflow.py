@@ -52,6 +52,10 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
     emitted_signals: list[str] = []
     signal_attempts = 0
 
+    @activity.defn(name="dispatch_issue_reopened_alert_activity")
+    async def dispatch_alert(_: IssueReopenedWorkflowInputs) -> None:
+        return None
+
     @activity.defn(name="emit_issue_reopened_internal_event_activity")
     async def emit_event(inputs: IssueReopenedWorkflowInputs) -> None:
         emitted_events.append(inputs.issue_id)
@@ -71,7 +75,7 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueReopenedWorkflow],
-            activities=[emit_event, emit_signal],
+            activities=[dispatch_alert, emit_event, emit_signal],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             result = await environment.client.execute_workflow(
