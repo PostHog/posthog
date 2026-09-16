@@ -23,7 +23,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
-from posthog.ingress.contracts import WebhookDelivery
+from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -112,6 +112,26 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
     from products.conversations.backend.services import github_events  # noqa: PLC0415
 
     github_events.accept_github_event(delivery)
+
+
+def accept_teams_event(delivery: WebhookDelivery) -> None:
+    """The inbound SupportHog Teams webhook enters conversations here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    teams_events.accept_teams_event(delivery)
+
+
+def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
+    """Whether this region holds the team the delivery's Teams tenant is connected to.
+
+    Ingress asks before it dispatches, and forwards the signed request to the other region when
+    the answer is elsewhere.
+    """
+    # Deferred to keep the Celery task module off the facade import path.
+    from products.conversations.backend.services import teams_events  # noqa: PLC0415
+
+    return teams_events.teams_delivery_ownership(delivery)
 
 
 def sync_google_account_email(integration_id: int, team_id: int) -> None:

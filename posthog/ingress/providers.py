@@ -24,6 +24,7 @@ from posthog.ingress.verify.schemes import SignatureScheme, Verification
 _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
+    "posthog.ingress.teams.provider",
     "posthog.ingress.pandadoc.provider",
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
