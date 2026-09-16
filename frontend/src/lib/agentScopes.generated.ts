@@ -19,6 +19,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'annotation:write',
     'approvals:read',
     'approvals:write',
+    'autoresearch:read',
+    'autoresearch:write',
     'batch_export:read',
     'batch_export:write',
     'billing:read',
