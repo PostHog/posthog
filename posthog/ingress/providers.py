@@ -25,6 +25,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.github.provider",
     "posthog.ingress.slack.provider",
     "posthog.ingress.pandadoc.provider",
+    "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
 )
