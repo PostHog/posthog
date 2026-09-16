@@ -1,5 +1,4 @@
-// Workflow run shapes and conclusion rules shared by the CI views, plus pairing a PR's raw lifecycle
-// events (opened, ci_started, ci_finished, merged, closed) into runs.
+// Workflow run shapes and conclusion rules shared by the CI views.
 
 import type { PRLifecycleEventApi } from '../generated/api.schemas'
 

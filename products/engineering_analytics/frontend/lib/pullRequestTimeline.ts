@@ -1,6 +1,3 @@
-// One pull request's timeline on its own clock: time per state, grouped by who can move it on, and its
-// milestones. Pure functions, so the pull request page's arithmetic is testable without a render.
-
 import { dayjs } from 'lib/dayjs'
 
 import { PRTimelineApi, PRTimelineSegmentKindEnumApi as Kind } from '../generated/api.schemas'
@@ -69,9 +66,9 @@ export interface TimelinePush {
     at: string
 }
 
-/** An open draft's timeline starts when it opened. Any other starts at its last ready for review. */
+/** A draft whose timeline starts at creation was never marked ready, open or closed. */
 export function timelineStartLabel(pr: PRTimelineApi): string {
-    return pr.state === 'open' && pr.is_draft ? 'Opened' : 'Ready for review'
+    return pr.is_draft && dayjs(pr.started_at).isSame(pr.created_at) ? 'Opened' : 'Ready for review'
 }
 
 /** A push before the start is left out, because the track begins there. */

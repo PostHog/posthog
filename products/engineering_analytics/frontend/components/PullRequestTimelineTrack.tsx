@@ -44,8 +44,9 @@ export function PullRequestTimelineTrack({
         <div className={cn('relative overflow-hidden rounded-sm', className)}>
             {dayStartsBetween(fromMs, toMs).map((day) => {
                 const dayMs = day.valueOf()
-                const nightMs = dayMs + NIGHT_START_OFFSET_HOURS * HOUR_MS
-                const nextDayMs = dayMs + 24 * HOUR_MS
+                // Counted back from the next calendar day, so a daylight saving day still shades 22:00 to 06:00.
+                const nextDayMs = day.add(1, 'day').valueOf()
+                const nightMs = nextDayMs - (24 - NIGHT_START_OFFSET_HOURS) * HOUR_MS
                 return (
                     <div key={dayMs}>
                         {(day.day() === 0 || day.day() === 6) && (

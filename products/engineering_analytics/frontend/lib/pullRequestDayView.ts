@@ -251,8 +251,7 @@ export function rowOrigin(startedAt: string, alignment: DayViewAlignment): Dayjs
     return origin.add(DAY_START_HOUR, 'hour')
 }
 
-/** 06:00 local on each day from the one at or before fromMs up to toMs, so a night that began before
- *  fromMs still shades its start. */
+/** Starts at or before fromMs, so a night that began before fromMs still shades its start. */
 export function dayStartsBetween(fromMs: number, toMs: number): Dayjs[] {
     const days: Dayjs[] = []
     for (let day = rowOrigin(dayjs(fromMs).toISOString(), 'days'); day.valueOf() < toMs; day = day.add(1, 'day')) {

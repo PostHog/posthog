@@ -43,14 +43,15 @@ export function PullRequestDeliveryTimeline({
 }: {
     /** A timeline with at least one segment. */
     pr: PRTimelineApi
-    pushes: TimelinePush[]
+    /** Null until the CI runs load, so the page never claims zero pushes it has not counted. */
+    pushes: TimelinePush[] | null
 }): JSX.Element {
     const axis = trackAxis(pr)
     const left = (ms: number): string => `${(100 * (ms - axis.fromMs)) / (axis.toMs - axis.fromMs)}%`
     const dayStarts = dayStartsBetween(axis.fromMs, axis.toMs)
 
     const { wholeSeconds, groups, longest } = timeInStates(pr)
-    const milestones = timelineMilestones(pr, pushes)
+    const milestones = timelineMilestones(pr, pushes ?? [])
     const segments = pr.segments
     const start = segments[0].started_at
     const end = segments[segments.length - 1].ended_at
@@ -164,7 +165,7 @@ export function PullRequestDeliveryTimeline({
                     </div>
                     <div className="flex justify-between gap-2">
                         <span className="text-secondary">Pushes after the start</span>
-                        <span className="font-semibold tabular-nums">{pushCount}</span>
+                        <span className="font-semibold tabular-nums">{pushes ? pushCount : '—'}</span>
                     </div>
                 </div>
             </div>

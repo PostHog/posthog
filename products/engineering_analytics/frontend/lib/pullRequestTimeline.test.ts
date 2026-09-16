@@ -55,7 +55,6 @@ describe('pullRequestTimeline', () => {
             ['CI and merge queue', 0.3],
         ])
         expect(groups[1].states.map((state) => state.kind)).toEqual([Kind.RedFixedByPush, Kind.ApprovedNotEnqueued])
-        // Two CI segments add up, so CI running outranks the single merge queue hour.
         expect(groups[2].states.map((state) => [state.kind, state.seconds])).toEqual([
             [Kind.CiRunning, 2 * 3600],
             [Kind.MergeQueue, 3600],
@@ -98,6 +97,7 @@ describe('pullRequestTimeline', () => {
     it.each([
         ['an open draft', { draft: true }, 'Opened', undefined],
         ['a closed pull request', { state: 'closed' as const }, 'Ready for review', 'Closed'],
+        ['a draft closed before it was ever ready', { state: 'closed' as const, draft: true }, 'Opened', 'Closed'],
     ])('labels the ends of %s', (_, options, startLabel, endLabel) => {
         const milestones = timelineMilestones(pr([[Kind.Draft, 0, 3]], options), [])
 

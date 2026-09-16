@@ -181,7 +181,7 @@ export const Team: Story = {
     render: () => <App />,
 }
 
-// Without the membership snapshot a team matches no author, so the figures say so instead of the repo's.
+// Without the membership snapshot a team matches no author, so the panels say so instead of showing zeros.
 export const TeamWithoutMembership: Story = {
     render: () => <App />,
     decorators: [

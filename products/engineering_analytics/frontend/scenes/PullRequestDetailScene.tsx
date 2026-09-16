@@ -612,7 +612,10 @@ export function PullRequestDetailScene(): JSX.Element {
                 ) : !timelines ? (
                     <LemonSkeleton className="h-40 w-full" />
                 ) : timeline ? (
-                    <PullRequestDeliveryTimeline pr={timeline} pushes={timelinePushes} />
+                    <PullRequestDeliveryTimeline
+                        pr={timeline}
+                        pushes={tilesLoading || prRunsFailed ? null : timelinePushes}
+                    />
                 ) : (
                     <div className="text-sm text-secondary">
                         No timeline for this pull request yet. If it stays empty, check the GitHub source's sync status.

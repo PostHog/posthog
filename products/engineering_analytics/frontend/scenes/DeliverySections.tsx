@@ -1,6 +1,5 @@
-// The delivery sections for one scope, meant to sit inside a page's ScopePanel: CI spend, getting merged,
-// and lead time to deploy, each figure against the repository. The author page renders them for one
-// author; a team page renders the same sections for one GitHub team.
+// The delivery sections for one author or GitHub team, inside a page's ScopePanel: CI spend, getting
+// merged, and lead time to deploy, each figure against the repository.
 
 import { useActions, useValues } from 'kea'
 
@@ -43,15 +42,21 @@ export function DeliverySections({
         return <CIAnalyticsLoadError onRetry={loadSummary} />
     }
 
+    // Without the members table a team matches no author, so every figure would read as a false zero.
+    if (summary?.scope_kind === 'github_team' && !summary.has_membership_data) {
+        return (
+            <div className="py-8 text-center text-sm text-secondary">
+                No team membership data. Sync the team members table on this GitHub source to see this team's delivery
+                figures.
+            </div>
+        )
+    }
+
     const summaryPending = summaryLoading && !summary
-    const noMembers = summary?.scope_kind === 'github_team' && !summary.has_membership_data
-    const noMerges = noMembers
-        ? 'Team figures appear once the team members table on this GitHub source is synced.'
-        : 'Nothing merged in the window.'
     const costEmpty =
         summary && !summary.jobs_available
             ? 'Cost appears once the workflow jobs table on this GitHub source is synced.'
-            : noMerges
+            : 'Nothing merged in the window.'
     const reviewsEmpty =
         summary && !summary.review_data_available
             ? 'Sync the reviews table on this GitHub source to see pushes after the first approval.'
