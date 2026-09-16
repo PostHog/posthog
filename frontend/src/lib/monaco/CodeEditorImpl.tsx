@@ -42,7 +42,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     /** Ask for per-filter index eligibility. Costs a second resolution pass server-side, so set it only where the result is rendered. */
     indexUsage?: boolean
-    onMetadata?: (metadata: HogQLMetadataResponse | null) => void
+    onMetadata?: (metadata: HogQLMetadataResponse | null, analyzedQuery: string | null) => void
     onMetadataLoading?: (loading: boolean) => void
     onFixWithAI?: (prompt: string) => void
     onError?: (error: string | null) => void

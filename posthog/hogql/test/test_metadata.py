@@ -157,6 +157,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 8,
                         "fix": None,
+                        "fix_action": None,
                     }
                 ],
             },
@@ -197,6 +198,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "fix_action": None,
                     }
                 ],
             },
@@ -216,6 +218,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 0,
                         "end": 9,
                         "fix": None,
+                        "fix_action": None,
                     }
                 ],
             },
@@ -235,6 +238,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 4,
                         "end": 12,
                         "fix": None,
+                        "fix_action": None,
                     }
                 ],
             },
@@ -272,36 +276,39 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(len(metadata.errors), 0)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(taxonomy_warnings), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            taxonomy_warnings[0].message,
             "Event 'purchase' was not found in this project taxonomy.",
         )
-        self.assertIsNone(metadata.warnings[0].fix)
+        self.assertIsNone(taxonomy_warnings[0].fix)
 
     def test_metadata_suggests_similar_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
 
         metadata = self._select("SELECT count() FROM events WHERE event = 'pageview'")
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
 
         self.assertTrue(metadata.isValid)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(taxonomy_warnings), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            taxonomy_warnings[0].message,
             "Event 'pageview' was not found in this project taxonomy. Did you mean '$pageview'?",
         )
-        self.assertEqual(metadata.warnings[0].fix, "'$pageview'")
+        self.assertEqual(taxonomy_warnings[0].fix, "'$pageview'")
 
     def test_metadata_does_not_warn_for_known_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
 
         self.assertTrue(metadata.isValid)
-        self.assertEqual(metadata.warnings, [])
+        self.assertEqual(taxonomy_warnings, [])
 
     def test_metadata_warns_for_unknown_event_in_literal(self):
         EventDefinition.objects.create(team=self.team, name="signed_up")
@@ -319,15 +326,16 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
 
         metadata = self._select("SELECT properties.country_code, count() FROM events GROUP BY properties.country_code")
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
 
         self.assertTrue(metadata.isValid)
         self.assertEqual(len(metadata.errors), 0)
-        self.assertEqual(len(metadata.warnings), 1)
+        self.assertEqual(len(taxonomy_warnings), 1)
         self.assertEqual(
-            metadata.warnings[0].message,
+            taxonomy_warnings[0].message,
             "Property 'country_code' was not found in this project taxonomy. Did you mean '$geoip_country_code'?",
         )
-        self.assertEqual(metadata.warnings[0].fix, "properties.$geoip_country_code")
+        self.assertEqual(taxonomy_warnings[0].fix, "properties.$geoip_country_code")
 
     def test_metadata_warns_for_unknown_property_array_access(self):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
@@ -440,7 +448,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="$pageview")
 
         query = "SELECT count() FROM events WHERE event = 'pagevisit'"
-        warning = self._select(query).warnings[0]
+        warning = next(w for w in self._select(query).warnings if "project taxonomy" in w.message)
 
         # Apply the fix exactly as the editor quick-fix does: replace [start, end] with fix.
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
@@ -459,7 +467,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="o'brien")
 
         query = "SELECT count() FROM events WHERE event = 'obrien'"
-        warning = self._select(query).warnings[0]
+        warning = next(w for w in self._select(query).warnings if "project taxonomy" in w.message)
 
         # A suggested name containing a quote must be escaped so the quick-fix stays valid HogQL.
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
@@ -822,30 +830,35 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 7,
                         "end": 16,
                         "fix": None,
+                        "fix_action": None,
                     },
                     {
                         "message": f"Cohort #{cohort.pk} can also be specified as '{cohort.name}'",
                         "start": 55,
                         "end": 55 + len(str(cohort.pk)),
                         "fix": f"'{cohort.name}'",
+                        "fix_action": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 35,
                         "end": 44,
                         "fix": None,
+                        "fix_action": None,
                     },
                     {
                         "message": f"Searching for cohort by name. Replace with numeric ID {cohort.pk} to protect against renaming.",
                         "start": 79 + len(str(cohort.pk)),
                         "end": 92 + len(str(cohort.pk)),
                         "fix": str(cohort.pk),
+                        "fix_action": None,
                     },
                     {
                         "message": "Field 'person_id' is of type 'UUID'",
                         "start": 59 + len(str(cohort.pk)),
                         "end": 68 + len(str(cohort.pk)),
                         "fix": None,
+                        "fix_action": None,
                     },
                 ],
             },
@@ -878,12 +891,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "fix_action": None,
                     },
                     {
                         "message": f"Event property 'number' is of type 'Float'. This property is {materialized_notice}",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "fix_action": None,
                     },
                 ],
             },
@@ -941,12 +956,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                         "start": 11,
                         "end": 17,
                         "fix": None,
+                        "fix_action": None,
                     },
                     {
                         "message": "Event property 'number' is of type 'Float'.",
                         "start": 32,
                         "end": 38,
                         "fix": None,
+                        "fix_action": None,
                     },
                 ],
             },
@@ -1021,7 +1038,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "isValid": False,
                 "notices": [],
                 "warnings": [],
-                "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
+                "errors": [
+                    {
+                        "end": 15,
+                        "fix": None,
+                        "fix_action": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 9,
+                    }
+                ],
             },
         )
 
@@ -1033,8 +1058,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
-                "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
+                "notices": [
+                    {"end": 11, "fix": None, "fix_action": None, "message": "Global variable: event", "start": 6}
+                ],
+                "warnings": [
+                    {
+                        "end": 19,
+                        "fix": None,
+                        "fix_action": None,
+                        "message": "Unknown global variable: region",
+                        "start": 13,
+                    }
+                ],
                 "errors": [],
             },
         )
@@ -1057,7 +1092,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": False,
-                "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
+                "errors": [
+                    {
+                        "end": 17,
+                        "fix": None,
+                        "fix_action": None,
+                        "message": "Hog function `NONO` is not implemented",
+                        "start": 11,
+                    }
+                ],
             },
         )
 
@@ -1292,3 +1335,12 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertFalse(any("very similar" in warning.message for warning in metadata.warnings))
+
+    def test_metadata_warns_about_an_events_scan_with_no_timestamp_bound(self):
+        query = "SELECT count() FROM events"
+
+        metadata = self._select(query)
+        warnings = [warning for warning in metadata.warnings if "events.timestamp" in warning.message]
+
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(query[warnings[0].start : warnings[0].end], "events")
