@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 
 import time_machine
@@ -11,6 +12,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 
 from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
@@ -753,6 +755,48 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
     def test_change_view_shows_save_for_editable(self, _name, status):
         ctx = self._change_context(self._make_request(status))
         self.assertTrue(ctx.get("show_save", True))
+
+
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def test_array_previews_are_wired_by_a_script_carrying_the_page_nonce(self):
+        request = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+
+        response = self.client.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
+
+        self.assertEqual(response.status_code, 200)
+        nonce = re.search(r"'nonce-([^']+)'", response["Content-Security-Policy"])
+        assert nonce is not None
+        soup = BeautifulSoup(response.content, "html.parser")
+        inline_scripts = soup.select("script:not([src])")
+        self.assertEqual({script.get("nonce") for script in inline_scripts}, {nonce.group(1)})
+        self.assertTrue(
+            any(
+                "array-textarea-preview" in script.get_text() and "textareaId" in script.get_text()
+                for script in inline_scripts
+            )
+        )
+        self.assertEqual(
+            {preview.get("data-textarea-id") for preview in soup.select("div.array-textarea-preview")},
+            {
+                soup.select_one(f"textarea[name={field}]").get("id")
+                for field in ("events", "properties", "person_properties")
+            },
+        )
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})

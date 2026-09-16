@@ -26,12 +26,14 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.contracts import RelevantCommit
+from products.signals.backend.report_generation.author_activity import without_inactive_authors
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
     REPO_WIDE_AREA,
     ContributorActivity,
     area_fallback_chain,
     areas_for_paths,
+    days_since,
     get_area_activity,
     repository_activity_needs_rebuild,
 )
@@ -79,6 +81,7 @@ ReviewerResolutionOutcome = Literal[
     "github_rate_limited",
     "no_commit_authors",
     "only_bot_authors",
+    "only_inactive_authors",
     "no_candidates",
 ]
 
@@ -97,6 +100,9 @@ class ReviewerResolutionDiagnostics:
     lookups_rate_limited: int = 0
     bot_author_count: int = 0
     blame_login_count: int = 0
+    # Blame authors dropped because their last commit in the repository is older than
+    # AUTHOR_ACTIVITY_WINDOW_DAYS. Counted before the fallbacks that may replace them.
+    inactive_author_count: int = 0
     touched_path_count: int = 0
     activity_login_count: int = 0
 
@@ -321,6 +327,9 @@ def resolve_suggested_reviewers_with_diagnostics(
 ) -> ReviewerResolution:
     """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
 
+    A commit author who has not committed to the repository for ``AUTHOR_ACTIVITY_WINDOW_DAYS``
+    is dropped before scoring — see ``_without_inactive_authors``.
+
     Blame candidates (commit authors, weighted by finding position) are recency-shaped
     against cached area activity, and recently-active area contributors enter as capped
     fallbacks — see ``_score_candidates``. With no activity data available at all, scoring
@@ -391,8 +400,14 @@ def resolve_suggested_reviewers_with_diagnostics(
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
+    proven_active = {
+        login for login, activity in activity_by_login.items() if activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
+    }
+    active_login_weights = without_inactive_authors(github, repository, login_weights, proven_active=proven_active)
+    inactive_author_count = len(login_weights) - len(active_login_weights)
+
     reviewers = _rank_scored_candidates(
-        login_weights, activity_by_login, login_commits, login_names, allow_crowd_fallback=True
+        active_login_weights, activity_by_login, login_commits, login_names, allow_crowd_fallback=True
     )
     lookups_resolved = sum(1 for info in author_results.values() if info is not None)
     outcome: ReviewerResolutionOutcome
@@ -407,6 +422,8 @@ def resolve_suggested_reviewers_with_diagnostics(
         outcome = "no_commit_authors"
     elif not login_weights:
         outcome = "only_bot_authors"
+    elif not active_login_weights:
+        outcome = "only_inactive_authors"
     else:
         outcome = "no_candidates"
     return ReviewerResolution(
@@ -420,6 +437,7 @@ def resolve_suggested_reviewers_with_diagnostics(
             lookups_rate_limited=lookups_rate_limited,
             bot_author_count=bot_author_count,
             blame_login_count=len(login_weights),
+            inactive_author_count=inactive_author_count,
             touched_path_count=len(touched_paths),
             activity_login_count=len(activity_by_login),
         ),
@@ -577,12 +595,12 @@ def _merge_contributor(
     now: datetime,
     is_likely_owner_of_area: bool,
 ) -> _AreaContributor:
-    days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
+    days_since_commit = days_since(incoming.last_commit_at, now)
     if existing is None:
         return _AreaContributor(
             name=incoming.name,
             commit_count=incoming.commit_count,
-            days_since_last_commit=days_since,
+            days_since_last_commit=days_since_commit,
             last_commit_sha=incoming.last_commit_sha,
             last_commit_url=incoming.last_commit_url,
             area=area,
@@ -591,11 +609,11 @@ def _merge_contributor(
     # Evidence follows the freshest commit, so sha/url/area always agree with
     # days_since_last_commit. Ownership does not: it accumulates, so a fresher commit in a
     # crowded level can't erase a claim earned in a focused one.
-    keep_incoming_evidence = days_since < existing.days_since_last_commit
+    keep_incoming_evidence = days_since_commit < existing.days_since_last_commit
     return _AreaContributor(
         name=existing.name or incoming.name,
         commit_count=existing.commit_count + incoming.commit_count,
-        days_since_last_commit=min(existing.days_since_last_commit, days_since),
+        days_since_last_commit=min(existing.days_since_last_commit, days_since_commit),
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,

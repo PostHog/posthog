@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE lifecycle_op_person SET status = $2, mark_active = false\n            WHERE op_id = $1 AND role = $3 AND status = $4\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f56b36fb53017960bb82b2554a95a1ea67d2cb6ffa7bb12c5ac07018fb151b6"
+}

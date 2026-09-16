@@ -235,7 +235,7 @@ The sidecar makes no network fetches at startup.
 
 ## Observability
 
-Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals a privacy control needs:
+Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals an anonymization control needs:
 
 - `..._blanked_total` — NSFW-gate blanks are destructive and irreversible; alert on rate spikes.
 - `..._faces_redacted_total`, `..._text_boxes_redacted_total`, `..._codes_redacted_total` — a sustained zero rate under traffic means a detector outage (un-redacted output), not a clean stream.

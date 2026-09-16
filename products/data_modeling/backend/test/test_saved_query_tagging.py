@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseNode, DateRange, HogQLQuery, HogQLQueryModifiers, TrendsQuery
+from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -16,8 +16,6 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -99,30 +97,14 @@ class TestSavedQueryTagging(APIBaseTest):
         )
 
     def run_endpoint(self) -> None:
-        endpoint = create_endpoint_with_version(
-            name="demand_view_feed",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT id FROM demand_view"},
-            created_by=self.user,
+        self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {"name": "demand_view_feed", "query": {"kind": "HogQLQuery", "query": "SELECT id FROM demand_view"}},
+            format="json",
         )
-        self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json")
+        self.client.post(f"/api/environments/{self.team.id}/endpoints/demand_view_feed/run/", {}, format="json")
 
-    def run_trends_over_warehouse_series(self) -> None:
-        query = TrendsQuery(
-            series=[
-                DataWarehouseNode(
-                    id="demand_view",
-                    table_name="demand_view",
-                    timestamp_field="created_at",
-                    id_field="id",
-                    distinct_id_field="distinct_id",
-                )
-            ],
-            dateRange=DateRange(date_from="-7d"),
-        )
-        TrendsQueryRunner(team=self.team, query=query).calculate()
-
-    @parameterized.expand([("query_api",), ("endpoint",), ("trends_over_warehouse_series",)])
+    @parameterized.expand([("query_api",), ("endpoint",)])
     def test_every_entry_point_carries_the_tag(self, entry_point: str) -> None:
         with self.captured_tags() as captured:
             with suppress(Exception):

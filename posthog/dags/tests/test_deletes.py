@@ -501,6 +501,36 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    events = [(9000 + i, f"distinct_id_{i}", UUID(int=9000 + i), timestamp) for i in range(20)]
+    queued, kept = events[:5], events[5:]
+
+    def insert_events(client: Client) -> None:
+        client.execute("INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp) VALUES", events)
+
+    def surviving_uuids(client: Client) -> set[UUID]:
+        result = client.execute("SELECT uuid FROM writable_events WHERE team_id >= 9000 AND team_id < 9020")
+        return {row[0] for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_events).result()
+    for team_id, _, uuid, _ in queued:
+        deletion = AsyncDeletion.objects.create(team_id=team_id, deletion_type=DeletionType.Event, key=str(uuid))
+        # The sweep only covers rows ingested before the request, so the request has to postdate the insert.
+        deletion.created_at = timestamp
+        deletion.save()
+
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        resources={"cluster": cluster},
+    )
+
+    surviving = cluster.any_host(surviving_uuids).result()
+    assert surviving == {event[2] for event in kept}
+    assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
+
+
+@pytest.mark.django_db
 def test_find_partitions_to_cleanup(cluster: ClickhouseCluster):
     from dagster import build_op_context
 

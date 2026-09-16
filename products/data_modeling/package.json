@@ -17,6 +17,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "clsx": "*",
