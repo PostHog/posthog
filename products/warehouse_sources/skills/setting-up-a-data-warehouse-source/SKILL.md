@@ -144,9 +144,12 @@ field definitions. The response is a dict keyed by source type. Each entry descr
   - Read `type` from the response. New source types add new values, so do not assume a fixed list.
     Current values are `text`, `password`, `textarea`, `number`, `email`, `url`, `time`, `search`, `select`,
     `oauth`, `oauth-account-select`, `switch-group`, `file-upload`, and `ssh-tunnel`.
-  - A separate boolean `secret` marks a field that holds a sensitive value. The `type` does not tell you this. A
-    `text` or a `textarea` field can carry `secret: true`. Collect every secret field through
-    `data-warehouse-source-connect-link`, never in chat.
+  - A separate boolean `secret` marks an input field that holds a sensitive value. The `type` does not tell you
+    this, so a `text` or a `textarea` field can carry `secret: true`.
+  - Other fields are sensitive by type and carry no `secret` flag. A `password` field is always sensitive. A
+    `file-upload` field is always sensitive, because it holds a service-account key file. An `ssh-tunnel` field
+    declares no child fields, but its `password`, `passphrase` and `private_key` values are sensitive.
+  - Collect every sensitive field through `data-warehouse-source-connect-link`, never in chat.
   - `switch-group` and `select` options nest their own `fields` array. Read those the same way.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
