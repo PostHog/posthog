@@ -171,6 +171,7 @@ jobs:
                       # Python backend. WF009 keeps the list in step with what MCP imports.
                       mcp-typescript:
                         - 'packages/quill/**'
+                        - 'products/notebooks/**'
                         - 'products/product_analytics/frontend/insights/**'
                         - 'products/*/frontend/generated/**'
                         - 'frontend/src/mocks/fixtures/**'
