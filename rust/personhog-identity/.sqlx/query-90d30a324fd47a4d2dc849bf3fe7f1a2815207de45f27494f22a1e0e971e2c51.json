@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO lifecycle_op_person\n                (op_id, team_id, person_id, person_uuid, role, ordinal, status, mark_active)\n            SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, $6, true\n            FROM unnest($3::bigint[], $4::uuid[], $5::text[], $7::int[])\n                AS u(person_id, person_uuid, role, ordinal)\n            ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING\n            RETURNING person_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int8Array",
+        "UuidArray",
+        "TextArray",
+        "Text",
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "90d30a324fd47a4d2dc849bf3fe7f1a2815207de45f27494f22a1e0e971e2c51"
+}

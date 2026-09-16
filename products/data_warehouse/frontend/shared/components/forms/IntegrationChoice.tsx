@@ -7,12 +7,12 @@ import {
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 
 export type SourceIntegrationChoiceProps = IntegrationConfigureProps & {
-    sourceConfig: SourceConfig
+    sourceConfig: SourceConfigResponseApi
 }
 
 export function SourceIntegrationChoice({

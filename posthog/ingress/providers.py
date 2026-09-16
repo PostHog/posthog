@@ -40,6 +40,9 @@ class WebhookProvider(ABC):
     invalid_signature_status: int = 403
     unconfigured_status: int = 500
     success_status: int = 202
+    # An incarnation that answers 404 to withhold the endpoint's existence sets this False, so the
+    # body does not name the reason the status code was chosen to hide.
+    explains_rejections: bool = True
 
     @abstractmethod
     def scheme(self) -> SignatureScheme:

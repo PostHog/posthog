@@ -1413,6 +1413,7 @@ class ExternalDataSourceType(models.TextChoices):
     SMARTLEAD = "Smartlead", "Smartlead"
     SUBSTACK = "Substack", "Substack"
     ELECTRICITYMAPS = "ElectricityMaps", "ElectricityMaps"
+    AMPLEMARKET = "Amplemarket", "Amplemarket"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
