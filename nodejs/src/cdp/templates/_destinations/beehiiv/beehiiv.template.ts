@@ -22,7 +22,7 @@ let headers := {
 }
 
 let customFields := []
-for (let name, value in inputs.customFields) {
+for (let name, value in inputs.customFields ?? {}) {
     if (not empty(name) and not empty(value)) {
         customFields := arrayPushBack(customFields, {
             'name': name,

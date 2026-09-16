@@ -125,6 +125,20 @@ describe('beehiiv template', () => {
         expect(done.finished).toBe(true)
     })
 
+    it('leaves an unsubscribed subscriber unsubscribed when reactivation is off', async () => {
+        const lookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: false }, {})
+        const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+            status: 200,
+            body: { data: { id: 'sub_123', email: EMAIL, status: 'inactive' } },
+        })
+
+        expect(updateRequest.invocation.queueParameters).toMatchObject({
+            url: SUBSCRIPTION_URL,
+            method: 'PUT',
+        })
+        expect(parseBody(updateRequest.invocation)).not.toHaveProperty('unsubscribe')
+    })
+
     it('reactivates an unsubscribed subscriber through the create endpoint when enabled', async () => {
         const inputs = { ...defaultInputs, reactivateExisting: true }
         const lookupRequest = await tester.invoke(inputs, {})
@@ -200,6 +214,25 @@ describe('beehiiv template', () => {
                 log.message.includes('Subscription already exists and there are no fields to update. Skipping...')
             )
         ).toBe(true)
+    })
+
+    it('runs when the custom field mapping is missing from the inputs', async () => {
+        const { customFields: _omitted, ...inputsWithoutMapping } = defaultInputs
+        const lookupRequest = await tester.invoke({ ...inputsWithoutMapping, customFields: null }, {})
+
+        expect(lookupRequest.error).toBeUndefined()
+        expect(lookupRequest.invocation.queueParameters).toMatchObject({
+            url: SUBSCRIPTION_URL,
+            method: 'GET',
+        })
+
+        const createRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+            status: 404,
+            body: {},
+        })
+
+        expect(createRequest.error).toBeUndefined()
+        expect(parseBody(createRequest.invocation)).not.toHaveProperty('custom_fields')
     })
 
     it('skips when email is empty', async () => {
