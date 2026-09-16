@@ -1096,19 +1096,18 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) ->
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-class _JsonbPathExists(Func):
-    """Postgres ``jsonb_path_exists``, so a predicate can test every entry of a JSON array."""
-
-    function = "jsonb_path_exists"
-    output_field = BooleanField()
-
-
 # A run carries a PR when its output yields a usable URL, the rule ``read_pr_urls`` applies in
 # Python: a non-empty ``pr_url``, or any non-empty ``pr_urls`` entry. Indexing ``pr_urls[0]``
 # instead would miss ``["", "…/pull/1"]`` and match ``[""]``, either dropping a real PR or letting
-# a malformed run shadow an older one that holds it.
+# a malformed run shadow an older one that holds it. Postgres ``jsonb_path_exists`` tests every
+# entry; both of its arguments are literals, so no caller input reaches the path expression.
 _PR_CARRYING_OUTPUT_Q = (Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(
-    _JsonbPathExists("output", Value('$.pr_urls[*] ? (@ != "")'))
+    Func(
+        "output",
+        Value('$.pr_urls[*] ? (@ != "")'),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
 )
 
 
