@@ -172,7 +172,8 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     [ProductKey.NOTEBOOKS]: {
         Hoggie: HedgehogReading,
         accentColor: 'var(--color-product-notebooks-light)',
-        tagline: 'Write up a bug hunt or a launch, with live insights and replays right there in the page.',
+        tagline:
+            'Write up an analysis, a bug hunt, or a launch, with live insights and replays right there in the page.',
         hoggieOffset: { x: 28, y: 20 },
     },
     [ProductKey.ENDPOINTS]: {
