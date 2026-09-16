@@ -25,8 +25,6 @@ from posthog.regions import SECONDARY_REGION_DOMAIN
 
 logger = structlog.get_logger(__name__)
 
-# One uploaded file as `requests` takes it: the field name, then the filename, the bytes and the
-# content type.
 ReplayFile = tuple[str, tuple[str | None, bytes, str | None]]
 
 

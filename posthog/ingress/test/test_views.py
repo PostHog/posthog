@@ -677,7 +677,6 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
         self.assertIn(("token", "delivery-token"), kwargs["data"])
         self.assertIn(("recipient", "team-abc@example.com"), kwargs["data"])
         self.assertEqual(kwargs["files"], [("attachment-1", ("note.txt", b"attached", "text/plain"))])
-        # The rebuilt body gets a fresh boundary, so the old Content-Type must not travel with it.
         self.assertNotIn("content-type", {key.lower() for key in kwargs["headers"]})
 
     def test_a_urlencoded_form_read_still_replays_its_raw_bytes(self) -> None:
