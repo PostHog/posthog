@@ -6797,8 +6797,9 @@ class QueryResponseAlternative9(BaseModel):
     events_scan_estimate: EventsScanEstimate | None = Field(
         default=None,
         description=(
-            "Present only for a select that reads the events table alone; absent for"
-            " joins, other tables, or a team with no data."
+            "Present when the query reads only the events table, directly or through"
+            " subqueries, CTEs and UNIONs; absent for a join to any other table, or a"
+            " team with no data."
         ),
     )
     index_usage: list[PredicateIndexUsage] | None = Field(
@@ -17975,8 +17976,9 @@ class HogQLMetadataResponse(BaseModel):
     events_scan_estimate: EventsScanEstimate | None = Field(
         default=None,
         description=(
-            "Present only for a select that reads the events table alone; absent for"
-            " joins, other tables, or a team with no data."
+            "Present when the query reads only the events table, directly or through"
+            " subqueries, CTEs and UNIONs; absent for a join to any other table, or a"
+            " team with no data."
         ),
     )
     index_usage: list[PredicateIndexUsage] | None = Field(
