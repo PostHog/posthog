@@ -44,6 +44,28 @@ When the main content panel is narrow, Setup provides a section selector in plac
 
 The new dashboard opens on Acquisition. Its section tiles show one section at a time while preserving the shared date and comparison filters. Retention, Conversion, and Revenue tiles follow their existing feature flags.
 
-Acquisition and Engagement reuse the Web Analytics stats table with a shared traffic breakdown selector. The Acquisition table shows visitors and pageviews; the Engagement table shows visitors and bounce rate. Summary cards remain visitors, sessions, and pageviews for Acquisition, and session duration and bounce rate for Engagement. Changing sections preserves the selected breakdown, date range, and comparison.
+Acquisition and Engagement reuse the Web Analytics stats table with a shared traffic breakdown selector. The Acquisition table shows visitors, sessions and pageviews; the Engagement table shows visitors and bounce rate. Summary cards remain visitors, sessions, and pageviews for Acquisition, and session duration and bounce rate for Engagement. Changing sections preserves the selected breakdown, date range, and comparison.
 
 Comparison and Reload summary controls appear only in Acquisition and Engagement, where they affect the displayed traffic data. The comparison selection is retained when visiting other sections.
+
+Acquisition also shows unique visitors completing a selected customer goal and their ratio to visitors, with prior-period comparison and channel/campaign breakdowns. Event and action goals marked as customer-defining are supported; warehouse goals remain in Ad performance. The selected goal's property filters apply only to conversions, preserving the visitor denominator. Multiple goals are selected individually, and removing or unmarking a selection falls back to another eligible goal or the Configure in Setup card.
+
+These are unique converters within the selected period, not a first-ever customer calculation. Choose a once-per-customer event or action to interpret the metric as new customers. The Acquisition table retains visitors, sessions and pageviews, adding customers and their ratio to visitors when a goal is selected. The ratio can exceed 100% when conversion events arrive without pageviews or screenviews. Engagement and the legacy dashboard remain unchanged.
+
+Reload summary stays disabled until both traffic and customer metrics finish loading in Acquisition.
+
+### Acquisition code ownership and verification
+
+The dashboard, customer-goal selection, customer-to-visitor calculation, and traffic column presentation live in `products/marketing_analytics/frontend/dashboard/`. Attribution owns its revenue and attribution controls. Web Analytics owns the reusable query execution, including conversion property filters and optional traffic metrics.
+
+To verify Acquisition, enable `new-marketing-analytics-dashboard` and open `/project/<project_id>/marketing` in a development project with pageviews and a customer event or action:
+
+1. In Setup, mark a conversion goal as a new customer goal. Return to Dashboard → Acquisition.
+2. Confirm Visitors, Sessions, Pageviews, New customers, and Customer-to-visitor ratio appear. Select another customer goal and confirm the customer metrics update.
+3. Switch the traffic breakdown from Channel to Campaign and enable comparison. Confirm the table and summary use the selected period.
+4. Open Engagement, change dates, and return to Acquisition. Confirm the dates and breakdown remain selected and the customer metrics reload.
+5. Remove or unmark the selected customer goal in Setup. Confirm Acquisition falls back to another eligible goal, or shows Configure in Setup if none remain.
+
+Customer-goal selection and ratio tests live beside the dashboard. The dashboard suites also cover section gating and source-suggestion navigation.
+
+Click a traffic metric column heading to sort descending; click it again to sort ascending. Acquisition and Engagement retain separate sort selections.

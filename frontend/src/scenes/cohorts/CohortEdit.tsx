@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 
 import {
     IconClock,
+    IconCollapse,
     IconCopy,
+    IconExpand,
     IconInfo,
     IconRefresh,
     IconSend,
@@ -68,10 +70,17 @@ const POPULATE_FROM_OPTIONS: { label: string; value: StaticCohortMode }[] = [
     { label: 'Upload or add people', value: 'people' },
 ]
 
-function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Element | null {
+interface UsedInSummaryProps {
+    usedIn: CohortUsedInResponseApi
+    isExpanded: boolean
+    setIsExpanded: (expanded: boolean) => void
+}
+
+function UsedInSummary({ usedIn, isExpanded, setIsExpanded }: UsedInSummaryProps): JSX.Element | null {
     const sections = [
         {
             title: 'Feature flags',
+            noun: 'feature flag',
             block: usedIn.feature_flags,
             items: usedIn.feature_flags.results.map((flag) => ({
                 key: `flag-${flag.id}`,
@@ -81,6 +90,7 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
         },
         {
             title: 'Insights',
+            noun: 'insight',
             block: usedIn.insights,
             items: usedIn.insights.results.map((insight) => ({
                 key: `insight-${insight.id}`,
@@ -90,6 +100,7 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
         },
         {
             title: 'Cohorts',
+            noun: 'cohort',
             block: usedIn.cohorts,
             items: usedIn.cohorts.results.map((c) => ({
                 key: `cohort-${c.id}`,
@@ -103,27 +114,43 @@ function UsedInBanner({ usedIn }: { usedIn: CohortUsedInResponseApi }): JSX.Elem
         return null
     }
 
+    // `total` counts every use, while `results` stops at the API's truncation cap.
+    const counts = sections.map(({ block, noun }) => `${block.total} ${noun}${block.total === 1 ? '' : 's'}`)
+    const summary = counts.length > 1 ? `${counts.slice(0, -1).join(', ')} and ${counts[counts.length - 1]}` : counts[0]
+
     return (
-        <LemonBanner type="info">
-            <h4 className="font-semibold mb-1">Used in</h4>
-            <div className="space-y-2">
-                {sections.map(({ title, block, items }) => (
-                    <div key={title}>
-                        <h5 className="text-xs font-semibold uppercase opacity-60 mb-0">
-                            {title}
-                            {block.has_more && ` (${block.results.length} of ${block.total} shown)`}
-                        </h5>
-                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
-                            {items.map(({ key, url, label }) => (
-                                <li key={key}>
-                                    <Link to={url}>{label}</Link>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))}
-            </div>
-        </LemonBanner>
+        <div className="flex flex-col gap-y-1" data-attr="cohort-used-in">
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={isExpanded ? <IconCollapse /> : <IconExpand />}
+                onClick={() => setIsExpanded(!isExpanded)}
+                aria-expanded={isExpanded}
+                className="self-start"
+                data-attr="cohort-used-in-toggle"
+            >
+                Used in {summary}
+            </LemonButton>
+            {isExpanded && (
+                <div className="max-h-60 overflow-y-auto flex flex-col gap-y-2 pl-2">
+                    {sections.map(({ title, block, items }) => (
+                        <div key={title}>
+                            <h5 className="text-xs font-semibold uppercase opacity-60 mb-0">
+                                {title}
+                                {block.has_more && ` (${block.results.length} of ${block.total} shown)`}
+                            </h5>
+                            <ul className="list-disc pl-4 mb-0">
+                                {items.map(({ key, url, label }) => (
+                                    <li key={key}>
+                                        <Link to={url}>{label}</Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -178,6 +205,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         setCreationPersonQuery,
         setStaticCohortMode,
         setActiveTab,
+        setUsedInExpanded,
         submitCohort,
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
@@ -193,6 +221,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         isPendingCalculation,
         isCalculatingOrPending,
         usedIn,
+        usedInExpanded,
         staticCohortMode,
         activeTab,
     } = useValues(logic)
@@ -562,6 +591,14 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 ) : null}
                                             </div>
                                         )}
+
+                                        {!isNewCohort && usedIn && (
+                                            <UsedInSummary
+                                                usedIn={usedIn}
+                                                isExpanded={usedInExpanded}
+                                                setIsExpanded={setUsedInExpanded}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             </SceneSection>
@@ -570,7 +607,6 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                     <UnmatchedImportBanner cohort={cohort} />
                                 </div>
                             )}
-                            {!isNewCohort && usedIn && <UsedInBanner usedIn={usedIn} />}
                             {cohort.is_static && staticCohortMode === 'criteria' ? (
                                 <>
                                     <SceneDivider />
