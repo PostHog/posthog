@@ -1,4 +1,4 @@
-import { Button, Switch } from "@posthog/quill";
+import { Button, Checkbox, Switch } from "@posthog/quill";
 import { NotificationDeliveryCard } from "@posthog/ui/features/settings/components/NotificationDeliveryCard";
 import {
   SettingsCard,
@@ -10,7 +10,7 @@ import { SettingsSelect } from "@posthog/ui/features/settings/components/Setting
 import { ThemePicker } from "@posthog/ui/features/settings/components/ThemePicker";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 const meta: Meta = {
   title: "Settings/SettingsKit",
@@ -219,6 +219,78 @@ export const NotificationDeliveryCards: Story = {
           />
         </div>
       </SettingsSection>
+    );
+  },
+};
+
+/**
+ * A row whose control is wider than a switch, in a narrow window. The label
+ * must stay horizontal and the control must stay inside the card.
+ */
+export const NarrowRowWithMultipleControls: Story = {
+  decorators: [
+    (Story) => (
+      <div style={{ width: 430 }}>
+        <Story />
+      </div>
+    ),
+  ],
+  render: function NarrowRowWithMultipleControlsStory() {
+    const [local, setLocal] = useState(true);
+    const [cloud, setCloud] = useState(true);
+    const localId = useId();
+    const cloudId = useId();
+
+    return (
+      <SettingsCard>
+        <SettingsCardRow
+          label="Always create pull requests for cloud runs"
+          description="Cloud runs push their changes and open a draft pull request when they finish, without waiting for you to ask"
+        >
+          <Switch size="sm" checked onCheckedChange={() => {}} />
+        </SettingsCardRow>
+        <SettingsCardRow
+          label="Compress command output"
+          description={
+            <>
+              Route eligible shell commands through rtk so their verbose output
+              is compressed before it reaches the model, reducing token usage;
+              Local covers local and worktree sessions
+              <span className="mt-1 block text-warning-foreground">
+                rtk binary not found — local sessions run uncompressed until it
+                is installed
+              </span>
+            </>
+          }
+        >
+          <div className="flex items-center gap-4">
+            <label
+              htmlFor={localId}
+              className="flex cursor-pointer items-center gap-1.5 text-[12px] text-foreground"
+            >
+              <Checkbox
+                id={localId}
+                size="sm"
+                checked={local}
+                onCheckedChange={(checked) => setLocal(checked === true)}
+              />
+              Local
+            </label>
+            <label
+              htmlFor={cloudId}
+              className="flex cursor-pointer items-center gap-1.5 text-[12px] text-foreground"
+            >
+              <Checkbox
+                id={cloudId}
+                size="sm"
+                checked={cloud}
+                onCheckedChange={(checked) => setCloud(checked === true)}
+              />
+              Cloud
+            </label>
+          </div>
+        </SettingsCardRow>
+      </SettingsCard>
     );
   },
 };
