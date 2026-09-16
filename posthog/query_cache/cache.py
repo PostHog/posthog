@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -87,8 +87,18 @@ class QueryCache:
         """The open breaker record alone, for paths that skip the result cache entirely."""
         return QueryFailureCache(self.cache_key).get_open()
 
-    def record_failure(self, kind: FailureKind, detail: str, *, budget: Budget) -> Optional[QueryFailureRecord]:
-        return QueryFailureCache(self.cache_key).record_failure(kind, detail, budget=budget)
+    def record_failure(
+        self,
+        kind: FailureKind,
+        detail: str,
+        *,
+        budget: Budget,
+        cache_key: Optional[str] = None,
+        query_scan: Optional[dict[str, Any]] = None,
+    ) -> Optional[QueryFailureRecord]:
+        return QueryFailureCache(self.cache_key).record_failure(
+            kind, detail, budget=budget, cache_key=cache_key, query_scan=query_scan
+        )
 
     def clear_failure(self) -> None:
         QueryFailureCache(self.cache_key).clear()

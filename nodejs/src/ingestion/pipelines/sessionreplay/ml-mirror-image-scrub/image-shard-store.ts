@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
-import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/crypto'
+import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {

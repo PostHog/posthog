@@ -94,3 +94,21 @@ nodejs/src/cdp/** @PostHog/team-workflows
 # events and the credentials that go with them.
 products/*/backend/api/test/**
 nodejs/src/cdp/**/*.test.ts
+
+# Cloud runs execute agent code inside customer sandboxes holding the customer's GitHub and
+# PostHog credentials. The workflow, its sandbox providers and credential handling, the
+# agent-server that runs in every sandbox, and the agent-proxy that relays sandbox events all
+# fail silently when edited wrong: the run still goes green while credentials leak, land in the
+# wrong sandbox, or stop refreshing. Agent Infrastructure owns the runtime; self-driving
+# co-owns the tasks product it builds on, so an approval from either team clears a tasks
+# change. Frontend stays out, because a mistake there is visible.
+products/tasks/backend/** @PostHog/team-agent-infrastructure @PostHog/team-self-driving
+products/tasks/management/** @PostHog/team-agent-infrastructure @PostHog/team-self-driving
+products/tasks/mcp/** @PostHog/team-agent-infrastructure @PostHog/team-self-driving
+products/tasks/scripts/** @PostHog/team-agent-infrastructure @PostHog/team-self-driving
+products/desktop/packages/agent/** @PostHog/team-agent-infrastructure
+products/desktop/packages/agent-shadow/** @PostHog/team-agent-infrastructure
+services/agent-proxy/** @PostHog/team-agent-infrastructure
+.github/workflows/ci-agent-proxy.yml @PostHog/team-agent-infrastructure
+.github/workflows/cd-agent-proxy-image.yml @PostHog/team-agent-infrastructure
+.github/workflows/cd-tasks-golden-snapshot.yml @PostHog/team-agent-infrastructure
