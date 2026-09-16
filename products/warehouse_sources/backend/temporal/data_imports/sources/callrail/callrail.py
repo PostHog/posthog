@@ -36,7 +36,7 @@ CALLRAIL_BASE_URL = "https://api.callrail.com/v3"
 MAX_PAGES = 100_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CallRailResumeConfig:
     # The resolved account whose data we're pulling. Pinned across a resume so re-resolution can't
     # silently switch accounts mid-sync (an API key can see more than one account). Empty for
