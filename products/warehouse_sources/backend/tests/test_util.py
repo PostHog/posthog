@@ -56,8 +56,7 @@ class TestHogqlTypeNameForClickhouseType(SimpleTestCase):
             ("nullable_wrapper_stripped", "Nullable(Int64)", "IntegerDatabaseField"),
             # Types added to close the gap that blocked saving views.
             ("variant", "Variant(String, Int64)", "UnknownDatabaseField"),
-            # A JSON column is physically JSON, not a string holding it, so a key read compiles to a subcolumn.
-            ("json", "JSON", "NativeJSONDatabaseField"),
+            ("json", "JSON", "StringJSONDatabaseField"),
             ("dynamic", "Dynamic", "UnknownDatabaseField"),
             ("enum16", "Enum16('a' = 1)", "StringDatabaseField"),
             ("wide_int", "Int128", "IntegerDatabaseField"),
