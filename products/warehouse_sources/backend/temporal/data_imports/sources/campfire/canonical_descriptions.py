@@ -271,6 +271,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the customer.",
             "name": "Name of the customer.",
             "display_name": "Name shown for the customer in Campfire.",
+            "dba": "The name the customer does business as.",
             "company_name": "Registered company name of the customer.",
             "status": "Whether the customer is ACTIVE or INACTIVE.",
             "currency": "Currency the customer transacts in.",

@@ -1232,7 +1232,7 @@ Today (19): `bank_accounts`, `bank_transactions`, `bill_payments`, `bills`, `cha
 
 Diffed against: <https://docs.campfire.ai/llms.txt>
 
-- [x] `revenue-recognition/list-contract-products` — contract line items - the revenue detail behind every contract we already sync (high)
+- [x] `revenue-recognition/list-contract-products` — the product catalog behind every contract line item (high)
 - [x] `revenue-recognition/list-contract-subscriptions` — subscription schedules per contract, needed for ARR/MRR and rev-rec waterfalls (high)
 - [x] `revenue-recognition/list-contract-customers` — lookup table resolving the customer IDs carried on contracts, invoices and revenue transactions (high)
 - [x] `settings/list-chart-entities` — legal entity lookup - every transaction carries an entity ID and multi-entity consolidation is unusable without it (high)
