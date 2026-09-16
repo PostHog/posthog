@@ -88,9 +88,10 @@ statistic and nothing pauses.
 The history lane reads back every row at its position, with its content, to tell a replay from a
 new change. One bulk transaction can put millions of rows at one position, and reading them all
 back every tick until the next change lands would exhaust memory before that change could be
-staged. Above `MAX_POSITION_ROWS` rows _at the position_ — counted from the position column alone,
-since after compaction the file holding the newest position holds most of the table — the lane
-logs `cdc_position_identity_degraded` and matches on key and operation alone for that tick; a bulk
+staged. The rows are read a batch at a time, and only the rows _at the position_ count — a
+compacted file holds most of the table, but the read filters it. Past `MAX_POSITION_ROWS` rows or
+`MAX_POSITION_BYTES` of Arrow memory the lane keeps only the key columns from then on, logs
+`cdc_position_identity_degraded`, and matches on key and operation alone for that tick; a bulk
 change touches each key once, so nothing is lost by it. One such line per bulk change is expected.
 The same line on every tick means the table's newest transaction is huge and nothing has landed
 since — look at the source.

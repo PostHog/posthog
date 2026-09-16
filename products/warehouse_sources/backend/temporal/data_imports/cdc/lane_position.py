@@ -53,9 +53,14 @@ _DEFAULT_INDEXED_COLUMNS = 32
 # where that stops fitting alongside the batch being staged.
 MAX_POSITION_ROWS = 100_000
 
-# The same cutoff by size, estimated from the candidate files' stored bytes per row: the row cap
-# alone lets a wide, JSON-heavy transaction read back gigabytes.
+# The same cutoff by the Arrow memory those rows occupy as they are read, since the row cap alone
+# lets a wide, JSON-heavy transaction read back gigabytes. The Python objects built from them run
+# several times larger, which is what this number allows for.
 MAX_POSITION_BYTES = 64 * 1024 * 1024
+
+# Rows per batch as the position is read: the caps are checked between batches, so this is how
+# far past them one read can go.
+_POSITION_BATCH_ROWS = 8_192
 
 _MAX_STAT = f"max.{CDC_SEQ_COLUMN}"
 _NULL_COUNT_STAT = f"null_count.{CDC_SEQ_COLUMN}"
@@ -163,26 +168,34 @@ def _load_applied(
     candidates: dict[str, int],
     columns: list[str],
 ) -> LanePosition:
-    """The rows the table holds at `highest`, read from the candidate files."""
-    rows_at_position = sum(candidates.values())
-    bytes_per_row = _bytes_per_row(add_actions, list(candidates))
-    if rows_at_position > MAX_POSITION_ROWS or rows_at_position * bytes_per_row > MAX_POSITION_BYTES:
-        # File totals overstate it: after compaction the file holding the newest position holds
-        # most of the table. Count the rows actually at the position first — one integer
-        # column, row-group pruned — and only degrade when that count is what exceeds a cap.
-        only_seq = _rows_at_position(delta_table, add_actions, highest, list(candidates), [CDC_SEQ_COLUMN])
-        rows_at_position = only_seq.num_rows
-    estimated_bytes = rows_at_position * bytes_per_row
-    if rows_at_position > MAX_POSITION_ROWS or estimated_bytes > MAX_POSITION_BYTES:
-        # One bulk transaction stamps every row it touched with one position, and reading them
-        # all back as Python objects would exhaust memory before anything could be staged — the
-        # schema would never move again. Above the cap the lane matches on key and operation
-        # alone: a bulk change touches each key once, so the content is not needed to tell its
-        # rows apart, and a replay still spends the stored row rather than appending a copy.
-        logger.warning(
-            "cdc_position_identity_degraded", position=highest, rows=rows_at_position, estimated_bytes=estimated_bytes
-        )
-        keys_only = _rows_at_position(delta_table, add_actions, highest, list(candidates), columns)
+    """The rows the table holds at `highest`, read from the candidate files a batch at a time.
+
+    One bulk transaction stamps every row it touched with one position, and reading them all
+    back as Python objects would exhaust memory before anything could be staged — the schema
+    would never move again. Past either cap the lane keeps only the key columns from then on and
+    matches on key and operation alone: a bulk change touches each key once, so the content is
+    not needed to tell its rows apart, and a replay still spends the stored row rather than
+    appending a copy.
+    """
+    scanner = _rows_at_position(delta_table, add_actions, highest, list(candidates))
+    schema = scanner.projected_schema
+    batches: list[pa.RecordBatch] = []
+    rows = 0
+    held_bytes = 0
+    degraded = False
+    for batch in scanner.to_batches():
+        if batch.num_rows == 0:
+            continue
+        rows += batch.num_rows
+        if not degraded:
+            held_bytes += batch.nbytes
+            if rows > MAX_POSITION_ROWS or held_bytes > MAX_POSITION_BYTES:
+                degraded = True
+                logger.warning("cdc_position_identity_degraded", position=highest, rows=rows, held_bytes=held_bytes)
+                batches = [held.select(columns) for held in batches]
+        batches.append(batch.select(columns) if degraded else batch)
+    if degraded:
+        keys_only = pa.Table.from_batches(batches, schema=pa.schema([schema.field(name) for name in columns]))
         return LanePosition(
             position=highest,
             applied={
@@ -191,24 +204,13 @@ def _load_applied(
             key_columns=tuple(columns),
             content_matched=False,
         )
-    at_position = _rows_at_position(delta_table, add_actions, highest, list(candidates))
+    at_position = pa.Table.from_batches(batches, schema=schema)
     return LanePosition(
         position=highest,
         applied=_group_by_identity(at_position, columns),
         key_columns=tuple(columns),
         content_schema=at_position.select(content_columns(at_position.column_names)).schema,
     )
-
-
-def _bytes_per_row(add_actions: pa.Table, candidates: list[str]) -> float:
-    """Stored bytes per row across the candidate files, from the add actions' own accounting."""
-    wanted = set(candidates)
-    paths = add_actions.column("path").to_pylist()
-    sizes = add_actions.column("size_bytes").to_pylist()
-    counts = add_actions.column("num_records").to_pylist()
-    rows = sum(int(count or 0) for path, count in zip(paths, counts) if path in wanted)
-    size = sum(int(byte or 0) for path, byte in zip(paths, sizes) if path in wanted)
-    return size / rows if rows else 0.0
 
 
 def _scan_position(delta_table: deltalake.DeltaTable) -> int | None:
@@ -248,9 +250,8 @@ def _rows_at_position(
     add_actions: pa.Table,
     highest: int,
     candidates: list[str],
-    columns: list[str] | None = None,
-) -> pa.Table:
-    """Every row at `highest`, read from only the candidate files.
+) -> pa_ds.Scanner:
+    """A scan over every row at `highest`, touching only the candidate files.
 
     A candidate with no statistic is opened only as far as its footer: one that lacks the column
     at all cannot hold the row and is skipped without a read.
@@ -271,10 +272,8 @@ def _rows_at_position(
     logger.info(
         "cdc_position_rows_read", position=highest, files_read=len(fragments), files_active=add_actions.num_rows
     )
-    if not fragments:
-        return dataset.schema.empty_table()
     selected = pa_ds.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem)
-    return selected.to_table(columns=columns, filter=pc.field(CDC_SEQ_COLUMN) == highest)
+    return selected.scanner(filter=pc.field(CDC_SEQ_COLUMN) == highest, batch_size=_POSITION_BATCH_ROWS)
 
 
 def _unescaped(path: str) -> str:
