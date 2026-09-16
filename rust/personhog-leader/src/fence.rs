@@ -59,11 +59,20 @@ use personhog_proto::personhog::types::v1::LifecycleOpType;
 use crate::cache::PersonCacheKey;
 use crate::pg::PgFallback;
 
+/// Who installed a fence: the seal, before any of the op's releases, or
+/// the takeover scan, possibly after releases already acked elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FenceOrigin {
+    Seal,
+    Takeover,
+}
+
 /// A person's live fence: the operation that froze it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FenceState {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
+    pub installed_by: FenceOrigin,
 }
 
 pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
@@ -189,6 +198,7 @@ pub async fn rebuild_partition_fences(
             FenceState {
                 op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
+                installed_by: FenceOrigin::Takeover,
             },
         );
         installed += 1;
@@ -399,8 +409,7 @@ pub async fn target_mark_status(
         .await
 }
 
-/// Bounds how long a re-driven op can be answered from rows read for an
-/// earlier attempt; an op's releases run within one saga step.
+/// A memory bound only; the fence origin keeps a snapshot from answering past a settle.
 const MARK_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
 
 /// Keeps the snapshot map bounded without a sweeper task.
@@ -453,11 +462,9 @@ struct MarkSnapshot {
 }
 
 /// The committed-release check, answered from one read of the op's rows
-/// per op per pod. The op's victim set is fixed once its claim commits,
-/// and releases only start after the destroying step commits, so a
-/// snapshot taken at the first release is final for every victim of the
-/// op. The row still has to vouch for the (op, person) pair, so the
-/// request alone is never enough.
+/// per op per pod. Only a seal-installed fence may use it: a takeover
+/// fence can postdate releases the previous owner acked, so it reads the
+/// row. The row still has to vouch for the (op, person) pair.
 pub struct MarkVerifier {
     source: Arc<dyn MarkSource>,
     ttl: Duration,

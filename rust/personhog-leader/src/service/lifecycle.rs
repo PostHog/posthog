@@ -17,7 +17,7 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
-use crate::fence::{fenced_status, mark_statuses, semantic_refusal, FenceState};
+use crate::fence::{fenced_status, mark_statuses, semantic_refusal, FenceOrigin, FenceState};
 use crate::pg::PgFallback;
 
 use super::{cached_person_to_proto, partition_from_metadata, PersonHogLeaderService};
@@ -36,8 +36,8 @@ const LIFECYCLE_BATCH_CONCURRENCY: usize = 16;
 /// answer for its person and must not hide behind a sibling's transient
 /// error, which the saga would retry.
 impl PersonHogLeaderService {
-    /// Mark statuses for a committed release: fenced persons answer from the
-    /// op's snapshot, the rest read their own row (a retry after settle).
+    /// Mark statuses for a committed release: persons under a seal-installed
+    /// fence answer from the op's snapshot, the rest read their own row.
     async fn release_mark_statuses(
         &self,
         lifecycle_db: &PgFallback,
@@ -47,10 +47,12 @@ impl PersonHogLeaderService {
     ) -> Result<HashMap<i64, String>, sqlx::Error> {
         let (snapshot, rows): (Vec<i64>, Vec<i64>) = match &self.mark_verifier {
             Some(_) => person_ids.iter().partition(|person_id| {
-                self.fences.contains_key(&PersonCacheKey {
-                    team_id,
-                    person_id: **person_id,
-                })
+                self.fences
+                    .get(&PersonCacheKey {
+                        team_id,
+                        person_id: **person_id,
+                    })
+                    .is_some_and(|fence| fence.installed_by == FenceOrigin::Seal)
             }),
             None => (Vec::new(), person_ids.to_vec()),
         };
@@ -361,7 +363,14 @@ impl PersonHogLeaderService {
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
 
-        self.fences.insert(cache_key, FenceState { op_id, op_type });
+        self.fences.insert(
+            cache_key,
+            FenceState {
+                op_id,
+                op_type,
+                installed_by: FenceOrigin::Seal,
+            },
+        );
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
         Ok(sealed)
     }

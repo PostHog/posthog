@@ -1748,6 +1748,7 @@ mod tests {
     use tonic::Code;
 
     use super::*;
+    use crate::fence::FenceOrigin;
     use crate::recovery::RecoveryConfig;
 
     fn make_key(team_id: i64, person_id: i64) -> PersonCacheKey {
@@ -2213,6 +2214,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                installed_by: FenceOrigin::Seal,
             },
         );
 
@@ -2272,6 +2274,7 @@ mod tests {
             FenceState {
                 op_id,
                 op_type: LifecycleOpType::Delete,
+                installed_by: FenceOrigin::Seal,
             },
         );
 
