@@ -1483,6 +1483,40 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
+    @parameterized.expand(
+        [
+            ("same_bucket_count", [1.0, 5.0, 10.0], [110, 110, 110, 0]),
+            ("different_bucket_count", [1.0, 5.0], [110, 110, 0]),
+        ]
+    )
+    def test_cumulative_layout_change_emits_no_point(self, _name, new_bounds, new_counts):
+        # One series changes layout. Counts on either side of the change cannot be subtracted.
+        self._seed_histogram([(self.anchor, [100, 100, 100, 0])], temporality="cumulative")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=30), new_counts)],
+            temporality="cumulative",
+            bounds=new_bounds,
+        )
+        rows = self._run(0.5)
+        self.assertEqual(rows, [])
+
+    def test_cumulative_layout_change_resumes_on_the_new_layout(self):
+        # The first sample of the new layout has no baseline. The next one does.
+        self._seed_histogram([(self.anchor, [100, 100, 100, 0])], temporality="cumulative")
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=30), [10, 10, 10, 0]),
+                (self.anchor + dt.timedelta(minutes=1), [20, 20, 20, 0]),
+            ],
+            temporality="cumulative",
+            bounds=[1.0, 5.0, 10.0],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 3.0)
+        point = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(point, self.anchor + dt.timedelta(minutes=1))
+
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
             [(self.anchor + dt.timedelta(seconds=0), [10, 10, 10, 0])],
