@@ -2057,6 +2057,10 @@ class FeatureFlagSerializer(
         # the tombstone instead — same scheme as the soft-delete update path.
         # Only safe when no active dependent references it; re-check that
         # invariant and error clearly if violated.
+        #
+        # `teams_gating_replay_on_flag` reads `flag.team.project_id` below. That lazy load
+        # inherits `TeamManager`'s deferrals. `select_related("team")` builds its own projection
+        # and pulls the deprecated taxonomy columns once per row.
         soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
             key=key,
             team__project_id=self.context["project_id"],

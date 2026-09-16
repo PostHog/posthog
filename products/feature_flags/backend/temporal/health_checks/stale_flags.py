@@ -170,8 +170,10 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     The bulk-delete guard in ``products/feature_flags/backend/api/feature_flag.py`` blocks
     the same references and must stay in step with this list. Where the two differ it is on
     purpose, and this list is the stricter one: the guard blocks only running experiments
-    where this excludes every non-deleted one, and the guard's ``find_dependent_flags_batch``
-    counts only active dependent flags where this also lets disabled dependents block.
+    where this excludes every non-deleted one, the guard's ``find_dependent_flags_batch``
+    counts only active dependent flags where this also lets disabled dependents block, and
+    the guard matches a replay gate only within the flag's own project where this matches a
+    stored id across every project scanned.
 
     A survey's user-created ``linked_flag`` is deliberately not excluded, unlike the
     survey flags PostHog generates itself. It is user-managed, bulk delete permits it, and
@@ -205,21 +207,22 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     excluded |= _depended_on_flag_ids(project_ids)
     # A trigger group counts here as much as the linked-flag column: both gate recording, so a
     # flag either one names must not be reported as a cleanup candidate.
-    # A stored id is matched against every project scanned, because flag ids are globally unique,
-    # so a team in one project can gate recording on a flag another project owns. A stored key is
-    # matched only within its own project, because a key names one flag only there, and pooling
-    # keys would let a key stored in one project protect a same-keyed flag in another.
     replay_gates = replay_gated_flags_for_projects(project_ids)
-    gated_flag_ids = {flag_id for gates in replay_gates.values() for flag_id in gates.flag_ids}
+    # A stored id is matched against every project scanned, because flag ids are globally unique.
+    # Only the stored key reaches an SDK, so a team holding another project's flag id gates no
+    # recording on that flag. The candidate is withheld anyway, because a hard delete leaves that
+    # reference unrepairable. `repair_replay_linked_flag_keys` reports such a row as
+    # `FLAG_IN_OTHER_PROJECT` and has no key it can safely adopt.
+    excluded |= {flag_id for gates in replay_gates.values() for flag_id in gates.flag_ids}
+    # A stored key is matched only within its own project, because a key names one flag only
+    # there, and pooling keys would let a key stored in one project protect a same-keyed flag in
+    # another.
     excluded |= {
         flag.id
         for flag in candidates
-        if flag.id in gated_flag_ids
-        or (
-            (project_id := team_projects.get(flag.team_id)) is not None
-            and (gates := replay_gates.get(project_id)) is not None
-            and flag.key in gates.flag_keys
-        )
+        if (project_id := team_projects.get(flag.team_id)) is not None
+        and (gates := replay_gates.get(project_id)) is not None
+        and flag.key in gates.flag_keys
     }
     return excluded
 
