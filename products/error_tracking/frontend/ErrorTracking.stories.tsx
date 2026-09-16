@@ -753,6 +753,29 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+const STORY_INTEGRATION_DEFAULTS = {
+    config: {},
+    icon_url: '',
+    created_at: '2024-07-01T00:00:00Z',
+    created_by: MOCK_DEFAULT_BASIC_USER,
+}
+const STORY_ISSUE_TRACKER_INTEGRATIONS = [
+    { ...STORY_INTEGRATION_DEFAULTS, id: 1, kind: 'linear', display_name: 'PostHog' },
+    { ...STORY_INTEGRATION_DEFAULTS, id: 2, kind: 'github', display_name: 'PostHog/posthog' },
+]
+
+export const GroupPageWithIssueTrackers: Story = {
+    name: 'Issue scene with issue tracker integrations',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/integrations': [200, { next: null, results: STORY_ISSUE_TRACKER_INTEGRATIONS }],
+            },
+        }),
+    ],
+}
+
 export const GroupPageWithVisionCrossSell: Story = {
     name: 'Issue scene with Replay vision cross-sell',
     parameters: {

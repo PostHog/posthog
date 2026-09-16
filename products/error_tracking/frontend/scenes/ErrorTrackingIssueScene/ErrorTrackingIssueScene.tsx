@@ -41,6 +41,7 @@ import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsL
 import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
+import { ExternalIssueMenu } from '../../components/ExternalIssueMenu'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
@@ -198,7 +199,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex items-center justify-end gap-1 flex-wrap">
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
@@ -263,6 +264,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         <IconRewindPlay />
                                                     </Button>
                                                 )}
+                                                <ExternalIssueMenu />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
