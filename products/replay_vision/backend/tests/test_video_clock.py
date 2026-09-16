@@ -107,6 +107,12 @@ class TestCitationsPastTheVideoEnd:
         _, segments = _extract_segments("stuck here (t 9999)", 80_000, clock)
         assert [s for s in segments if isinstance(s, ChipSegment)] == []
 
+    def test_one_second_past_the_end_is_still_invented(self) -> None:
+        clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
+        _, segments = _extract_segments("just past it (t 77)", 80_000, clock)
+        assert [s for s in segments if isinstance(s, ChipSegment)] == []
+
     def test_a_genuine_final_moment_still_becomes_a_chip(self) -> None:
         clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
         assert clock is not None
