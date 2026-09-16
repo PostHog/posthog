@@ -247,7 +247,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     const logic = experimentReplayTabLogic({ experiment })
     const {
         effectiveVariantKey,
-        effectiveExposureScope,
+        displayedExposureScope,
         exposureInSessionUnavailableReason,
         inSessionExposure,
         playlistHeldForChecks,
@@ -372,7 +372,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 />
                 <LemonSegmentedButton
                     size="small"
-                    value={effectiveExposureScope}
+                    value={displayedExposureScope}
                     onChange={(value) => setExposureScope(value)}
                     disabledReason={sessionBucketRequest !== null ? inSessionCopy.scopeLockedReason : undefined}
                     options={[
@@ -470,7 +470,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
                 {clientSideFilterApplied ? null : !sessionBucketRequest && metricFilterMode === 'fired_all' ? (
                     <span data-attr="experiment-recordings-population-caption">
-                        {effectiveExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
+                        {displayedExposureScope === 'in_session' ? inSessionCopy.caption : ALL_EXPOSED_CAPTION}
                     </span>
                 ) : !sessionBucketRequest ? (
                     <span>{unappliedModeReason(metricFilterMode)}</span>
