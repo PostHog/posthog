@@ -165,7 +165,7 @@ describe('metricsViewerLogic', () => {
             ''
         )
         expect(logic.values.aggregation).toBe('histogram_quantile')
-        expect(logic.values.queryPayload?.clauses[0]).toMatchObject({
+        expect(logic.values.queryPayload?.clauses?.[0]).toMatchObject({
             aggregation: 'histogram_quantile',
             quantile: 0.95,
         })
