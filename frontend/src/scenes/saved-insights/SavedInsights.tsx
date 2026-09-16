@@ -25,6 +25,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -87,6 +88,7 @@ export function InsightIcon({
 
 export function SavedInsights(): JSX.Element {
     const { push } = useActions(router)
+    const { reportInsightOpened } = useActions(eventUsageLogic)
     const {
         loadInsights,
         updateFavoritedInsight,
@@ -133,6 +135,7 @@ export function SavedInsights(): JSX.Element {
                     <div className="flex items-center gap-1">
                         <LemonTableLink
                             to={urls.insightView(insight.short_id)}
+                            onClick={() => reportInsightOpened(insight.short_id, 'saved_insights_list')}
                             title={name || <i>{summarizeInsight(insight.query)}</i>}
                             description={insight.description}
                         />
@@ -242,7 +245,11 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton
+                                    to={urls.insightView(insight.short_id)}
+                                    onClick={() => reportInsightOpened(insight.short_id, 'saved_insights_list')}
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
 

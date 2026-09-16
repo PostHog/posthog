@@ -29,7 +29,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { InsightShortId, UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
 import { MenuItems } from './menus/MenuItems'
@@ -264,6 +264,20 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 onItemClicked?.(item)
 
+                if (item?.id.startsWith('shortcuts')) {
+                    const insightShortId =
+                        item?.record?.type === 'insight' && typeof item.record.ref === 'string'
+                            ? (item.record.ref as InsightShortId)
+                            : undefined
+                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
+                        item?.record?.type || 'unknown',
+                        insightShortId
+                    )
+                    if (insightShortId) {
+                        eventUsageLogic.actions.reportInsightOpened(insightShortId, 'starred')
+                    }
+                }
+
                 if (item?.record?.href) {
                     router.actions.push(
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
@@ -272,13 +286,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 if (item?.record?.path) {
                     setLastViewedId(item?.id || '')
-                }
-
-                if (item?.id.startsWith('shortcuts')) {
-                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
-                        item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
-                    )
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop

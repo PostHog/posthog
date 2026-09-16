@@ -22,7 +22,7 @@ interface InsightRowProps {
 }
 
 export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightRowProps): JSX.Element {
-    const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
+    const { reportInsightOpened } = useActions(eventUsageLogic)
 
     return (
         <div className="border border-border rounded bg-surface-primary mb-2 last:mb-0" data-attr={dataAttr}>
@@ -78,7 +78,7 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
                         to={urls.insightView(insight.short_id)}
                         onClick={(e) => {
                             e.stopPropagation()
-                            reportInsightOpenedFromRecentInsightList()
+                            reportInsightOpened(insight.short_id, 'saved_insights_list')
                         }}
                         tooltip="Open insight"
                     />
@@ -99,7 +99,7 @@ export function InsightRow({ insight, isExpanded, onToggle, dataAttr }: InsightR
                             type="primary"
                             icon={<IconExternal />}
                             to={urls.insightView(insight.short_id)}
-                            onClick={() => reportInsightOpenedFromRecentInsightList()}
+                            onClick={() => reportInsightOpened(insight.short_id, 'saved_insights_list')}
                         >
                             Open insight
                         </LemonButton>

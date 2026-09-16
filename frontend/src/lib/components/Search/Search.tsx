@@ -29,6 +29,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic, InsightOpenSource } from 'lib/utils/eventUsageLogic'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -39,6 +40,7 @@ import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
@@ -206,6 +208,18 @@ const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
             path: item.name,
         },
     }
+}
+
+const insightOpenSourceForSearchItem = (
+    item: SearchItem
+): { openedFrom: InsightOpenSource; shortId: InsightShortId } | null => {
+    const shortId = item.itemType === 'insight' && typeof item.record?.ref === 'string' ? item.record.ref : null
+    if (!shortId) {
+        return null
+    }
+
+    const openedFrom = item.category === 'starred' ? 'starred' : item.category === 'recents' ? 'recents' : 'search'
+    return { openedFrom, shortId: shortId as InsightShortId }
 }
 
 // ============================================================================
@@ -401,6 +415,7 @@ function SearchRoot({
     const { isDarkModeOn } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
+    const { reportInsightOpened } = useActions(eventUsageLogic)
     const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
     const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
 
@@ -508,6 +523,10 @@ function SearchRoot({
             if (openInNewTab && !canOpenInNewTab(item)) {
                 return
             }
+            const insightOpen = insightOpenSourceForSearchItem(item)
+            if (insightOpen && !openInNewTab) {
+                reportInsightOpened(insightOpen.shortId, insightOpen.openedFrom)
+            }
             if (logicKey === 'command') {
                 const position = orderedItemsRef.current.findIndex((i) => i.id === item.id)
                 posthog.capture('command menu item selected', {
@@ -542,7 +561,7 @@ function SearchRoot({
                 }
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey, reportInsightOpened]
     )
 
     const groupedItems = useMemo(() => {

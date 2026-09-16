@@ -44,7 +44,13 @@ export function RecentFeatureFlagInsights(): JSX.Element {
             }}
             items={relatedInsights.slice(0, 5)}
             renderRow={(insight: QueryBasedInsightModel, index) => (
-                <InsightRow key={index} insight={insight} dataAttr="recent-feature-flag-insight-item" allowWrap />
+                <InsightRow
+                    key={index}
+                    insight={insight}
+                    dataAttr="recent-feature-flag-insight-item"
+                    allowWrap
+                    openedFrom="feature_flag_related"
+                />
             )}
             contentHeightBehavior="shrink"
         />

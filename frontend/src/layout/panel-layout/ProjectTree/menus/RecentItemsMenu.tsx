@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconClock } from '@posthog/icons'
@@ -19,10 +19,12 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { InsightShortId } from '~/types'
 
 import { recentItemsMenuLogic } from './recentItemsMenuLogic'
 
@@ -34,6 +36,7 @@ const getItemName = (item: FileSystemEntry): string => {
 
 export function RecentItemsMenu(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(recentItemsMenuLogic)
+    const { reportInsightOpened } = useActions(eventUsageLogic)
     const [isOpen, setIsOpen] = useState(false)
 
     const handleOpenChange = (open: boolean): void => {
@@ -93,6 +96,11 @@ export function RecentItemsMenu(): JSX.Element {
                                         menuItem: true,
                                     }}
                                     to={item.href}
+                                    onClick={() => {
+                                        if (item.type === 'insight' && item.ref) {
+                                            reportInsightOpened(item.ref as InsightShortId, 'recents')
+                                        }
+                                    }}
                                     data-attr={`recent-item-${item.id}`}
                                 >
                                     {iconForType(item.type as FileSystemIconType)}

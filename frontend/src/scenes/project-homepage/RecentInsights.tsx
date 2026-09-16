@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightOpenSource } from 'lib/utils/eventUsageLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
@@ -19,10 +19,11 @@ interface InsightRowProps {
     dataAttr?: string
     /** When true, text wraps instead of truncating and the row height grows to fit. */
     allowWrap?: boolean
+    openedFrom?: InsightOpenSource
 }
 
-export function InsightRow({ insight, dataAttr, allowWrap }: InsightRowProps): JSX.Element {
-    const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
+export function InsightRow({ insight, dataAttr, allowWrap, openedFrom = 'recents' }: InsightRowProps): JSX.Element {
+    const { reportInsightOpened } = useActions(eventUsageLogic)
 
     return (
         <ProjectHomePageCompactListItem
@@ -31,7 +32,7 @@ export function InsightRow({ insight, dataAttr, allowWrap }: InsightRowProps): J
             prefix={<InsightIcon insight={insight} />}
             to={urls.insightView(insight.short_id)}
             onClick={() => {
-                reportInsightOpenedFromRecentInsightList()
+                reportInsightOpened(insight.short_id, openedFrom)
             }}
             dataAttr={dataAttr}
             allowWrap={allowWrap}

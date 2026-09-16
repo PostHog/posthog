@@ -21,6 +21,7 @@ import {
     type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
+    type InsightShortId,
     PropertyFilterType,
     type QueryBasedInsightModel,
     StepOrderValue,
@@ -68,6 +69,43 @@ describe('eventUsageLogic', () => {
                 const call = capture.mock.calls.find(([name]) => name === event)
                 expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
             }
+        })
+    })
+
+    describe('insight navigation events', () => {
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            capture.mockRestore()
+        })
+
+        it('adds the selected source to a matching insight view', () => {
+            const insightShortId = 'abc123' as InsightShortId
+
+            eventUsageLogic.actions.reportInsightOpened(insightShortId, 'starred')
+            eventUsageLogic.actions.reportInsightViewed({ short_id: insightShortId }, null, true)
+
+            expect(capture).toHaveBeenCalledWith(
+                'insight viewed',
+                expect.objectContaining({ insight_short_id: insightShortId, opened_from: 'starred' })
+            )
+        })
+
+        it('records a stable insight ID for starred actions without the display name', () => {
+            const insightShortId = 'abc123' as InsightShortId
+
+            eventUsageLogic.actions.reportNavbarStarredItemAdded('insight', insightShortId)
+
+            expect(capture).toHaveBeenCalledWith('navbar starred item added', {
+                item_type: 'insight',
+                insight_short_id: insightShortId,
+            })
         })
     })
 

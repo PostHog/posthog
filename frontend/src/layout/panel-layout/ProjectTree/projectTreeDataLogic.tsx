@@ -47,7 +47,7 @@ import {
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
+import { InsightShortId, UserBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Noun } from '../../../models/groupsModel'
@@ -976,7 +976,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        item.type === 'insight' ? (item.ref as InsightShortId | undefined) : undefined
+                    )
                     lemonToast.success('Added to starred', {
                         button: {
                             label: 'View',
@@ -1005,7 +1008,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     eventUsageLogic.actions.reportNavbarStarredItemRemoved(
                         shortcut?.type ?? 'unknown',
-                        shortcut?.path ?? 'unknown'
+                        shortcut?.type === 'insight' ? (shortcut.ref as InsightShortId | undefined) : undefined
                     )
                     lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
