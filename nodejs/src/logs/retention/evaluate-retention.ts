@@ -6,10 +6,8 @@ import type { LogRecord } from '~/logs/log-record-avro'
 import { type FilterGroupNode, matchFilterGroup } from '../sampling/filter-group-match'
 
 /**
- * Retention periods a rule may assign: the 14-day default or a whole number of 30-day months.
- * Kept in sync with `logs_retention_days_error` in `posthog/models/team/logs_retention.py`
- * (write-time validation). Rows outside this shape are dropped at compile time so a
- * hand-crafted or legacy row can't stamp an arbitrary value.
+ * Kept in sync with `logs_retention_days_error` in `posthog/models/team/logs_retention.py`. Rows
+ * outside this shape are dropped at compile time so a hand-crafted or legacy row can't stamp an arbitrary value.
  */
 export const DEFAULT_RETENTION_DAYS = 14
 export const RETENTION_MONTH_DAYS = 30

@@ -24,12 +24,10 @@ type PickerValue = number | typeof CUSTOM
 const PAID_TIER_DISABLED_REASON = 'Upgrade to a paid plan to keep logs longer than 14 days'
 
 export interface LogsRetentionPeriodPickerProps {
-    /** Retention in days. */
     value: number
     onChange: (days: number) => void
     /** Show the 90-day, 1-year and custom options. Off keeps the 14/30-day tiers only. */
     allowCustom: boolean
-    /** Disables every option, for access, loading or throttle reasons. */
     disabledReason?: string | null
     /**
      * `change` commits the custom month count as the user types (inside a form with its own save

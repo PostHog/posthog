@@ -138,7 +138,6 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         # bool is an int subclass — reject it explicitly so `true`/`false` don't slip through.
         if isinstance(retention_days, bool) or not isinstance(retention_days, int):
             raise ValidationError({"config": {"retention_days": "Must be an integer."}})
-        # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
         custom_enabled = retention_days not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(
             self.context
         )

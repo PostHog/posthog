@@ -11,10 +11,8 @@ DEFAULT_LOGS_RETENTION_DAYS = 14
 LOGS_RETENTION_MONTH_DAYS = 30
 LOGS_RETENTION_MAX_MONTHS = 120
 LOGS_RETENTION_MAX_DAYS = LOGS_RETENTION_MONTH_DAYS * LOGS_RETENTION_MAX_MONTHS
-# Tiers accepted without the custom-retention flag.
 LOGS_RETENTION_BASE_TIERS_DAYS = frozenset({DEFAULT_LOGS_RETENTION_DAYS, 30})
 LOGS_CUSTOM_RETENTION_FLAG = "logs-settings-custom-retention"
-# Every retention longer than the free default needs the same paid entitlement.
 LOGS_RETENTION_PAID_FEATURE = AvailableFeature.LOGS_RETENTION_30D
 
 
