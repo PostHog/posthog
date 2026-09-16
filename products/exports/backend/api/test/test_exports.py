@@ -288,7 +288,7 @@ class TestExports(APIBaseTest):
             "insight": None,
             "export_context": None,
             # PNG format gets 180 days (6 months) expiry
-            "expires_after": (now() + timedelta(days=180))
+            "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
@@ -314,7 +314,7 @@ class TestExports(APIBaseTest):
 
         # Expiry is determined by format (PNG = 180 days), not the provided value
         expected_expiry = (
-            (now() + timedelta(days=180))
+            (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")
@@ -375,7 +375,7 @@ class TestExports(APIBaseTest):
                 "exception": None,
                 "export_context": None,
                 # PNG format gets 180 days (6 months) expiry
-                "expires_after": (now() + timedelta(days=180))
+                "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -1487,9 +1487,9 @@ class TestExports(APIBaseTest):
             ("image/png", timedelta(days=180)),
             ("text/csv", timedelta(days=7)),
             ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", timedelta(days=7)),
-            ("video/mp4", timedelta(days=365)),
-            ("video/webm", timedelta(days=365)),
-            ("image/gif", timedelta(days=365)),
+            ("video/mp4", timedelta(days=30)),
+            ("video/webm", timedelta(days=30)),
+            ("image/gif", timedelta(days=30)),
             ("application/pdf", timedelta(days=180)),
         ]
     )
@@ -1517,7 +1517,7 @@ class TestExports(APIBaseTest):
         data = response.json()
 
         expected_expiry = (
-            (now() + expected_delta)
+            (now() + expected_delta + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z")

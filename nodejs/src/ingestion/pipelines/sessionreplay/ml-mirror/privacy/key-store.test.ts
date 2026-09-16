@@ -1,4 +1,9 @@
-import { BatchGetItemCommand, DynamoDBClient, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb'
+import {
+    BatchGetItemCommand,
+    DynamoDBClient,
+    TransactWriteItemsCommand,
+    TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb'
 import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
@@ -16,7 +21,7 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthBlockId, monthKeyIndexId, sessionKeyId, tableKeyString } from './schema'
+import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -153,7 +158,67 @@ describe('ML session key batches', () => {
         expect(boundary.transactionConflicts).toBe(0)
     })
 
-    it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
+    it.each([
+        ['survives', 7, true],
+        ['gives up after', 10, false],
+    ])('%s %i consecutive transaction conflicts on commit', async (_label, conflicts, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = conflicts
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(
+                    new TransactionCanceledException({
+                        $metadata: {},
+                        message: 'Transaction cancelled',
+                        CancellationReasons: [{ Code: 'TransactionConflict' }],
+                    })
+                )
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
+    })
+
+    it('gives up when the commit budget is spent before the attempts are', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 7
+        let slowReads = false
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                throw new TransactionCanceledException({
+                    $metadata: {},
+                    message: 'Transaction cancelled',
+                    CancellationReasons: [{ Code: 'TransactionConflict' }],
+                })
+            }
+            if (command instanceof BatchGetItemCommand && slowReads) {
+                await new Promise((resolve) => setTimeout(resolve, 20_000))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        slowReads = true
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(remaining).toBeGreaterThan(0)
+    })
+
+    it('indexes monthly keys atomically, ignores a month marker, and blocks on a team marker', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
         await first.commit()
@@ -169,21 +234,31 @@ describe('ML session key batches', () => {
                 key_sk: { S: location.sk },
             })
         }
-        const inFlight = await store.prepare([session])
-        const blocked = monthBlockId('2025-09')
-        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
-        jest.useFakeTimers()
-        const committing = inFlight.commit()
-        await jest.runAllTimersAsync()
-        await committing
-        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
         const locations = [
             sessionKeyId(session.teamId, session.sessionId),
             imageKeyId(session.teamId, '2025-09'),
             sessionKeyId(october.teamId, october.sessionId),
             imageKeyId(session.teamId, '2025-10'),
         ]
-        expect([...(await reader.read(locations))].map(([id]) => id)).toEqual(locations.slice(2).map(tableKeyString))
+        const monthMarker = { pk: 'month:2025-09', sk: 'deleted' }
+        boundary.items.set(tableKeyString(monthMarker), { ...encodeKey(monthMarker), deleted: { BOOL: true } })
+        const ignoringMonth = await store.prepare([session])
+        jest.useFakeTimers()
+        const committingDespiteMonth = ignoringMonth.commit()
+        await jest.runAllTimersAsync()
+        await committingDespiteMonth
+        expect(ignoringMonth.get(session.teamId, session.sessionId)).not.toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(4)
+        jest.useRealTimers()
+        const inFlight = await store.prepare([session])
+        const blocked = teamBlockId(session.teamId)
+        boundary.items.set(tableKeyString(blocked), { ...encodeKey(blocked), deleted: { BOOL: true } })
+        jest.useFakeTimers()
+        const committing = inFlight.commit()
+        await jest.runAllTimersAsync()
+        await committing
+        expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
+        expect((await reader.read(locations)).size).toBe(0)
     })
 
     it('adopts a competing writer key', async () => {
@@ -230,7 +305,7 @@ describe('ML session key batches', () => {
     })
 
     it('publishes a bounded concurrent batch only after privacy writes commit', async () => {
-        const identity = { ...session, sessionId: '01a0a482-5500-7000-8000-000000000001' }
+        const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000001' }
         const controller = new MlPrivacyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void

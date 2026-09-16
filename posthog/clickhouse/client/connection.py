@@ -372,22 +372,30 @@ def get_pool(
     return make_ch_pool(**kwargs)
 
 
-def default_client(host=settings.CLICKHOUSE_HOST, password=None):
+def default_client(
+    host=settings.CLICKHOUSE_HOST,
+    password=None,
+    *,
+    database: str = "system",
+    send_receive_timeout: int | None = None,
+):
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
     password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
+    send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
     return SyncClient(
         host=host,
+        **({"send_receive_timeout": send_receive_timeout} if send_receive_timeout is not None else {}),
         # We set "system" here as we don't necessarily have a "default" database,
         # which is what the clickhouse_driver would use by default. We are
         # assuming that this exists and we have permissions to access it. This
         # feels like a reasonably safe assumption as e.g. we already reference
         # `system.numbers` in multiple places within queries. We also assume
         # access to various other tables e.g. to handle async migrations.
-        database="system",
+        database=database,
         secure=settings.CLICKHOUSE_SECURE,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD if password is None else password,

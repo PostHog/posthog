@@ -40,6 +40,7 @@
 //! dropped, so the next write goes through instead of waiting for the
 //! partition to change hands.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -340,6 +341,30 @@ pub async fn mark_status(
         .bind(person_id)
         .fetch_optional(&mut *conn)
         .await
+}
+
+/// [`mark_status`] for a whole batch in one pool acquire, keyed by person
+/// id. A person with no row is absent from the map, which the caller
+/// reads as it reads `None` from the single lookup.
+pub async fn mark_statuses(
+    fallback: &PgFallback,
+    op_id: Uuid,
+    team_id: i64,
+    person_ids: &[i64],
+) -> Result<HashMap<i64, String>, sqlx::Error> {
+    let mut conn = crate::pg::acquire_timed(&fallback.pool, "mark_statuses").await?;
+    let sql = format!(
+        "SELECT person_id, status FROM {} \
+         WHERE op_id = $1 AND team_id = $2 AND person_id = ANY($3) AND role <> 'target'",
+        fallback.lifecycle.op_person
+    );
+    let rows: Vec<(i64, String)> = sqlx::query_as(&sql)
+        .bind(op_id)
+        .bind(team_id as i32)
+        .bind(person_ids)
+        .fetch_all(&mut *conn)
+        .await?;
+    Ok(rows.into_iter().collect())
 }
 
 /// The fold's check: the status of the op's mark row claiming this person

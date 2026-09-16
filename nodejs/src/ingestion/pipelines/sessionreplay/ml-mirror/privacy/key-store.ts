@@ -1,5 +1,6 @@
-import { TransactWriteItem } from '@aws-sdk/client-dynamodb'
+import { TransactWriteItem, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
 
+import { logger } from '~/common/utils/logger'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
@@ -10,12 +11,30 @@ import {
     TableKey,
     imageKeyId,
     keySessionMonth,
-    monthBlockId,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
 } from './schema'
+
+// Every commit for a team checks the same team block marker, so DynamoDB cancels concurrent commits for one team as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
+const COMMIT_ATTEMPTS = 10
+const COMMIT_BUDGET_MS = 45_000
+const COMMIT_BACKOFF_BASE_MS = 100
+const COMMIT_BACKOFF_CAP_MS = 3_000
+
+function commitRetryDelayMs(attempt: number): number {
+    return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
+}
+
+function cancellationCodes(error: unknown): string[] {
+    if (!(error instanceof TransactionCanceledException)) {
+        return []
+    }
+    return (error.CancellationReasons ?? []).flatMap((reason) =>
+        reason.Code && reason.Code !== 'None' ? [reason.Code] : []
+    )
+}
 
 export interface MlSessionKeys {
     session: MlDataKey
@@ -105,7 +124,6 @@ export class MlKeyBatch {
     public async read(): Promise<void> {
         this.keys.clear()
         const initial = this.identities.flatMap((identity) => [
-            monthBlockId(sessionStartMonth(identity.sessionId)),
             teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
         ])
@@ -115,7 +133,6 @@ export class MlKeyBatch {
             const id = tableKeyString(sessionKeyId(identity.teamId, identity.sessionId))
             if (
                 this.state.has(tableKeyString(teamBlockId(identity.teamId))) ||
-                this.state.has(tableKeyString(monthBlockId(sessionStartMonth(identity.sessionId)))) ||
                 this.state.get(id)?.deleted?.BOOL === true
             ) {
                 continue
@@ -166,11 +183,9 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
+    // The pipeline drops sessions older than the month deletion grace period, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
     private guards(identity: MlKeyIdentity): TransactWriteItem[] {
-        return [
-            this.db.check(monthBlockId(keySessionMonth(identity)), 'attribute_not_exists(pk)'),
-            this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)'),
-        ]
+        return [this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)')]
     }
 
     private put(key: TableKey, attributes: DynamoItem, condition?: string): TransactWriteItem {
@@ -229,7 +244,8 @@ export class MlKeyBatch {
         if (this.committed) {
             throw new Error('ML batch already committed')
         }
-        for (let attempt = 0; attempt < 5; attempt++) {
+        const startedAt = Date.now()
+        for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
             try {
                 await this.persist()
                 for (const key of this.keys.values()) {
@@ -238,10 +254,16 @@ export class MlKeyBatch {
                 this.committed = true
                 return
             } catch (error) {
-                if (attempt === 4) {
+                const delayMs = commitRetryDelayMs(attempt)
+                if (attempt === COMMIT_ATTEMPTS - 1 || Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS) {
                     throw error
                 }
-                await this.db.backoff(attempt)
+                logger.warn('🔑', 'ml_key_commit_retry', {
+                    attempt: attempt + 1,
+                    codes: cancellationCodes(error),
+                    error: String(error),
+                })
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
                 await this.read()
             }
         }
