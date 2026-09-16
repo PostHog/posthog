@@ -79,6 +79,7 @@ from posthog.auth import (
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    report_user_action,
     report_user_deleted_account,
     report_user_logged_in,
     report_user_updated,
@@ -158,6 +159,21 @@ MAX_PRODUCT_INTROS_SEEN = 100
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def regenerate_2fa_backup_codes(user: User) -> list[str]:
+    """Replace the user's backup codes with a fresh set and return the new codes."""
+    with transaction.atomic():
+        static_device = StaticDevice.objects.filter(user=user).first()
+        if static_device:
+            static_device.token_set.all().delete()
+        else:
+            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
+
+        backup_codes = [StaticToken.random_token() for _ in range(NUM_2FA_BACKUP_CODES)]
+        StaticToken.objects.bulk_create([StaticToken(device=static_device, token=code) for code in backup_codes])
+
+    return backup_codes
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -1497,17 +1513,24 @@ class UserViewSet(
         if not form.is_valid():
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
-        otp_login(request, default_device(request.user))
+        user = cast(User, request.user)
+        otp_login(request, default_device(user))
         set_two_factor_verified_in_session(request)
 
-        send_two_factor_auth_enabled_email.delay(request.user.id)
+        # Enrollment mints the codes itself. Leaving this to the opt-in modal left every user who
+        # finished setup with the authenticator app as their only way back into the account.
+        backup_codes = regenerate_2fa_backup_codes(user)
+
+        send_two_factor_auth_enabled_email.delay(user.id)
 
         session_cache.delete("django_two_factor-hex")
         session_cache.delete("django_two_factor-qr_secret_key")
 
-        revoke_other_sessions_for_request(request, cast(User, request.user))
+        revoke_other_sessions_for_request(request, user)
 
-        return Response({"success": True})
+        report_user_action(user, "two factor enabled", {"method": "TOTP", "backup_codes": len(backup_codes)})
+
+        return Response({"success": True, "backup_codes": backup_codes})
 
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
@@ -1551,19 +1574,8 @@ class UserViewSet(
         if not default_device(user):
             raise serializers.ValidationError("2FA must be enabled first", code="2fa_not_enabled")
 
-        # Remove existing backup codes
-        static_device = StaticDevice.objects.filter(user=user).first()
-        if static_device:
-            static_device.token_set.all().delete()
-        else:
-            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
-
-        # Generate new backup codes
-        backup_codes = []
-        for _ in range(NUM_2FA_BACKUP_CODES):
-            token = StaticToken.random_token()
-            static_device.token_set.create(token=token)
-            backup_codes.append(token)
+        backup_codes = regenerate_2fa_backup_codes(user)
+        report_user_action(user, "two factor backup codes generated", {"backup_codes": len(backup_codes)})
 
         return Response({"backup_codes": backup_codes})
 
