@@ -106,15 +106,18 @@ STORAGE_ACCESS_DENIED_MESSAGE = (
     "and read its objects (s3:GetObject), then try again."
 )
 
-# Phrases ClickHouse uses when the object store refuses the read. A 401 or 403 carries the HTTP
-# code, while a failed list reports the S3 exception name instead. A missing file is a 404 and
-# stays out, because it is not a permission problem.
+# Phrases ClickHouse itself writes when the object store refuses the read. A refused read carries
+# the HTTP status, while a refused list reports the S3 error code in backticks. Every phrase keeps
+# the surrounding fixed text, because an S3_ERROR message also carries the object key, and a key
+# that contains "Access Denied" must not read as a permission problem. A missing file is a 404 and
+# stays out for the same reason.
 STORAGE_ACCESS_DENIED_PHRASES = (
     "HTTP response code: 401",
     "HTTP response code: 403",
-    "Access Denied",
-    "InvalidAccessKeyId",
-    "SignatureDoesNotMatch",
+    "Access Denied: while reading key:",
+    "S3 exception: `AccessDenied`",
+    "S3 exception: `InvalidAccessKeyId`",
+    "S3 exception: `SignatureDoesNotMatch`",
 )
 
 

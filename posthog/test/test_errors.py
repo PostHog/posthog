@@ -6,6 +6,7 @@ from posthog.errors import (
     RAGGED_ROWS_MESSAGE,
     STORAGE_ACCESS_DENIED_MESSAGE,
     CHQueryErrorS3AccessDenied,
+    CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
     InternalCHQueryError,
@@ -140,6 +141,29 @@ class TestWrapClickhouseQueryError:
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
         # The bucket keeps refusing until the customer fixes it, so no caller may retry it.
         assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+    @parameterized.expand(
+        [
+            # The object key travels inside the message, so a key that reads like a permission
+            # denial must not reclassify the failure.
+            (
+                "missing_file_with_a_misleading_key",
+                "DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: "
+                "while reading 'exports/Access Denied/orders.csv' in bucket 'example-bucket' on disk "
+                "'StorageS3': While executing ReadFromObjectStorage",
+            ),
+            (
+                "generic_read_failure",
+                "DB::Exception: Failed to get object info: No response body.. HTTP response code: 500: "
+                "while reading 'orders.csv' in bucket 'example-bucket' on disk 'StorageS3'",
+            ),
+        ]
+    )
+    def test_other_storage_errors_stay_internal(self, _name: str, message: str) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=499))
+
+        assert isinstance(wrapped, CHQueryErrorS3Error)
+        assert not isinstance(wrapped, ExposedCHQueryError)
 
     def test_nested_parquet_magic_bytes_wraps_as_file_changed_error(self) -> None:
         err = ServerException(
