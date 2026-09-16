@@ -1,21 +1,34 @@
 # Frontend
 
-Three scenes behind the `autoresearch` feature flag: the pipeline list, the create form, and a single pipeline's detail view. The list and the create form are here; the detail scene (`/autoresearch/:id`) arrives in the next piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the list's row links do not resolve yet.
+Three scenes behind the `autoresearch` feature flag: the pipeline list, the create form, and a single pipeline's detail view.
 
 The product is mostly a backend, and the UI is deliberately thin — it reads status and results rather than doing any modeling work. What it mainly has to get right is honestly representing a long-running, partly-asynchronous process whose rows arrive at different times.
 
 ## What lives here
 
-| File                    | Scene / role                                                                                                                           |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `AutoresearchScene.tsx` | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point.                |
-| `autoresearchLogic.ts`  | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                  |
-| `PipelineStatusTag.tsx` | Status tag + tooltip, shared with the detail scene once it lands.                                                                      |
-| `emptyState/`           | `ProductEmptyState` config + example-data preview for the first-run gate.                                                              |
-| `generated/`            | **Generated. Never hand-edit.** Change the serializer in `../backend/presentation/views/serializers.py` and run `hogli build:openapi`. |
+| File                            | Scene / role                                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `AutoresearchScene.tsx`         | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point.                |
+| `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form.                                                                                                 |
+| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: title bar actions and the tab strip. Each tab lives in `pipeline/`.                            |
+| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                  |
+| `autoresearchNewLogic.ts`       | Create form — a `kea-forms` form that validates the target, then calls the generated `autoresearchCreate`.                             |
+| `autoresearchPipelineLogic.ts`  | Detail logic.                                                                                                                          |
+| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                             |
+| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                            |
+| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                   |
+| `pipeline/`                     | One file per detail-scene tab (Overview, Training, Predictions, Online performance, Suggestions) and their components.                 |
+| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                                              |
+| `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/presentation/views/serializers.py` and run `hogli build:openapi`. |
 
 Scene registration, routes, and urls live in `../manifest.tsx`.
 `frontend/src/products.tsx` is generated from the manifests — hand-editing it there gets wiped by `pnpm build:products`. Only the `Scene` enum entries belong in `sceneTypes.ts`.
+
+## The create flow exists
+
+`/autoresearch/new` is live. `autoresearchNewLogic.ts` builds the target request (event name or action id), validates it against the pipeline `validate` endpoint, and creates via the generated `autoresearchCreate` client.
+
+Older internal notes say the button is disabled and pipelines can only be made via the management command or API. That has not been true since this scene landed. If you are reading a doc that says otherwise, the doc is stale.
 
 ## Representing an in-flight run honestly
 
