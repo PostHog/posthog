@@ -1027,6 +1027,24 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
+def get_signal_report_implementation_runs(
+    team_id: int, report_id: str, task_ids: Iterable[str | UUID]
+) -> list[contracts.TaskRunDTO]:
+    return [
+        _task_run_to_dto(run)
+        for run in TaskRun.objects.filter(
+            team_id=team_id,
+            task_id__in=task_ids,
+            task__team_id=team_id,
+            task__signal_report_id=report_id,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            task__deleted=False,
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+    ]
+
+
 def _pull_request_state(output: Mapping[str, object]) -> str:
     """The state of the PR in ``output.pr_url``. ``pr_merged`` wins over ``pr_state``: it is the
     webhook-attested flag, and runs merged before ``pr_state`` existed only carry it."""

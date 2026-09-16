@@ -62,6 +62,26 @@ from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
 
 logger = structlog.get_logger(__name__)
 
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    max_retries=5,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=210,
+    time_limit=240,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope()
+def reconcile_implementation_replacement(self, team_id: int, replacement_id: str) -> None:
+    from products.signals.backend.supersession import reconcile_replacement
+
+    if reconcile_replacement(team_id, replacement_id):
+        raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
 # Bounded exponential backoff: 2m, 4m, 8m, ... capped at 1h, 8 retries ≈ 5h total. Deliberately
 # NOT unbounded — a hard failure should land with the sweeper (and its 7-day horizon) rather
 # than retry forever. Rollover itself is survivable: the payload reports the period bounds
