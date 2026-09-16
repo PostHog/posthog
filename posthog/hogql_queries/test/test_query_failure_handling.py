@@ -33,6 +33,7 @@ from posthog.hogql_queries.query_failure_handling import (
     BREAKER_REPLAY_SUFFIX,
     budget_for_limit_context,
     build_failure_exception,
+    captured_elsewhere,
     classify_failure,
     rebuild_shared_failure,
     shareable_failure,
@@ -54,6 +55,34 @@ def _record(kind, consecutive_failures, detail, open_until=None):
         open_until=open_until,
         budget=BUDGET_INTERACTIVE,
     )
+
+
+def _breaker_replay() -> Exception:
+    return build_failure_exception(_record("timeout", 3, "Query has hit the max execution time"))
+
+
+def _restated_from(error: Exception) -> Exception:
+    """``raise Other(...) from error``, the way a Temporal activity restates a failure in another
+    class to set its retry policy."""
+    try:
+        raise error
+    except Exception as cause:
+        try:
+            raise RuntimeError("restated") from cause
+        except RuntimeError as restated:
+            return restated
+
+
+def _raised_while_handling(error: Exception) -> Exception:
+    """A second, genuine failure that happens while the first one is handled. Python chains it on
+    __context__ and leaves __cause__ empty, because nobody said the two are one condition."""
+    try:
+        raise error
+    except Exception:
+        try:
+            raise RuntimeError("a new defect")
+        except RuntimeError as new_error:
+            return new_error
 
 
 def _clickhouse_error(message: str, code: int) -> Exception:
@@ -216,3 +245,17 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert isinstance(first_error, ClickHouseQueryMemoryLimitExceeded)
         assert first_error.status_code == 513
         assert str(first_error.detail) == str(build_failure_exception(later).detail)
+
+    @parameterized.expand(
+        [
+            ("breaker_replay", _breaker_replay, True),
+            ("breaker_replay_restated_in_another_class", lambda: _restated_from(_breaker_replay()), True),
+            ("defect_raised_while_handling_a_replay", lambda: _raised_while_handling(_breaker_replay()), False),
+            ("unrelated_failure", lambda: RuntimeError("kaboom"), False),
+        ]
+    )
+    def test_captured_elsewhere_follows_an_explicit_restate_only(self, _name, make_error, expected):
+        """A caller that restates the replay in its own class, such as a Temporal activity wrapping
+        it to set the retry policy, leaves the marker on the cause. A genuine defect that merely
+        happened while a replay was handled is still a defect, so only __cause__ is followed."""
+        assert captured_elsewhere(make_error()) is expected

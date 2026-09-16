@@ -18,6 +18,9 @@ from temporalio.exceptions import ApplicationError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.query_failure_handling import build_failure_exception
+from posthog.query_cache.failures import FailureKind, QueryFailureRecord
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -851,6 +854,46 @@ class TestCalculateActivity(BaseTest):
             assert "m1" in recalc.metric_errors
             row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
             assert row.status == ExperimentMetricResult.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("memory_limit", "This query ran out of memory"),
+            ("too_many_bytes", "Limit for bytes to read exceeded"),
+        ]
+    )
+    def test_query_breaker_replay_fails_the_metric_without_capture(self, kind: FailureKind, detail: str):
+        # An open query failure breaker rebuilds the remembered failure instead of running ClickHouse, so
+        # the first failure is the only one error tracking has anything to learn from. The activity must
+        # still fail and persist, but neither the capture here nor the activity interceptor may mint an
+        # issue — an open breaker outlives several attempts, and each replay would add another.
+        exp = self._experiment(flag_key=f"calc-replay-{kind}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        replay = build_failure_exception(
+            QueryFailureRecord(
+                kind=kind,
+                detail=detail,
+                consecutive_failures=3,
+                last_failed_at=timezone.now(),
+                open_until=timezone.now() + timedelta(minutes=2),
+            )
+        )
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = replay
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+
+        mock_capture.assert_not_called()
+        assert is_expected_activity_failure(exc_info.value) is True
+        assert exc_info.value.non_retryable is True
+        recalc.refresh_from_db()
+        assert "m1" in recalc.metric_errors
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
 
     @parameterized.expand(
         [

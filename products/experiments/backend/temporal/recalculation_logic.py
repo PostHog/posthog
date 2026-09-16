@@ -29,6 +29,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -914,7 +915,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
             # column outside an aggregate) — a stored failure, not a platform error to track.
-            if error_type != "validation_error":
+            # The filter covers what the activity interceptor also skips, so a query breaker replay
+            # that ClickHouse never ran does not mint an issue here either.
+            if error_type != "validation_error" and not is_expected_activity_failure(e):
                 capture_exception(
                     e,
                     additional_properties={

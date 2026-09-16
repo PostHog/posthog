@@ -45,12 +45,21 @@ SHAREABLE_FAILURE_CATEGORIES = frozenset({QueryErrorCategory.USER_ERROR, QueryEr
 def captured_elsewhere(error: BaseException) -> bool:
     """Whether error tracking already holds this failure or has nothing to learn from it: a breaker
     replay, a follower's rebuild of its leader's failure, or a follower whose leader left it nothing
-    to serve, which the leader's own capture and the flight metrics account for."""
-    return bool(
-        isinstance(error, QueryRanConcurrently)
-        or getattr(error, "served_from_query_failure_cache", False)
-        or getattr(error, "served_from_query_single_flight", False)
-    )
+    to serve, which the leader's own capture and the flight metrics account for.
+
+    The cause chain is walked because ``raise Other(...) from failure`` restates one condition in
+    another class rather than adding a second one, and the marker stays on the cause. A Temporal
+    activity wrapping the failure in ApplicationError to set the retry policy does exactly that."""
+    cause: Optional[BaseException] = error
+    while cause is not None:
+        if (
+            isinstance(cause, QueryRanConcurrently)
+            or getattr(cause, "served_from_query_failure_cache", False)
+            or getattr(cause, "served_from_query_single_flight", False)
+        ):
+            return True
+        cause = cause.__cause__
+    return False
 
 
 def shareable_failure(error: Exception) -> Optional[SharedFailure]:
