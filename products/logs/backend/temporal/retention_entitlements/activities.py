@@ -1,7 +1,7 @@
 from temporalio import activity
 
-from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
 from posthog.models import Team
+from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS, required_logs_retention_feature
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -28,7 +28,7 @@ async def enforce_logs_retention_entitlements(
         # This scans all teams with paid Logs retention enabled. Run it as explicit reconciliation
         # after Billing removes those entitlements; new over-entitled writes are blocked by the API.
         async for team in (
-            Team.objects.filter(logs_settings__retention_days__in=list(LOGS_RETENTION_FEATURES_BY_DAYS.keys()))
+            Team.objects.filter(logs_settings__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
             .select_related("organization")
             .only("id", "name", "organization", "organization__available_product_features", "logs_settings")
         ):
@@ -37,7 +37,7 @@ async def enforce_logs_retention_entitlements(
             if not isinstance(retention_days, int):
                 continue
 
-            required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(retention_days)
+            required_feature = required_logs_retention_feature(retention_days)
             if not required_feature:
                 continue
 
@@ -49,7 +49,7 @@ async def enforce_logs_retention_entitlements(
             # Preserve unrelated Logs settings such as JSON parsing and PII scrubbing.
             team.logs_settings = {
                 **logs_settings,
-                "retention_days": 14,
+                "retention_days": DEFAULT_LOGS_RETENTION_DAYS,
             }
             teams_to_update.append(team)
 
@@ -59,7 +59,7 @@ async def enforce_logs_retention_entitlements(
                 team_name=team.name,
                 organization_id=organization.id,
                 retention_period_before=retention_days,
-                retention_period_after=14,
+                retention_period_after=DEFAULT_LOGS_RETENTION_DAYS,
             )
 
             if teams_checked % batch_size == 0:

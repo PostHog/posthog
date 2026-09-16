@@ -62,6 +62,16 @@ describe('logsRetentionFormLogic', () => {
 
         expect(buildRetentionFormDefaults(rule).retention_days).toEqual(14)
     })
+
+    it('keeps a stored custom period that is a whole number of months', () => {
+        const rule = {
+            name: 'half a year',
+            enabled: true,
+            config: { retention_days: 180, filter_group: { type: 'AND', values: [] } },
+        } as unknown as LogsRetentionRuleApi
+
+        expect(buildRetentionFormDefaults(rule).retention_days).toEqual(180)
+    })
 })
 
 /** Poll until `predicate` holds, yielding to timers/microtasks so kea listeners and loaders run. */

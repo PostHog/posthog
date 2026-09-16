@@ -52,17 +52,19 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
         capture_console_logs=True,
         retention_last_updated="2026-06-01T00:00:00Z",
     )
+    team_90d_blocked = await _create_team(org_without_retention, 90)
 
     output: EnforceLogsRetentionEntitlementsOutput = await ActivityEnvironment().run(
         enforce_logs_retention_entitlements,
         EnforceLogsRetentionEntitlementsInput(dry_run=False),
     )
 
-    assert output.teams_checked == 2
-    assert output.teams_reset == 1
+    assert output.teams_checked == 3
+    assert output.teams_reset == 2
 
     assert (await _refresh_team(team_14d)).logs_settings["retention_days"] == 14
     assert (await _refresh_team(team_30d_allowed)).logs_settings["retention_days"] == 30
+    assert (await _refresh_team(team_90d_blocked)).logs_settings["retention_days"] == 14
 
     blocked_30d_settings = (await _refresh_team(team_30d_blocked)).logs_settings
     assert blocked_30d_settings["retention_days"] == 14

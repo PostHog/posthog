@@ -2049,6 +2049,47 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "logs_settings must be an object" in response.json()["detail"]
 
+        def test_logs_settings_custom_retention_requires_flag(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "retention_days must be one of" in response.json()["detail"]
+
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                for valid_days in [90, 360, 3600]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": valid_days}},
+                    )
+                    assert response.status_code == status.HTTP_200_OK, response.json()
+                    assert response.json()["logs_settings"]["retention_days"] == valid_days
+                    # Reset so the next update is not blocked by the 24-hour throttle.
+                    self.team.logs_settings = {}
+                    self.team.save()
+
+                for invalid_days in [45, 3630, 0, -30]:
+                    response = self.client.patch(
+                        "/api/environments/@current/",
+                        {"logs_settings": {"retention_days": invalid_days}},
+                    )
+                    assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                        f"Expected 400 for retention_days={invalid_days}"
+                    )
+                    assert "multiple of 30" in response.json()["detail"]
+
+        def test_logs_settings_custom_retention_requires_paid_feature(self):
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",

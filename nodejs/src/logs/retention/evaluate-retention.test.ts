@@ -52,9 +52,13 @@ describe('logs retention rules', () => {
     })
 
     it('drops rows whose retention_days is not an allowed tier', () => {
-        const ruleSet = compileRetentionRuleSet([serviceRule('a', 'api', 45), serviceRule('b', 'api', 30)])
-        expect(ruleSet.rules).toHaveLength(1)
-        expect(evaluateRetentionDays(ruleSet, record({ service_name: 'api' }))).toBe(30)
+        const ruleSet = compileRetentionRuleSet([
+            serviceRule('a', 'api', 45),
+            serviceRule('b', 'api', 3630),
+            serviceRule('c', 'api', 360),
+        ])
+        expect(ruleSet.rules.map((r) => r.id)).toEqual(['c'])
+        expect(evaluateRetentionDays(ruleSet, record({ service_name: 'api' }))).toBe(360)
     })
 
     it('ignores a rule with a missing filter_group (matches nothing)', () => {

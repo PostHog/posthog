@@ -1,47 +1,30 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import {
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    LemonSwitch,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonInput, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { AvailableFeature } from '~/types'
 
 import { LogsFilterVolumeSparkline } from 'products/logs/frontend/components/LogsFilterPreview/LogsFilterVolumeSparkline'
 import { DropRuleFilterEditor } from 'products/logs/frontend/components/LogsSampling/DropRuleFilterEditor'
+import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
-import { RETENTION_DAYS_OPTIONS, logsRetentionFormLogic } from './logsRetentionFormLogic'
+import { logsRetentionFormLogic } from './logsRetentionFormLogic'
+import { LogsRetentionPeriodPicker } from './LogsRetentionPeriodPicker'
 import { buildRetentionProjection, retentionProjectionText } from './retentionStorageProjection'
 
 export function LogsRetentionForm(): JSX.Element {
     const { retentionForm, retentionFormErrors, suggestedName, suggestedNameLoading } =
         useValues(logsRetentionFormLogic)
     const { setRetentionFormValue, applySuggestedName } = useActions(logsRetentionFormLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const allowCustomRetention = useFeatureFlag(LogsFeatureFlagKeys.customRetention)
 
     const hasFilters = retentionForm.filter_group.values.length > 0
     // Hide the hint once it matches what's in the field — the link would be a no-op.
     const showSuggestion = !!suggestedName?.name && suggestedName.name !== retentionForm.name.trim()
-
-    // Gate paid tiers on the org entitlement, mirroring the team-wide LogsRetentionSettings — the
-    // backend rejects an unentitled tier with a 403, so disable it here rather than fail on save.
-    const retentionOptions: LemonSegmentedButtonOption<number>[] = RETENTION_DAYS_OPTIONS.map((days) => ({
-        value: days,
-        label: `${days} days`,
-        disabledReason:
-            days === 30 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)
-                ? 'Upgrade to a paid plan to use 30-day retention'
-                : undefined,
-    }))
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -78,11 +61,12 @@ export function LogsRetentionForm(): JSX.Element {
 
             <SceneSection title="Retention" titleSize="sm">
                 <LemonField.Pure label="Keep matching logs for">
-                    <LemonSegmentedButton
+                    <LogsRetentionPeriodPicker
                         value={retentionForm.retention_days}
-                        onChange={(v) => v && setRetentionFormValue('retention_days', v)}
-                        options={retentionOptions}
+                        onChange={(days) => setRetentionFormValue('retention_days', days)}
+                        allowCustom={allowCustomRetention}
                         size="small"
+                        dataAttrPrefix="logs-retention-rule"
                     />
                 </LemonField.Pure>
             </SceneSection>

@@ -18,16 +18,16 @@ import {
 import { LogsRetentionRuleApi, PatchedLogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsRetentionRulesSettingsUrl } from 'products/logs/frontend/logsRetentionRulesSettingsUrl'
 
+import { LOGS_RETENTION_DEFAULT_DAYS, isValidLogsRetentionDays } from './logsRetentionPeriod'
+
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
     values: [],
 }
 
-/** Retention tiers a rule may assign. Mirrors VALID_RETENTION_DAYS on the backend. */
-export const RETENTION_DAYS_OPTIONS: number[] = [14, 30]
-// 14 is the always-available free tier; 30 is entitlement-gated on the backend, so default to 14
-// to avoid a form that fails to save out of the box for orgs without the extended-retention feature.
-const DEFAULT_RETENTION_DAYS = 14
+// 14 is the always-available free tier; longer tiers are entitlement-gated on the backend, so default
+// to 14 to avoid a form that fails to save out of the box for orgs without the extended-retention feature.
+const DEFAULT_RETENTION_DAYS = LOGS_RETENTION_DEFAULT_DAYS
 
 export interface LogsRetentionFormType {
     name: string
@@ -87,8 +87,10 @@ export function buildRetentionFormDefaults(rule: LogsRetentionRuleApi | null): L
     return {
         name: rule.name,
         enabled: rule.enabled ?? false,
+        // Keep any stored period the backend accepts, even when the flag that offered it is now off,
+        // so opening an existing rule does not silently change its retention.
         retention_days:
-            typeof storedDays === 'number' && RETENTION_DAYS_OPTIONS.includes(storedDays)
+            typeof storedDays === 'number' && isValidLogsRetentionDays(storedDays, true)
                 ? storedDays
                 : DEFAULT_RETENTION_DAYS,
         filter_group: extractFilterGroup(cfg.filter_group),

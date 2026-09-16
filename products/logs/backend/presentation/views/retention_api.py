@@ -16,10 +16,15 @@ from rest_framework.response import Response
 from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS
 from posthog.event_usage import report_user_action
+from posthog.models.team.logs_retention import (
+    LOGS_CUSTOM_RETENTION_FLAG,
+    LOGS_RETENTION_BASE_TIERS_DAYS,
+    logs_retention_days_error,
+    required_logs_retention_feature,
+)
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.logs.backend.facade.retention import suggest_retention_rule_name
@@ -35,13 +40,13 @@ from products.logs.backend.presentation.filter_group_validation import (
     filter_group_node_count,
 )
 
-# Retention tiers a rule may assign. Derived from the same source as the team-wide setting in
-# `TeamSerializer` (`posthog/api/team.py`): 14 is the always-available default, and every other
-# tier must have an entitlement feature in `LOGS_RETENTION_FEATURES_BY_DAYS` (currently just 30).
-# Deriving it keeps rules in lockstep with the team-wide setting — a per-log rule can never grant a
-# tier the org couldn't set team-wide, and a new tier (e.g. 90) becomes available here the moment it
-# gets an entitlement mapping.
-VALID_RETENTION_DAYS = {14} | set(LOGS_RETENTION_FEATURES_BY_DAYS.keys())
+# Rules accept the same retention periods as the team-wide setting in `TeamSerializer`
+# (`posthog/api/team.py`), so a per-log rule can never grant a tier the org couldn't set team-wide.
+
+
+def custom_retention_enabled_for(context: dict[str, Any]) -> bool:
+    is_enabled = context.get("custom_retention_enabled")
+    return bool(is_enabled()) if callable(is_enabled) else False
 
 
 def retention_filter_group_error(filter_group: Any) -> str | None:
@@ -133,13 +138,16 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         # bool is an int subclass — reject it explicitly so `true`/`false` don't slip through.
         if isinstance(retention_days, bool) or not isinstance(retention_days, int):
             raise ValidationError({"config": {"retention_days": "Must be an integer."}})
-        if retention_days not in VALID_RETENTION_DAYS:
-            raise ValidationError(
-                {"config": {"retention_days": f"Must be one of {sorted(VALID_RETENTION_DAYS)} days."}}
-            )
+        # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
+        custom_enabled = retention_days not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(
+            self.context
+        )
+        error = logs_retention_days_error(retention_days, custom_retention_enabled=custom_enabled)
+        if error:
+            raise ValidationError({"config": {"retention_days": error}})
         # Gate paid tiers on the org entitlement, mirroring TeamSerializer.validate_logs_settings —
         # otherwise a Logs editor could grant a per-log retention tier the org can't set team-wide.
-        required_feature = LOGS_RETENTION_FEATURES_BY_DAYS.get(retention_days)
+        required_feature = required_logs_retention_feature(retention_days)
         if required_feature is not None:
             get_organization = self.context.get("get_organization")
             organization = get_organization() if callable(get_organization) else None
@@ -169,8 +177,10 @@ class LogsRetentionRuleSuggestNameSerializer(serializers.Serializer):
     filter_group = serializers.JSONField(help_text="PropertyGroupFilter tree the rule would match on.")
 
     def validate_retention_days(self, value: int) -> int:
-        if value not in VALID_RETENTION_DAYS:
-            raise ValidationError(f"Must be one of {sorted(VALID_RETENTION_DAYS)} days.")
+        custom_enabled = value not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(self.context)
+        error = logs_retention_days_error(value, custom_retention_enabled=custom_enabled)
+        if error:
+            raise ValidationError(error)
         return value
 
     def validate_filter_group(self, value: Any) -> Any:
@@ -198,6 +208,20 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["custom_retention_enabled"] = self._custom_retention_enabled
+        return context
+
+    def _custom_retention_enabled(self) -> bool:
+        user = cast(User, self.request.user)
+        return posthog_feature_flag_enabled(
+            LOGS_CUSTOM_RETENTION_FLAG,
+            str(user.distinct_id),
+            organization_id=self.organization.id,
+            team_id=self.team_id,
+        )
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         s = cast(LogsRetentionRuleSerializer, serializer)
@@ -296,11 +320,11 @@ class LogsRetentionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def suggest_name(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not self.organization.is_ai_data_processing_approved:
             raise PermissionDenied("AI data processing must be approved by your organization to suggest names")
-        serializer = LogsRetentionRuleSuggestNameSerializer(data=request.data)
+        serializer = LogsRetentionRuleSuggestNameSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         user = cast(User, request.user)
         # A suggestion doesn't grant a retention tier, so entitlement is deliberately not checked here —
-        # unlike a write, where LOGS_RETENTION_FEATURES_BY_DAYS gates the paid tiers.
+        # unlike a write, where `required_logs_retention_feature` gates the paid tiers.
         name = suggest_retention_rule_name(
             serializer.validated_data["retention_days"],
             serializer.validated_data["filter_group"],
