@@ -28,3 +28,4 @@ These logs retain the job's `success` conclusion; recovery is not a persistent j
 
 Trunk Analytics CLI 0.15.4 reads these retry elements as failed attempts followed by the final result.
 The JUnit suite counts and quarantine gate still use the final result.
+If the final attempt skips, JUnit still contains the earlier failed attempts, but Trunk Analytics CLI 0.15.4 does not upload retry attempts from a skipped testcase.

@@ -593,6 +593,14 @@ class _JUnitTimingsPlugin:
             attempt = ET.Element(tag, message=bin_xml_escape(message), time=f"{report.duration:.3f}")
             ET.SubElement(attempt, "stackTrace").text = bin_xml_escape(report.longreprtext)
             self._failed_attempts.setdefault(key, []).append(attempt)
+            if report.when == "teardown" and self._junit_xml is not None:
+                # Pytest's JUnit hook finalizes teardown reruns as separate testcases.
+                reporter = self._junit_xml.node_reporters.get(key)
+                if reporter is not None:
+                    self._junit_xml.node_reporters_ordered.remove(reporter)
+                    outcome = "skipped" if key in self._skipped else "passed"
+                    self._junit_xml.stats[outcome] -= 1
+                self._skipped.discard(key)
         elif report.failed:
             self._final_failures.add(key)
         elif report.skipped:
@@ -601,7 +609,7 @@ class _JUnitTimingsPlugin:
         if report.when != "teardown" or str(report.outcome) == "rerun":
             return
         attempts = self._failed_attempts.pop(key, [])
-        if attempts and key not in self._skipped and self._junit_xml is not None:
+        if attempts and self._junit_xml is not None:
             if key in self._final_failures:
                 for attempt in attempts:
                     attempt.tag = attempt.tag.replace("flaky", "rerun")

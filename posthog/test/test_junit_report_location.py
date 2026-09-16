@@ -69,10 +69,10 @@ def test_retry_diagnostics_survive_a_passing_final_attempt(
     assert "ConnectionError: example connection dropped" in output.getvalue()
 
 
-@pytest.mark.parametrize("final_outcome", ["passed", "failed"])
-@pytest.mark.parametrize("when", ["setup", "call"])
+@pytest.mark.parametrize("final_outcome", ["passed", "failed", "skipped"])
+@pytest.mark.parametrize("when", ["setup", "call", "teardown"])
 def test_retry_attempt_is_preserved_in_junit_xml(
-    tmp_path: Path, final_outcome: Literal["passed", "failed"], when: Literal["setup", "call"]
+    tmp_path: Path, final_outcome: Literal["passed", "failed", "skipped"], when: Literal["setup", "call", "teardown"]
 ) -> None:
     junit_path = tmp_path / "junit.xml"
     xml = LogXML(junit_path, prefix=None)
@@ -93,14 +93,33 @@ def test_retry_attempt_is_preserved_in_junit_xml(
         when=when,
         duration=0.1,
     )
+    if when == "teardown":
+        first_call = pytest.TestReport(
+            nodeid=first_attempt.nodeid,
+            location=first_attempt.location,
+            keywords={},
+            outcome="passed",
+            longrepr=None,
+            when="call",
+            duration=0.1,
+        )
+        plugin.pytest_runtest_logreport(first_call)
+        xml.pytest_runtest_logreport(first_call)
     plugin.pytest_runtest_logreport(first_attempt)
+    xml.pytest_runtest_logreport(first_attempt)
 
     final_call = pytest.TestReport(
         nodeid=first_attempt.nodeid,
         location=first_attempt.location,
         keywords={},
         outcome=final_outcome,
-        longrepr="final failure" if final_outcome == "failed" else None,
+        longrepr=(
+            "final failure"
+            if final_outcome == "failed"
+            else ("test_example.py", 1, "Skipped: final attempt skipped")
+            if final_outcome == "skipped"
+            else None
+        ),
         when="call",
         duration=0.1,
     )
@@ -125,6 +144,8 @@ def test_retry_attempt_is_preserved_in_junit_xml(
     assert suite is not None
     assert suite.get("tests") == "1"
     assert suite.get("failures") == ("1" if final_outcome == "failed" else "0")
+    assert suite.get("skipped") == ("1" if final_outcome == "skipped" else "0")
+    assert len(suite.findall("testcase")) == 1
     testcase = suite.find("testcase")
     assert testcase is not None
     retry_tag = ("rerun" if final_outcome == "failed" else "flaky") + ("Failure" if when == "call" else "Error")
