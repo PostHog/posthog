@@ -51,7 +51,6 @@ from products.customer_analytics.backend.presentation.views.internal import (
 )
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
-from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.api.push_subscriptions import push_subscriptions
 from products.notebooks.backend.facade.sql_v2 import (
@@ -75,13 +74,9 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
-from products.user_interviews.backend.presentation.webhooks import (
-    start_call as user_interviews_start_call,
-    vapi_webhook,
-)
+from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
-from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
 
 from .utils import opt_slash_path
 from .views import (
@@ -101,10 +96,6 @@ from .views import (
 
 # One view for both paths, so the provider is built once per process rather than once per route.
 github_app_webhook = build_webhook_view(build_github_provider("posthog"))
-
-# Stamphog runs on its own GitHub App, with its own signing secret and its own consumers, so it
-# gets its own view rather than sharing the customer-facing App's endpoint.
-stamphog_github_webhook = build_webhook_view(build_github_provider("stamphog"))
 
 urlpatterns = [
     # EU spend must precede both the API router and the API fallback.
@@ -150,21 +141,11 @@ urlpatterns = [
     path("api/alerts/github", github.SecretAlert.as_view()),
     opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
-        "api/legal_documents/pandadoc",
-        legal_document_pandadoc_webhook,
-        name="legal_document_pandadoc_webhook",
-    ),
-    path(
         "api/users/<str:user_id>/signal_autonomy/",
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/vapi_webhook/",
-        csrf_exempt(vapi_webhook),
-        name="user_interviews_vapi_webhook",
-    ),
     path(
         "api/user_interviews/share/<str:access_token>/start_call/",
         csrf_exempt(user_interviews_start_call),
@@ -369,13 +350,10 @@ urlpatterns = [
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
-    # GitHub App webhook — ingress fans it out to the tasks, conversations and workflows consumers
+    # GitHub App webhook — ingress fans it out to the tasks, conversations and workflows consumers.
+    # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
-    # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
-    opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
-    # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
-    opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
