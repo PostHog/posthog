@@ -88,3 +88,17 @@ class TestDecideAgainstStoredRules(BaseTest):
         assert {(decision.surface, decision.rule_id) for decision in decisions if decision.blocked} == {
             (Surface.SIGNUP, active.id)
         }
+
+    def test_a_posthog_com_user_named_only_by_id_is_never_blocked(self):
+        SecurityRule.objects.create(
+            target_type=TargetType.USER_UUID,
+            target_value=str(self.user.uuid),
+            effect=Effect.BLOCK,
+            scope=Scope.ALL_ACCESS,
+            reason="written before the protection",
+        )
+
+        decisions = api.decide(SubjectInput(user_uuid=str(self.user.uuid)))
+
+        assert self.user.email.endswith("@posthog.com")
+        assert not any(decision.blocked for decision in decisions)

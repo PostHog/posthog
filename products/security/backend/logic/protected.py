@@ -17,6 +17,13 @@ def is_protected_domain(domain: str | None) -> bool:
     return domain is not None and (domain == PROTECTED_DOMAIN or domain.endswith(f".{PROTECTED_DOMAIN}"))
 
 
+def email_for_user(user_uuid: str | None) -> str | None:
+    """The address to judge protection by when a caller names a user but not their email."""
+    if user_uuid is None:
+        return None
+    return User.objects.filter(uuid=user_uuid).values_list("email", flat=True).first()
+
+
 def check_protected(draft: RuleDraft) -> list[str]:
     value = draft.target_value
     match draft.target_type:

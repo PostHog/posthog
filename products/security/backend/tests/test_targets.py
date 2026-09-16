@@ -22,6 +22,9 @@ class TestNormalize:
             (TargetType.IP, "203.0.113.9/24", "203.0.113.0/24"),
             (TargetType.IP, "2001:db8::1/48", "2001:db8::/48"),
             (TargetType.TEAM_ID, " 042 ", "42"),
+            # A mapped IPv6 range is stored as the IPv4 range it names.
+            (TargetType.IP, "::ffff:93.184.216.0/120", "93.184.216.0/24"),
+            (TargetType.IP, "::ffff:93.184.216.34", "93.184.216.34/32"),
         ],
     )
     def test_stores_one_canonical_value(self, target_type, raw, expected):
@@ -58,6 +61,8 @@ class TestMatches:
             (TargetType.IP, "203.0.113.0/24", Subject(ip="203.0.113.200"), True),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="203.0.114.1"), False),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="::ffff:203.0.113.200"), True),
+            # A mapped rule written straight to the table, before normalization, still matches.
+            (TargetType.IP, "::ffff:203.0.113.0/120", Subject(ip="::ffff:203.0.113.200"), True),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="2001:db8::1"), False),
             (TargetType.IP, "203.0.113.0/24", Subject(ip="unknown"), False),
             (TargetType.ORGANIZATION_ID, ORG_ID, Subject(organization_ids=frozenset({ORG_ID})), True),

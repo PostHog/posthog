@@ -8,7 +8,7 @@ from free_email_domains import whitelist as free_email_domains
 from posthog.dataclasses import frozen
 
 from ..facade.enums import Effect, Scope, TargetType
-from .targets import TARGETS, canonical_address
+from .targets import TARGETS, address_in_network
 
 # Only blocks are enforced so far. An exemption or a limit saved now would look active
 # in the admin while nothing honored it.
@@ -84,7 +84,7 @@ def _check_ip_range(draft: RuleDraft, requester_ip: str | None) -> list[str]:
     # either, so the rule cannot lock them out.
     if draft.scope == Scope.ALL_ACCESS and requester_ip is not None:
         try:
-            if canonical_address(requester_ip) in network:
+            if address_in_network(requester_ip, network):
                 errors.append(
                     f"Your own address, {requester_ip}, is inside {network}. Saving it would lock you out of this page."
                 )

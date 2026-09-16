@@ -110,9 +110,22 @@ def _normalize_team_id(value: str) -> str:
 def _normalize_ip(value: str) -> str:
     try:
         # strict=False accepts a host address inside a range and stores the range.
-        return str(ipaddress.ip_network(value.strip(), strict=False))
+        network = ipaddress.ip_network(value.strip(), strict=False)
     except ValueError:
         raise InvalidTarget("Enter an IP address or a CIDR range, such as 203.0.113.0/24.")
+    return str(_unmapped_network(network))
+
+
+def _unmapped_network(
+    network: ipaddress.IPv4Network | ipaddress.IPv6Network,
+) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    # An IPv4-mapped range such as ::ffff:93.184.216.0/120 is stored as the IPv4 range it
+    # names, so the guards judge the real addresses and one stored form covers both.
+    if isinstance(network, ipaddress.IPv6Network) and network.prefixlen >= 96:
+        mapped = network.network_address.ipv4_mapped
+        if mapped is not None:
+            return ipaddress.IPv4Network(f"{mapped}/{network.prefixlen - 96}")
+    return network
 
 
 def _match_user_uuid(value: str, subject: Subject) -> bool:
@@ -147,21 +160,23 @@ def _match_team_id(value: str, subject: Subject) -> bool:
     return int(value) in subject.team_ids
 
 
-def canonical_address(address: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    """Parse an address. An IPv4-mapped IPv6 address such as ::ffff:93.184.216.34 comes
-    back as its IPv4 address, so an IPv4 range still covers a client seen in that form."""
+def address_in_network(address: str, network: ipaddress.IPv4Network | ipaddress.IPv6Network) -> bool:
+    """Whether the address is inside the network as written or, for an IPv4-mapped IPv6
+    address such as ::ffff:93.184.216.34, as its IPv4 address. Raises ValueError for an
+    address that does not parse."""
     parsed = ipaddress.ip_address(address)
-    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
-        return parsed.ipv4_mapped
-    return parsed
+    # Containment across IP versions is False rather than an error.
+    if parsed in network:
+        return True
+    mapped = parsed.ipv4_mapped if isinstance(parsed, ipaddress.IPv6Address) else None
+    return mapped is not None and mapped in network
 
 
 def _match_ip(value: str, subject: Subject) -> bool:
     if subject.ip is None:
         return False
     try:
-        # Containment across IP versions is False rather than an error.
-        return canonical_address(subject.ip) in ipaddress.ip_network(value)
+        return address_in_network(subject.ip, ipaddress.ip_network(value))
     except ValueError:
         return False
 
