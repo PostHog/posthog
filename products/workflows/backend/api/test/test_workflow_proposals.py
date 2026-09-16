@@ -262,6 +262,7 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
         assert draft["exit_condition"] == "exit_only_at_end"
         assert {action["name"] for action in draft["actions"]} >= {"renamed"}
 

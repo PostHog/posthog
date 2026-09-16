@@ -254,6 +254,7 @@ export class ToolDomainExtractor {
         'ship',
         'show',
         'start',
+        'suggest',
         'test',
         'unarchive',
         'unfreeze',
