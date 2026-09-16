@@ -4114,6 +4114,8 @@ def append_suggested_reviewers(
                     "github_name": effective_name if isinstance(effective_name, str) else None,
                     "relevant_commits": prior_commits if isinstance(prior_commits, list) else [],
                     "reason": effective_reason or None,
+                    "source_skill": prior.get("source_skill") if prior else None,
+                    "is_skill_owner": bool(prior.get("is_skill_owner")) if prior else False,
                 }
             )
 

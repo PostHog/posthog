@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections import Counter
@@ -44,6 +45,8 @@ logger = logging.getLogger(__name__)
 
 MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
+
+_TEAM_NAME_RE = re.compile(r"\bthe\s+([a-z0-9][a-z0-9_-]*(?:\s+[a-z0-9][a-z0-9_-]*){0,2}\s+team)\b", re.IGNORECASE)
 
 RECENCY_FULL_WEIGHT_DAYS = 30
 RECENCY_DECAY_FLOOR = 0.3
@@ -155,22 +158,83 @@ def enrich_reviewer_dicts_with_org_members(
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
-        enriched.append(
-            {
-                **r,
-                "user": {
-                    "id": user.id,
-                    "uuid": str(user.uuid),
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "email": user.email,
-                }
-                if user
-                else None,
-            }
-        )
+        enriched.append(_with_reviewer_presentation(r, user))
 
-    return enriched
+    group_counts = Counter(
+        (reviewer.get("source_skill"), reviewer.get("reason"))
+        for reviewer in enriched
+        if isinstance(reviewer.get("source_skill"), str)
+        and isinstance(reviewer.get("reason"), str)
+        and reviewer.get("source_skill")
+        and reviewer.get("reason")
+        and not reviewer.get("relevant_commits")
+    )
+    return [_with_reviewer_group(reviewer, group_counts) for reviewer in enriched]
+
+
+def _prettify_scout_name(skill_name: str) -> str:
+    cleaned = re.sub(r"^signals-scout-?", "", skill_name).replace("_", " ").replace("-", " ").strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
+
+
+def _commit_explanation(commits: list[object]) -> str:
+    if len(commits) == 1 and isinstance(commits[0], dict):
+        reason = commits[0].get("reason")
+        if isinstance(reason, str) and 0 < len(reason.split()) <= 12:
+            return reason.strip()
+    if len(commits) == 1:
+        return "Authored a relevant change to the affected code."
+    return f"Authored {len(commits)} relevant changes to the affected code."
+
+
+def _with_reviewer_presentation(reviewer: dict, user: User | None) -> dict:
+    commits = reviewer.get("relevant_commits")
+    commit_count = len(commits) if isinstance(commits, list) else 0
+    source_skill = reviewer.get("source_skill")
+    reason = reviewer.get("reason")
+
+    if commit_count:
+        source_label = "Code history"
+        explanation = _commit_explanation(commits)
+    elif isinstance(source_skill, str) and source_skill:
+        source_label = f"{_prettify_scout_name(source_skill)} scout"
+        explanation = reason if isinstance(reason, str) else None
+    elif isinstance(reason, str) and reason.startswith("Added as a reviewer by "):
+        source_label = "Added by teammate"
+        explanation = None
+    else:
+        source_label = "Agent suggestion"
+        explanation = reason if isinstance(reason, str) else None
+
+    return {
+        **reviewer,
+        "source_label": source_label,
+        "explanation": explanation,
+        "user": {
+            "id": user.id,
+            "uuid": str(user.uuid),
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "email": user.email,
+        }
+        if user
+        else None,
+    }
+
+
+def _with_reviewer_group(reviewer: dict, group_counts: Counter[tuple[object, object]]) -> dict:
+    source_skill = reviewer.get("source_skill")
+    reason = reviewer.get("reason")
+    if not isinstance(source_skill, str) or not isinstance(reason, str):
+        return reviewer
+    if reviewer.get("relevant_commits"):
+        return reviewer
+    if group_counts[(source_skill, reason)] < 2:
+        return reviewer
+
+    match = _TEAM_NAME_RE.search(str(reason))
+    name = match.group(1).capitalize() if match else f"{_prettify_scout_name(str(source_skill))} team"
+    return {**reviewer, "suggestion_group": {"name": name, "reason": reason}}
 
 
 def normalized_github_logins_from_suggested_reviewer_artefacts(

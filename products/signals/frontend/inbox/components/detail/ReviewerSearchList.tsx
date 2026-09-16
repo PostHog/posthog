@@ -34,18 +34,35 @@ export function removeSuggestedReviewer({
     reviewers: EnrichedReviewer[]
     updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => void
 }): void {
-    captureInboxReportAction({
-        report,
-        actionType: 'remove_suggested_reviewer',
-        surface,
-        // Match the shared cross-client contract: the real GitHub login when known, plus the user
-        // uuid desktop always sends, so a breakdown by either property lines web up with desktop.
-        extra: {
-            suggested_reviewer_login: target.github_login || undefined,
-            suggested_reviewer_uuid: target.user?.uuid,
-        },
-    })
-    const next = reviewers.filter((r) => r !== target)
+    removeSuggestedReviewers({ report, surface, targets: [target], reviewers, updateReviewers })
+}
+
+export function removeSuggestedReviewers({
+    report,
+    surface,
+    targets,
+    reviewers,
+    updateReviewers,
+}: {
+    report: SignalReport
+    surface: InboxReportActionSurface
+    targets: EnrichedReviewer[]
+    reviewers: EnrichedReviewer[]
+    updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => void
+}): void {
+    for (const target of targets) {
+        captureInboxReportAction({
+            report,
+            actionType: 'remove_suggested_reviewer',
+            surface,
+            extra: {
+                suggested_reviewer_login: target.github_login || undefined,
+                suggested_reviewer_uuid: target.user?.uuid,
+            },
+        })
+    }
+    const removed = new Set(targets)
+    const next = reviewers.filter((reviewer) => !removed.has(reviewer))
     updateReviewers(reviewersToWriteContent(next), next)
 }
 
@@ -97,6 +114,7 @@ export function ReviewerSearchList({
             user_uuid: option.user_uuid,
             github_name: option.name || null,
             relevant_commits: [],
+            source_label: 'Added by teammate',
             user: {
                 id: 0,
                 uuid: option.user_uuid,

@@ -523,6 +523,11 @@ class SignalReviewerUserInfo(ContractModel):
     email: str
 
 
+class ReviewerSuggestionGroup(ContractModel):
+    name: str
+    reason: str
+
+
 class EnrichedReviewer(ContractModel):
     # A reviewer is identified by their PostHog user, their GitHub login, or both. `github_login` is
     # null for a reviewer with no linked GitHub account; `user_uuid` is null on entries written
@@ -533,6 +538,9 @@ class EnrichedReviewer(ContractModel):
     relevant_commits: list[RelevantCommit]
     user: SignalReviewerUserInfo | None
     reason: str | None = None
+    source_label: str
+    explanation: str | None = None
+    suggestion_group: ReviewerSuggestionGroup | None = None
 
 
 # ── Tier-1 data-warehouse inbox sources ──────────────────────────────────────────

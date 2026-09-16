@@ -135,6 +135,55 @@ def test_uuid_reviewer_does_not_fall_back_to_a_reassigned_login(organization, te
     assert enriched[0]["user"]["id"] == original.id
 
 
+def test_enriches_reviewer_sources_explanations_and_shared_team():
+    shared_reason = "The checkout parser belongs to the checkout platform team's service."
+    enriched = enrich_reviewer_dicts_with_org_members(
+        1,
+        [
+            {
+                "github_login": "commit-author",
+                "relevant_commits": [
+                    {
+                        "sha": "abc1234",
+                        "url": "https://example.com",
+                        "reason": "Changed the checkout handler where this issue occurs.",
+                    }
+                ],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "team-member-one",
+                "relevant_commits": [],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "team-member-two",
+                "relevant_commits": [],
+                "reason": shared_reason,
+                "source_skill": "signals-scout-checkout-reliability",
+            },
+            {
+                "github_login": "manual-reviewer",
+                "relevant_commits": [],
+                "reason": "Added as a reviewer by Avery Chen on Jan 1, 2026",
+            },
+        ],
+        login_to_user={},
+        uuid_to_user={},
+    )
+
+    assert enriched[0]["source_label"] == "Code history"
+    assert enriched[0]["explanation"] == "Changed the checkout handler where this issue occurs."
+    assert enriched[0].get("suggestion_group") is None
+    assert enriched[1]["source_label"] == "Checkout reliability scout"
+    assert enriched[1]["suggestion_group"] == {"name": "Checkout platform team", "reason": shared_reason}
+    assert enriched[2]["suggestion_group"] == enriched[1]["suggestion_group"]
+    assert enriched[3]["source_label"] == "Added by teammate"
+    assert enriched[3]["explanation"] is None
+
+
 @pytest.mark.django_db
 def test_skips_users_outside_organization(organization, team):
     other_org = Organization.objects.create(name="test-resolve-reviewers-other-org")

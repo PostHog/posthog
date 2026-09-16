@@ -34,6 +34,11 @@ export interface SignalReviewerUserInfo {
     email: string
 }
 
+export interface ReviewerSuggestionGroup {
+    name: string
+    reason: string
+}
+
 export interface EnrichedReviewer {
     /** Null for a reviewer with no linked GitHub account — they are identified by `user` instead. */
     github_login: string | null
@@ -44,6 +49,12 @@ export interface EnrichedReviewer {
     user: SignalReviewerUserInfo | null
     /** Why this reviewer was chosen. Absent on artefacts stored before the field existed. */
     reason?: string | null
+    /** User-facing provenance for this suggestion, derived by the backend. */
+    source_label?: string
+    /** Short user-facing explanation for this suggestion, derived by the backend. */
+    explanation?: string | null
+    /** Shared rationale for reviewer suggestions that represent one team. */
+    suggestion_group?: ReviewerSuggestionGroup | null
 }
 
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
