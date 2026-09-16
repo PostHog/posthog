@@ -29,7 +29,6 @@ describe('early data derivations', () => {
             expandable: true,
             showCount: true,
             showDateRange: true,
-            showPropertyFilter: expect.any(Array),
             source: {
                 events: ['$mcp_tool_call'],
                 limit: 100,
