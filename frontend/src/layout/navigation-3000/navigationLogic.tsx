@@ -28,7 +28,7 @@ import {
     IconToggle,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
