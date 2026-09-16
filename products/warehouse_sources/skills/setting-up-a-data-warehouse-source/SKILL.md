@@ -132,8 +132,9 @@ end state:
   tables the user did not want are already in the warehouse. A source syncs free for its first seven days, so the
   cost arrives later, once those tables keep their 6h cadence.
 - Setup can register a remote webhook. A schema update does not remove it.
-- CDC is out of reach. `external-data-sources-enable-cdc-create` is not exposed over MCP either, so
-  `partial-update` can store `sync_type: "cdc"` on a source that has no CDC provisioning behind it.
+- Over MCP, CDC has to be set at create time. `external-data-sources-enable-cdc-create` is not exposed either, and
+  `partial-update` checks only the team flag and a primary key, so it can store `sync_type: "cdc"` on a source with
+  no replication slot. That table then stops getting fresh rows, and the error surfaces only when the sync runs.
 
 ```text
          ┌────────────────────┐
@@ -381,8 +382,10 @@ If the user wants near-real-time replication from Postgres:
    It returns `{valid, errors[]}` listing anything missing (wal_level, replication slot, publication, permissions).
 2. If `valid: false`, present the errors and ask the user to fix on the Postgres side. Don't try to create a CDC
    source that will immediately fail.
-3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
-   include `primary_key_columns` for each (CDC requires them).
+3. Once prerequisites pass, create the source with `cdc_enabled: true` in the `payload` — that is what provisions
+   the replication slot and publication — and set `sync_type: "cdc"` plus `primary_key_columns` on the tables that
+   need it. Create refuses a `cdc` table when the payload leaves CDC off, so do not add it afterwards with
+   `external-data-schemas-partial-update`: that call stores the value and provisions nothing.
 
 ## Important notes
 
