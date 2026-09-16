@@ -12,7 +12,6 @@ export interface TurnSuggestionCardProps extends TurnSuggestionLogicProps {
     isLastTurn: boolean
 }
 
-/** Per-turn slot for the server-classified suggestion; only the latest turn mounts anything. */
 export function TurnSuggestionCard({ isLastTurn, ...logicProps }: TurnSuggestionCardProps): JSX.Element | null {
     return isLastTurn ? <LatestTurnSuggestion {...logicProps} /> : null
 }
