@@ -1823,7 +1823,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadFolder('')
-        actions.loadUnfiledItems()
         actions.loadShortcuts()
     }),
 ])

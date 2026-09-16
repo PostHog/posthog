@@ -264,7 +264,7 @@ class PullRequestTimelinesQuery:
                     created_at=created_at,
                     started_at=started_at,
                     merged_at=merged_at,
-                    pushes=len({attempt.head_sha for attempt in pr_attempts}),
+                    pushes=builder.pushes(),
                     estimated_cost_usd=cost.estimated_cost_usd if cost else None,
                     billable_minutes=cost.billable_seconds / 60 if cost else None,
                     segments=builder.build(),

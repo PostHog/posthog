@@ -1,5 +1,6 @@
 ---
 name: signals-scout-session-replay
+scout-display-name: Session replay
 description: >
   Signals scout for PostHog session replay. Watches that sessions keep recording (capture
   cliffs) and surfaces friction inside recordings — rage/dead-click clusters, error-after-
