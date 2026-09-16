@@ -208,6 +208,7 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         Ok(Response::new(GetDistinctIdsForPersonResponse {
             distinct_ids: vec![],
+            next_cursor_id: None,
         }))
     }
 
