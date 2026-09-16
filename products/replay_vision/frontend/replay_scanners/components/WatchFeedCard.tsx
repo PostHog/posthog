@@ -19,6 +19,11 @@ import { ScannerType } from '../types'
 const roundScore = (value: number): number => Math.round(value * 100) / 100
 
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
+    // The scan wrote this sentence while watching the session, so it beats anything derived from the
+    // reason kind. Absent on observations scanned before notability shipped, which fall through below.
+    if (reason.notability_reason) {
+        return reason.notability_reason
+    }
     switch (reason.kind) {
         case 'signal_emitted':
             return (reason.signals_count ?? 0) > 1
@@ -40,6 +45,8 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
                 : 'Tagged something uncommon for this scanner lately.'
         case 'novel_summary':
             return "Reads unlike this scanner's other sessions in this window."
+        case 'notable':
+            return 'The scanner judged this session worth watching.'
         case 'friction':
             return 'The session shows signs of friction, like errors, retries, or dead ends.'
         case 'unviewed_recent':

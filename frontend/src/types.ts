@@ -66,6 +66,7 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -2653,6 +2654,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    query_scan?: QueryScanSummary
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -5094,6 +5096,7 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    tags?: string[]
     /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
      * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
     version?: number | null

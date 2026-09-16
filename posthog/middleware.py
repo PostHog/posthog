@@ -1280,6 +1280,12 @@ class CSPMiddleware:
                 "style-src 'self' 'unsafe-inline'",
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
                 "font-src data: https://fonts.gstatic.com",
+                # Without this the directive falls back to `default-src 'self'`, which drops the
+                # `data:` icons Django admin and our own admin pages render, and the `blob:` images
+                # the admin tools build client-side. Neither can execute, and this policy is
+                # enforced for every staff member rather than flag-gated, so the fallback was
+                # breaking admin pages outright.
+                "img-src 'self' data: blob:",
                 "worker-src 'none'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -1330,14 +1336,23 @@ class CSPMiddleware:
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
                 #
-                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
-                # require the file to load from their own origin, so the flag-font trick of shipping
+                # Stripe, Turnstile and Unlayer are the scripts we cannot serve ourselves: each vendor
+                # requires the file to load from their own origin, so the flag-font trick of shipping
                 # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
-                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
-                # already admits the iframes each one opens, and neither produced a connect-src
+                # modal, the signup captcha loads the Turnstile API, and `react-email-editor` injects
+                # editor.unlayer.com/embed.js for the email templater. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and none produced a connect-src
                 # violation while this policy was report-only, so their API calls run inside those
-                # frames rather than from our page.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
+                # frames rather than from our page. Unlayer bears that out: embed.js is the only
+                # unlayer URL this policy has ever reported, because the editor itself runs in a
+                # frame that carries its own policy rather than ours.
+                #
+                # Unlayer is pinned to a path rather than the host, because react-email-editor
+                # hardcodes that one URL and we do not pass its `scriptUrl` prop. A source path is
+                # matched against the URL path alone, so the `?2` the library appends does not
+                # defeat it. The cost is that a version bump which moves the file needs this line
+                # updated, or the editor stops loading.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -1377,7 +1392,11 @@ class CSPMiddleware:
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
-                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `blob:` is not part of that exfiltration surface: only script already running on
+                # the page can mint a blob URL, and an image cannot execute, so it grants strictly
+                # less than the `worker-src blob:` note below. Image upload previews, replay and the
+                # SQL editor all render blob URLs, so they lose their images without it.
+                f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
@@ -1386,8 +1405,13 @@ class CSPMiddleware:
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected
-                # form post anywhere. Every form we serve targets a same-origin path.
-                "form-action 'self'",
+                # form post anywhere. Every form we serve targets a same-origin path, but Chromium
+                # judges each hop of the redirect chain too, and reports the original action rather
+                # than the hop that failed. Exiting impersonation posts to /logout, which redirects
+                # into /admin/, and AdminOAuth2Middleware sends that on to Google because
+                # restore_original_login() flushes the session holding the admin verification. So
+                # without this origin a staff logout is cancelled with nothing shown to the user.
+                "form-action 'self' https://accounts.google.com",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")

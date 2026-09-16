@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
+import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 
 export function NodeDetailActions({
@@ -20,21 +21,10 @@ export function NodeDetailActions({
     const { hasMaterializationChanges, savingMaterialization } = useValues(
         materializationJobsLogic({ viewId: savedQuery.id, kind: node.type === 'endpoint' ? 'endpoint' : 'view' })
     )
-    // An endpoint node carries the versioned view name (`my_endpoint_v3`), but the endpoint
-    // route resolves the plain name and takes the version as a search param.
-    const versionMatch = node.type === 'endpoint' ? node.name.match(/^(.+)_v(\d+)$/) : null
     return (
         <>
             {node.type === 'endpoint' ? (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={
-                        versionMatch
-                            ? urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-                            : urls.endpoint(node.name)
-                    }
-                >
+                <LemonButton type="secondary" size="small" to={endpointModelUrl(node.name)}>
                     Open endpoint
                 </LemonButton>
             ) : (

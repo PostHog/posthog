@@ -7,8 +7,8 @@ import (
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 )
 
-func schema() *catalog.Catalog {
-	return &catalog.Catalog{Tables: map[string]catalog.Table{
+func schema() *catalog.PreparedCatalog {
+	return catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
 		"warehouse_orders": {Name: "warehouse_orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"order_id": {Name: "order_id", Type: "string"},
 			"amount":   {Name: "amount", Type: "float"},
@@ -27,11 +27,11 @@ func schema() *catalog.Catalog {
 		}},
 		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{"properties": {Name: "properties", Type: "json"}}},
 	}, Properties: map[string][]catalog.Property{
-		"event":   {{Name: "$geo_city", ValueType: "String"}},
+		"event":   {{Name: "$geo_city", ValueType: "String"}, {Name: "café", ValueType: "String"}},
 		"person":  {{Name: "$geo_country", ValueType: "String"}},
 		"session": {{Name: "$entry_current_url", ValueType: "String"}},
 		"group:0": {{Name: "industry", ValueType: "String"}},
-	}}
+	}})
 }
 
 func TestValidateDoesNotShareBindingsAcrossStatements(t *testing.T) {
@@ -110,6 +110,7 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 		{query: "SELECT sum(o.amount), o.order_id FROM warehouse_orders AS o WHERE o.amount > 0", tableName: "warehouse_orders"},
 		{query: "SELECT uuid FROM events WHERE event = '$pageview' AND timestamp > now() - interval 1 month", tableName: "events"},
 		{query: "SELECT extract(month FROM timestamp) FROM events", tableName: "events"},
+		{query: "SELECT properties.$GEO_CITY FROM events", tableName: "events"},
 	} {
 		result := Validate(schema(), test.query)
 		if !result.Valid || len(result.Diagnostics) != 0 {
@@ -137,6 +138,7 @@ func TestValidatePropertiesAcrossGenericNamespaces(t *testing.T) {
 		{query: "SELECT persons.properties.$geo_contry FROM persons", suggestion: "$geo_country"},
 		{query: "SELECT session.properties.$entry_curent_url FROM events", suggestion: "$entry_current_url"},
 		{query: "SELECT group_0.properties.indstry FROM events", suggestion: "industry"},
+		{query: "SELECT properties.cafe FROM events", suggestion: "café"},
 	}
 	for _, test := range tests {
 		result := Validate(schema(), test.query)

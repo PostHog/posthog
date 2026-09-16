@@ -1342,9 +1342,68 @@ export namespace Schemas {
       time_elapsed: number;
     }
 
+    export type QueryScanFindingKind = typeof QueryScanFindingKind[keyof typeof QueryScanFindingKind];
+
+
+    export const QueryScanFindingKind = {
+      NoEventFilter: 'no_event_filter',
+      NoStartDate: 'no_start_date',
+      PersonsJoin: 'persons_join',
+    } as const;
+
+    export type QueryScanFindingReason = typeof QueryScanFindingReason[keyof typeof QueryScanFindingReason];
+
+
+    export const QueryScanFindingReason = {
+      InOr: 'in_or',
+      Wrapped: 'wrapped',
+      Negated: 'negated',
+      Dynamic: 'dynamic',
+      NotPruned: 'not_pruned',
+      Filters: 'filters',
+    } as const;
+
+    export interface QueryScanWarning {
+      /** The one fact the finding rests on. */
+      evidence?: string | null;
+      /** What "Fix with AI" and the assistant are told to do. */
+      fix: string;
+      kind: QueryScanFindingKind;
+      /** Shown to the person: what happened and what to do. */
+      message: string;
+      /** Only with `no_event_filter` and `no_start_date`. */
+      reason?: QueryScanFindingReason | null;
+    }
+
+    export interface QueryScanAnalysis {
+      /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+      assistant_prompt?: string | null;
+      /** Empty when the analysis found nothing to fix. */
+      findings: QueryScanWarning[];
+      /** How much of all the project's events the query read, 0 to 1. */
+      project_share?: number | null;
+      /** How much of the project's events in the query's date range the query read, 0 to 1. */
+      range_share?: number | null;
+    }
+
+    export interface QueryScanSummary {
+      /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+      analysis?: QueryScanAnalysis | null;
+      /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+      analysis_requested?: boolean | null;
+      /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+      duration_ms: number;
+      /** True when ClickHouse stopped the run instead of finishing it. */
+      killed?: boolean | null;
+      /** Rows ClickHouse read for the last fresh run, all tables included. */
+      rows_read: number;
+    }
+
     export interface QueryStatus {
       budget_remaining_bytes?: number | null;
       bytes_read?: number | null;
+      /** Cache key of the run that failed, so clients can ask for its query scan. */
+      cache_key?: string | null;
       /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
       complete?: boolean | null;
       dashboard_id?: number | null;
@@ -1364,6 +1423,7 @@ export namespace Schemas {
       /** ONLY async queries use QueryStatus. */
       query_async?: true;
       query_progress?: ClickhouseQueryProgress | null;
+      query_scan?: QueryScanSummary | null;
       results?: unknown;
       /** When was query execution task enqueued. */
       start_time?: string | null;
@@ -3687,7 +3747,7 @@ export namespace Schemas {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
        * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
-      /** End of the date range. Same format as date_from. Omit or null for "now". */
+      /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
       date_to?: string | null;
       /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
       daysOfWeek?: DaysOfWeekEnum[] | null;
@@ -9338,6 +9398,8 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan: unknown;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -15378,7 +15440,7 @@ export namespace Schemas {
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
       /**
-         * Tag names to add, remove, or set.
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
          * @maxItems 100
          * @items.maxLength 255
          */
@@ -15393,7 +15455,7 @@ export namespace Schemas {
     export interface BulkUpdateTagsUUIDError {
       /** UUID of the object that was skipped. */
       id: string;
-      /** Why the object was skipped, e.g. 'Not found'. */
+      /** Why the object was skipped, e.g. 'Not found or no edit access'. */
       reason: string;
     }
 
@@ -15420,7 +15482,7 @@ export namespace Schemas {
        * * `set` - set */
       action: BulkUpdateTagsActionEnum;
       /**
-         * Tag names to add, remove, or set.
+         * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
          * @maxItems 100
          * @items.maxLength 255
          */
@@ -23889,8 +23951,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -36527,6 +36592,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     /**
@@ -36612,6 +36683,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface ExperimentExposureCriteria {
@@ -36871,6 +36948,13 @@ export namespace Schemas {
       uses_stamped_fallback: boolean;
     }
 
+    export interface ExperimentMatchingIdsResponse {
+      /** IDs of all experiments matching the current list filters that the user can edit. */
+      ids: number[];
+      /** Number of matching editable experiments. */
+      total: number;
+    }
+
     /**
      * * `manual` - Manual
      * * `agent_mcp` - Agent (MCP)
@@ -37081,6 +37165,15 @@ export namespace Schemas {
       config?: ExperimentResultsWidgetConfig;
     }
 
+    export interface ExperimentSavedMetricLinkedExperiment {
+      /** Experiment ID. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** True when the experiment is launched and not yet stopped. */
+      is_running: boolean;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -37108,6 +37201,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+      readonly linked_experiments: readonly ExperimentSavedMetricLinkedExperiment[];
     }
 
     /**
@@ -37626,6 +37721,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
@@ -62016,6 +62117,24 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum = typeof PrStateEnum[keyof typeof PrStateEnum];
+
+
+    export const PrStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface TaskRunSummary {
       /** ID of the latest run. */
       id: string;
@@ -62026,6 +62145,19 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed
+       * * `unknown` - unknown */
+      pr_state: PrStateEnum | null;
     }
 
     /**
@@ -65383,8 +65515,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id?: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -66330,6 +66465,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Experiments using this shared metric (soft-deleted experiments excluded). Populated only on single-metric retrieve; always an empty list in list responses. */
+      readonly linked_experiments?: readonly ExperimentSavedMetricLinkedExperiment[];
     }
 
     /**
@@ -66463,6 +66600,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /**
+         * Organizational tags for this experiment (up to 100, 255 characters each).
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface PatchedExternalDataDestination {
@@ -67554,6 +67697,8 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan?: unknown;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -74920,6 +75065,18 @@ export namespace Schemas {
     }
 
     /**
+     * Response when the GitHub App cannot read pull request checks.
+     */
+    export interface PullRequestChecksPermissionError {
+      /** Stable code for a missing GitHub Checks permission. */
+      readonly code: string;
+      /** What the GitHub App permission prevents. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
+    }
+
+    /**
      * Response for the PR checks endpoint — the CI status of a report's implementation PR.
      */
     export interface PullRequestChecksResponse {
@@ -78200,6 +78357,10 @@ export namespace Schemas {
 
     export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative12 | QueryResponseAlternative13 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative56 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96 | QueryResponseAlternative97 | QueryResponseAlternative98 | QueryResponseAlternative99 | QueryResponseAlternative100 | QueryResponseAlternative101 | QueryResponseAlternative102 | QueryResponseAlternative103 | QueryResponseAlternative104 | QueryResponseAlternative105 | QueryResponseAlternative106 | QueryResponseAlternative107 | QueryResponseAlternative108 | QueryResponseAlternative109 | QueryResponseAlternative110 | QueryResponseAlternative111 | QueryResponseAlternative112;
 
+    export interface QueryScanResponse {
+      analysis?: QueryScanAnalysis | null;
+    }
+
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
@@ -79341,6 +79502,39 @@ export namespace Schemas {
       cacheAgeSeconds: number;
       /** Scan evidence details */
       scan?: ScanEvidence;
+    }
+
+    export interface RescoreRequest {
+      /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+      organization_id: string;
+    }
+
+    /**
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
+     * * `dispatch_failed` - dispatch_failed
+     */
+    export type RescoreResponseReasonEnum = typeof RescoreResponseReasonEnum[keyof typeof RescoreResponseReasonEnum];
+
+
+    export const RescoreResponseReasonEnum = {
+      Disabled: 'disabled',
+      NoEnrichmentRecord: 'no_enrichment_record',
+      DispatchBacklogFull: 'dispatch_backlog_full',
+      DispatchFailed: 'dispatch_failed',
+    } as const;
+
+    export interface RescoreResponse {
+      /** Whether the re-score workflow was dispatched. */
+      queued: boolean;
+      /** Why nothing was dispatched. Null when queued.
+       *
+       * * `disabled` - disabled
+       * * `no_enrichment_record` - no_enrichment_record
+       * * `dispatch_backlog_full` - dispatch_backlog_full
+       * * `dispatch_failed` - dispatch_failed */
+      reason: RescoreResponseReasonEnum | null;
     }
 
     export interface ResetPasswordResponse {
@@ -92207,6 +92401,7 @@ export namespace Schemas {
     /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -92221,6 +92416,7 @@ export namespace Schemas {
     export const WatchFeedReasonEnum = {
       SignalEmitted: 'signal_emitted',
       UnusualVerdict: 'unusual_verdict',
+      Notable: 'notable',
       VerdictYes: 'verdict_yes',
       OutlierScore: 'outlier_score',
       RareTag: 'rare_tag',
@@ -92234,10 +92430,11 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
+       * * `notable` - Notable
        * * `verdict_yes` - Verdict Yes
        * * `outlier_score` - Outlier Score
        * * `rare_tag` - Rare Tag
@@ -92261,6 +92458,16 @@ export namespace Schemas {
          * @nullable
          */
       verdict_share?: number | null;
+      /**
+         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+         * @nullable
+         */
+      notability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * @nullable
+         */
+      notability_reason?: string | null;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -92297,7 +92504,7 @@ export namespace Schemas {
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
       results: WatchFeedItem[];
     }
 
@@ -100231,6 +100438,10 @@ export namespace Schemas {
      */
     event?: string;
     /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
      * Filter to experiments linked to the given feature flag ID.
      */
     feature_flag_id?: number;
@@ -100258,6 +100469,10 @@ export namespace Schemas {
      * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
     };
 
     export type ExperimentsListStatus = typeof ExperimentsListStatus[keyof typeof ExperimentsListStatus];
@@ -100296,6 +100511,62 @@ export namespace Schemas {
      */
     metric_uuid: string;
     };
+
+    export type ExperimentsMatchingIdsRetrieveParams = {
+    /**
+     * Filter by archived state. Defaults to non-archived experiments only.
+     */
+    archived?: boolean;
+    /**
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
+     */
+    created_by_id?: string;
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string;
+    /**
+     * JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.
+     */
+    excluded_tags?: string;
+    /**
+     * Filter to experiments linked to the given feature flag ID.
+     */
+    feature_flag_id?: number;
+    /**
+     * Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.
+     */
+    order?: string;
+    /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
+     * Free-text search applied to the experiment name (case-insensitive).
+     */
+    search?: string;
+    /**
+     * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
+     */
+    status?: ExperimentsMatchingIdsRetrieveStatus;
+    /**
+     * JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `["growth", "checkout"]`.
+     */
+    tags?: string;
+    };
+
+    export type ExperimentsMatchingIdsRetrieveStatus = typeof ExperimentsMatchingIdsRetrieveStatus[keyof typeof ExperimentsMatchingIdsRetrieveStatus];
+
+
+    export const ExperimentsMatchingIdsRetrieveStatus = {
+      All: 'all',
+      Complete: 'complete',
+      Draft: 'draft',
+      ExposureFrozen: 'exposure_frozen',
+      Paused: 'paused',
+      Running: 'running',
+      Stopped: 'stopped',
+    } as const;
 
     export type ExperimentsPromptTemplatesRetrieve200Item = {
       key: string;
@@ -105771,6 +106042,13 @@ export namespace Schemas {
      */
     ci_status?: TasksListCiStatus;
     /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance;
+    /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
     commented_by?: number;
@@ -105910,6 +106188,13 @@ export namespace Schemas {
       Failing: 'failing',
       Pending: 'pending',
       None: 'none',
+    } as const;
+
+    export type TasksListClientProvenance = typeof TasksListClientProvenance[keyof typeof TasksListClientProvenance];
+
+
+    export const TasksListClientProvenance = {
+      PosthogDesktop: 'posthog_desktop',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
