@@ -7,6 +7,8 @@ CHAT_PLAN_AGENT_PROMPT = """
 
 {{{writing_style}}}
 
+{{{language}}}
+
 {{{basic_functionality}}}
 
 {{{slash_commands}}}

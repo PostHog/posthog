@@ -7,6 +7,8 @@ RESEARCH_AGENT_PROMPT = """
 
 {{{writing_style}}}
 
+{{{language}}}
+
 {{{basic_functionality}}}
 
 {{{switching_modes}}}

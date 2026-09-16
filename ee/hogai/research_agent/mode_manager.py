@@ -8,6 +8,7 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
+    LANGUAGE_PROMPT,
     PRODUCT_ADVOCACY_PROMPT,
     TONE_AND_STYLE_PROMPT,
     TOOL_USAGE_POLICY_PROMPT,
@@ -179,6 +180,7 @@ class PlanAgentPromptBuilder(ResearchAgentPromptBuilderBase):
             plan_mode=PLAN_MODE_PROMPT,
             tone_and_style=TONE_AND_STYLE_PROMPT,
             writing_style=WRITING_STYLE_PROMPT,
+            language=LANGUAGE_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
             switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
@@ -198,6 +200,7 @@ class ResearchAgentPromptBuilder(ResearchAgentPromptBuilderBase):
             research_mode=RESEARCH_MODE_PROMPT,
             tone_and_style=TONE_AND_STYLE_PROMPT,
             writing_style=WRITING_STYLE_PROMPT,
+            language=LANGUAGE_PROMPT,
             basic_functionality=BASIC_FUNCTIONALITY_PROMPT,
             switching_modes=SWITCHING_MODES_PROMPT,
             task_management=TASK_MANAGEMENT_PROMPT,
