@@ -31,7 +31,7 @@ Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSuppo
 
 # Withheld properties
 
-The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld in both detail modes, because that half of the bag is caller-controlled and can hold credentials, authentication state, request headers, user identity, permissions, budget context, or location. The same rule applies to a trace's `person.properties`; its `uuid` and `distinct_id` stay.
+The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld in both detail modes, because that half of the bag is caller-controlled and can hold credentials, authentication state, request headers, user identity, permissions, budget context, or location. The same rule applies to a trace's `person.properties`. Only that bag is filtered, so the person's `uuid`, `distinct_id`, and `created_at` are untouched.
 
 A bag that has something withheld lists those names under `_redactedKeys`, with no values. A bag that has nothing withheld carries no `_redactedKeys`. A trace with any withheld property also carries one `_redacted` object explaining the rule.
 
