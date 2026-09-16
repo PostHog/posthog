@@ -1414,7 +1414,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
+    def test_mismatched_bounds_in_one_point_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
         self._seed_histogram(
             [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
@@ -1422,8 +1422,67 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             bounds=[0.2, 0.6, 2.0],
             resource_labels={"k8s.pod.name": "other"},
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             self._run(0.5)
+        message = str(caught.exception)
+        # The message must name both layouts and a recovery that works.
+        self.assertIn("0.1, 0.5, 1", message)
+        self.assertIn("0.2, 0.6, 2", message)
+        self.assertIn("Group by", message)
+
+    def test_mismatched_bounds_split_by_group_by(self):
+        # Grouping puts each layout in its own point, so both quantiles resolve.
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0, 0])],
+            temporality="delta",
+            service_name="svc-a",
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0, 0])],
+            temporality="delta",
+            bounds=[1.0, 5.0, 10.0],
+            service_name="svc-b",
+        )
+        rows = self._run(0.5, group_by=(MetricGroupBy(key="service_name"),))
+        values = {row["labels"]["service_name"]: row["value"] for row in rows}
+        self.assertAlmostEqual(values["svc-a"], 0.05)
+        self.assertAlmostEqual(values["svc-b"], 0.5)
+
+    def test_bounds_may_change_between_points(self):
+        # A layout change between buckets leaves every point self-consistent.
+        self._seed_histogram([(self.anchor, [10, 0, 0, 0])], temporality="delta")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(minutes=1), [10, 0, 0, 0])],
+            temporality="delta",
+            bounds=[1.0, 5.0, 10.0],
+            resource_labels={"k8s.pod.name": "relaunched"},
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 2)
+        self.assertAlmostEqual(rows[0]["value"], 0.05)
+        self.assertAlmostEqual(rows[1]["value"], 0.5)
+
+    def test_idle_series_with_another_layout_does_not_block(self):
+        # A flat cumulative series adds no counts, so its layout cannot matter.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [7, 7, 7, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [7, 7, 7, 0]),
+            ],
+            temporality="cumulative",
+            bounds=[0.2, 0.6, 2.0],
+            resource_labels={"k8s.pod.name": "idle"},
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
