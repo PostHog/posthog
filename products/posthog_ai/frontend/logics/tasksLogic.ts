@@ -36,6 +36,7 @@ export interface tasksLogicValues {
     repositoriesLoading: boolean
     searchQuery: string
     taskListParams: TaskListParams
+    taskListParamsReady: boolean
     tasks: Task[]
     tasksError: string | null
     tasksLoading: boolean
@@ -53,6 +54,19 @@ export interface tasksLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    loadUserSuccess: (
+        user: UserType | null,
+        payload?:
+            | {
+                  resetOnFailure: boolean | undefined
+              }
+            | undefined
+    ) => {
+        payload?: {
+            resetOnFailure: boolean | undefined
+        }
+        user: UserType | null
+    } // userLogic
     createTask: ({ data }: { data: TaskUpsertProps }) => {
         data: TaskUpsertProps
     }
@@ -167,6 +181,7 @@ export interface tasksLogicMeta {
             assigneeFilter: TaskAssigneeFilter,
             user: UserType | null
         ) => TaskListParams
+        taskListParamsReady: (assigneeFilter: TaskAssigneeFilter, user: UserType | null) => boolean
     }
 }
 
@@ -177,7 +192,7 @@ export const tasksLogic = kea<tasksLogicType>([
 
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-        actions: [featureFlagLogic, ['setFeatureFlags']],
+        actions: [featureFlagLogic, ['setFeatureFlags'], userLogic, ['loadUserSuccess']],
     })),
 
     actions({
@@ -188,7 +203,7 @@ export const tasksLogic = kea<tasksLogicType>([
         setTasksNext: (next: string | null) => ({ next }),
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         tasks: [
             [] as Task[],
             {
@@ -199,6 +214,10 @@ export const tasksLogic = kea<tasksLogicType>([
                 // it is showing, and `{}` there would swap the active filter for the whole visible set.
                 // The default is evaluated per call, so it picks up the filter active at refresh time.
                 loadTasks: async (params: TaskListParams = values.taskListParams, breakpoint) => {
+                    cache.tasksLoadPending = !values.taskListParamsReady
+                    if (cache.tasksLoadPending) {
+                        return values.tasks
+                    }
                     let response: PaginatedResponse<Task>
                     try {
                         response = await api.tasks.list(params)
@@ -379,48 +398,79 @@ export const tasksLogic = kea<tasksLogicType>([
                 if (assigneeFilter === 'my_scouts') {
                     return { ...base, origin_product: OriginProduct.SIGNALS_SCOUT, created_by: user?.id }
                 }
+                if (assigneeFilter === 'posthog_ai' || assigneeFilter === 'slack') {
+                    return { ...base, origin_product: assigneeFilter, created_by: user?.id }
+                }
+                if (assigneeFilter === 'desktop') {
+                    return { ...base, client_provenance: 'posthog_desktop', created_by: user?.id }
+                }
                 return { ...base, created_by: user?.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT }
             },
         ],
+        // Every filter except "team scouts" reads the user: `created_by` pins the list to them, and
+        // "all team" is staff-gated. A request sent before the user lands carries no pin, so the
+        // server answers with every task the caller can read, shared ones from other people
+        // included. Hold the request until then; `loadUserSuccess` sends it.
+        taskListParamsReady: [
+            (s) => [s.assigneeFilter, s.user],
+            (assigneeFilter: TaskAssigneeFilter, user: null | import('~/types').UserType): boolean =>
+                assigneeFilter === 'team_scouts' || !!user?.id,
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
-        openTask: ({ taskId }) => {
-            router.actions.push(`/tasks/${taskId}`)
-        },
-        // Debounce typing before hitting the server; the loader's own `breakpoint` then drops any
-        // response that a newer query has already superseded.
-        setSearchQuery: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadTasks(values.taskListParams)
-        },
-        setAssigneeFilter: () => {
-            actions.loadTasks(values.taskListParams)
-        },
-        loadMoreTasksFailure: ({ error, errorObject }) => {
-            lemonToast.error(`Couldn't load more tasks: ${loadErrorMessage(error, errorObject)}`)
-        },
-        // Every surface that archives goes through this loader, so sync the independent panel
-        // history here instead of asking each one to remember. Only when it's already mounted:
-        // building it would fetch a list nobody is showing, and a later mount loads it fresh.
-        deleteTaskSuccess: ({ payload }) => {
-            if (payload) {
-                taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
+    listeners(({ actions, values, cache }) => {
+        const loadTasksWhenReady = (): void => {
+            cache.tasksLoadPending = !values.taskListParamsReady
+            if (!cache.tasksLoadPending) {
+                actions.loadTasks(values.taskListParams)
             }
-        },
+        }
         // The app renders once the feature-flag request times out (3s), so this logic can mount
         // before the flags land — and it's an unkeyed singleton, so `afterMount` never runs again.
         // Without this the nav would sit on an empty list, showing "no tasks" rather than loading.
-        setFeatureFlags: () => {
-            if (!values.hasRequestedTasks && hasTasksFlag(values.featureFlags)) {
+        // The user can land late as well (see `taskListParamsReady`), in either order with the
+        // flags, so the first request goes out from whichever arrives last.
+        const loadInitialTasks = (): void => {
+            if (!values.hasRequestedTasks && hasTasksFlag(values.featureFlags) && values.taskListParamsReady) {
                 actions.loadTasks(values.taskListParams)
             }
-        },
-    })),
+        }
+        return {
+            openTask: ({ taskId }) => {
+                router.actions.push(`/tasks/${taskId}`)
+            },
+            // Debounce typing before hitting the server; the loader's own `breakpoint` then drops any
+            // response that a newer query has already superseded.
+            setSearchQuery: async (_, breakpoint) => {
+                await breakpoint(300)
+                loadTasksWhenReady()
+            },
+            setAssigneeFilter: loadTasksWhenReady,
+            loadMoreTasksFailure: ({ error, errorObject }) => {
+                lemonToast.error(`Couldn't load more tasks: ${loadErrorMessage(error, errorObject)}`)
+            },
+            // Every surface that archives goes through this loader, so sync the independent panel
+            // history here instead of asking each one to remember. Only when it's already mounted:
+            // building it would fetch a list nobody is showing, and a later mount loads it fresh.
+            deleteTaskSuccess: ({ payload }) => {
+                if (payload) {
+                    taskHistoryLogic.findMounted()?.actions.taskArchived(payload.taskId)
+                }
+            },
+            setFeatureFlags: loadInitialTasks,
+            loadUserSuccess: () => {
+                if (cache.tasksLoadPending) {
+                    loadTasksWhenReady()
+                } else {
+                    loadInitialTasks()
+                }
+            },
+        }
+    }),
 
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (hasTasksFlag(values.featureFlags)) {
+            if (hasTasksFlag(values.featureFlags) && values.taskListParamsReady) {
                 actions.loadTasks(values.taskListParams)
             }
         },

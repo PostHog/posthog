@@ -129,7 +129,6 @@ describe('modelsSceneLogic', () => {
     })
 
     it('counts models whose last run failed and models that are suspended', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
@@ -139,7 +138,6 @@ describe('modelsSceneLogic', () => {
     })
 
     it('ignores a marker on an engine that does not serve queries', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
 
@@ -147,19 +145,7 @@ describe('modelsSceneLogic', () => {
         expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
     })
 
-    it('ignores markers on a team that does not enforce suspension', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, false)
-        await mount('/models')
-        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
-
-        // Detection writes markers for every team, but without enforcement the schedule
-        // keeps firing, so the marker records failures rather than a stopped model.
-        expect(logic.values.suspendedNodes).toEqual([])
-        expect(logic.values.attentionModels.find((row) => row.node.id === 'paused')?.problem).toBe('Failed')
-    })
-
     it('lists broken models with their error and what they hold up', async () => {
-        setFlag(FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES, true)
         await mount('/models')
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])

@@ -9,8 +9,9 @@ declares no reset gauge. Production has recorded no value on either gauge yet; s
 
 from collections.abc import Mapping
 
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import (
     EgressMetrics,
     EgressObservability,
@@ -21,6 +22,23 @@ from posthog.egress.observability.observability import (
 # Harmonic rate-limits the whole account rather than per endpoint, so every observed header
 # describes the same one resource.
 _RATE_LIMIT_RESOURCE = "account"
+_METRIC_SOURCES = frozenset(
+    {"harmonic_client", "salesforce_enrichment_bulk", "salesforce_enrichment_debug", "growth_enrichment_provider"}
+)
+_METRIC_ENDPOINTS = frozenset({"/graphql", "/companies/{id}", "/enrichment_status"})
+
+_request_duration = Histogram(
+    "harmonic_api_request_duration_seconds",
+    "Time spent waiting for a Harmonic HTTP response, excluding local rate-limit admission waits.",
+    labelnames=["source", "priority", "endpoint", "outcome"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60),
+)
+_admission_wait = Histogram(
+    "harmonic_api_admission_wait_seconds",
+    "Time a Harmonic caller waits before attempting a rate-limited request.",
+    labelnames=["source", "priority"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
+)
 
 _metrics = EgressMetrics(
     request_counter=Counter(
@@ -50,3 +68,19 @@ def _parse_harmonic_rate_limit(headers: Mapping[str, str] | None, _url: str | No
 
 
 harmonic_egress = EgressObservability(_metrics, _parse_harmonic_rate_limit)
+
+
+def _metric_source(source: str) -> str:
+    return source if source in _METRIC_SOURCES else "other"
+
+
+def record_harmonic_request_duration(
+    seconds: float, *, source: str, priority: Priority, endpoint: str | None, outcome: str
+) -> None:
+    endpoint_label = endpoint if endpoint in _METRIC_ENDPOINTS else "other"
+    outcome_label = "response" if outcome == "response" else "exception"
+    _request_duration.labels(_metric_source(source), priority.value, endpoint_label, outcome_label).observe(seconds)
+
+
+def record_harmonic_admission_wait(seconds: float, *, source: str, priority: Priority) -> None:
+    _admission_wait.labels(_metric_source(source), priority.value).observe(seconds)

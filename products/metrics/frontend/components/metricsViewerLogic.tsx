@@ -54,6 +54,7 @@ import type { _MetricPickerNameApi } from '../generated/api.schemas'
 import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames } from '../metricsLinks'
+import { METRICS_PANELS } from '../panels/registry'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -972,6 +973,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
         }
         return {
+            // A panel whose registry entry needs grouped data cannot stay selected once nothing
+            // is grouped anymore — fall back rather than render it against a result shape it
+            // does not support.
+            setGroupByKeys: ({ groupByKeys }) => {
+                if (
+                    groupByKeys.length === 0 &&
+                    !values.viewerClauses.some((clause) => clause.groupByKeys.length > 0) &&
+                    METRICS_PANELS[values.displayType]?.needsGroupBy
+                ) {
+                    actions.setDisplayType(DEFAULT_DISPLAY_TYPE)
+                }
+            },
             // `setFilterGroup` changes the active clause's chips; the clause-navigation
             // actions change which clause's chips are the scope.
             setFilterGroup: syncPickerServices,

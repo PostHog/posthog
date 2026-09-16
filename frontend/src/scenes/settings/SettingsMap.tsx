@@ -123,6 +123,7 @@ import {
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
 import { LogsDistinctIdAttributeKeys } from './environment/LogsDistinctIdAttributeKeys'
+import { LogsJsonParseAttributeSettings } from './environment/LogsJsonParseAttributeSettings'
 import { LogsPatternMessageKeys } from './environment/LogsPatternMessageKeys'
 import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttributeKeys'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -891,6 +892,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsJsonParseSettings />,
                 flag: 'LOGS_SETTINGS_JSON',
                 keywords: ['json', 'parse', 'structured', 'format'],
+            },
+            {
+                id: 'logs-json-parse-attribute',
+                title: 'JSON parse log attribute',
+                description:
+                    'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
+                docsUrl: 'https://posthog.com/docs/logs/logs-config',
+                component: <LogsJsonParseAttributeSettings />,
+                flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
+                keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
             },
             {
                 id: 'logs-pii-scrub',
@@ -1965,6 +1976,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
                 flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'oidc-configuration',
+                title: 'OIDC single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
             },
             {
                 id: 'scim-configuration',

@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -387,11 +387,11 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "public_df" in request["messages"][0]["content"]
         stream.close.assert_called_once()
 
-    def test_generate_request_defaults_to_the_balanced_model(self) -> None:
+    def test_generate_request_defaults_to_sonnet_5(self) -> None:
         serializer = WidgetGenerateRequestSerializer(data={"prompt": "Render a globe", "generation_id": str(uuid4())})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == DEFAULT_WIDGET_MODEL
+        assert serializer.validated_data["model"] == "claude-sonnet-5"
 
     def test_generate_request_rejects_an_unlisted_model(self) -> None:
         serializer = WidgetGenerateRequestSerializer(
@@ -481,13 +481,19 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
+                    '<Insight nodeId="insight" dataframeQuery="SELECT 1" />\n\n'
                     '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
         )
 
-        assert infer_widget_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
+        assert infer_widget_inputs(notebook, "globe") == [
+            "locations_df",
+            "summary_df",
+            "insight_df",
+            "future_df",
+        ]
 
     @parameterized.expand([("generated_widget", "GeneratedWidget"), ("genui", "GenUI")])
     def test_rejects_removed_widget_tags(self, _name: str, tag_name: str) -> None:
@@ -559,7 +565,7 @@ class TestWidgetData(APIBaseTest):
             },
         )
 
-    def _mapping(self) -> NotebookWidgetInstance:
+    def _mapping(self, *, pinned: bool = True, with_version: bool = True) -> NotebookWidgetInstance:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             name="Render a globe",
@@ -573,6 +579,8 @@ class TestWidgetData(APIBaseTest):
             widget=widget,
             created_by=self.user,
         )
+        if not with_version:
+            return instance
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=widget,
@@ -593,7 +601,7 @@ class TestWidgetData(APIBaseTest):
         )
         widget.current_version = version
         widget.save(update_fields=["current_version"])
-        instance.pinned_version = version
+        instance.pinned_version = version if pinned else None
         instance.save(update_fields=["pinned_version"])
         return instance
 
@@ -627,7 +635,7 @@ class TestWidgetData(APIBaseTest):
 
         assert error.exception.code == "input_schema_too_large"
 
-    def test_version_contract_keeps_only_frame_authorization_metadata(self) -> None:
+    def test_version_contract_keeps_frame_schema_without_row_data(self) -> None:
         self._run()
         contract = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], lambda _run: None).contract
 
@@ -635,6 +643,7 @@ class TestWidgetData(APIBaseTest):
             {
                 "slot": self.INPUT_NAME,
                 "sourceName": self.INPUT_NAME,
+                "columns": [{"name": "lat", "type": "float64"}, {"name": "label", "type": "string"}],
                 "schemaHash": contract[0]["schemaHash"],
             }
         ]
@@ -1014,12 +1023,16 @@ class TestWidgetData(APIBaseTest):
             error_detail=None,
             artifact_url=None,
             frame_names=[self.INPUT_NAME],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
         )
 
         with patch(
@@ -1535,6 +1548,10 @@ class TestWidgetData(APIBaseTest):
                 "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
                 side_effect=mark_terminal,
             ),
+            patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
             patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
@@ -1545,15 +1562,24 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is None
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
 
-    def test_generation_worker_persists_an_advisory_review_before_publication(self) -> None:
-        instance = self._mapping()
-        base_version = self._pinned_version(instance)
+    @parameterized.expand(
+        [
+            (GeneratedWidgetVersion.Operation.INITIAL, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, True),
+        ]
+    )
+    def test_generation_worker_persists_review_and_preserves_version_following(
+        self, operation: str, pinned: bool
+    ) -> None:
+        instance = self._mapping(pinned=pinned, with_version=operation != GeneratedWidgetVersion.Operation.INITIAL)
+        base_version = instance.widget.current_version
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=instance.widget,
             instance=instance,
             requested_by=self.user,
-            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            operation=operation,
             prompt="Make it lighter",
             model="claude-sonnet-4-6",
             base_version=base_version,
@@ -1600,6 +1626,10 @@ class TestWidgetData(APIBaseTest):
                 side_effect=prepare_source,
             ) as prepare,
             patch(
+                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                side_effect=lambda **kwargs: transaction.atomic(),
+            ),
+            patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
                 return_value=publication_id,
             ) as publish,
@@ -1609,6 +1639,9 @@ class TestWidgetData(APIBaseTest):
         job.refresh_from_db()
         assert job.status == GeneratedWidgetGenerationJob.Status.COMPLETED
         assert job.result_version_id is not None
+        instance.refresh_from_db()
+        assert instance.widget.current_version_id == job.result_version_id
+        assert instance.pinned_version_id == (job.result_version_id if pinned else None)
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).get(id=job.result_version_id)
         assert version.canvas_source_version_id == publication_id
         assert version.security_review_severity == "critical"

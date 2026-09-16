@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    UNPAGED_SCAN_LIMIT,
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
@@ -66,43 +67,43 @@ _PRS_SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-_TRANSITIONS_SELECT = """
+_TRANSITIONS_SELECT = f"""
     SELECT pr_number, event, created_at
     FROM __EVENTS_SOURCE__ AS se
-    WHERE pr_number IN {pr_numbers}
+    WHERE pr_number IN {{pr_numbers}}
     ORDER BY created_at ASC, id ASC
-    LIMIT 100000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-_REVIEWS_SELECT = """
+_REVIEWS_SELECT = f"""
     SELECT pr_number, reviewer_login, state, submitted_at
     FROM __REVIEWS_SOURCE__ AS rv
-    WHERE pr_number IN {pr_numbers}
-    LIMIT 100000
+    WHERE pr_number IN {{pr_numbers}}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# A skipped run never executes, so it adds no red or running time. HogQL caps a result at 50k rows,
-# and skipped and merge-queue runs are a third of a busy team's runs, so both stay out of this list.
-_RUNS_SELECT = """
+# A skipped run never executes, so it adds no red or running time. Skipped and merge-queue runs are a
+# third of a busy team's runs, so both stay out of this list to keep it under UNPAGED_SCAN_LIMIT.
+_RUNS_SELECT = f"""
     SELECT
         id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
     FROM __RUNS_SOURCE__ AS r
-    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from}
+    WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # One row per merge-queue attempt: the queue runs several workflows for each attempt.
-_GATE_ATTEMPTS_SELECT = """
+_GATE_ATTEMPTS_SELECT = f"""
     SELECT
         pr_number,
         min(run_started_at) AS started_at,
         max(updated_at) AS completed_at,
         countIf(status != 'completed' OR updated_at IS NULL) AS unfinished
     FROM __RUNS_SOURCE__ AS r
-    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from} AND is_merge_queue
+    WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}} AND is_merge_queue
     GROUP BY pr_number, __GATE_ATTEMPT__
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # One row per run attempt. Re-run copies are GitHub's re-listing of jobs that never ran again, so
@@ -119,7 +120,7 @@ _JOB_ATTEMPTS_SELECT = f"""
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
     GROUP BY run_id, run_attempt
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _MASTER_FAILURES_SELECT = f"""
@@ -132,7 +133,7 @@ _MASTER_FAILURES_SELECT = f"""
         AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
         AND j.completed_at IS NOT NULL
         AND j.workflow_name IN {{workflow_names}}
-    LIMIT 200000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _TRUNK_STATE_SELECT = """
@@ -196,7 +197,7 @@ class PullRequestTimelinesQuery:
             # An open PR is listed whatever its age, and one old PR would stretch every scan back months.
             # A listed PR's CI is read from the same lookback the summary uses, and its timeline starts there.
             run_from = max(run_from, self._date_from - CI_LOOKBACK)
-        ready_at = self._query_ready_at(pr_numbers)
+        ready_at = self._query_ready_at(pr_numbers, run_from)
         reviews = self._query_reviews(pr_numbers)
         attempts, gates = self._query_attempts(pr_numbers, run_from)
         default_branch = next((row[9] for row in prs if row[9]), "")
@@ -298,14 +299,19 @@ class PullRequestTimelinesQuery:
         )
         return [row for row in response.results or [] if row[6] is not None]
 
-    def _query_ready_at(self, pr_numbers: list[int]) -> dict[int, list[datetime]]:
-        source = self._curated.issue_events_source()
+    def _query_ready_at(self, pr_numbers: list[int], run_from: datetime) -> dict[int, list[datetime]]:
+        # A timeline never starts before run_from, so an older ready event cannot move its start. The
+        # floor keeps the scan from parsing the whole append-growing events history.
+        source = self._curated.issue_events_source(created_floor=True)
         if source is None:
             return {}
         response = self._curated.run(
             _TRANSITIONS_SELECT.replace("__EVENTS_SOURCE__", source),
             query_type="engineering_analytics.pull_request_timelines_transitions",
-            placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+            placeholders={
+                "pr_numbers": ast.Constant(value=pr_numbers),
+                "event_created_floor": run_started_floor_constant(run_from),
+            },
         )
         ready_at: dict[int, list[datetime]] = defaultdict(list)
         for number, event, created_at in response.results or []:
@@ -369,14 +375,15 @@ class PullRequestTimelinesQuery:
             run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:
-                # The run row decides its newest attempt's outcome: the jobs sync can still hold a queued
-                # job row, or miss the failing job's row, after the run itself completed.
+                # The run row decides its newest attempt's outcome and end: the jobs sync can still hold a
+                # queued job row, miss the failing job's row, or hold only the jobs that finished first,
+                # after the run itself completed.
                 is_newest = job_attempt.attempt == newest_attempt
                 failed = bool(job_attempt.failed_jobs) or (is_newest and run_failed)
                 completed_at = job_attempt.completed_at
                 succeeded = job_attempt.succeeded and not failed
                 if is_newest and completed:
-                    completed_at = completed_at or updated_at
+                    completed_at = updated_at or completed_at
                     succeeded = conclusion == "success" and not failed
                 attempts[int(number)].append(
                     RunAttempt(
