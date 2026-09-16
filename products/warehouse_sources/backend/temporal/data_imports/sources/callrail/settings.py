@@ -17,7 +17,7 @@ PER_PAGE = 250
 _CHILD_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CallRailEndpointConfig:
     name: str
     # Full path under https://api.callrail.com/v3, with `{account_id}` left for the resolved

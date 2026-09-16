@@ -73,6 +73,11 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": CALLRAIL_BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": _auth_config(api_key),
+        # Call and lead bodies carry caller names and phone numbers, SMS message text and submitted
+        # form field values — free text the name-based sample scrubbers aren't guaranteed to catch.
+        # Keep raw bodies out of HTTP sample capture even where an operator enables it. Requests are
+        # still metered and logged.
+        "capture": False,
     }
 
 
