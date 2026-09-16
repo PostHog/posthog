@@ -2003,6 +2003,52 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
+        def test_logs_settings_json_attribute_key(self, key, expected):
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
+            self.team.logs_settings = existing_settings
+            self.team.save()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {**existing_settings, "json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            expected_settings = {**existing_settings, "json_parse_logs_attribute_key": expected}
+            assert self.team.logs_settings == expected_settings
+            assert response.json()["logs_settings"] == expected_settings
+
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
+
+        def test_logs_settings_must_be_an_object(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": "json_parse_logs_attribute_key"},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "logs_settings must be an object" in response.json()["detail"]
+
         def test_logs_settings_retention_requires_matching_feature(self):
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -2060,6 +2106,7 @@ def team_api_test_factory():
                         "logs_settings": {
                             "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
+                            "json_parse_logs_attribute_key": "context",
                         }
                     },
                 )
@@ -3723,6 +3770,24 @@ _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    @parameterized.expand([(None,), (True,), (123,), ([],), ({},), ("a" * 201,)])
+    def test_invalid_logs_json_attribute_key(self, key):
+        self._assert_field_error(
+            "logs_settings",
+            {"json_parse_logs_attribute_key": key},
+            "invalid",
+            "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+            "Use an empty string to disable parsing.",
+        )
+
+    @parameterized.expand(
+        [("context", "context"), (" app.context ", "app.context"), ("  ", ""), (" " + "a" * 200 + " ", "a" * 200)]
+    )
+    def test_normalize_logs_json_attribute_key(self, key, expected):
+        assert TeamSerializer().validate_logs_settings({"json_parse_logs_attribute_key": key}) == {
+            "json_parse_logs_attribute_key": expected
+        }
+
     # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
     # before the object-level `validate()` that needs request context — so these never
     # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's

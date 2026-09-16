@@ -300,10 +300,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        // Untouched by Setup: the explorer compares attribution models against each
-        // other, which is analysis. Setup's Attribution section is the two config
-        // fields (mode and lookback), which is a different thing with the same name.
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.ATTRIBUTION,
@@ -312,7 +310,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
+        ...(!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
             ? [
                   {
                       key: MarketingAnalyticsTab.RETENTION,
