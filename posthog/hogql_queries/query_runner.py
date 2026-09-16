@@ -2016,7 +2016,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ):
-                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
+                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED, user)
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
@@ -2026,7 +2026,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # We're allowed to calculate if the lazy check fails, but we'll do it asynchronously
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale_for_request(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
-                    self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
+                    self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED, user)
                     cached_response.query_status = self.enqueue_async_calculation(
                         cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
@@ -2046,7 +2046,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
-                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED)
+                self._raise_if_failure_fresh_for(failure, BUDGET_EXTENDED, user)
                 # We're allowed to calculate, but we'll do it asynchronously
                 cached_response.query_status = self.enqueue_async_calculation(
                     cache_manager=cache_manager, user=user, analytics_props=analytics_props

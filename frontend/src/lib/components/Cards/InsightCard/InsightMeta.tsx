@@ -251,7 +251,7 @@ export function InsightMeta({
     const scanFindings = queryScan?.analysis?.findings ?? []
     // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
     const queryScanTooltip =
-        canEditInsight && scanFindings.length > 0 ? (
+        canEditInsight && queryScan && scanFindings.length > 0 ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
 

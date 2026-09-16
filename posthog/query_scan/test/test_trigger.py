@@ -274,7 +274,7 @@ class TestQueryScanTrigger(SimpleTestCase):
 
         key, payload = self.redis.set.call_args.args
         assert key == slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
-        assert json.loads(payload)["status"] == "pending"
+        assert json.loads(payload) == {"pending": True}
         assert self.redis.set.call_args.kwargs == {"ex": 600, "nx": True}
         # A count left without a TTL would stand forever and cap the team for good.
         self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)

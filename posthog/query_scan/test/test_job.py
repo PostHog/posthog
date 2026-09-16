@@ -153,6 +153,7 @@ class TestQueryScanJob(BaseTest):
 
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None
+        assert stored.analysis is not None
         assert stored.analysis.range_share is not None
         assert stored.analysis.project_share is not None
         # The team denominator runs once, unbounded.
