@@ -9,6 +9,7 @@ import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
+import { AnnotationsPicker } from 'scenes/insights/EditorFilters/AnnotationsPicker'
 import { AxisLabelFilter } from 'scenes/insights/EditorFilters/AxisLabelFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
@@ -25,7 +26,6 @@ import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/Resul
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
-import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
@@ -233,7 +233,7 @@ export const DisplayOptions = {
     MultipleYAxes: ShowMultipleYAxesFilter,
     TrendLines: ShowTrendLinesFilter,
     HideIncompleteFunnelPeriods: HideIncompleteConversionWindowPeriodsFilter,
-    Annotations: ShowAnnotationsFilter,
+    Annotations: AnnotationsPicker,
     ResultCustomizationBy: ResultCustomizationByPicker,
     Unit: UnitPicker,
     Scale: ScalePicker,
