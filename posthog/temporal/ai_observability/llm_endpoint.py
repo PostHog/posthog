@@ -58,7 +58,10 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     latches the client for the rest of the run.
 
     Build one through ``build_flex_first_chat_client`` rather than directly, so every
-    caller gets the same tier, timeout, and retry policy.
+    caller gets the same tier, timeout, and retry policy. Build one per run and call it
+    one request at a time: ``_flex_latched`` and ``_flex_paused_until`` are run policy and
+    are meant to be shared, but ``_flex_this_call`` holds the tier of the request in
+    flight, so two concurrent calls on one client would overwrite each other's.
     """
 
     _flex_latched: bool = PrivateAttr(default=False)
