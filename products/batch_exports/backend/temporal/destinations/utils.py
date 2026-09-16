@@ -62,9 +62,18 @@ def get_absolute_key_prefix(
 
 
 def get_manifest_key(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
+    prefix: str,
+    data_interval_start: str | None,
+    data_interval_end: str | None,
+    batch_export_model: BatchExportModel | None,
+    *,
+    run_id: str | None = None,
 ) -> str:
     """Generate manifest file key."""
+    if run_id is not None and (data_interval_start is None or data_interval_end is None):
+        return posixpath.join(prefix, f"{run_id}_manifest.json")
+    if data_interval_end is None:
+        raise ValueError("A run_id is required to name an export without a data_interval_end")
     key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
     return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
@@ -89,18 +98,26 @@ def _get_compression_extension(file_format: str, compression: str | None, legacy
 def get_object_key(
     prefix: str,
     data_interval_start: str | None,
-    data_interval_end: str,
+    data_interval_end: str | None,
     batch_export_model: BatchExportModel | None,
     file_format: str,
     compression: str | None = None,
     legacy_parquet_extension: bool = False,
     file_number: int = 0,
     include_file_number: bool = False,
+    *,
+    run_id: str | None = None,
 ) -> str:
     """Generate object storage key for batch export files."""
-    key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-
-    base_file_name = f"{data_interval_start}-{data_interval_end}"
+    if run_id is not None and (data_interval_start is None or data_interval_end is None):
+        key_prefix = prefix
+        base_file_name = run_id
+        include_file_number = True
+    else:
+        if data_interval_end is None:
+            raise ValueError("A run_id is required to name an export without a data_interval_end")
+        key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
+        base_file_name = f"{data_interval_start}-{data_interval_end}"
 
     if include_file_number:
         base_file_name = f"{base_file_name}-{file_number}"

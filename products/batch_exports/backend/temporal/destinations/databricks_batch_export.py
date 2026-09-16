@@ -214,6 +214,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         NOTE: currently we don't expose this in the frontend as we're assuming all users would want to use this.
     """
 
+    data_interval_end: str
     integration_id: int
     http_path: str
     catalog: str
