@@ -180,6 +180,9 @@ def _load_applied(
     scanner = _rows_at_position(delta_table, add_actions, highest, list(candidates))
     schema = scanner.projected_schema
     batches: list[pa.RecordBatch] = []
+    # Past a cap, each batch is folded into these counts and dropped: what stays in memory is
+    # one entry per distinct identity, which is the least a replay can be matched against.
+    counts: Counter[tuple[Any, ...]] = Counter()
     rows = 0
     held_bytes = 0
     degraded = False
@@ -192,15 +195,19 @@ def _load_applied(
             if rows > MAX_POSITION_ROWS or held_bytes > MAX_POSITION_BYTES:
                 degraded = True
                 logger.warning("cdc_position_identity_degraded", position=highest, rows=rows, held_bytes=held_bytes)
-                batches = [held.select(columns) for held in batches]
-        batches.append(batch.select(columns) if degraded else batch)
+                for held in batches:
+                    counts.update(_identities(pa.Table.from_batches([held]), columns))
+                batches = []
+        if degraded:
+            counts.update(_identities(pa.Table.from_batches([batch]), columns))
+        else:
+            batches.append(batch)
     if degraded:
-        keys_only = pa.Table.from_batches(batches, schema=pa.schema([schema.field(name) for name in columns]))
+        # One shared placeholder per identity: the filter only reads these, and pops one per match.
+        placeholder: dict[str, Any] = {}
         return LanePosition(
             position=highest,
-            applied={
-                key: [{} for _ in range(count)] for key, count in Counter(_identities(keys_only, columns)).items()
-            },
+            applied={key: [placeholder] * count for key, count in counts.items()},
             key_columns=tuple(columns),
             content_matched=False,
         )
