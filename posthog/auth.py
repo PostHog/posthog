@@ -943,7 +943,11 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
             except AuthenticationFailed:
                 raise
-            except Exception:
+            except Exception as e:
+                # _validate_token converts its own failures, so anything reaching here is a
+                # bug in the authentication path, not a bad token. Record it before it is
+                # reported to the caller as one.
+                capture_exception(e)
                 raise AuthenticationFailed(detail="Invalid access token.")
 
     def _authenticate_access_token(
