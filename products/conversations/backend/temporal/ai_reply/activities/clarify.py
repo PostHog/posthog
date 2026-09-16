@@ -27,7 +27,7 @@ async def support_clarify_activity(input: ClarifyInput) -> ClarifyOutput:
         return await database_sync_to_async(_clarify_sync, thread_sensitive=False)(input)
 
 
-def _has_prior_public_clarification(*, team_id: int, ticket_id: str) -> bool:
+def _existing_clarification(*, team_id: int, ticket_id: str) -> Comment | None:
     return (
         Comment.objects.filter(
             team_id=team_id,
@@ -36,8 +36,8 @@ def _has_prior_public_clarification(*, team_id: int, ticket_id: str) -> bool:
             item_context__author_type="AI",
             item_context__persist_as="clarification",
         )
-        .exclude(item_context__is_private=True)
-        .exists()
+        .order_by("-id")
+        .first()
     )
 
 
@@ -59,11 +59,14 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
         if ticket is None:
             return ClarifyOutput(published=False, question=question)
 
-        publish = (
-            input.auto_publishable
-            and channel_allows_bot_reply(ticket=ticket, ticket_type=input.ticket_type)
-            and not _has_prior_public_clarification(team_id=input.team_id, ticket_id=str(ticket.id))
-        )
+        existing = _existing_clarification(team_id=input.team_id, ticket_id=str(ticket.id))
+        if existing is not None:
+            # Temporal retries this activity after a commit if the result is lost. A second
+            # insert would flip published=False and the workflow would clear awaiting_clarification.
+            is_private = bool((existing.item_context or {}).get("is_private"))
+            return ClarifyOutput(published=not is_private, question=question)
+
+        publish = input.auto_publishable and channel_allows_bot_reply(ticket=ticket, ticket_type=input.ticket_type)
         if publish:
             content = question
         else:

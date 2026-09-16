@@ -36,7 +36,7 @@ def coerce_dataclass(cls: type[_T], value: object) -> _T:
     raise TypeError(f"Unexpected type {type(value).__name__}; expected {cls.__name__} or dict")
 
 
-@dataclass
+@dataclass(frozen=False)
 class SupportReplyInput:
     team_id: int
     ticket_id: str
@@ -45,7 +45,7 @@ class SupportReplyInput:
     clarification_round: int = 0
 
 
-@dataclass
+@dataclass(frozen=False)
 class BuildContextOutput:
     ticket_context: str
     ticket_title: str
@@ -113,7 +113,7 @@ class RetrieveOutput:
     chunk_ids: list[str]
 
 
-@dataclass
+@dataclass(frozen=False)
 class DraftInput:
     team_id: int
     ticket_context: str

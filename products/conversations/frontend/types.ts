@@ -2,7 +2,7 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { TicketViewFiltersApi } from './generated/api.schemas'
+import type { AiTriageResultEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -52,17 +52,8 @@ export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
 export type TicketTagsMatch = 'any' | 'all'
 
 export type AITriageStatus = 'in_progress' | 'done' | 'awaiting_clarification'
-export type AITriageResult =
-    | 'persisted'
-    | 'suggested'
-    | 'escalated_with_findings'
-    | 'escalated_with_best'
-    | 'escalated_no_reply'
-    | 'skipped_unactionable'
-    | 'blocked_unsafe'
-    | 'blocked_unsafe_reply'
-    | 'clarified'
-    | 'suggested_clarification'
+export type AITriageFilterValue = AiTriageResultEnumApi
+export type AITriageResult = Exclude<AiTriageResultEnumApi, 'in_progress'>
 
 export interface AITriage {
     schema_version?: number
@@ -316,38 +307,28 @@ export const aiTriageStatusLabel: Record<AITriageStatus, string> = {
 
 export const aiTriageProcessingLabel = 'Processing'
 
-export type AITriageFilterValue = AITriageResult | 'in_progress'
-
-// Hidden from the list filter until the API enum includes them. Labels still
-// render on the ticket so a missing Record key cannot crash the column.
-const AI_TRIAGE_UNFILTERABLE_RESULTS = new Set<AITriageResult>(['clarified', 'suggested_clarification'])
-
 export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
     { key: 'in_progress', label: aiTriageProcessingLabel },
-    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][])
-        .filter(([key]) => !AI_TRIAGE_UNFILTERABLE_RESULTS.has(key))
-        .map(([key, label]) => ({ key, label })),
+    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][]).map(([key, label]) => ({ key, label })),
 ]
 
 export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
 
+const AI_TRIAGE_RESULT_TAG_TYPE: Record<AITriageResult, AITriageTagType> = {
+    persisted: 'success',
+    suggested: 'warning',
+    escalated_with_findings: 'warning',
+    escalated_with_best: 'warning',
+    escalated_no_reply: 'warning',
+    skipped_unactionable: 'default',
+    blocked_unsafe: 'danger',
+    blocked_unsafe_reply: 'danger',
+    clarified: 'warning',
+    suggested_clarification: 'warning',
+}
+
 export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
-    switch (result) {
-        case 'persisted':
-            return 'success'
-        case 'suggested':
-        case 'escalated_with_findings':
-        case 'escalated_with_best':
-        case 'escalated_no_reply':
-        case 'clarified':
-        case 'suggested_clarification':
-            return 'warning'
-        case 'blocked_unsafe':
-        case 'blocked_unsafe_reply':
-            return 'danger'
-        case 'skipped_unactionable':
-            return 'default'
-    }
+    return AI_TRIAGE_RESULT_TAG_TYPE[result]
 }
 
 export const aiTriageTicketTypeLabel: Record<string, string> = {

@@ -406,7 +406,7 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, is_private: bool = False):
+    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -415,7 +415,7 @@ class TestCollectEligibleAwaitingClarification:
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=author_type,
-            item_context={"author_type": author_type, "is_private": is_private, "persist_as": "clarification"},
+            item_context={"author_type": author_type, "is_private": False, "persist_as": "clarification"},
         )
         Comment.objects.filter(id=comment.id).update(created_at=created)
         from products.conversations.backend.models.ticket import Ticket as TicketModel
@@ -424,59 +424,54 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return comment
 
+    @parameterized.expand(
+        [
+            (
+                "pending_awaiting_with_settled_customer_reply",
+                True,
+                [("customer", 10), ("AI", 5), ("customer", 3)],
+                True,
+                1,
+            ),
+            ("pending_without_awaiting", False, [("customer", 3)], False, None),
+            ("unanswered_question", True, [("customer", 10), ("AI", 3)], False, None),
+            (
+                "human_reply_after_question",
+                True,
+                [("customer", 10), ("AI", 5), ("team", 4), ("customer", 3)],
+                False,
+                None,
+            ),
+            (
+                "fresh_customer_reply_still_settling",
+                True,
+                [("customer", 10), ("AI", 5), ("customer", 0)],
+                False,
+                None,
+            ),
+        ]
+    )
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
-    def test_pending_awaiting_with_settled_customer_reply_is_eligible(self, mock_master_flag):
-        team, ticket = self._team_and_ticket()
-        self._comment(team, ticket, author_type="customer", minutes_ago=10)
-        self._comment(team, ticket, author_type="AI", minutes_ago=5)
-        self._comment(team, ticket, author_type="customer", minutes_ago=3)
+    def test_pending_eligibility(
+        self,
+        _name,
+        awaiting,
+        comments,
+        expected_eligible,
+        expected_round,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(awaiting=awaiting)
+        for author_type, minutes_ago in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
 
         result = _collect_eligible()
-        assert [t.ticket_id for t in result] == [str(ticket.id)]
-        assert result[0].clarification_round == 1
-
-    @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
-    def test_pending_without_awaiting_is_not_eligible(self, mock_master_flag):
-        team, ticket = self._team_and_ticket(awaiting=False)
-        self._comment(team, ticket, author_type="customer", minutes_ago=3)
-
-        result = _collect_eligible()
-        assert result == []
-
-    @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
-    def test_unanswered_question_is_not_eligible(self, mock_master_flag):
-        team, ticket = self._team_and_ticket()
-        self._comment(team, ticket, author_type="customer", minutes_ago=10)
-        self._comment(team, ticket, author_type="AI", minutes_ago=3)
-
-        result = _collect_eligible()
-        assert result == []
-
-    @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
-    def test_human_reply_after_question_cancels_reengagement(self, mock_master_flag):
-        team, ticket = self._team_and_ticket()
-        self._comment(team, ticket, author_type="customer", minutes_ago=10)
-        self._comment(team, ticket, author_type="AI", minutes_ago=5)
-        self._comment(team, ticket, author_type="team", minutes_ago=4)
-        self._comment(team, ticket, author_type="customer", minutes_ago=3)
-
-        result = _collect_eligible()
-        assert result == []
-
-    @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
-    def test_fresh_customer_reply_still_settling(self, mock_master_flag):
-        team, ticket = self._team_and_ticket()
-        self._comment(team, ticket, author_type="customer", minutes_ago=10)
-        self._comment(team, ticket, author_type="AI", minutes_ago=5)
-        self._comment(team, ticket, author_type="customer", minutes_ago=0)
-
-        result = _collect_eligible()
-        assert result == []
+        if expected_eligible:
+            assert [t.ticket_id for t in result] == [str(ticket.id)]
+            assert result[0].clarification_round == expected_round
+        else:
+            assert result == []
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
