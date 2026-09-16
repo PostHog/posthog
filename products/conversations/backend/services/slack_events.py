@@ -1,10 +1,13 @@
-"""Slack Events API deliveries for the SupportHog app.
+"""Slack deliveries for the SupportHog app, from the Events API and from interactive components.
 
-Two entry points, both reached from the facade after ingress verified the signature and parsed
-the envelope: ``slack_delivery_ownership`` answers which region holds the workspace the delivery
-is about, and ``accept_slack_event`` writes the inbound receipt and wakes its worker. No HTTP in
-here -- ingress owns the request, the receipt and the forward to the region that owns the
-workspace.
+Three entry points, all reached from the facade after ingress verified the signature and parsed
+the body: ``slack_delivery_ownership`` answers which region holds the workspace the delivery is
+about, and ``accept_slack_event`` and ``accept_slack_interactivity`` write the inbound receipt and
+wake its worker. No HTTP in here -- ingress owns the request, the receipt and the forward to the
+region that owns the workspace.
+
+Both Slack endpoints live here because they answer ownership the same way: each carries the
+workspace id in the delivery context, and one bounded lookup resolves it for both.
 """
 
 import json
@@ -12,12 +15,14 @@ from typing import Any
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout
+from posthog.ingress.slack.provider import SLACK_RAW_PAYLOAD_KEY
 from posthog.models.team import Team
 
 from products.conversations.backend.models import ConversationInboundEventSource, TeamConversationsSlackConfig
 from products.conversations.backend.services.inbound_events import (
     accept_inbound_event,
     slack_events_source_id,
+    slack_interactivity_source_id,
     slack_retry_metadata_from_values,
 )
 from products.conversations.backend.support_slack import team_for_slack_workspace
@@ -80,6 +85,38 @@ def accept_slack_event(delivery: WebhookDelivery) -> None:
             event_id=delivery.delivery_id,
             signed_body=json.dumps(payload, sort_keys=True).encode("utf-8"),
         ),
+        provider_account_id=slack_team_id,
+        payload=payload,
+        provider_retry_num=retry_num,
+        provider_retry_reason=retry_reason,
+        wake=wake_inbound_event,
+    )
+
+
+def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
+    """Record a verified Slack interactive payload against the workspace's team and wake its worker."""
+    payload: dict[str, Any] = dict(delivery.payload)
+    # The signed `payload` field, which the incarnation carried through so the source id hashes
+    # the bytes Slack signed. It is not part of what Slack sent inside the field, so it is off
+    # the payload again before the receipt stores it.
+    raw_payload = str(payload.pop(SLACK_RAW_PAYLOAD_KEY, ""))
+    slack_team_id = delivery.context.get("slack_team_id", "")
+    # Unguarded on purpose: a timed-out lookup fails the delivery, so Slack's redelivery reaches
+    # this consumer instead of the click being lost.
+    team = _team_for_workspace(slack_team_id) if slack_team_id else None
+    if team is None:
+        # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
+        # answer this module gave it before dispatch.
+        return
+
+    retry_num, retry_reason = slack_retry_metadata_from_values(
+        raw_retry_num=delivery.context.get("retry_num", ""),
+        retry_reason=delivery.context.get("retry_reason", ""),
+    )
+    accept_inbound_event(
+        team=team,
+        source=ConversationInboundEventSource.SLACK_INTERACTIVITY,
+        source_id=slack_interactivity_source_id(payload=payload, signed_body=raw_payload.encode("utf-8")),
         provider_account_id=slack_team_id,
         payload=payload,
         provider_retry_num=retry_num,
