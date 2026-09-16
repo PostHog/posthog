@@ -174,11 +174,11 @@ Captured exactly once per failed run, by whichever component performs the DB tra
 `TaskRun.mark_failed()` (janitor sweeps via the facade), the `update_task_run_status` Temporal activity (workflow failures), the facade run PATCH path (agent-reported failures), or `_terminalize_unstarted_task_run` (workflow dispatch failures).
 Additional properties:
 
-| Property           | Type    | Description                                                                                                                                                                                                    |
-| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Property           | Type    | Description                                                                                                                                                                                                                                 |
+| ------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `error_type`       | `str`   | Stable failure source: exception class name (workflow failures), `agent_reported`, `stale_queued_cleanup`, `stale_in_progress_cleanup`, `workflow_start_failed`, `followup_delivery_failed`, `stale_run_reaped`; `unspecified` when unknown |
-| `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                          |
-| `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                  |
+| `error_message`    | `str`   | Error message (truncated to the **last** 500 chars — the root cause sits at the tail)                                                                                                                                                       |
+| `duration_seconds` | `float` | Time from creation to failure                                                                                                                                                                                                               |
 
 ## Loop Fire Metrics
 
