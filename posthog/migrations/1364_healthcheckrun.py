@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1355_datadeletionrequest_ddr_team_created_at_idx"),
+        ("posthog", "1363_taggeditem_generic_columns"),
     ]
 
     operations = [
