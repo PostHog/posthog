@@ -501,7 +501,7 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
-def test_full_job_drains_event_deletions_queued_in_postgres(cluster: ClickhouseCluster):
+def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
     events = [(9000 + i, f"distinct_id_{i}", UUID(int=9000 + i), timestamp) for i in range(20)]
     queued, kept = events[:5], events[5:]
@@ -511,12 +511,6 @@ def test_full_job_drains_event_deletions_queued_in_postgres(cluster: ClickhouseC
 
     def surviving_uuids(client: Client) -> set[UUID]:
         result = client.execute("SELECT uuid FROM writable_events WHERE team_id >= 9000 AND team_id < 9020")
-        return {row[0] for row in result} if isinstance(result, list) else set()
-
-    def tombstoned_queue_rows(client: Client) -> set[UUID]:
-        result = client.execute(
-            "SELECT uuid FROM adhoc_events_deletion FINAL WHERE team_id >= 9000 AND team_id < 9020 AND is_deleted = 1"
-        )
         return {row[0] for row in result} if isinstance(result, list) else set()
 
     cluster.any_host(insert_events).result()
@@ -533,7 +527,6 @@ def test_full_job_drains_event_deletions_queued_in_postgres(cluster: ClickhouseC
 
     surviving = cluster.any_host(surviving_uuids).result()
     assert surviving == {event[2] for event in kept}
-    assert cluster.any_host(tombstoned_queue_rows).result() == {event[2] for event in queued}
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 

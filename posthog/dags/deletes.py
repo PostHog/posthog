@@ -134,6 +134,9 @@ class MonthlyCleanupConfig(dagster.Config):
 # backdated events for a pending deletion fail verification for every tenant, and inserted_at is
 # stamped server-side (writable_events does not even expose the column), so the bound cannot be
 # forged the way the event timestamp can. NULL inserted_at predates the column and always counts.
+# The event arm stays unbounded too: it names one uuid, so nothing can keep arriving under it, and a
+# bound would skip a row that was still in the ingestion pipeline when the request was made and then
+# mark the request verified with that row left behind.
 # The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
 # there are pipeline stragglers the next run converges on, not a sustained obligation.
 _DELETE_PREDICATE = """or(
@@ -141,6 +144,7 @@ _DELETE_PREDICATE = """or(
         AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id)))),
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
+    (dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid))),
     (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
 )"""
@@ -496,41 +500,7 @@ def create_deletes_dict(
     return del_dict
 
 
-@dagster.op(out=dagster.Out(dagster.Nothing))
-def queue_event_deletions(
-    context: dagster.OpExecutionContext,
-    load_pending_deletions: PendingDeletesTable,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> None:
-    """Move the event deletions from the pending table into the `adhoc_events_deletion` queue.
-
-    An event deletion names one row by `(team_id, uuid)`, which is what the adhoc arm of the delete
-    predicate joins on. Their `AsyncDeletion` rows still sit in the pending table, so
-    `mark_deletions_verified` marks them verified with everything else once the sweep is counted clean.
-    The queue is one replica set across the cluster, so one host is enough.
-    """
-    adhoc_event_deletions = AdhocEventDeletesTable()
-
-    def queue(client: Client) -> int:
-        # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants)
-        client.execute(
-            f"""
-            INSERT INTO {adhoc_event_deletions.qualified_name} (team_id, uuid, created_at)
-            SELECT team_id, toUUID(key), created_at
-            FROM {load_pending_deletions.qualified_name}
-            WHERE deletion_type = {DeletionType.Event}
-            """
-        )
-        result = client.execute(
-            f"SELECT count() FROM {load_pending_deletions.qualified_name} WHERE deletion_type = {DeletionType.Event}"
-        )
-        return result[0][0] if result else 0
-
-    queued = cluster.any_host_by_role(queue, NodeRole.DATA).result()
-    context.add_output_metadata({"queued_rows": dagster.MetadataValue.int(queued)})
-
-
-@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+@dagster.op
 def create_adhoc_event_deletes_dict(
     context: dagster.OpExecutionContext,
     config: DeleteConfig,
@@ -612,7 +582,7 @@ def delete_events(
             f"""
             SELECT count()
             FROM {load_and_verify_deletes_dictionary.qualified_name}
-            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})
+            WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team}, {DeletionType.Event})
             """
         )
         return result[0][0] if result else 0
@@ -798,6 +768,7 @@ def _delete_predicate_params(
         "pending_deletes_dictionary": pending_deletes_dictionary.qualified_name,
         "person_deletion_type": DeletionType.Person,
         "team_deletion_type": DeletionType.Team,
+        "event_deletion_type": DeletionType.Event,
         "adhoc_event_deletes_dictionary": adhoc_event_deletes_dictionary.qualified_name,
     }
 
@@ -1003,9 +974,7 @@ def deletes_job():
     oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
-    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(
-        create_adhoc_event_deletes_dict(start_after=queue_event_deletions(deletions_table))
-    )
+    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
 
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
