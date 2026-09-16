@@ -97,6 +97,7 @@ export interface errorTrackingIssueSceneLogicValues {
     issueId: string
     issueIdValid: boolean
     issueLoading: boolean
+    issueNotFound: boolean
     lastSeen: Dayjs | null
     listDateRange: DateRange | null
     maxContext: MaxContextInput[]
@@ -724,6 +725,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         // would flash the load-error state on every issue page. A non-UUID id never dispatches it,
         // so starting true there would leave shared consumers loading forever.
         issueLoading: isUUIDLike(props.id),
+        issueNotFound: false as boolean,
         listDateRange: null as DateRange | null,
     })),
 
@@ -749,6 +751,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return state
             },
+        },
+        issueNotFound: {
+            // A deleted or merged-away issue answers 404, which no retry can recover.
+            loadIssueFailure: (_, { errorObject }) => errorObject?.status === 404,
+            loadIssue: () => false,
+            loadIssueSuccess: () => false,
         },
         selectedEvent: {
             selectEvent: (_, { event }) => event,

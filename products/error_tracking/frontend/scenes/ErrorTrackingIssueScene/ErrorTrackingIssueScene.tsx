@@ -73,6 +73,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         issueId,
         issueIdValid,
         issueLoading,
+        issueNotFound,
         lastSeen,
         initialEventTimestamp,
         selectedEvent,
@@ -327,6 +328,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             </div>
                         ) : issueLoading ? (
                             <SpinnerOverlay sceneLevel />
+                        ) : issueNotFound ? (
+                            <NotFound object="issue" />
                         ) : (
                             <div className="flex h-[calc(var(--scene-layout-rect-height))] items-center justify-center p-4">
                                 <LemonBanner

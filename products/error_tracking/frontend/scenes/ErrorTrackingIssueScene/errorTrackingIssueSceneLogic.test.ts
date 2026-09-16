@@ -13,6 +13,7 @@ import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './err
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const OTHER_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
 const ISSUE: ErrorTrackingRelationalIssue = {
     id: VALID_ISSUE_ID,
     name: 'TypeError',
@@ -76,6 +77,26 @@ describe('errorTrackingIssueSceneLogic', () => {
             scopedLogic.mount()
         }).toDispatchActions(['loadIssue'])
         expect(scopedLogic.values.issueIdValid).toBe(true)
+        scopedLogic.unmount()
+    })
+
+    // A merge deletes the merged-away id, so old links to it answer 404. The scene offers a retry
+    // for a failed load, which can never recover a missing issue.
+    it.each([
+        [404, true],
+        [500, false],
+    ])('marks the issue as missing only for a 404 response (%s)', async (status, missing) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/:id/': () => [status, { detail: 'Issue not found' }],
+            },
+        })
+        const scopedLogic = errorTrackingIssueSceneLogic({ id: OTHER_ISSUE_ID })
+        await expectLogic(scopedLogic, () => {
+            scopedLogic.mount()
+        }).toDispatchActions(['loadIssueFailure'])
+
+        expect(scopedLogic.values.issueNotFound).toBe(missing)
         scopedLogic.unmount()
     })
 
