@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
@@ -56,6 +60,9 @@ func TestAutocompleteUsesOnlyRequestedTeamAndUserCatalog(t *testing.T) {
 		}
 		if result.CatalogRevision != test.revision || !hasSuggestion(result.Suggestions, test.table) {
 			t.Fatalf("unexpected response for team %d user %d: %#v", test.teamID, test.userID, result)
+		}
+		if result.PositionEncoding != completion.PositionEncodingUTF8 {
+			t.Fatalf("unexpected position encoding: %q", result.PositionEncoding)
 		}
 		for _, otherTable := range []string{"orders", "accounts", "invoices"} {
 			if otherTable != test.table && hasSuggestion(result.Suggestions, otherTable) {
@@ -106,6 +113,117 @@ func TestAutocompleteRequiresKnownTeamAndUser(t *testing.T) {
 	}
 }
 
+func TestValidateEncodesDiagnosticPositions(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.handler()
+	putCatalogForTest(t, handler, 1, 10, "revision-one", "events")
+	query := "SELECT '😀', missing FROM events"
+	byteStart := strings.Index(query, "missing")
+	utf16Start := len(utf16.Encode([]rune(query[:byteStart])))
+
+	for _, test := range []struct {
+		encoding         string
+		responseEncoding string
+		start            int
+	}{
+		{encoding: "utf-8", responseEncoding: "utf-8", start: byteStart},
+		{encoding: "utf-16", responseEncoding: "utf-16", start: utf16Start},
+		{responseEncoding: "utf-16", start: utf16Start},
+	} {
+		body, err := json.Marshal(map[string]any{"query": query, "positionEncoding": test.encoding})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/validate", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("validate returned %d: %s", response.Code, response.Body.String())
+		}
+		var result validationResponse
+		if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+			t.Fatal(err)
+		}
+		if string(result.PositionEncoding) != test.responseEncoding {
+			t.Fatalf("position encoding = %q, want %q", result.PositionEncoding, test.responseEncoding)
+		}
+		if len(result.Diagnostics) != 1 {
+			t.Fatalf("diagnostics = %#v", result.Diagnostics)
+		}
+		diagnostic := result.Diagnostics[0]
+		if diagnostic.Start != test.start || diagnostic.End != test.start+len("missing") {
+			t.Fatalf("%s diagnostic span = [%d,%d), want [%d,%d)", test.responseEncoding, diagnostic.Start, diagnostic.End, test.start, test.start+len("missing"))
+		}
+	}
+}
+
+func TestRequestLogIncludesMetadataWithoutRequestContents(t *testing.T) {
+	var logs bytes.Buffer
+	s := newTestServer(t)
+	s.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+	handler := s.handler()
+	putCatalogForTest(t, handler, 1, 10, "revision-one", "events")
+	logs.Reset()
+
+	request := httptest.NewRequest(http.MethodPost, scopePath(1, 10)+"/validate", strings.NewReader(`{"query":"SELECT 'do-not-log-query'"}`))
+	request.Header.Set("Authorization", "Bearer do-not-log-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("validate returned %d: %s", response.Code, response.Body.String())
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &entry); err != nil {
+		t.Fatalf("decode request log: %v\n%s", err, logs.String())
+	}
+	for key, expected := range map[string]any{
+		"msg":            "http_request",
+		"operation":      "validate",
+		"method":         http.MethodPost,
+		"status_code":    float64(http.StatusOK),
+		"response_bytes": float64(response.Body.Len()),
+		"result":         "catalog_hit",
+		"team_id":        float64(1),
+		"user_id":        float64(10),
+	} {
+		if entry[key] != expected {
+			t.Errorf("%s = %#v, want %#v", key, entry[key], expected)
+		}
+	}
+	if duration, ok := entry["duration_ms"].(float64); !ok || duration < 0 {
+		t.Errorf("duration_ms = %#v", entry["duration_ms"])
+	}
+	if strings.Contains(logs.String(), "do-not-log-query") || strings.Contains(logs.String(), "do-not-log-token") {
+		t.Fatalf("request contents leaked into log: %s", logs.String())
+	}
+
+	logs.Reset()
+	request = httptest.NewRequest(http.MethodGet, "/unknown", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown route returned %d: %s", response.Code, response.Body.String())
+	}
+	entry = map[string]any{}
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &entry); err != nil {
+		t.Fatalf("decode unmatched request log: %v\n%s", err, logs.String())
+	}
+	for key, expected := range map[string]any{
+		"level":       "WARN",
+		"msg":         "http_request",
+		"operation":   "unmatched",
+		"method":      http.MethodGet,
+		"status_code": float64(http.StatusNotFound),
+		"result":      "error",
+	} {
+		if entry[key] != expected {
+			t.Errorf("%s = %#v, want %#v", key, entry[key], expected)
+		}
+	}
+}
+
 func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.T) {
 	preAuthLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 1, RefillPerSec: 0.001, MaxEntries: 10, IdleTTL: time.Hour})
 	if err != nil {
@@ -120,10 +238,11 @@ func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.
 		auth:             serviceauth.New(nil, true),
 		preAuthLimiter:   preAuthLimiter,
 		principalLimiter: principalLimiter,
+		logger:           discardLogger(),
 	}
 	value := &catalog.Catalog{Tables: map[string]catalog.Table{}, Properties: map[string][]catalog.Property{}}
 	for _, authorization := range []serviceauth.Authorization{{TeamID: 1, UserID: 10}, {TeamID: 1, UserID: 20}} {
-		if err := s.catalogs.Put(authorization, "1", value); err != nil {
+		if err := s.catalogs.Put(authorization, "1", catalog.Prepare(value)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -178,7 +297,12 @@ func newTestServer(t *testing.T) *server {
 		auth:             serviceauth.New(nil, true),
 		preAuthLimiter:   preAuthLimiter,
 		principalLimiter: principalLimiter,
+		logger:           discardLogger(),
 	}
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func scopePath(teamID, userID int64) string {

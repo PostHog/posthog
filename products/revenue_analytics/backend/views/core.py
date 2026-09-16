@@ -19,6 +19,10 @@ class SourceHandle:
     team: Team
     source: Optional[RevenueSource] = None
     event: Optional[RevenueAnalyticsEventItem] = None
+    # Prepared test-account filter expression for events handles. Resolving filter property types
+    # queries Postgres, so it is computed once when handles are fetched; builders must then run
+    # without I/O so views can be built lazily at table-resolution time.
+    events_filter_expr: Optional[ast.Expr] = None
 
 
 @dataclass

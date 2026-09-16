@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -57,6 +58,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _extract_segments,
     _inject_known_freeform_tags,
     _load_known_freeform_tags,
+    _MissionOutcome,
     _resolve_citations,
     call_scanner_provider_activity,
 )
@@ -138,6 +140,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
     UploadVideoToGeminiInputs,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
@@ -167,6 +170,7 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
+    assert snapshot.verify_positives == "off"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -960,6 +964,7 @@ class TestEgressConsentRecheck:
                     CallScannerProviderInputs(
                         team_id=team.id,
                         observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
                         file_uri="gemini://files/x",
                         mime_type="video/mp4",
                     ),
@@ -1046,7 +1051,11 @@ class TestKnownFreeformTags:
     @pytest.mark.asyncio
     async def test_injection_is_gated_and_best_effort(self) -> None:
         inputs = CallScannerProviderInputs(
-            team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+            team_id=1,
+            observation_id=uuid.uuid4(),
+            exported_asset_id=1,
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
         )
         monitor = MonitorScanner(prompt="x")
         no_freeform = ClassifierScanner(prompt="x", tags=["a"])
@@ -1079,11 +1088,18 @@ class TestKnownFreeformTags:
             ),
         )
 
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team_id=target.team_id,
+            export_format="video/mp4",
+            is_system=True,
+            export_context={"session_recording_id": target.session_id, "inactivity_periods": []},
+        )
+
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
                 new_callable=AsyncMock,
-                return_value=(model_output, []),
+                return_value=_MissionOutcome(finalized=model_output, signals=[]),
             ) as mock_run_mission,
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_llm_inputs",
@@ -1096,6 +1112,7 @@ class TestKnownFreeformTags:
                 CallScannerProviderInputs(
                     team_id=target.team_id,
                     observation_id=target.id,
+                    exported_asset_id=asset.id,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
                 ),
@@ -2299,6 +2316,7 @@ class TestFetchSessionEventsActivity:
 @pytest.mark.django_db(transaction=True)
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
+    @time_machine.travel("2026-06-15T10:30:00Z", tick=False)
     async def test_creates_new_asset_with_vision_render_params(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         result = await ensure_session_asset_activity(
@@ -2315,6 +2333,8 @@ class TestEnsureSessionAssetActivity:
         assert ctx["playback_speed"] == 8
         assert ctx["recording_fps"] == 3
         assert ctx["show_metadata_footer"] is True
+        # No local override: the expiry has to stay whatever the bucket's lifecycle rule drops at.
+        assert asset.expires_after == dt.datetime(2026, 7, 16, tzinfo=dt.UTC)
 
     @pytest.mark.asyncio
     async def test_reuses_existing_system_asset_for_same_session(self) -> None:
@@ -3313,7 +3333,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
@@ -3344,7 +3368,11 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(
                     call_scanner_provider_activity,
                     CallScannerProviderInputs(
-                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                        team_id=1,
+                        observation_id=uuid.uuid4(),
+                        exported_asset_id=1,
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
                     ),
                 )
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
@@ -3425,6 +3453,7 @@ class TestWorkflowErrorHelpers:
 
 
 _DURATION_MS = 600_000  # 10-minute recording for the citation tests
+_IDENTITY_CLOCK = VideoClock(spans=())
 
 
 def _monitor_scanner() -> MonitorScanner:
@@ -3522,7 +3551,7 @@ class TestExtractSegments:
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
-        plain, segments = _extract_segments(text, _DURATION_MS)
+        plain, segments = _extract_segments(text, _DURATION_MS, _IDENTITY_CLOCK)
         assert plain == expected_plain
         assert segments == expected_segments
 
@@ -3530,7 +3559,7 @@ class TestExtractSegments:
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
@@ -3541,14 +3570,14 @@ class TestResolveCitations:
 
     def test_summarizer_uses_summary_field(self) -> None:
         finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
         assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

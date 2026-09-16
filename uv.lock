@@ -15,16 +15,16 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-pixelhog = false
-modal = false
-posthoganalytics = false
+deltalite = false
 django = false
 google-ads = false
-deltalite = false
 granian = false
 hogql-parser = false
-posthog-hogland = false
 hogql-parser-rs = false
+modal = false
+pixelhog = false
+posthog-hogland = false
+posthoganalytics = false
 
 [manifest]
 members = [
@@ -32,6 +32,11 @@ members = [
     "posthog",
     "posthog-owners",
 ]
+
+[[manifest.dependency-metadata]]
+name = "xgboost"
+version = "3.2.0"
+requires-dist = ["numpy", "scipy"]
 
 [[package]]
 name = "aioboto3"
@@ -4657,7 +4662,6 @@ name = "nvidia-nccl-cu12"
 version = "2.27.5"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/1c/857979db0ef194ca5e21478a0612bcdbbe59458d7694361882279947b349/nvidia_nccl_cu12-2.27.5-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:31432ad4d1fb1004eb0c56203dc9bc2178a1ba69d1d9e02d64a6938ab5e40e7a", size = 322400625, upload-time = "2025-06-26T04:11:04.496Z" },
     { url = "https://files.pythonhosted.org/packages/6e/89/f7a07dc961b60645dbbf42e80f2bc85ade7feb9a491b11a1e973aa00071f/nvidia_nccl_cu12-2.27.5-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ad730cf15cb5d25fe849c6e6ca9eb5b76db16a80f13f425ac68d8e2e55624457", size = 322348229, upload-time = "2025-06-26T04:11:28.385Z" },
 ]
 
@@ -5603,6 +5607,7 @@ dependencies = [
     { name = "pymongo" },
     { name = "pymssql" },
     { name = "pymysql" },
+    { name = "pynacl" },
     { name = "pyod" },
     { name = "pypdf" },
     { name = "pyroscope-io" },
@@ -5871,7 +5876,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.51.2" },
+    { name = "posthoganalytics", specifier = "==7.54.0" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -5883,6 +5888,7 @@ requires-dist = [
     { name = "pymongo", specifier = "==4.15.2" },
     { name = "pymssql", specifier = "==2.3.8" },
     { name = "pymysql", specifier = "==1.1.1" },
+    { name = "pynacl", specifier = "==1.5.0" },
     { name = "pyod", specifier = "==2.0.7" },
     { name = "pypdf", specifier = "==6.10.2" },
     { name = "pyroscope-io", specifier = "~=1.0.3" },
@@ -6048,7 +6054,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.51.2"
+version = "7.54.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6056,9 +6062,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/28/03df114b66050f20feef6ced44fdb2fadf984758c619f3b5ed8dd5c0bb77/posthoganalytics-7.51.2.tar.gz", hash = "sha256:d04c50617a5cc9085fd3925d3d2990ad575940498735868d2b9b396b16cc0825", size = 543227, upload-time = "2026-09-11T09:15:46.304Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/51/4b73739de28ccc09a9d1fff19108a79e1d21f8b19ae167ca3a133dd6f947/posthoganalytics-7.54.0.tar.gz", hash = "sha256:1297f82282e60da234fe3a4a08a69671a64cc91ac97ec14d9d0dfcc956e56382", size = 568032, upload-time = "2026-09-15T08:03:05.412Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/85/3639ce730056e8409541aac2f2fc40f8360214c08226ece28dc72dc2e64b/posthoganalytics-7.51.2-py3-none-any.whl", hash = "sha256:167fdb2778c156cc5475c0a90dc5afa6bc6c5113e7090430cdb7b5fc4511c63b", size = 641523, upload-time = "2026-09-11T09:15:44.362Z" },
+    { url = "https://files.pythonhosted.org/packages/58/f3/4c3aef4dea0abb246c3ade1836c2aba89cec669a53f956a0923257597a87/posthoganalytics-7.54.0-py3-none-any.whl", hash = "sha256:c25a10e90fabd1c4de013927b4d462cc7bd39cfe0a558de8a018f2388b021a11", size = 669916, upload-time = "2026-09-15T08:03:03.541Z" },
 ]
 
 [[package]]
@@ -9023,7 +9029,6 @@ version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "nvidia-nccl-cu12", marker = "sys_platform == 'linux'" },
     { name = "scipy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/91/bb/1eb0242409d22db725d7a88088e6cfd6556829fb0736f9ff69aa9f1e9455/xgboost-3.2.0.tar.gz", hash = "sha256:99b0e9a2a64896cdaf509c5e46372d336c692406646d20f2af505003c0c5d70d", size = 1263936, upload-time = "2026-02-10T11:03:05.542Z" }

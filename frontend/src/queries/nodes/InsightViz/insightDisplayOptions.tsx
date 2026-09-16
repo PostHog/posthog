@@ -6,13 +6,13 @@ import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { DisplayOption, DisplayOptions } from './DisplayOptions'
 import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
@@ -62,6 +62,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showMultipleYAxes,
         showAlertThresholdLines,
         showAnnotations,
+        annotationsScope,
         isNonTimeSeriesDisplay,
         interval,
         usesInChartLegend,
@@ -90,7 +91,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions && !isBoxPlot
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
-    const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
+    const showAnnotationsConfig = ((isTrends && !hideContinuousChartOptions) || isTrendsFunnel) && !isBoxPlot
     const showTrendLinesConfig = (isTrends || isRetention || isTrendsFunnel) && !hideContinuousChartOptions
     // Stickiness defaults to its line chart when display is unset, same as trends does — but
     // isDefaultTrendsLineDisplay only matches TrendsQuery, so we handle the stickiness case here.
@@ -176,9 +177,6 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
         }
-        if (showAnnotationsConfig) {
-            displayItems.push(DisplayOptions.Annotations)
-        }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertAnomalyPoints)
         }
@@ -192,6 +190,15 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const displayItems = getDisplayItems()
     if (showDisplaySection && displayItems.length > 0) {
         displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
+    }
+    if (showAnnotationsConfig) {
+        displaySections.push({
+            key: 'annotations',
+            title: 'Annotations',
+            tooltip:
+                'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
+            items: [DisplayOptions.Annotations],
+        })
     }
     if (showUnit) {
         displaySections.push({ key: 'unit', title: 'Unit', items: [DisplayOptions.Unit] })
@@ -295,7 +302,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         isPie && trendsFilter?.showLabelsOnSeries,
         unitIsSet,
         (hasLegend || showFunnelLegendConfig) && showLegend,
-        showAnnotationsConfig && showAnnotations === false,
+        showAnnotationsConfig && (showAnnotations === false || !!annotationsScope),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'

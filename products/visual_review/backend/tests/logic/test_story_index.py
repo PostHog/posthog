@@ -1,18 +1,20 @@
-"""Unit tests for logic/story_index.py — the snapshot-to-file map from the Storybook artifact."""
+"""Unit tests for logic/story_index.py — the story-to-file map the CLI uploads with a run."""
 
-import io
 import json
-import zipfile
-from uuid import uuid4
+import hashlib
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import requests
+from django.core.cache import cache
 
-from products.visual_review.backend.logic import errors, story_index
+from posthog.storage.object_storage import ObjectStorageError
 
-_ARTIFACT_NAME = story_index.STORYBOOK_ARTIFACT_NAME
+from products.visual_review.backend.facade.contracts import CreateRunInput
+from products.visual_review.backend.facade.enums import RunType
+from products.visual_review.backend.logic import repos, runs, story_index
+from products.visual_review.backend.models import Run
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _INDEX = story_index.StoryIndex(
     path_by_story_id={
@@ -24,28 +26,24 @@ _INDEX = story_index.StoryIndex(
 )
 
 
-def _repo() -> MagicMock:
-    return MagicMock(id=uuid4())
+def _map_bytes(paths: dict[str, str]) -> bytes:
+    return json.dumps({"version": 1, "paths": paths}).encode()
 
 
-def _zip_bytes(members: dict[str, bytes]) -> bytes:
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        for name, body in members.items():
-            archive.writestr(name, body)
-    return buffer.getvalue()
-
-
-def _response(status_code: int = 200, payload: object = None, content: bytes = b"") -> MagicMock:
-    return MagicMock(status_code=status_code, content=content, json=MagicMock(return_value=payload))
-
-
-def _listing(*artifacts: dict) -> MagicMock:
-    return _response(payload={"artifacts": list(artifacts)})
-
-
-def _index_document(entries: dict[str, dict]) -> bytes:
-    return json.dumps({"v": 5, "entries": entries}).encode()
+_MAP = _map_bytes({"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"})
+_MAP_HASH = hashlib.sha256(_MAP).hexdigest()
+_OTHER_HASH = hashlib.sha256(b"another build").hexdigest()
+_DEEP_MAP = _map_bytes(
+    {
+        "scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx",
+        "scenes-app-deep--primary": "/".join(["nested"] * 200) + "/Deep.stories.tsx",
+    }
+)
+_DEEP_HASH = hashlib.sha256(_DEEP_MAP).hexdigest()
+_HUGE_MAP = _map_bytes(
+    {f"scenes-app-story-{i}--primary": "frontend/src/scenes/Story.stories.tsx" for i in range(20_001)}
+)
+_HUGE_HASH = hashlib.sha256(_HUGE_MAP).hexdigest()
 
 
 class TestStoryPath:
@@ -68,115 +66,119 @@ class TestStoryPath:
         assert story_index.story_path(_INDEX, identifier) == expected
 
 
-class TestFetchStoryIndex:
-    def test_keeps_story_entries_and_turns_import_paths_into_repo_paths(self) -> None:
-        entries = {
-            "scenes-app-button--primary": {
-                "type": "story",
-                "importPath": "../../frontend/src/scenes/Button.stories.tsx",
-            },
-            "scenes-app-button--docs": {"type": "docs", "importPath": "../../frontend/src/scenes/Button.mdx"},
-            # A story imported from outside the checkout has no repository path to own.
-            "vendor-thing--default": {"type": "story", "importPath": "../../../vendor/Thing.stories.tsx"},
-            # An absolute path leaves the checkout too, and it drops the package directory on join.
-            "root-thing--default": {"type": "story", "importPath": "/etc/Thing.stories.tsx"},
-        }
-        zip_bytes = _zip_bytes({"index.json": _index_document(entries)})
-        with patch(
-            "products.visual_review.backend.logic.github_api._github_api_request",
-            side_effect=[_listing({"name": _ARTIFACT_NAME, "id": 42}), _response(content=zip_bytes)],
-        ):
-            index = story_index.fetch_story_index(_repo(), "98765")
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestUploadedStoryIndex:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        cache.clear()
 
-        assert index is not None
-        assert dict(index.path_by_story_id) == {"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
+    @pytest.fixture
+    def repo(self, team):
+        return repos.create_repo(team_id=team.id, repo_external_id=4242, repo_full_name="org/story-index")
 
-    # Nothing here needs the database, but the product's autouse package fixture builds it, and it
-    # can only do that once a test in the module asks for it.
-    @pytest.mark.django_db
-    def test_reads_the_artifact_once_per_workflow_run(self) -> None:
-        repo = _repo()
-        zip_bytes = _zip_bytes(
-            {"index.json": _index_document({"a--b": {"type": "story", "importPath": "../../frontend/src/A.tsx"}})}
+    def _run(self, repo, metadata: dict | None = None, branch: str = "master") -> Run:
+        run, _uploads = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch=branch,
+                snapshots=[],
+                metadata=metadata or {},
+            ),
+            team_id=repo.team_id,
         )
-        with patch(
-            "products.visual_review.backend.logic.github_api._github_api_request",
-            side_effect=[_listing({"name": _ARTIFACT_NAME, "id": 42}), _response(content=zip_bytes)],
-        ) as request:
-            first = story_index.fetch_story_index(repo, "98765")
-            second = story_index.fetch_story_index(repo, "98765")
-
-        assert request.call_count == 2
-        assert first is not None and second is not None
-        assert dict(second.path_by_story_id) == {"a--b": "frontend/src/A.tsx"}
+        return run
 
     @pytest.mark.parametrize(
-        "responses",
-        [
-            pytest.param([_listing()], id="artifact_missing"),
-            pytest.param([_listing({"name": "other-build", "id": 7})], id="artifact_named_differently"),
-            pytest.param([_listing({"name": _ARTIFACT_NAME, "id": 42, "expired": True})], id="artifact_expired"),
-            pytest.param([_response(status_code=404, payload={})], id="run_gone"),
-            pytest.param(
-                [_listing({"name": _ARTIFACT_NAME, "id": 42}), _response(status_code=410)],
-                id="download_failed",
-            ),
-            pytest.param(
-                [
-                    _listing({"name": _ARTIFACT_NAME, "id": 42}),
-                    _response(content=_zip_bytes({"iframe.html": b"<html></html>"})),
-                ],
-                id="index_missing",
-            ),
-            pytest.param(
-                [_listing({"name": _ARTIFACT_NAME, "id": 42}), _response(content=_zip_bytes({"index.json": b"{"}))],
-                id="index_invalid",
-            ),
-        ],
+        "stored,asks_for_upload",
+        [(False, True), (True, False)],
     )
-    def test_an_unreadable_artifact_is_answered_with_none_and_not_cached(self, responses: list[MagicMock]) -> None:
-        repo = _repo()
-        with patch(
-            "products.visual_review.backend.logic.github_api._github_api_request",
-            side_effect=responses * 2,
-        ) as request:
-            assert story_index.fetch_story_index(repo, "98765") is None
-            assert story_index.fetch_story_index(repo, "98765") is None
-
-        # Nothing was cached, so tomorrow's run asks GitHub again instead of repeating today's miss.
-        assert request.call_count == len(responses) * 2
-
-    @pytest.mark.parametrize(
-        "artifact_size,max_index_bytes",
-        [
-            (story_index._MAX_ARTIFACT_BYTES + 1, story_index._MAX_INDEX_BYTES),
-            (1000, 5),
-        ],
-    )
-    def test_an_oversized_artifact_is_not_read(self, artifact_size: int, max_index_bytes: int) -> None:
-        responses = [
-            _listing({"name": _ARTIFACT_NAME, "id": 42, "size_in_bytes": artifact_size}),
-            _response(content=_zip_bytes({"index.json": _index_document({})})),
-        ]
+    def test_the_first_shard_records_the_hash_and_the_map_is_asked_for_only_when_missing(
+        self, repo, stored: bool, asks_for_upload: bool
+    ) -> None:
+        run = self._run(repo)
         with (
-            patch.object(story_index, "_MAX_INDEX_BYTES", max_index_bytes),
-            patch(
-                "products.visual_review.backend.logic.github_api._github_api_request",
-                side_effect=responses,
+            patch.object(story_index.StoryIndexStorage, "exists", return_value=stored),
+            patch.object(
+                story_index.StoryIndexStorage,
+                "get_presigned_upload_url",
+                return_value={"url": "https://storage.example.com", "fields": {"key": "k"}},
             ),
         ):
-            assert story_index.fetch_story_index(_repo(), "98765") is None
+            first = story_index.register_story_index(run.id, repo.team_id, _MAP_HASH)
+            # A later shard reporting a different build must not replace what the first one recorded,
+            # or get an upload target for a map no reader will use.
+            conflicting = story_index.register_story_index(run.id, repo.team_id, _OTHER_HASH)
+
+        run.refresh_from_db()
+        assert run.metadata[story_index.METADATA_KEY] == _MAP_HASH
+        assert (first is not None) is asks_for_upload
+        assert conflicting is None
 
     @pytest.mark.parametrize(
-        "error",
+        "branch,story_index_hash",
         [
-            errors.GitHubIntegrationNotFoundError("no integration"),
-            requests.ConnectionError("boom"),
+            ("master", "../../other-repo/map"),
+            # Readers only use the newest default-branch run, so a map from any other branch is never read.
+            ("feature/x", _MAP_HASH),
         ],
     )
-    def test_a_failing_github_call_does_not_raise(self, error: Exception) -> None:
-        with patch(
-            "products.visual_review.backend.logic.github_api._github_api_request",
-            side_effect=error,
-        ):
-            assert story_index.fetch_story_index(_repo(), "98765") is None
+    def test_a_map_nothing_would_read_is_not_recorded(self, repo, branch: str, story_index_hash: str) -> None:
+        run = self._run(repo, branch=branch)
+
+        with patch.object(story_index.StoryIndexStorage, "exists") as exists:
+            assert story_index.register_story_index(run.id, repo.team_id, story_index_hash) is None
+
+        run.refresh_from_db()
+        assert story_index.METADATA_KEY not in run.metadata
+        assert exists.call_count == 0
+
+    @pytest.mark.parametrize(
+        "metadata,stored,expected",
+        [
+            (
+                {story_index.METADATA_KEY: _MAP_HASH},
+                _MAP,
+                story_index.StoryIndex(
+                    path_by_story_id={"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
+                ),
+            ),
+            # Bytes that do not hash to their name were not what the CLI built, so they are not trusted.
+            (
+                {story_index.METADATA_KEY: _MAP_HASH},
+                _map_bytes({"scenes-app-button--primary": "frontend/src/Elsewhere.stories.tsx"}),
+                f"the story index {_MAP_HASH[:12]} could not be read",
+            ),
+            ({}, _MAP, "the newest default branch Storybook run recorded no story index"),
+            # The owners lookup walks every parent directory, so a path deeper than any real file is dropped.
+            (
+                {story_index.METADATA_KEY: _DEEP_HASH},
+                _DEEP_MAP,
+                story_index.StoryIndex(
+                    path_by_story_id={"scenes-app-button--primary": "frontend/src/scenes/Button.stories.tsx"}
+                ),
+            ),
+            # A map with more entries than any real build is refused before it reaches the cache.
+            (
+                {story_index.METADATA_KEY: _HUGE_HASH},
+                _HUGE_MAP,
+                f"the story index {_HUGE_HASH[:12]} could not be read",
+            ),
+            # A storage outage reads as an unknown owner rather than failing the page or the digest.
+            (
+                {story_index.METADATA_KEY: _MAP_HASH},
+                ObjectStorageError("read failed"),
+                f"the story index {_MAP_HASH[:12]} could not be read",
+            ),
+        ],
+    )
+    def test_reads_the_map_the_newest_run_recorded(
+        self, repo, metadata: dict, stored: bytes | Exception, expected
+    ) -> None:
+        run = self._run(repo, metadata)
+
+        with patch.object(story_index.StoryIndexStorage, "read", side_effect=[stored]):
+            result = story_index.latest_story_index(repo, {RunType.STORYBOOK: run})
+
+        assert result == expected

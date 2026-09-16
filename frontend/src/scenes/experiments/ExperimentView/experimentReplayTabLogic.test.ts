@@ -58,8 +58,12 @@ const BUCKET_RESPONSE = {
     truncated: false,
     considered_metrics: [{ metric_uuid: 'metric-purchase', metric_name: 'Purchase' }],
     excluded_metrics: [],
-    date_from: '2026-01-01T00:00:00Z',
-    date_to: '2026-02-01T00:00:00Z',
+    // Read against today, like the run windows below. A fixed scan window would age past the
+    // project's retention and start naming a different empty reason.
+    date_from: dayjs()
+        .subtract(30 * 24, 'hour')
+        .toISOString(),
+    date_to: dayjs().toISOString(),
     filter_test_accounts: true,
 }
 
@@ -138,6 +142,19 @@ const EXPERIMENT = {
     },
 } as unknown as Experiment
 
+// A flag that aggregates by group exposes groups rather than persons, which is what the comparison
+// would have to match against recordings.
+const GROUP_AGGREGATED_EXPERIMENT = {
+    ...EXPERIMENT,
+    id: 53,
+    feature_flag: {
+        ...EXPERIMENT.feature_flag,
+        filters: { ...EXPERIMENT.feature_flag?.filters, aggregation_group_type_index: 0 },
+    },
+} as unknown as Experiment
+
+const REFUSAL_DETAIL = "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
+
 const ALL_LINKABLE = {
     $feature_flag_called: true,
     purchase: true,
@@ -207,6 +224,7 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
         experiment: { start_date: daysAgo(10), end_date: null },
         setup: (logic) => {
             ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({ ...BUCKET_RESPONSE, session_ids: [] })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
     },
@@ -220,6 +238,23 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
                 ...BUCKET_RESPONSE,
                 session_ids: ['bucket-session'],
             })
+            logic.actions.setMetricSelected('metric-purchase', true)
+            logic.actions.setMetricFilterMode('no_metric_activity')
+        },
+    },
+    {
+        // A running experiment whose exposures stopped. The filter's window is anchored back
+        // there, so retention explains the empty list and changing the filter cannot.
+        reason: ExperimentReplayListEmptyReason.EndedPastRetention,
+        experimentId: 148,
+        experiment: { start_date: daysAgo(120), end_date: null },
+        setup: (logic) => {
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue({
+                ...BUCKET_RESPONSE,
+                session_ids: [],
+                date_to: daysAgo(60),
+            })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
     },
@@ -692,6 +727,9 @@ describe('experimentReplayTabLogic', () => {
             in_session_available: true,
             in_session_unavailable_reason: null,
             in_session_uses_stamped_fallback: true,
+            // The default test flags leave the shelf off, so this view never saw the toggle.
+            behavior_comparison_available: false,
+            behavior_comparison_unavailable_reason: null,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -991,6 +1029,7 @@ describe('experimentReplayTabLogic', () => {
             experiment: { ...EXPERIMENT, id: 113, start_date: daysAgo(10), end_date: null } as Experiment,
         })
         failing.mount()
+        failing.actions.setMetricSelected('metric-purchase', true)
         failing.actions.setMetricFilterMode('no_metric_activity')
 
         // While the request is out the list is empty because the filter hasn't answered yet, and
@@ -1096,8 +1135,25 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
+    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff'] as const)(
+        'leaves the list untouched when %s has no metric to apply',
+        async (mode) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const before = logic.values.recordingsFilters
+
+            await expectLogic(logic, () => logic.actions.setMetricFilterMode(mode)).toFinishAllListeners()
+
+            // The shared playlist refetches on any deep change to its filters, so a mode with
+            // nothing ticked has to leave them alone. Otherwise picking the mode reloads the list
+            // and answers a question the unticked checkboxes never asked.
+            expect(logic.values.recordingsFilters).toEqual(before)
+            expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        }
+    )
+
     it('follows the playlist\'s own "Show all" back to the unbucketed list', async () => {
         await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         }).toFinishAllListeners()
         expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
@@ -1341,6 +1397,103 @@ describe('experimentReplayTabLogic', () => {
 
         expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(1)
         expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
+    })
+
+    it('asks for no comparison when the experiment aggregates by group, and reports why', async () => {
+        // The backend answers a group-aggregated experiment with the same 400 every time, so each
+        // open would spend a heavy request on a refusal the tab can name in advance. The tab view
+        // carries that reason, which is how a disabled toggle is told apart from one nobody opened.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 53
+            )
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON]: true })
+        const grouped = experimentReplayTabLogic({ experiment: GROUP_AGGREGATED_EXPERIMENT })
+        grouped.mount()
+
+        await expectLogic(grouped, () => {
+            grouped.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(grouped.values.behaviorComparisonUnavailableReason).toBe('group_aggregated')
+        expect(experimentsSessionEventDeltasCreate).not.toHaveBeenCalled()
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            behavior_comparison_available: true,
+            behavior_comparison_unavailable_reason: 'group_aggregated',
+        })
+        grouped.unmount()
+    })
+
+    it.each([
+        {
+            failure: 'a refusal the backend states on purpose',
+            rejection: Object.assign(new Error('Request failed'), { status: 400, detail: REFUSAL_DETAIL }),
+            status: 400,
+            message: REFUSAL_DETAIL,
+            callsAfterReopen: 1,
+        },
+        {
+            failure: 'a request that may pass on a second attempt',
+            rejection: new Error('Failed to fetch'),
+            status: null,
+            message: 'Failed to fetch',
+            callsAfterReopen: 2,
+        },
+    ])('keeps the status beside the message for $failure', async ({ rejection, status, message, callsAfterReopen }) => {
+        // The status is what splits the two states the shelf renders, and what decides whether
+        // reopening asks again. A refusal leaves no deltas behind, so without the status the
+        // reopen path sends the same request and gets the same refusal back.
+        ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(logic.values.sessionEventDeltasError).toBe(message)
+        expect(logic.values.sessionEventDeltasErrorStatus).toBe(status)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
+    })
+
+    it('reports the population the comparison covered, not just what it found', async () => {
+        // An empty reason on its own cannot be read: 'no_separation' over sixty people and over
+        // twelve thousand ask for different answers. So the report carries the denominator, the
+        // stretch of enrollment it came from, and whether the cap left older enrollees out.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('experiment behavior comparison loaded', {
+            experiment_id: 42,
+            too_early: false,
+            empty_reason: null,
+            behavior_cards: 1,
+            friction_cards: 0,
+            variant_only_cards: 0,
+            metric_cards: 0,
+            dropped_duplicate_cards: 0,
+            used_exposure_fallback: false,
+            duration_ms: expect.any(Number),
+            compared_persons: 200,
+            compared_variants: 2,
+            compared_enrollment_hours: 744,
+            sessions_truncated: false,
+            events_truncated: false,
+            experiment_ended: true,
+            // Read off the fixture rather than hardcoded, so the assertion still states the same
+            // distance as real time moves past the run window.
+            days_since_start: dayjs().diff(dayjs(EXPERIMENT.start_date), 'day'),
+        })
     })
 
     it('does not fire a duplicate comparison when the shelf is closed and reopened mid-load', async () => {
