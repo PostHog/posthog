@@ -1249,14 +1249,14 @@ Note: Campfire has no public OpenAPI (docs.campfire.ai/openapi.json 404s) but sh
 
 ## Canny — gaps
 
-Today (10): `boards`, `categories`, `changelog_entries`, `comments`, `companies`, `posts`, `status_changes`, `tags`, `users`, `votes`
+Today (14): `boards`, `categories`, `changelog_entries`, `comments`, `companies`, `groups`, `ideas`, `insights`, `opportunities`, `posts`, `status_changes`, `tags`, `users`, `votes`
 
 Diffed against: <https://developers.canny.io/api-reference>
 
-- [ ] `opportunities/list` — revenue opportunities linked to posts - the headline prioritization metric Canny sells (high)
-- [ ] `insights/list` — extracted customer feedback insights tied to posts and users (high)
-- [ ] `ideas/list` — the Autopilot idea objects that feed posts, a whole content type missing (medium)
-- [ ] `groups/list` — lookup table resolving the group IDs attached to users and companies (medium)
+- [x] `opportunities/list` — revenue opportunities linked to posts - the headline prioritization metric Canny sells (high)
+- [x] `insights/list` — extracted customer feedback insights tied to posts and users (high)
+- [x] `ideas/list` — the Autopilot idea objects that feed posts, a whole content type missing (medium)
+- [x] `groups/list` — lookup table resolving the group IDs attached to users and companies (medium)
 
 Note: Roadmaps are documented as an object but Canny explicitly says roadmap data is only exposed through post data - there is no roadmaps list endpoint, so it is not a gap. Everything else on the reference (boards, categories, entries, comments, companies, posts, status changes, tags, users, votes) is already covered.
 

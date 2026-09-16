@@ -150,10 +150,17 @@ class CannyCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def _use_v2_cursor(config: CannyEndpointConfig, api_version: str) -> bool:
-    # v2 moves only the endpoints Canny reimplemented behind cursor pagination (those with a
-    # `v2_path`); every other endpoint stays on its v1 skip/limit wire even under a v2 pin.
-    return api_version == CANNY_API_VERSION_V2 and config.v2_path is not None
+def _resolve_wire(config: CannyEndpointConfig, api_version: str) -> tuple[str, str, bool]:
+    """Resolve the (path, data key, cursor-paginated) wire for an endpoint under the version pin.
+
+    v2 moves only the endpoints Canny reimplemented behind cursor pagination (those with a
+    `v2_path`); every other endpoint stays on its v1 path even under a v2 pin. A v1 path may still
+    be cursor-paginated in its own right — Canny shipped the Ideas-era endpoints that way.
+    """
+    if api_version == CANNY_API_VERSION_V2 and config.v2_path is not None:
+        assert config.v2_data_key is not None
+        return config.v2_path, config.v2_data_key, True
+    return config.path, config.data_key, config.cursor_paginated
 
 
 def canny_source(
@@ -165,13 +172,7 @@ def canny_source(
     api_version: str,
 ) -> SourceResponse:
     config = CANNY_ENDPOINTS[endpoint]
-    use_cursor = _use_v2_cursor(config, api_version)
-    if use_cursor:
-        # _use_v2_cursor only returns True when both v2 fields are set.
-        assert config.v2_path is not None and config.v2_data_key is not None
-        path, data_key = config.v2_path, config.v2_data_key
-    else:
-        path, data_key = config.path, config.data_key
+    path, data_key, use_cursor = _resolve_wire(config, api_version)
 
     def extract_records(body: dict[str, Any]) -> list[dict[str, Any]]:
         # Canny nests the record array under a per-endpoint key; anything else (missing key,
