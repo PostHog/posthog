@@ -1,6 +1,6 @@
 # Marketing retention summary
 
-Retention opens with a source table of acquired users, return rates within 7 and 30 days, and median days to a second session. Acquired users displays its count and share on one line at wider widths. View cohorts opens the existing cohort matrices on demand; Back to summary returns to the table.
+Retention opens with a source table of acquired users, return rates within 7 and 30 days, and median days to a second session. Acquired users displays its count and share on one line at wider widths. The interface exposes only the summary. The cohort implementation remains in code temporarily, without a navigation control.
 
 ## Definitions
 
@@ -16,6 +16,6 @@ Comparison is enabled by default and can be disabled in Options. The previous ac
 
 Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. Sources are ranked by current acquisition volume; the tail is folded before computing the median. Acquired-user shares include the folded Other row.
 
-The existing cohort renderer and query mode remain necessary for View cohorts. Removing the old navigation entry can be considered separately while preserving saved links and query compatibility. Removing the cohort engine would also remove the drill-down.
+The cohort renderer and query mode remain in code temporarily. A separate draft can remove the unused frontend while retaining the backend contract for existing query callers. That cleanup must be reviewed independently.
 
 This mode measures session returns. Conversion-goal retention is a separate behavior and needs an explicit definition before sharing these fixed-window summary metrics. Production-scale performance remains to be validated; there is no dedicated retention precompute path.

@@ -45,7 +45,6 @@ export function RetentionTab(): JSX.Element {
         setExcludeUnattributed,
         setOnlyNewUsers,
         setOptionsOpen,
-        setShowCohorts,
         setComparePreviousPeriod,
     } = useActions(marketingRetentionLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
@@ -147,9 +146,6 @@ export function RetentionTab(): JSX.Element {
                     }
                     right={
                         <div className="flex flex-wrap items-center gap-2">
-                            <LemonButton type="secondary" size="small" onClick={() => setShowCohorts(!showCohorts)}>
-                                {showCohorts ? 'Back to summary' : 'View cohorts'}
-                            </LemonButton>
                             <ReloadAll iconOnly />
                             <Popover
                                 visible={optionsOpen}
