@@ -207,6 +207,10 @@ import {
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import { taskActivityUiModule } from "@posthog/ui/features/canvas/task-activity/taskActivity.module";
 import {
+  CLASSIC_FRAME_COMPONENT,
+  type ClassicFrameComponent,
+} from "@posthog/ui/features/classic/classicFrameHost";
+import {
   REVIEW_HOST,
   type ReviewHost,
 } from "@posthog/ui/features/code-review/reviewHost";
@@ -301,6 +305,7 @@ import {
 } from "./web-auth-adapters";
 import { WebAuthSideEffects } from "./web-auth-side-effects";
 import { webBrowserTabsStore } from "./web-browser-tabs-store";
+import { WebClassicFrame } from "./web-classic-frame";
 import { webConnectivityClient } from "./web-connectivity-client";
 import {
   webExternalAppsFocusCoordinator,
@@ -350,6 +355,7 @@ interface WebBindings {
   [IMPERATIVE_QUERY_CLIENT]: ImperativeQueryClient;
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
+  [CLASSIC_FRAME_COMPONENT]: ClassicFrameComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;
   [AUTH_SESSION_STORE]: IAuthSessionStore;
   [AUTH_PREFERENCE_STORE]: IAuthPreferenceStore;
@@ -544,6 +550,7 @@ container.bind(AUTH_SIDE_EFFECTS).to(WebAuthSideEffects);
 // privileged scheme; web gets a separate origin for free via a blob URL of the
 // same (host-agnostic) proxy HTML. The blob is created once, lazily.
 container.bind(MCP_APP_HOST_COMPONENT).toConstantValue(McpAppHost);
+container.bind(CLASSIC_FRAME_COMPONENT).toConstantValue(WebClassicFrame);
 let sandboxProxyUrl: string | null = null;
 container.bind(MCP_SANDBOX_PROXY_URL).toConstantValue(() => {
   if (!sandboxProxyUrl) {

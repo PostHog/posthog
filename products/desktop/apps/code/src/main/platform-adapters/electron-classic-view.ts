@@ -13,7 +13,7 @@ export function isClassicNavigation(url: string, origin: string): boolean {
       !target.username &&
       !target.password &&
       (!target.pathname.startsWith("/project/") ||
-        /^\/project\/\d+\/(dashboards|insights|saved_insights)(\/|$)/.test(
+        /^\/project\/\d+\/(dashboard|dashboards|insights|saved_insights)(\/|$)/.test(
           target.pathname,
         ))
     );
@@ -31,7 +31,7 @@ export function isAllowedClassicView(
     return (
       /^posthog-classic-[a-zA-Z0-9-]+$/.test(partition ?? "") &&
       isClassicNavigation(src, url.origin) &&
-      /^\/project\/\d+\/dashboards\/?$/.test(url.pathname)
+      /^\/project\/\d+\/dashboards?\/?$/.test(url.pathname)
     );
   } catch {
     return false;

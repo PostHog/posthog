@@ -21,6 +21,8 @@ import { ProjectNotice } from '../navigation/ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
+import { ClassicEmbed } from './ClassicEmbed'
+import { classicEmbedContext } from './classicEmbed'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -107,6 +109,14 @@ export function Navigation({
     })
 
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
+    if (classicEmbedContext) {
+        return (
+            <ClassicEmbed context={classicEmbedContext} mainRef={mainRef}>
+                {children}
+            </ClassicEmbed>
+        )
+    }
 
     if (mode !== 'full') {
         const showMinimalNavigation = mode === 'minimal' || mode === 'zen'

@@ -103,7 +103,7 @@ function ClassicPreview({
           ) : (
             <ClassicContent
               Frame={failed ? FailedFrame : DashboardFixture}
-              url="https://us.posthog.com/project/1/dashboards"
+              url="https://us.posthog.com/project/1/dashboard"
               accountId="example-account"
             />
           )}

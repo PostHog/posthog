@@ -28,6 +28,11 @@ vi.mock("electron", () => ({
 describe("artifact preview webviews", () => {
   it.each([
     [
+      "https://us.posthog.com/project/1/dashboard",
+      "posthog-classic-account",
+      true,
+    ],
+    [
       "https://us.posthog.com/project/1/dashboards",
       "posthog-classic-account",
       true,
@@ -56,6 +61,7 @@ describe("artifact preview webviews", () => {
 
   it.each([
     ["https://us.posthog.com/login", true],
+    ["https://us.posthog.com/project/1/dashboard/2", true],
     ["https://us.posthog.com/project/1/dashboards/2", true],
     ["https://us.posthog.com/project/1/insights/abc", true],
     ["https://us.posthog.com/project/1/max", false],

@@ -1941,6 +1941,38 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
 
 class TestCSPMiddleware(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("canonical_dashboard", "/project/1/dashboard?__desktop_classic=1", False, True, False),
+            ("dashboard", "/project/1/dashboards?__desktop_classic=1", False, True, False),
+            ("insight", "/project/1/insights/abc?__desktop_classic=1", False, True, False),
+            ("local_dashboard", "/project/1/dashboards?__desktop_classic=1", True, True, True),
+            ("normal_dashboard", "/project/1/dashboards", True, False, False),
+            ("chat", "/project/1/ai?__desktop_classic=1", True, False, False),
+            ("prefix", "/project/1/dashboards-other?__desktop_classic=1", True, False, False),
+            ("login", "/login?__desktop_classic=1", True, False, False),
+            ("disabled", "/project/1/dashboards?__desktop_classic=0", True, False, False),
+            (
+                "untrusted_parent",
+                "/project/1/dashboards?__desktop_classic=1&__desktop_parent_origin=https://example.com",
+                False,
+                True,
+                False,
+            ),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_classic_frame_policy(self, _name: str, path: str, debug: bool, same_origin: bool, local: bool) -> None:
+        request = RequestFactory().get(path)
+        request.user = MagicMock(is_authenticated=True, distinct_id="example-account", email="person@example.com")
+        with override_settings(DEBUG=debug):
+            response = CSPMiddleware(lambda _: HttpResponse("<html></html>", content_type="text/html"))(request)
+        policy = response["Content-Security-Policy"]
+        assert ("'self'" in policy) is same_origin
+        assert ("http://localhost:5273" in policy) is local
+        assert "example.com" not in policy
+        assert policy in response["Content-Security-Policy-Report-Only"]
+
     def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
         # The frame exists so a recorded page stops being judged against the app policy. If the
         # middleware branch goes, it silently inherits that policy again, along with its report-uri,

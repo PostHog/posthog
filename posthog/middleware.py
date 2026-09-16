@@ -1318,6 +1318,12 @@ class CSPMiddleware:
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
             frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            if request.GET.get("__desktop_classic") == "1" and re.match(
+                r"^/project/\d+/(dashboard|dashboards|insights)(?:/|$)", request.path
+            ):
+                frame_ancestors += " 'self'"
+                if settings.DEBUG or settings.SITE_URL.endswith(".dev.posthog.dev"):
+                    frame_ancestors += " http://localhost:5273"
             if settings.DEBUG or settings.TEST:
                 resource_url = "http://localhost:8234"
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
