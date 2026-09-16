@@ -4,6 +4,7 @@ import {
     ActivityLogUserName,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -110,6 +111,14 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
         const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Published the canvas
+                    {parts.length > 0 && <> and changed its declared capabilities:{inlineOrList(parts)}</>}
+                </>,
+                canvasName
+            ),
             description: (
                 <>
                     {actor} published canvas {canvasName}
@@ -125,6 +134,11 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
         const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>Drafted a new version{parts.length > 0 && <> with capability changes:{inlineOrList(parts)}</>}</>,
+                canvasName
+            ),
             description: (
                 <>
                     {actor} drafted a new version of canvas {canvasName}
@@ -138,6 +152,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'reverted') {
         return {
+            summary: activityLogSummary(logItem, 'Reverted to an earlier version', canvasName),
             description: (
                 <>
                     {actor} reverted canvas {canvasName} to an earlier version
@@ -150,6 +165,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         const parts = (logItem.detail.changes || []).map(canvasUpdateFieldCopy).filter(Boolean) as Description[]
         if (parts.length > 0) {
             return {
+                summary: activityLogSummary(logItem, <>Updated the canvas:{inlineOrList(parts)}</>, canvasName),
                 description: (
                     <>
                         {actor} updated canvas {canvasName}:{inlineOrList(parts)}
@@ -162,6 +178,7 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
     const buildCopy = BUILD_ACTIVITY_COPY[logItem.activity]
     if (buildCopy) {
         return {
+            summary: activityLogSummary(logItem, `${buildCopy} the canvas`, canvasName),
             description: (
                 <>
                     {actor} {buildCopy} canvas {canvasName}

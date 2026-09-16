@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -18,6 +19,12 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         const reauthSensitiveOps = context?.reauth
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                reauthSensitiveOps ? 'Re-authenticated for sensitive operations' : 'Logged in',
+                'Account',
+                `Using ${loginMethod}`
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> logged in using {loginMethod}
@@ -29,6 +36,7 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'logged_out') {
         return {
+            summary: activityLogSummary(logItem, 'Logged out', 'Account'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> logged out

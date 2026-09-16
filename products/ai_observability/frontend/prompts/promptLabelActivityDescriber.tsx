@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -30,6 +31,14 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Created the label pointing at v${String(change?.after ?? '?')}`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created label <b>{labelName}</b> pointing at{' '}
@@ -42,6 +51,14 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'updated') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Moved the label from v${String(change?.before ?? '?')} to v${String(change?.after ?? '?')}`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> moved label <b>{labelName}</b> from{' '}
@@ -54,6 +71,14 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Removed the label (was pointing at v${String(change?.before ?? '?')})`,
+                <>
+                    {labelName}
+                    {onPrompt}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> removed label <b>{labelName}</b> (was pointing at{' '}

@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -44,12 +45,12 @@ const cohortFieldMapping: Record<string, (change?: ActivityChange) => ChangeMapp
         const before = (change?.before as string | null | undefined) || ''
         const after = (change?.after as string | null | undefined) || ''
         if (!before && after) {
-            return { description: [<>added a description</>] }
+            return { description: [<>added a description</>], preview: after }
         }
         if (before && !after) {
             return { description: [<>cleared the description</>] }
         }
-        return { description: [<>updated the description</>] }
+        return { description: [<>updated the description</>], preview: after }
     },
     filters: function onFilters(change) {
         const before = countCohortCriteria(change?.before as CohortType['filters'])
@@ -114,6 +115,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the cohort', cohortLink),
             description: (
                 <>
                     {actor} created the cohort: {cohortLink}
@@ -124,6 +126,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the cohort', cohortLink),
             description: (
                 <>
                     {actor} deleted the cohort: {cohortLink}
@@ -134,6 +137,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'restored') {
         return {
+            summary: activityLogSummary(logItem, 'Restored the cohort', cohortLink),
             description: (
                 <>
                     {actor} restored the cohort: {cohortLink}
@@ -144,6 +148,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'persons_added_manually') {
         return {
+            summary: activityLogSummary(logItem, 'Added people to the cohort', cohortLink),
             description: (
                 <>
                     {actor} added users to the cohort: {cohortLink}
@@ -154,6 +159,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'person_removed_manually') {
         return {
+            summary: activityLogSummary(logItem, 'Removed a person from the cohort', cohortLink),
             description: (
                 <>
                     {actor} removed a user from the cohort: {cohortLink}
@@ -168,6 +174,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         // co-emits both, drop is_static so we don't print the line twice.
         const fieldsPresent = new Set(detailChanges.map((c) => c?.field))
         const changes: Description[] = []
+        let preview: string | undefined
         for (const change of detailChanges) {
             if (!change?.field) {
                 continue
@@ -178,6 +185,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
             const handler = cohortFieldMapping[change.field]
             const result = handler ? handler(change) : null
             if (result?.description) {
+                preview = result.preview ?? preview
                 changes.push(...result.description)
             } else if (!handler) {
                 // unknown field — surface it generically rather than dumping JSON
@@ -191,6 +199,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={changes} />, cohortLink, preview),
                 description: (
                     <SentenceList
                         listParts={changes}
@@ -207,6 +216,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         }
 
         return {
+            summary: activityLogSummary(logItem, 'Updated the cohort', cohortLink),
             description: (
                 <>
                     {actor} updated the cohort: {cohortLink}

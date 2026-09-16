@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -68,6 +69,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem, asNotificati
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={changes} />, nameAndLink(logItem)),
                 description: (
                     <SentenceList
                         listParts={changes}

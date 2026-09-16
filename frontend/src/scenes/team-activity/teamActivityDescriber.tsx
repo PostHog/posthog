@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -782,6 +783,12 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         const wasSuspended = logItem.activity === 'email_sending_suspended'
         const reason = logItem.detail?.context?.reason as string | undefined
         return {
+            summary: activityLogSummary(
+                logItem,
+                wasSuspended ? 'Suspended workflow email sending' : 'Re-enabled workflow email sending',
+                nameAndLink(logItem),
+                wasSuspended ? reason : undefined
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
@@ -819,6 +826,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={changes} />, nameAndLink(logItem)),
                 description: (
                     <SentenceList
                         listParts={changes}

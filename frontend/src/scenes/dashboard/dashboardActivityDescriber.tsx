@@ -19,6 +19,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -269,6 +270,13 @@ function describeShareLogin(logItem: ActivityLogItem, succeeded: boolean): Human
     if (succeeded) {
         const passwordNote = afterData?.password_note || 'unknown password'
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Authenticated to the shared dashboard',
+                nameAndLink(logItem),
+                `From ${clientIp}, using password ${passwordNote}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> successfully authenticated to shared dashboard{' '}
@@ -278,6 +286,13 @@ function describeShareLogin(logItem: ActivityLogItem, succeeded: boolean): Human
         }
     }
     return {
+        summary: activityLogSummary(
+            logItem,
+            'Failed to authenticate to the shared dashboard',
+            nameAndLink(logItem),
+            `From ${clientIp}`,
+            <strong>Anonymous user</strong>
+        ),
         description: (
             <>
                 <strong>Anonymous user</strong> failed to authenticate to shared dashboard <b>{nameAndLink(logItem)}</b>{' '}

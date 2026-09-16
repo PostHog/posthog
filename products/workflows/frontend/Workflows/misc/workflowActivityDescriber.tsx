@@ -2,8 +2,10 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -87,6 +89,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the workflow',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
@@ -98,6 +105,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the workflow', logItem.detail.name || 'Workflow'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
@@ -108,6 +116,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'revision_restored') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Staged an earlier version for review',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> restored a past version into the staged draft of the{' '}
@@ -119,6 +132,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'draft_discarded') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Discarded the staged draft',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> discarded the staged draft of the {objectNoun}:{' '}
@@ -130,6 +148,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'email_sending_resumed') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Resumed email sending',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> resumed email sending for the {objectNoun}:{' '}
@@ -142,6 +165,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
         const verb = logItem.activity == 'published' ? 'published' : 'updated'
         const changes: JSX.Element[] = []
+        let preview: string | undefined
         for (const change of logItem.detail.changes ?? []) {
             switch (change.field) {
                 case 'name': {
@@ -154,6 +178,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     break
                 }
                 case 'description': {
+                    preview = typeof change.after === 'string' ? change.after : undefined
                     changes.push(<>updated description</>)
                     break
                 }
@@ -210,6 +235,20 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList
+                    listParts={
+                        logItem.activity === 'published'
+                            ? [`Published the ${objectNoun}`, ...changes]
+                            : changes.length
+                              ? changes
+                              : [`Updated the ${objectNoun}`]
+                    }
+                />,
+                workflowName,
+                preview
+            ),
             description: (
                 <div>
                     <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}

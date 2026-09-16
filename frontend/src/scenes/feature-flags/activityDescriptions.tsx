@@ -12,6 +12,7 @@ import {
     Description,
     ExpandedView,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -261,9 +262,10 @@ const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
 > = {
-    name: function onName() {
+    name: function onName(change) {
         return {
             description: [<>changed the description</>],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
     active: function onActive(change, logItem) {
@@ -418,6 +420,11 @@ const featureFlagActionsMapping: Record<
         const changeAfter = change?.after as string
         return {
             description: [<>changed flag key on {changeBefore} to</>],
+            summary: [
+                <>
+                    Changed the flag key from {changeBefore} to {changeAfter}
+                </>,
+            ],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, changeAfter)}</>,
         }
     },
@@ -514,6 +521,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the feature flag',
+                nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                undefined,
+                getActorName(logItem)
+            ),
             description: (
                 <SentenceList
                     listParts={[<>created a new feature flag:</>]}
@@ -532,6 +546,20 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         if (logItem.detail.trigger?.job_type === 'cohort_conditions_updated') {
             const { cohort_id, cohort_name } = logItem.detail.trigger.payload ?? {}
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Changed the conditions of linked cohort{' '}
+                        {cohort_id ? (
+                            <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
+                        ) : (
+                            cohort_name || 'unknown'
+                        )}
+                    </>,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={[
@@ -562,6 +590,20 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         if (logItem.detail.trigger?.job_type === 'flag_dependency_updated') {
             const { flag_id, flag_key } = logItem.detail.trigger.payload ?? {}
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <>
+                        Changed the definition of linked flag{' '}
+                        {flag_id ? (
+                            <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
+                        ) : (
+                            flag_key || 'unknown'
+                        )}
+                    </>,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    undefined,
+                    getActorName(logItem)
+                ),
                 description: (
                     <SentenceList
                         listParts={[
@@ -586,6 +628,8 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             }
         }
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let changeSuffix: Description = (
             <>
                 on {asNotification && ' the flag '}
@@ -605,7 +649,9 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             }
             const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
-                const { description, suffix, expandedView: view } = possibleLogItem
+                const { description, suffix, summary, preview: changePreview, expandedView: view } = possibleLogItem
+                summaryChanges = summaryChanges.concat(summary ?? description ?? [])
+                preview = changePreview ?? preview
                 if (description) {
                     changes = changes.concat(description)
                 }
@@ -620,6 +666,13 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryChanges} />,
+                    nameOrLinkToFlag(logItem.item_id, logItem.detail.name),
+                    preview,
+                    getActorName(logItem)
+                ),
                 description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
                 expandedView,
             }

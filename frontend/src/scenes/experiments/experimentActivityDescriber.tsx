@@ -1,6 +1,11 @@
 import { match } from 'ts-pattern'
 
-import { ActivityLogItem, ActivityLogUserName, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    ActivityLogUserName,
+    HumanizedChange,
+    activityLogSummary,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 import { ExperimentStatus } from '~/types'
@@ -101,6 +106,13 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
     return match(logItem)
         .with({ activity: 'created', detail: { type: 'saved_metric_config' } }, () => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Added a shared metric',
+                    <>
+                        {logItem.detail.name} to {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                    </>
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -117,6 +129,13 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'updated', detail: { type: 'saved_metric_config' } }, () => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Updated the shared metric configuration',
+                    <>
+                        {logItem.detail.name} on {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                    </>
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -133,6 +152,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'created', detail: { type: 'holdout' } }, () => {
             return {
+                summary: activityLogSummary(logItem, 'Created an experiment holdout', logItem.detail.name || 'Holdout'),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -147,6 +167,20 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              * we handle both experiments and shared metrics creation here.
              */
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    isSharedMetric ? (
+                        'Created a shared metric'
+                    ) : (
+                        <>
+                            Created a <StatusTag status={ExperimentStatus.Draft} /> experiment
+                        </>
+                    ),
+                    (isSharedMetric ? nameOrLinkToSharedMetric : nameOrLinkToExperiment)(
+                        logItem.detail.name,
+                        logItem.item_id
+                    )
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -173,6 +207,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              * from false to true, the experiment has been deleted.
              */
             return {
+                summary: activityLogSummary(logItem, 'Deleted the experiment', logItem.detail.name || 'Experiment'),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -184,6 +219,13 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'deleted', detail: { type: 'saved_metric_config' } }, () => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Removed the shared metric',
+                    <>
+                        {logItem.detail.name} from {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                    </>
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -203,6 +245,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              * Shared metrics are not soft deleted.
              */
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Deleted the shared metric',
+                    logItem.detail.name || 'Shared metric'
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -217,6 +264,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              * Holdouts are not soft deleted.
              */
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Deleted the experiment holdout',
+                    logItem.detail.name || 'Holdout'
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -228,6 +280,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'deleted' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Deleted the experiment',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -239,6 +296,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'restored' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Restored the experiment',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -250,6 +312,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'paused' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Paused the experiment',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -261,6 +328,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'resumed' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Resumed the experiment',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -272,6 +344,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'reset' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Reset the experiment',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -284,6 +361,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         .with({ activity: 'variant_shipped' }, ({ item_id, detail }) => {
             const variantKey = detail.changes?.find((change) => change.field === 'shipped_variant')?.after
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    typeof variantKey === 'string' ? <>Shipped variant {variantKey}</> : 'Shipped a variant',
+                    nameOrLinkToExperiment(detail.name, item_id)
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -303,6 +385,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'exposure_frozen' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(logItem, 'Froze exposure', nameOrLinkToExperiment(detail.name, item_id)),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -314,6 +397,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .with({ activity: 'exposure_unfrozen' }, ({ item_id, detail }) => {
             return {
+                summary: activityLogSummary(logItem, 'Unfroze exposure', nameOrLinkToExperiment(detail.name, item_id)),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -380,6 +464,8 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 }
             }
 
+            const summaryParts = [...listParts]
+
             if (isExperiment && changes.length > 0 && listParts.length > 0) {
                 const lastIndex = listParts.length - 1
                 listParts[lastIndex] = appendPreposition(listParts[lastIndex])
@@ -391,6 +477,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 .otherwise(() => nameOrLinkToExperiment(updateLogDetail.name, item_id))
 
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryParts.length ? summaryParts : ['Updated']} />,
+                    suffix
+                ),
                 description: (
                     <SentenceList
                         prefix={<ActivityLogUserName logItem={logItem} />}
@@ -405,6 +496,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
         })
         .otherwise(() => {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    'Performed an unknown action',
+                    nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)
+                ),
                 description: <UnknownAction logItem={logItem} />,
             }
         })
