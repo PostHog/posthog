@@ -4872,6 +4872,10 @@ snapshots:
         hash: v1.k794b7964.71802645c8ade36774f37c73fdf79c43a632dc75882fdc92654bea8b74fea746.yUS68trt1jBQFXHLI3wGxtFDhHiPynq1yskrvf6aELY
     lemon-ui-lemon-tree--default--light:
         hash: v1.k794b7964.94c2521580a8d16eb1755d73994307e7ecc3b41a93f0b2e0176b581557cc7184.jquVojK6y6hjwz8crOojJ8IPTHMMNvxp2kONCOtwicE
+    lemon-ui-lemon-tree--virtualized--dark:
+        hash: v1.k794b7964.a1b47a23b9c7ae02faac2055b25b1ea766c133e3bb38953a6ccd2d4264a93ec9.Gj1pAEea_XKqtzxtLL8b4zSdLOguMMEoWrzkWol0Avs
+    lemon-ui-lemon-tree--virtualized--light:
+        hash: v1.k794b7964.2b545cda72cb16b6529a4b631d3b20d9452937a2643f09f1b036ef033210eb20.lPqpWk3YzBkqDLQUmplX8cWe5iolH8nMSclSS9rax8g
     lemon-ui-lemon-widget--actions--dark:
         hash: v1.k794b7964.7487149c00f0305df0ff5457cbc5fc0280c1ab2b01cddfbe4a167b953274ca43.XtX4I0xdZdp3s6Gc9SGn9Rz9ZwH1qG3meI2N2AD9H64
     lemon-ui-lemon-widget--actions--light:
