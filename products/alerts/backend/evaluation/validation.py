@@ -21,6 +21,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
@@ -117,6 +118,9 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
     if ctx.detector_config is not None and is_non_time_series_trend(trends_query):
         raise ValueError("Anomaly detection isn't supported for non time series trends")
+
+    if (ctx.detector_config or {}).get("type") == "llm" and _has_breakdown(trends_query):
+        raise ValueError("The AI detector does not support breakdown insights yet")
 
     if ctx.parsed_condition.type in (
         AlertConditionType.RELATIVE_INCREASE,

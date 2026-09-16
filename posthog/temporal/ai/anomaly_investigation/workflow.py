@@ -22,6 +22,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
+from posthog.tasks.alerts.charts import png_to_b64, render_series_chart
+from posthog.tasks.alerts.metric_definition import describe_metric_definition
 from posthog.tasks.alerts.utils import (
     _inconclusive_is_suppressed,
     _should_suppress_notification,
@@ -29,9 +31,7 @@ from posthog.tasks.alerts.utils import (
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
-from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
-from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
@@ -148,8 +148,12 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     insight = alert.insight
     metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (alert.detector_config or {}).get("type") or "threshold"
-    series_index = (alert.config or {}).get("series_index", 0)
+    detector_type = (
+        "llm"
+        if isinstance((alert_check.triggered_metadata or {}).get("verdict_is_anomaly"), bool)
+        else (alert.detector_config or {}).get("type") or "threshold"
+    )
+    series_index = _evaluated_series_index(alert, alert_check)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
@@ -179,6 +183,8 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
         alert=alert,
         context_text=anomaly_context_text,
+        triggered_dates=list(alert_check.triggered_dates or []),
+        series_index=series_index,
     )
 
     try:
@@ -707,7 +713,15 @@ async def _mark_failed(alert_check, reason: str) -> None:
     )
 
 
-def _build_multimodal_context(*, alert, context_text: str):
+def _evaluated_series_index(alert, alert_check) -> int:
+    """The series the check judged, which the alert can have been repointed away from since."""
+    saved = (alert_check.triggered_metadata or {}).get("series_index")
+    if isinstance(saved, int) and not isinstance(saved, bool):
+        return saved
+    return (alert.config or {}).get("series_index", 0)
+
+
+def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list[str], series_index: int | None = None):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
@@ -717,7 +731,7 @@ def _build_multimodal_context(*, alert, context_text: str):
     if alert.detector_config is None or alert.insight is None:
         return context_text
 
-    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
+    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None, series_index=series_index)
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text
@@ -727,10 +741,14 @@ def _build_multimodal_context(*, alert, context_text: str):
     if not dates or not values:
         return context_text
 
+    # The alert's detector can change while an investigation waits to start.
+    saved_dates = set(triggered_dates)
+    triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
+
     png = render_series_chart(
         dates=dates,
         values=values,
-        triggered_indices=sim.get("triggered_indices") or [],
+        triggered_indices=triggered_indices,
         scores=sim.get("scores") or None,
         title=(alert.insight.name or alert.name or "Metric")[:80],
     )

@@ -6569,6 +6569,7 @@ export enum DetectorType {
     LOF = 'lof',
     OCSVM = 'ocsvm',
     PCA = 'pca',
+    LLM = 'llm',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -6715,6 +6716,32 @@ export interface PCADetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
+/**
+ * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
+ * differencing or smoothing would hide from the model exactly what it is meant to read.
+ */
+export interface LLMDetectorConfig {
+    type: 'llm'
+    /**
+     * What counts as unusual or interesting for this metric, in your own words. Optional.
+     * @maxLength 2000
+     */
+    instructions?: string
+    /**
+     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
+     * @minimum 0
+     * @maximum 1
+     */
+    threshold?: number
+    /**
+     * How many recent points the model is shown (default: 90)
+     * @asType integer
+     * @minimum 5
+     * @maximum 400
+     */
+    window?: number
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
@@ -6737,13 +6764,16 @@ export type SingleDetectorConfig =
     | LOFDetectorConfig
     | OCSVMDetectorConfig
     | PCADetectorConfig
+    | LLMDetectorConfig
+
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
     /** How to combine sub-detector results */
     operator: EnsembleOperator
     /** Sub-detector configurations (minimum 2) */
-    detectors: SingleDetectorConfig[]
+    detectors: EnsembleSubDetectorConfig[]
 }
 
 /**

@@ -1,4 +1,5 @@
 import math
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -36,6 +37,19 @@ ANY_ROW_MAX_ROWS = 50
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
 _DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
+
+
+def _point_date(label: str | None) -> str | None:
+    if label is None:
+        return None
+    try:
+        if len(label) == 10:
+            return date.fromisoformat(label).isoformat()
+        if len(label) > 10 and label[10] in ("T", " "):
+            return datetime.fromisoformat(label).isoformat()
+    except ValueError:
+        pass
+    return None
 
 
 def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
@@ -263,7 +277,10 @@ def extract_hogql_detector_series(
     label_cell = _label_cell(anchor_row, label_index)
     series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
 
-    points = [SeriesPoint(date=None, value=v) for v in values]
+    dates = [_point_date(_label_cell(row, label_index)) for row in ordered[-min_samples:]]
+    # Partial dates would shift chart positions when the simulation removes missing labels.
+    has_dates = all(point_date is not None for point_date in dates)
+    points = [SeriesPoint(date=point_date if has_dates else None, value=v) for point_date, v in zip(dates, values)]
     single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
