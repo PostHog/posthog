@@ -18,7 +18,8 @@ It does not persist after the app closes.
 Project product pages, their tabs, settings, and normal scene panels use the web app.
 Select Dashboards in the page header to return to the dashboard list.
 Web chat and the nested Desktop route are outside this preview.
-The shared web layout hides the Chat navigation tab and disables the AI side panel.
+The shared web layout hides the Chat and Browse navigation tabs and disables the AI side panel.
+The product navigation stays visible without a Browse toggle.
 It keeps normal panels such as Actions, Activity logs, Access, and Discuss.
 Electron uses this layout too, not injected CSS.
 Both the Desktop build and the web app changes from this PR must be deployed together.

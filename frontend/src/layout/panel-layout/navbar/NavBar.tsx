@@ -256,7 +256,7 @@ export function NavBar(): JSX.Element {
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
-                    <div className={cn('p-1', isLayoutNavCollapsed && 'hidden')}>
+                    <div className={cn('p-1', (isLayoutNavCollapsed || classicEmbedContext) && 'hidden')}>
                         <Tabs.List className="relative flex items-center gap-1 shrink-0 z-0 p-1 rounded-lg bg-(--color-bg-fill-highlight-50) dark:bg-surface-primary">
                             {TAB_CONFIG.filter((tab) => !classicEmbedContext || tab.id !== 'chat').map((tab) => (
                                 <Tabs.Tab
