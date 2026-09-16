@@ -3,6 +3,7 @@ import uuid
 from celery import shared_task
 from structlog import get_logger
 
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -27,6 +28,7 @@ def evaluate_health_check_for_team(kind: str, team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit  # cross-team by design: every team in the organization whose proxy went live
 def recheck_reverse_proxy_for_organization(organization_id: str) -> None:
     from posthog.models.team import Team
 

@@ -4,6 +4,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.health_issue import _filter_existing_team_ids
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 
@@ -16,9 +17,16 @@ class HealthCheckRun(UUIDModel):
     lets a surface say "checked 3 hours ago" instead of presenting a stale finding as current.
     """
 
+    # Environment-scoped: a check runs for every team, child environments included, and a row
+    # records the team it actually ran for. No RootTeamMixin, whose save() would canonicalize the
+    # team to the parent, and `EnvironmentScopedManager` filters by the literal id given.
+    objects = EnvironmentScopedManager()
+
+    # db_constraint=False so CreateModel takes no lock on posthog_team.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
+        db_constraint=False,
         related_name="health_check_runs",
     )
 
@@ -52,7 +60,8 @@ class HealthCheckRun(UUIDModel):
             cls(team_id=team_id, kind=kind, last_run_at=now, found_issues=team_id in teams_with_issues)
             for team_id in sorted(existing_team_ids)
         ]
-        cls.objects.bulk_create(
+        # Cross-team by design: one call stamps the whole batch the workflow just processed.
+        cls.objects.unscoped().bulk_create(
             rows,
             update_conflicts=True,
             update_fields=["last_run_at", "found_issues"],

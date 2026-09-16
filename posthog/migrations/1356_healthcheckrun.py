@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="health_check_runs",
                         to="posthog.team",
