@@ -737,7 +737,8 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
     totals = totals_of(result)
     assert len(pauses) == totals.rpc_calls == 3
     assert all(pause >= 0.25 for pause in pauses), pauses
-    assert [round(pause - 0.25, 6) for pause in pauses] == [round(2.0 * rpc, 6) for rpc in totals.rpc_seconds]
+    assert round(sum(pause - 0.25 for pause in pauses), 6) == round(2.0 * totals.rpc_seconds_total, 6)
+    assert 0 < totals.rpc_seconds_last <= totals.rpc_seconds_max <= totals.rpc_seconds_total
 
 
 @contextmanager
@@ -779,7 +780,7 @@ def test_publishes_every_measurement_the_run_took():
         step_rows_min=250,
         rpc_errors=2,
         pg_reconnects=1,
-        rpc_seconds=[0.2, 1.5, 0.4],
+        rpc_seconds_max=1.5,
     )
 
     registry, pushed_jobs = publish(totals)

@@ -24,7 +24,6 @@ interval, because ingestion can still reach that person and no delete may resolv
 
 import math
 import time
-import statistics
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
@@ -229,11 +228,16 @@ class DrainTotals:
     step_rows_min: int = 0
     step_rows_max: int = 0
     pg_reconnects: int = 0
-    rpc_seconds: list[float] = field(default_factory=list)
+    rpc_seconds_total: float = 0.0
+    rpc_seconds_max: float = 0.0
+    rpc_seconds_last: float = 0.0
     pg_seconds_total: float = 0.0
     teams_touched: set[int] = field(default_factory=set)
     queue_rows_estimate_at_start: int = 0
     stopped_reason: str = "drained"
+
+    def rpc_seconds_mean(self) -> float:
+        return self.rpc_seconds_total / self.rpc_calls if self.rpc_calls else 0.0
 
     def as_metadata(self) -> dict[str, dagster.MetadataValue]:
         return {
@@ -254,11 +258,9 @@ class DrainTotals:
             "step_rows_min": dagster.MetadataValue.int(self.step_rows_min),
             "step_rows_max": dagster.MetadataValue.int(self.step_rows_max),
             "pg_reconnects": dagster.MetadataValue.int(self.pg_reconnects),
-            "rpc_seconds_total": dagster.MetadataValue.float(round(sum(self.rpc_seconds, 0.0), 3)),
-            "rpc_seconds_max": dagster.MetadataValue.float(round(max(self.rpc_seconds, default=0.0), 3)),
-            "rpc_seconds_p50": dagster.MetadataValue.float(
-                round(statistics.median(self.rpc_seconds), 3) if self.rpc_seconds else 0.0
-            ),
+            "rpc_seconds_total": dagster.MetadataValue.float(round(self.rpc_seconds_total, 3)),
+            "rpc_seconds_max": dagster.MetadataValue.float(round(self.rpc_seconds_max, 3)),
+            "rpc_seconds_mean": dagster.MetadataValue.float(round(self.rpc_seconds_mean(), 3)),
             "pg_seconds_total": dagster.MetadataValue.float(round(float(self.pg_seconds_total), 3)),
             "teams_touched": dagster.MetadataValue.int(len(self.teams_touched)),
             "queue_rows_estimate_at_start": dagster.MetadataValue.int(self.queue_rows_estimate_at_start),
@@ -622,8 +624,11 @@ class _Drain:
                 _pause(pause)
                 spent += pause
                 continue
+            elapsed = time.perf_counter() - started
             self.totals.rpc_calls += 1
-            self.totals.rpc_seconds.append(time.perf_counter() - started)
+            self.totals.rpc_seconds_total += elapsed
+            self.totals.rpc_seconds_max = max(self.totals.rpc_seconds_max, elapsed)
+            self.totals.rpc_seconds_last = elapsed
             self.grow_step()
             return response
 
@@ -650,7 +655,7 @@ class _Drain:
                 return
             response = self.send(chunk, pending)
             self.apply(chunk, pending, response)
-            _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
+            _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds_last))
             pending = list(response.pending_person_uuids)
             if pending:
                 self.totals.requests_pending_resent += 1
@@ -754,7 +759,7 @@ class _Drain:
         totals = self.totals
         self.context.log.info(
             "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d rows_deleted=%d, "
-            "%d pending re-sends, step %d rows (%d..%d), rpc p50 %.3fs, %d rpc errors, %d pg reconnects",
+            "%d pending re-sends, step %d rows (%d..%d), rpc mean %.3fs, %d rpc errors, %d pg reconnects",
             totals.pages,
             totals.rows_read,
             totals.persons_deleted,
@@ -766,7 +771,7 @@ class _Drain:
             self.step_rows,
             totals.step_rows_min,
             totals.step_rows_max,
-            statistics.median(totals.rpc_seconds) if totals.rpc_seconds else 0.0,
+            totals.rpc_seconds_mean(),
             totals.rpc_errors,
             totals.pg_reconnects,
         )
@@ -855,7 +860,7 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
         PublishedGauge(
             name=f"{prefix}rpc_seconds_max",
             help_text="Slowest successful personhog request",
-            value=max(totals.rpc_seconds, default=0.0),
+            value=totals.rpc_seconds_max,
         ),
     ]
 
