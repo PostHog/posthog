@@ -13,7 +13,7 @@ from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.email_utils import ESPSuppressionResult
-from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS, LOGIN_CODE_VERIFICATION_EVENT
 
 VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
@@ -33,6 +33,21 @@ def enable_code_sending():
         patch("posthog.tasks.email.send_code_based_verification") as mock_send,
     ):
         yield mock_send
+
+
+@contextmanager
+def capture_verification_events():
+    """Collect the result labels the flow captures, in order."""
+    with patch("posthog.helpers.two_factor_session.posthoganalytics.capture") as mock_capture:
+        yield mock_capture
+
+
+def captured_results(mock_capture) -> list[str]:
+    return [
+        call.kwargs["properties"]["result"]
+        for call in mock_capture.call_args_list
+        if call.kwargs.get("event") == LOGIN_CODE_VERIFICATION_EVENT
+    ]
 
 
 class TestCodeBasedVerificationAPI(APIBaseTest):
@@ -168,6 +183,33 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             response = self.client.post(VERIFY_URL, {"code": fresh_code})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.json()["code"], "too_many_attempts")
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_captures_each_verification_outcome_as_an_event(self):
+        # Without these events the Prometheus counter is the only record, and it cannot say who
+        # stopped at the code screen.
+        with enable_code_sending() as mock_send, capture_verification_events() as mock_capture:
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+            self.client.post(VERIFY_URL, {"code": wrong})
+            self.client.post(VERIFY_URL, {"code": code})
+
+        self.assertEqual(captured_results(mock_capture), ["sent", "invalid", "success"])
+        for call in mock_capture.call_args_list:
+            self.assertEqual(call.kwargs["distinct_id"], str(self.user.distinct_id))
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_captures_the_lockout_against_the_locked_out_user(self):
+        # The lockout clears the pending session first, so the event has to resolve the user itself.
+        with enable_code_sending() as mock_send, capture_verification_events() as mock_capture:
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+            for _ in range(CODE_MAX_ATTEMPTS + 1):
+                self.client.post(VERIFY_URL, {"code": wrong})
+
+        self.assertEqual(captured_results(mock_capture)[-1], "locked_out")
+        self.assertEqual(mock_capture.call_args.kwargs["distinct_id"], str(self.user.distinct_id))
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["attempts"], CODE_MAX_ATTEMPTS + 1)
 
 
 class TestCodeBasedVerificationSerializer(SimpleTestCase):
