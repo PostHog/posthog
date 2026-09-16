@@ -249,6 +249,30 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
 
+    @parameterized.expand(
+        [
+            ("people", {"OpenAI Codex"}),
+            ("automations", {"Cursor"}),
+            ("all", {"OpenAI Codex", "Cursor"}),
+        ]
+    )
+    def test_caller_kind_filters_people_vs_automations_vs_all(
+        self, caller_kind: str, expected_harnesses: set[str]
+    ) -> None:
+        # $mcp_scope_preset is stamped only on PostHog's own automated run types; its absence is
+        # what makes a call "people".
+        self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
+        self._emit(properties={"$mcp_client_name": "cursor-vscode", "$mcp_scope_preset": "scout"})
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(dateRange=DateRange(date_from="-90d"), callerKind=caller_kind),
+            team=self.team,
+        )
+        by_harness = {row.harness: row for row in runner.calculate().results}
+
+        assert set(by_harness) == expected_harnesses
+
     def test_allows_access_when_flag_enabled(self) -> None:
         # The mixin enables only the mcp-analytics flag, mirroring the DRF gate.
         runner = MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team, user=self.user)

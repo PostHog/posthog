@@ -46,6 +46,13 @@ EFFECTIVE_DESCRIPTION_SQL = (
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
+# The SDK stamps a semantic failure bucket ($mcp_error_type: internal, validation, api_4xx,
+# api_5xx, permission, timeout, rate_limited, missing_context), falling back to "unknown" when
+# absent (older SDKs / server paths that only set $mcp_is_error). Event-supplied and unbounded,
+# so capped before it can inflate a grouping key or response size. Shared by every runner that
+# groups failures by their raw bucket, so the expression lives OnceAndOnlyOnce.
+RAW_ERROR_TYPE_SQL = "substring(coalesce(nullIf(toString(properties.$mcp_error_type), ''), 'unknown'), 1, 200)"
+
 MCPCallerKind = Literal["people", "automations", "all"]
 
 # $mcp_scope_preset is stamped only by PostHog's own hosted MCP server, for its automated run
