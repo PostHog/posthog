@@ -1,6 +1,6 @@
-import type { HogQLNotice } from '~/queries/schema/schema-general'
+import type { HogQLMetadataResponse, HogQLNotice } from '~/queries/schema/schema-general'
 
-import { type MarkerPlacement, codePointOffsetToUtf16, noticeToMarker } from './codeEditorLogic'
+import { type MarkerPlacement, areMarkersStale, codePointOffsetToUtf16, noticeToMarker } from './codeEditorLogic'
 
 describe('codeEditorLogic', () => {
     describe('codePointOffsetToUtf16', () => {
@@ -22,6 +22,22 @@ describe('codeEditorLogic', () => {
 
             expect(EMOJI_QUERY.slice(0, utf16)).toBe(EMOJI_QUERY)
             expect(EMOJI_QUERY.slice(0, 39)).not.toBe(EMOJI_QUERY)
+        })
+    })
+
+    describe('areMarkersStale', () => {
+        const QUERY = 'select count() from events'
+        const ANALYZED: [string, HogQLMetadataResponse] = [QUERY, {} as HogQLMetadataResponse]
+
+        const cases: [string, [string, HogQLMetadataResponse] | null, number, string, number, boolean][] = [
+            ['the analyzed statement is unchanged and in place', ANALYZED, 10, QUERY, 10, false],
+            ['an edit to an earlier statement moved this one', ANALYZED, 10, QUERY, 14, true],
+            ['the analyzed statement itself changed', ANALYZED, 10, 'select 1', 10, true],
+            ['no response has arrived yet', null, 0, QUERY, 0, true],
+        ]
+
+        test.each(cases)('%s', (_name, metadata, analyzedQueryOffset, currentQuery, currentQueryOffset, expected) => {
+            expect(areMarkersStale(metadata, analyzedQueryOffset, currentQuery, currentQueryOffset)).toBe(expected)
         })
     })
 
