@@ -2557,9 +2557,9 @@ snapshots:
     errortracking-volumesparkline--detailed-zeros-and-ones--light:
         hash: v1.k794b7964.b7d1f95e1492bdc399321cc8de1a7c7ee95a421aaf1135717eef2233f0f36621.bSKXY_IbYl5PLJnhRFt2jAelLAPgBH1suxwc-R9h75w
     errortracking-volumesparkline--events-before-data-range--dark:
-        hash: v1.k794b7964.3c5dc7169c8ef603ef9fde739c8ec72b9f6d82ae27e6d7146acec292fb1a57da.XfncZGjCCE_4kAC87cuQ77aVPw0MrdsHlCUZl7hkf2w
+        hash: v1.k794b7964.7cb2348662f942bc00e904aca1cf74990ac3b8e25549be308b29e907c156d0eb.WQ5R8L0lbbFdH9oG3RShU2S1nHfj_SHpnz9PrjLAx6A
     errortracking-volumesparkline--events-before-data-range--light:
-        hash: v1.k794b7964.124227295a3079c9a271b5b1b1de997d8f1a9b536928ac8fc0e5e806afd2f8f5.9CCTbFhZMpAVVger6Xuyp0kXNjRjdlk9vf1PwtmZEZw
+        hash: v1.k794b7964.c88c4e3b028915efba3fdbbac7107a063662d8210dfb6ba8667e96d719fa3d4f.tzwEQFa4F1f1O9PGqBkcaqSavbFVgAwPAjyh9Uf9NL8
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.97727c0656cd286fbe329fe68ea8b0b635911b169247a8b45ecc5a6571563509.V2WbyXdFPiGIw4bJpjP7eoK2QZW4iqJo9w68-A_60wM
     experiments-varianttimeseriestooltip--pending-day--light:
