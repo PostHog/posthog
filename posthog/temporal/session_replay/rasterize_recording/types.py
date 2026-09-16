@@ -29,6 +29,11 @@ RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta
 # classifies as a broken recording instead of a slow render.
 RASTERIZE_POST_RENDER_RESERVE = timedelta(minutes=3)
 
+# Failure type raised instead of scheduling a render the remaining envelope cannot hold. Shared so a
+# caller can classify it the same way it classifies a render that ran out of time, rather than as a
+# property of the recording.
+RASTERIZE_BUDGET_EXHAUSTED_TYPE = "RENDER_BUDGET_EXHAUSTED"
+
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):
     """Input to the RasterizeRecordingWorkflow."""

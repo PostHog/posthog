@@ -2681,23 +2681,28 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "message,timeout_type,through_activity",
+    "leaf",
     [
         # The child's own execution_timeout kills it mid-render, and Temporal reports it directly on the
         # ChildWorkflowError, carrying no rasterizer error code.
-        ("Child Workflow execution timed out", TimeoutType.START_TO_CLOSE, False),
+        "child_execution_timeout",
         # The render's schedule-to-close cap fires first instead, so the timeout arrives one wrap deeper.
-        ("activity timed out", TimeoutType.SCHEDULE_TO_CLOSE, True),
+        "render_activity_timeout",
+        # The prep phase spent the envelope, so the child refused to start a render it could not hold.
+        "budget_exhausted",
     ],
-    ids=["child_execution_timeout", "render_activity_timeout"],
 )
-async def test_apply_scanner_workflow_classifies_a_rasterize_timeout_as_transient(
-    message: str, timeout_type: TimeoutType, through_activity: bool
-) -> None:
+async def test_apply_scanner_workflow_classifies_a_rasterize_timeout_as_transient(leaf: str) -> None:
     # A render that ran out of time says nothing about the recording, so rasterization_failed would show the
     # user a "known issue" retry prompt for a video that was still rendering.
     new_observation_id = uuid.uuid4()
-    timeout = TemporalTimeoutError(message, type=timeout_type, last_heartbeat_details=[])
+    if leaf == "budget_exhausted":
+        cause: BaseException = _wrap_in_activity_error(
+            ApplicationError("no render budget left", type="RENDER_BUDGET_EXHAUSTED", non_retryable=True)
+        )
+    else:
+        timeout = TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        cause = _wrap_in_activity_error(timeout) if leaf == "render_activity_timeout" else timeout
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2705,7 +2710,7 @@ async def test_apply_scanner_workflow_classifies_a_rasterize_timeout_as_transien
             ),
             ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
         },
-        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(timeout) if through_activity else timeout),
+        child_error=_wrap_in_child_workflow_error(cause),
     )
 
     with pytest.raises(ScannerFailureError) as exc_info:

@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 import pytest
 
@@ -21,6 +22,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import BumpStuckCounterInput
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
     RASTERIZE_POST_RENDER_RESERVE,
     RASTERIZE_RENDER_TIMEOUT,
     RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
@@ -310,6 +312,67 @@ async def test_render_retry_budget_stays_inside_the_callers_envelope():
     assert budget <= RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT - RASTERIZE_POST_RENDER_RESERVE
     # The envelope must still fund a retry after a fast first failure, which is what it was sized for.
     assert budget > RASTERIZE_RENDER_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_an_exhausted_envelope_does_not_start_a_render():
+    """A render the envelope cannot hold burns a browser pod to reach the same failure."""
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id="sess-123", team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_unused(_inputs: dict) -> dict:
+        raise AssertionError("the render must not be scheduled without a budget to hold it")
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    record_calls: list[RecordRasterizationFailureInput] = []
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_unused, bump_noop, _record_failure_into(record_calls)],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_unused]),
+        ):
+            handle = await env.client.start_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, product="replay_vision"),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                # Shorter than the reserve, so nothing is left for a render by the time prep returns.
+                execution_timeout=RASTERIZE_POST_RENDER_RESERVE - dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+            with pytest.raises(Exception):
+                await handle.result()
+            history = await handle.fetch_history()
+
+    assert "rasterize-recording" not in _scheduled_activities(history)
+    # The caller classifies on this type, so losing it sends the user a "known issue" retry prompt.
+    assert [call.error_code for call in record_calls] == [RASTERIZE_BUDGET_EXHAUSTED_TYPE]
 
 
 @pytest.mark.asyncio

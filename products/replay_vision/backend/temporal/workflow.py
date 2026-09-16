@@ -25,6 +25,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
     bump_stuck_counter_activity,
 )
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
     RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
     RasterizeRecordingInputs,
 )
@@ -519,7 +520,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # A timeout anywhere in the chain — the child's execution_timeout, or the render activity's own
             # start-to-close or schedule-to-close — carries no rasterizer error code, so it would otherwise
             # fall through to RASTERIZATION_FAILED and tell the user a working recording is a known issue.
-            if find_temporal_timeout_error(e) is not None:
+            # A budget the prep phase already spent is the same story, reached before the render starts.
+            if find_temporal_timeout_error(e) is not None or rasterizer_type == RASTERIZE_BUDGET_EXHAUSTED_TYPE:
                 wf.logger.warning("replay_vision.rasterizer_timed_out detail=%s", _root_cause_message(e))
                 raise ScannerFailureError(_RENDER_TIMED_OUT_MESSAGE, kind=FailureKind.INFRA_TRANSIENT) from None
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".

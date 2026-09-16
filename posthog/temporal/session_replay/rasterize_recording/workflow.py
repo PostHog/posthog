@@ -3,6 +3,7 @@ from typing import Any
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -41,6 +42,7 @@ from .activities import (
     record_rasterization_failure,
 )
 from .types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
     RASTERIZE_POST_RENDER_RESERVE,
     RASTERIZE_RENDER_MAX_ATTEMPTS,
     RASTERIZE_RENDER_TIMEOUT,
@@ -191,14 +193,18 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         A caller can fund fewer render attempts than `RASTERIZE_RENDER_MAX_ATTEMPTS` asks for. The
         cap turns that shortfall into a typed activity timeout the caller can classify, instead of an
         untyped execution timeout that kills the run mid-render.
+
+        The elapsed time runs from `workflow_start_time`, not this run's `start_time`: execution_timeout
+        covers the whole retry chain, so a retried run that measured from its own start would read a
+        near-full budget against an envelope that is nearly spent.
         """
         if not wf.patched(_RENDER_BUDGET_PATCH):
             return None
         info = wf.info()
         if info.execution_timeout is None:
             return None
-        remaining = info.execution_timeout - (wf.now() - info.start_time)
-        return max(remaining - RASTERIZE_POST_RENDER_RESERVE, dt.timedelta(minutes=1))
+        remaining = info.execution_timeout - (wf.now() - info.workflow_start_time)
+        return remaining - RASTERIZE_POST_RENDER_RESERVE
 
     async def _run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
         retry_policy = common.RetryPolicy(maximum_attempts=3)
@@ -217,6 +223,15 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
         assert prep.activity_input is not None  # tagged-union invariant
 
+        render_budget = self._render_retry_budget()
+        if render_budget is not None and render_budget <= dt.timedelta(0):
+            # Starting a render the envelope cannot hold burns a browser pod to reach the same failure.
+            raise ApplicationError(
+                "no render budget left in the workflow's execution timeout",
+                type=RASTERIZE_BUDGET_EXHAUSTED_TYPE,
+                non_retryable=True,
+            )
+
         self._phase = "rendering"
         # Plain dict from Node.js across the cross-language boundary.
         raw_result: dict[str, Any] = await wf.execute_activity(
@@ -227,7 +242,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # task-queue attribute, and a mid-flight change only redirects retries.
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
-            schedule_to_close_timeout=self._render_retry_budget(),
+            schedule_to_close_timeout=render_budget,
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
         )
