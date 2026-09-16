@@ -177,16 +177,16 @@ export interface WikiPageApi {
     /** When this page was last changed in the wiki history. */
     updated_at: string
     /** Character offset of this chunk. */
-    offset?: number
+    offset: number
     /** Character length of the complete page. */
-    total_length?: number
+    total_length: number
     /**
      * Next character offset, or null when complete.
      * @nullable
      */
-    next_offset?: number | null
+    next_offset: number | null
     /** True when no further chunks remain. Do not write a page until all chunks are read. */
-    complete?: boolean
+    complete: boolean
 }
 
 /**

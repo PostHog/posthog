@@ -53,13 +53,11 @@ class WikiPageSerializer(serializers.Serializer):
         help_text="Commit sha the content was read at; pass back as `base_head` on writes."
     )
     updated_at = serializers.DateTimeField(help_text="When this page was last changed in the wiki history.")
-    offset = serializers.IntegerField(required=False, help_text="Character offset of this chunk.")
-    total_length = serializers.IntegerField(required=False, help_text="Character length of the complete page.")
-    next_offset = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Next character offset, or null when complete."
-    )
+    offset = serializers.IntegerField(help_text="Character offset of this chunk.")
+    total_length = serializers.IntegerField(help_text="Character length of the complete page.")
+    next_offset = serializers.IntegerField(allow_null=True, help_text="Next character offset, or null when complete.")
     complete = serializers.BooleanField(
-        required=False, help_text="True when no further chunks remain. Do not write a page until all chunks are read."
+        help_text="True when no further chunks remain. Do not write a page until all chunks are read."
     )
 
 

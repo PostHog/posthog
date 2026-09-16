@@ -153,15 +153,20 @@ def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
             status=status.HTTP_400_BAD_REQUEST,
         )
     end = offset + params["limit"] if "limit" in params else length
-    result = WikiPageSerializer(wiki_page).data
-    result.update(
-        content=wiki_page.content[offset:end],
-        offset=offset,
-        total_length=length,
-        next_offset=end if end < length else None,
-        complete=end >= length,
+    next_offset = end if end < length else None
+    page = WikiPageSerializer(
+        {
+            "path": wiki_page.path,
+            "content": wiki_page.content[offset:end],
+            "head_sha": wiki_page.head_sha,
+            "updated_at": wiki_page.updated_at,
+            "offset": offset,
+            "total_length": length,
+            "next_offset": next_offset,
+            "complete": next_offset is None,
+        }
     )
-    return Response(result)
+    return Response(page.data)
 
 
 def _assert_run_write_in_scope(organization_id, team_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
