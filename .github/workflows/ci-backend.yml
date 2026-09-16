@@ -51,6 +51,10 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    # The Depot CI check run that `Django Tests Pass` relays when the tests ran there.
+    # One place to update when the Depot workflow or its gate job is renamed.
+    DEPOT_APP_ID: '219785'
+    DEPOT_GATE_CHECK: '[optional, does not block merge] Backend CI / [optional, does not block merge] Django Tests Pass'
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
@@ -476,7 +480,7 @@ jobs:
         needs: [changes]
         # Master pushes skip the matrices (see the trigger comment); skipping this
         # root cascades to every downstream test job via their result checks.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
@@ -515,7 +519,7 @@ jobs:
         needs: changes
         # Skipped on master push: the merge queue already ran the full matrices for
         # every landed commit, and the hourly scheduled run keeps master coverage.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
@@ -1329,7 +1333,7 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         # A per-commit check — the hourly scheduled run skips it as already covered.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1486,6 +1490,7 @@ jobs:
             needs.changes.outputs.product_yamls == 'true' &&
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == github.repository
+            && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 5
         name: Validate product.yaml owners (ubuntu-latest)
         runs-on: ubuntu-latest
@@ -1561,7 +1566,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.persons_sql == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -2307,7 +2312,7 @@ jobs:
     check-openapi-types:
         needs: [changes]
         # A per-commit check — the hourly scheduled run skips it as already covered.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -3798,7 +3803,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         # Only feeds the test matrices, which master pushes skip.
-        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push' && needs.changes.outputs.engine != 'depot'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -3972,8 +3977,13 @@ jobs:
             ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
-        # Headroom for downloading every shard's JUnit for the failure rollup.
-        timeout-minutes: 8
+        permissions:
+            contents: read
+            actions: read # the failure rollup downloads each shard's JUnit artifact
+            checks: read # the relay reads Depot's gate check run
+        # Headroom for downloading every shard's JUnit for the failure rollup, or for
+        # waiting out a full Depot run when this job only relays its verdict.
+        timeout-minutes: ${{ needs.changes.outputs.engine == 'depot' && 95 || 8 }}
         # Intentional !cancelled(): the gate inspects failed dependencies and fails
         # closed on live runs; a superseded run records cancelled, not failure.
         # The deterministic-failure disjuncts cover this workflow cancelling its
@@ -3984,7 +3994,69 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
+            # Relay mode: the tests ran on Depot CI, so this required check mirrors the
+            # conclusion of Depot's gate for the same commit. Only `success` passes; a
+            # skipped, failed, cancelled or missing Depot gate fails closed. Depot creates
+            # its check runs when it queues the run, so a gate still absent well past the
+            # hand-off wait means Depot never picked the event up. A `no-ci` draft marked
+            # ready keeps its SHA and its earlier skipped gate, so only a check that
+            # started after this event counts. 304 responses are free, so the poll stays
+            # off the rate limit.
+            - name: Relay the Depot verdict
+              if: needs.changes.outputs.engine == 'depot'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+              run: |
+                  set -uo pipefail
+                  deadline=$((SECONDS + 5400))
+                  absent_deadline=$((SECONDS + 900))
+                  refusals=0
+                  verdict=""
+                  url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')&app_id=$DEPOT_APP_ID"
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                      # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
+                      code=$(curl -s -o /tmp/relay-body -w '%{http_code}' --max-time 30 --etag-compare /tmp/relay-etag --etag-save /tmp/relay-etag.new \
+                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
+                      case "$code" in
+                          200)
+                              refusals=0
+                              mv /tmp/relay-etag.new /tmp/relay-etag
+                              verdict=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/relay-body)
+                              echo "Depot gate: $verdict"
+                              ;;
+                          304) refusals=0 ;;
+                          # 403 also covers a secondary rate limit, which does clear, so spend a
+                          # few retries before calling the credential broken.
+                          401|403)
+                              refusals=$((refusals + 1))
+                              echo "::warning::check-runs API returned $code ($refusals in a row)"
+                              if [ "$refusals" -ge 5 ]; then
+                                  echo "::error::Cannot read Depot's gate check for $SHA; this job cannot relay a verdict"
+                                  exit 1
+                              fi
+                              ;;
+                          *) echo "::warning::check-runs API returned $code" ;;
+                      esac
+                      case "$verdict" in
+                          success) exit 0 ;;
+                          absent)
+                              if [ "$SECONDS" -ge "$absent_deadline" ]; then
+                                  echo "::error::Depot CI never started for $SHA: no gate check after 15 minutes"
+                                  exit 1
+                              fi
+                              ;;
+                          ""|queued|in_progress|pending|waiting|requested) ;;
+                          *) echo "::error::Depot gate concluded $verdict for $SHA"; exit 1 ;;
+                      esac
+                      sleep 30
+                  done
+                  echo "::error::No Depot verdict for $SHA within 90 minutes"
+                  exit 1
             - name: Summarize dependency results
+              if: needs.changes.outputs.engine != 'depot'
               run: |
                   {
                     echo "### Backend CI dependency results"
@@ -4016,7 +4088,7 @@ jobs:
             # on green runs (the common case) to avoid pulling every shard artifact for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
-              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && needs.changes.outputs.engine != 'depot' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -4025,7 +4097,7 @@ jobs:
             # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
             # here or the rollup below lists attempt-1 failures the re-run already recovered.
             - name: Keep only each shard's latest attempt
-              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && needs.changes.outputs.engine != 'depot' && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
               continue-on-error: true
               run: |
                   cd /tmp/junit-gate 2>/dev/null || exit 0
@@ -4245,7 +4317,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [django_tests]
+        needs: [changes, django_tests]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -4253,6 +4325,7 @@ jobs:
             !cancelled() && github.actor != 'dependabot[bot]' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            && needs.changes.outputs.engine != 'depot'
         permissions:
             contents: read
             actions: read
@@ -4388,7 +4461,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [turbo-tests, django_tests, turbo-discover]
+        needs: [changes, turbo-tests, django_tests, turbo-discover]
         runs-on: ubuntu-latest
         continue-on-error: true # report-only, never block a PR
         timeout-minutes: 10
@@ -4412,6 +4485,7 @@ jobs:
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+            && needs.changes.outputs.engine != 'depot'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
