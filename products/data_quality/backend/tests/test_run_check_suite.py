@@ -272,15 +272,16 @@ class TestCheckSuiteActivities(BaseTest):
 
     @parameterized.expand(
         [
-            ("error_severity_first_failure", CheckSeverity.ERROR, False, "", True),
-            ("warn_severity", CheckSeverity.WARN, False, "", False),
-            ("already_failing_before_this_suite", CheckSeverity.ERROR, True, "", False),
-            ("an_overlapping_run_errored_after_this_one", CheckSeverity.ERROR, False, CheckRunStatus.ERRORED, True),
-            ("the_check_has_since_passed", CheckSeverity.ERROR, False, CheckRunStatus.PASSED, False),
+            ("error_severity_first_failure", CheckSeverity.ERROR, None, "", True),
+            ("warn_severity", CheckSeverity.WARN, None, "", False),
+            ("a_streak_opened_before_this_run", CheckSeverity.ERROR, timedelta(minutes=-5), "", False),
+            ("a_streak_reopened_after_this_run", CheckSeverity.ERROR, timedelta(milliseconds=1), "", False),
+            ("an_overlapping_run_errored_after_this_one", CheckSeverity.ERROR, None, CheckRunStatus.ERRORED, True),
+            ("the_check_has_since_passed", CheckSeverity.ERROR, None, CheckRunStatus.PASSED, False),
         ]
     )
     def test_only_the_checks_this_suite_moved_into_failing_are_notified(
-        self, _name: str, severity: CheckSeverity, failing_earlier: bool, newest_status: str, expected: bool
+        self, _name: str, severity: CheckSeverity, streak_shift: timedelta | None, newest_status: str, expected: bool
     ) -> None:
         check = self._check(severity=severity)
         suite_run_id = self._fail_checks([check])
@@ -289,11 +290,11 @@ class TestCheckSuiteActivities(BaseTest):
             if newest_status == CheckRunStatus.PASSED:
                 updates["failing_since"] = None
             DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(**updates)
-        if failing_earlier:
-            suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=suite_run_id)
-            assert suite_run.started_at is not None
+        if streak_shift is not None:
+            run = DataQualityCheckRun.objects.for_team(self.team.id).get(suite_run_id=suite_run_id)
+            assert run.finished_at is not None
             DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
-                failing_since=suite_run.started_at - timedelta(minutes=5)
+                failing_since=run.finished_at + streak_shift
             )
 
         notify = self._notify(suite_run_id)
@@ -313,21 +314,6 @@ class TestCheckSuiteActivities(BaseTest):
         notify = self._notify(suite_run_id)
 
         assert notify.call_count == (1 if expected else 0)
-
-    def test_a_streak_opened_after_the_suite_finished_belongs_to_another_suite(self) -> None:
-        check = self._check()
-        suite_run_id = self._fail_checks([check])
-        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=suite_run_id)
-        assert suite_run.started_at is not None
-        finished_at = suite_run.started_at + timedelta(seconds=30)
-        DataQualitySuiteRun.objects.for_team(self.team.id).filter(id=suite_run_id).update(finished_at=finished_at)
-        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
-            failing_since=finished_at + timedelta(seconds=1)
-        )
-
-        notify = self._notify(suite_run_id)
-
-        assert notify.call_count == 0
 
     def test_the_idempotency_key_names_the_check_and_the_streak_it_opened(self) -> None:
         check = self._check()

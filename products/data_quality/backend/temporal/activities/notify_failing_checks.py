@@ -1,9 +1,10 @@
 import time
-from datetime import UTC, datetime
+from datetime import datetime
+
+from django.db.models import F
 
 from temporalio import activity
 
-from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -71,12 +72,15 @@ def failing_streak_key(check_id: str, failing_since: datetime) -> str:
 
 
 def _runs_that_started_failing(team_id: int, suite_run: DataQualitySuiteRun) -> list[DataQualityCheckRun]:
-    """The suite's failed runs whose check is still failing on a streak this suite opened.
+    """The suite's failed runs that are themselves the run the check's current streak started from.
+
+    The runner stamps one instant on both rows, so a run opened the streak only when its
+    ``finished_at`` is the check's ``failing_since``. A check that recovered and failed again is on
+    a streak another run opened, and that run's notice carries its own row count and references.
 
     Severity comes from the run row, not the definition, so an edit between the batch and this
     activity cannot change what the suite already reported, or make one retry differ from the next.
     """
-    window = _streak_window(suite_run)
     return list(
         DataQualityCheckRun.objects.for_team(team_id)
         .filter(
@@ -84,27 +88,7 @@ def _runs_that_started_failing(team_id: int, suite_run: DataQualitySuiteRun) -> 
             status=CheckRunStatus.FAILED,
             check_severity=CheckSeverity.ERROR,
             quality_check__last_status__in=FAILING_STATUSES,
-            quality_check__failing_since__gte=window.opened_from,
-            quality_check__failing_since__lte=window.opened_until,
+            quality_check__failing_since=F("finished_at"),
         )
         .select_related("quality_check")
-    )
-
-
-@frozen
-class _StreakWindow:
-    """When a streak has to have started for this suite to be the one that opened it.
-
-    Bounded at both ends. A check that recovers and fails again after this suite finished is on a
-    streak another suite opened, and its own notice carries that run's row count and references.
-    """
-
-    opened_from: datetime
-    opened_until: datetime
-
-
-def _streak_window(suite_run: DataQualitySuiteRun) -> _StreakWindow:
-    return _StreakWindow(
-        opened_from=suite_run.started_at or suite_run.created_at,
-        opened_until=suite_run.finished_at or datetime.now(UTC),
     )
