@@ -4,7 +4,6 @@ from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
 
-import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
@@ -27,6 +26,7 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.person_sampling import count_matching_persons
@@ -44,12 +44,16 @@ QUERY_TYPE_V2 = "feature_flag_blast_radius_v2"
 
 
 def use_blast_radius_query_v2(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            BLAST_RADIUS_QUERY_V2_FLAG,
-            str(team.uuid),
-            send_feature_flag_events=False,
-        )
+    # Local-only, so a sizing request never waits on a flag fetch. That is also why the gate
+    # targets the project group: the project id travels with the call, where a person property
+    # would need the fetch to answer.
+    return feature_enabled_or_false(
+        BLAST_RADIUS_QUERY_V2_FLAG,
+        f"team-{team.pk}",
+        groups={"project": str(team.pk)},
+        group_properties={"project": {"id": str(team.pk)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
     )
 
 
