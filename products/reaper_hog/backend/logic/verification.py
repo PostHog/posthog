@@ -171,7 +171,7 @@ def cluster_view(cluster: ReaperCluster) -> ClusterView:
 
 def persist_verdict(*, team_id: int, cluster_id: UUID, head_sha: str, verdict: Verdict) -> ClusterStatus:
     with team_scope(team_id):
-        cluster = ReaperCluster.objects.get(id=cluster_id)
+        cluster = ReaperCluster.objects.get(id=cluster_id, team_id=team_id)
         ReaperArtefact.append(
             team_id=team_id,
             inventory_id=cluster.inventory_id,
