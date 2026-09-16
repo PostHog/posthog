@@ -38,7 +38,10 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
         return_value=MagicMock(schedule=MagicMock(state=state))
     )
     with (
-        override_settings(CLOUD_DEPLOYMENT="DEV", ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue"),
+        override_settings(
+            CLOUD_DEPLOYMENT="DEV",
+            ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
+        ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
         patch(f"{MODULE}.a_update_schedule") as update,
@@ -56,10 +59,10 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exist
     schedule = called.await_args.args[2]
     action = schedule.action
     assert isinstance(action, ScheduleActionStartWorkflow)
-    assert action.workflow == "alerts-product-check-due"
+    assert action.workflow == "alerts-product-orchestrate"
     assert list(action.args) == [{}]
     assert action.id == SCHEDULE_ID
-    assert action.task_queue == "evaluation-test-queue"
+    assert action.task_queue == "orchestration-test-queue"
     assert action.execution_timeout == dt.timedelta(seconds=50)
     assert action.retry_policy is not None
     assert action.retry_policy.maximum_attempts == 1

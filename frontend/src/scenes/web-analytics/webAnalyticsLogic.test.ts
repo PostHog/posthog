@@ -16,6 +16,10 @@ import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
+import {
+    MarketingAnalyticsTab,
+    marketingAnalyticsLogic,
+} from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -545,11 +549,13 @@ describe('webAnalyticsLogic URL restoration', () => {
         value: ['cpc'],
     }
 
-    it('keeps all page performance controls in the shareable URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
+    it.each([
+        ['/web/page-performance', {}, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+        ['/marketing', { tab: 'page-visibility' }, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+    ])('keeps all page performance controls in the shareable URL at %s', async (pathname, searchParams, flag) => {
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        router.actions.push(pathname, searchParams)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setDates('-30d', '2026-08-05')
         logic.actions.setConversionGoal({ actionId: 42 })
         logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
@@ -564,7 +570,8 @@ describe('webAnalyticsLogic URL restoration', () => {
         logic.actions.setReferrerFilter('google.com')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
+        expect(router.values.location.pathname.endsWith(pathname)).toBe(true)
+        expect(router.values.searchParams).toMatchObject(searchParams)
         expect(router.values.searchParams).toMatchObject({
             date_from: '-30d',
             date_to: '2026-08-05',
@@ -644,16 +651,27 @@ describe('webAnalyticsLogic URL restoration', () => {
         }
     })
 
-    it('applies property filters from a shared page performance URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-
-        router.actions.push('/web/page-performance', { filters: [FILTER_A] })
+    it.each([
+        ['/web/page-performance', {}, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
+        ['/marketing', { tab: 'page-visibility' }, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+    ])('applies property filters from a shared page performance URL at %s', async (pathname, searchParams, flag) => {
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        router.actions.push(pathname, { ...searchParams, filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.productTab).toBe(ProductTab.PAGE_PERFORMANCE)
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+        if (pathname === '/marketing') {
+            const marketingLogic = marketingAnalyticsLogic()
+            marketingLogic.mount()
+            try {
+                expect(marketingLogic.values.activeTab).toBe(MarketingAnalyticsTab.PAGE_VISIBILITY)
+                expect(router.values.location.pathname.endsWith('/marketing')).toBe(true)
+                expect(router.values.searchParams.filters).toEqual([FILTER_A])
+            } finally {
+                marketingLogic.unmount()
+            }
+        }
     })
 
     const enableBackNavReset = (): void => {

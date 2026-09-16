@@ -59,6 +59,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { hasEnded } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsInSessionExposureRetrieve,
     experimentsSessionBucketsCreate,
@@ -155,6 +156,13 @@ export interface ExperimentSessionBucket {
  * filtered to, so the list is holding this by the time a card can be selected.
  */
 export type ExperimentReplayRecording = Pick<SessionRecordingType, 'id' | 'recording_duration' | 'person'>
+
+/**
+ * Why the behavior comparison cannot run for this experiment, known before any request is sent.
+ * `group_aggregated` is the backend's refusal: the comparison matches exposures to persons'
+ * recordings, and a flag that aggregates by group exposes groups instead of persons.
+ */
+export type ExperimentBehaviorComparisonUnavailableReason = 'group_aggregated'
 
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
 export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
@@ -298,6 +306,7 @@ export interface experimentReplayTabLogicValues {
     appliedDurationFilterCount: number
     behaviorComparisonAvailable: boolean
     behaviorComparisonOpen: boolean
+    behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
     bucketSessionIds: string[] | undefined
     durationFilterActive: boolean
     durationFilterCustomized: boolean
@@ -332,6 +341,7 @@ export interface experimentReplayTabLogicValues {
     sessionBucketRequest: ExperimentSessionBucketRequest | null
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
+    sessionEventDeltasErrorStatus: number | null
     sessionEventDeltasLoading: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
@@ -582,6 +592,7 @@ export interface experimentReplayTabLogicMeta {
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
+        behaviorComparisonUnavailableReason: (arg: any) => ExperimentBehaviorComparisonUnavailableReason | null
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
         effectiveExposureScope: (
@@ -648,7 +659,9 @@ export interface experimentReplayTabLogicMeta {
             variantKeys: string[],
             metricOptions: ExperimentReplayMetricOption[],
             effectiveExposureScope: ExperimentReplayExposureScope,
-            inSessionExposure: ExperimentInSessionExposureApi | null
+            inSessionExposure: ExperimentInSessionExposureApi | null,
+            behaviorComparisonAvailable: boolean,
+            behaviorComparisonUnavailableReason: 'group_aggregated' | null
         ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -854,6 +867,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         ),
                         sessions_truncated: response.sessions_truncated,
                         events_truncated: response.events_truncated,
+                        // An empty shelf on a young experiment is a different answer from the same
+                        // shelf on one that has stopped enrolling, so the age of the run is read
+                        // next to `empty_reason` rather than inferred from the event's timestamp.
+                        experiment_ended: hasEnded(props.experiment),
+                        days_since_start: daysSince(props.experiment.start_date),
                     })
                     return response
                 },
@@ -1017,6 +1035,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 loadSessionEventDeltasFailure: (_, { error, errorObject }) => errorObject?.detail || error || 'unknown',
             },
         ],
+        // Kept beside the message because the two are read together: the backend states a refusal
+        // as a 400, which no retry can change, while every other failure is worth retrying.
+        sessionEventDeltasErrorStatus: [
+            null as number | null,
+            {
+                loadSessionEventDeltas: () => null,
+                loadSessionEventDeltasSuccess: () => null,
+                loadSessionEventDeltasFailure: (_, { errorObject }) =>
+                    typeof errorObject?.status === 'number' ? errorObject.status : null,
+            },
+        ],
         // The card whose recordings the playlist is showing, kept apart from the metric
         // selection: its session set comes from the shelf rather than from the experiment's
         // metrics.
@@ -1052,6 +1081,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         behaviorComparisonAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
+        ],
+        // Read off the feature flag's filters rather than the experiment's, because the flag's
+        // aggregation is what the backend checks before it refuses the comparison.
+        behaviorComparisonUnavailableReason: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): ExperimentBehaviorComparisonUnavailableReason | null =>
+                experiment.feature_flag?.filters?.aggregation_group_type_index != null ? 'group_aggregated' : null,
         ],
         effectiveVariantKey: [
             (s) => [s.selectedVariantKey, s.variantKeys],
@@ -1310,12 +1346,21 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
         // report and the beforeUnmount flush send the same shape.
         tabViewContext: [
-            (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
+            (s) => [
+                s.variantKeys,
+                s.metricOptions,
+                s.effectiveExposureScope,
+                s.inSessionExposure,
+                s.behaviorComparisonAvailable,
+                s.behaviorComparisonUnavailableReason,
+            ],
             (
                 variantKeys: string[],
                 metricOptions: ExperimentReplayMetricOption[],
                 effectiveExposureScope: ExperimentReplayExposureScope,
-                inSessionExposure: ExperimentInSessionExposureApi | null
+                inSessionExposure: ExperimentInSessionExposureApi | null,
+                behaviorComparisonAvailable: boolean,
+                behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
             ): ExperimentRecordingsTabContext => ({
                 variant_count: variantKeys.length,
                 metric_count: metricOptions.length,
@@ -1326,6 +1371,8 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 in_session_available: inSessionExposure?.available ?? null,
                 in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
                 in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
+                behavior_comparison_available: behaviorComparisonAvailable,
+                behavior_comparison_unavailable_reason: behaviorComparisonUnavailableReason,
             }),
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
@@ -1637,7 +1684,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // finish rather than firing a duplicate; the server-side cache covers a deliberate reload.
         toggleBehaviorComparison: () => {
             actions.reportExperimentBehaviorComparisonToggled(props.experiment.id, values.behaviorComparisonOpen)
-            if (values.behaviorComparisonOpen && !values.sessionEventDeltas && !values.sessionEventDeltasLoading) {
+            // The backend refuses a comparison this experiment cannot have, so asking for it only
+            // costs a request and returns the same refusal every time.
+            if (values.behaviorComparisonUnavailableReason !== null) {
+                return
+            }
+            // A 400 is a refusal for a reason the client cannot foresee, and it leaves no deltas
+            // behind, so reopening the shelf would otherwise send the same doomed request again.
+            if (
+                values.behaviorComparisonOpen &&
+                !values.sessionEventDeltas &&
+                !values.sessionEventDeltasLoading &&
+                values.sessionEventDeltasErrorStatus !== 400
+            ) {
                 actions.loadSessionEventDeltas()
             }
         },

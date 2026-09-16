@@ -17,6 +17,7 @@ use crate::config::{LogSource, LogsConfig};
 use crate::logs::{
     self,
     fingerprint::{fingerprint, redact_literals, representative_text},
+    histogram::Histogram,
     parse::*,
 };
 use anyhow::Result;
@@ -117,7 +118,13 @@ impl Collector for Logs {
                 "log ingestion is behind (per-tick budget hit); will catch up over following ticks"
             );
         }
-        let mut out = Outputs::default();
+        let sampling = log_sampling(cx.conn).await;
+        let mut out = Outputs {
+            sample_rows_over_ms: cfg.sample_rows_over_ms,
+            sample_rate: sampling.rate,
+            hard_threshold_ms: sampling.hard_threshold_ms,
+            ..Default::default()
+        };
         for (stream, lines) in batch.lines {
             let asm = extra.assemblers.entry(stream.clone()).or_default();
             for line in lines {
@@ -207,6 +214,54 @@ impl Collector for Logs {
             );
             snap.kind = Kind::Snapshot;
             aux.push(snap);
+        }
+        {
+            let rows = out
+                .latency
+                .into_iter()
+                .map(|((db, fp, qid, minute), h)| {
+                    let mut r = Row::new();
+                    r.insert("datname".into(), db.map(Value::Text).unwrap_or(Value::Null));
+                    r.insert(
+                        "fingerprint".into(),
+                        fp.map(Value::Int).unwrap_or(Value::Null),
+                    );
+                    r.insert(
+                        "query_id".into(),
+                        qid.map(Value::Int).unwrap_or(Value::Null),
+                    );
+                    r.insert("minute".into(), Value::Timestamp(minute));
+                    r.insert("count".into(), Value::Int(h.n));
+                    r.insert("sum_ms".into(), Value::Float(h.sum_ms));
+                    r.insert("max_ms".into(), Value::Float(h.max_ms));
+                    r.insert("sampled_counts".into(), Value::IntArray(h.sampled));
+                    r.insert("logged_counts".into(), Value::IntArray(h.logged));
+                    r.insert("sample_rate".into(), Value::Float(out.sample_rate));
+                    r.insert(
+                        "hard_threshold_ms".into(),
+                        Value::Float(out.hard_threshold_ms),
+                    );
+                    r
+                })
+                .collect();
+            aux.push(mk(
+                "query_latency",
+                vec![],
+                rows,
+                types_of(&[
+                    ("fingerprint", "bigint"),
+                    ("query_id", "bigint"),
+                    ("minute", "timestamptz"),
+                    ("count", "bigint"),
+                    ("sum_ms", "double precision"),
+                    ("max_ms", "double precision"),
+                    ("sampled_counts", "integer[]"),
+                    ("logged_counts", "integer[]"),
+                    ("sample_rate", "double precision"),
+                    ("hard_threshold_ms", "double precision"),
+                ]),
+                by_statement(),
+            ));
         }
         {
             aux.push(mk(
@@ -332,15 +387,72 @@ impl Logs {
     }
 }
 
+struct LogSampling {
+    rate: f64,
+    /// `log_min_duration_statement` in ms; negative means off.
+    hard_threshold_ms: f64,
+}
+
+/// A statement at or above `log_min_duration_statement` is always logged; below it,
+/// `log_statement_sample_rate` decides. Read per tick, because the log line itself
+/// does not say which case it was and the settings can change under us.
+async fn log_sampling(conn: &tokio_postgres::Client) -> LogSampling {
+    let mut s = LogSampling {
+        rate: 1.0,
+        hard_threshold_ms: -1.0,
+    };
+    match conn
+        .query(
+            // reset_val, not setting: this session quiets its own statements by
+            // setting log_min_duration_statement = -1, and that must not count as
+            // the server's value.
+            "SELECT name, reset_val FROM pg_settings WHERE name IN ('log_statement_sample_rate', 'log_min_duration_statement')",
+            &[],
+        )
+        .await
+    {
+        Ok(rows) => {
+            for r in rows {
+                let (name, setting): (String, String) = (r.get(0), r.get(1));
+                if let Ok(v) = setting.parse::<f64>() {
+                    match name.as_str() {
+                        "log_statement_sample_rate" => s.rate = v,
+                        "log_min_duration_statement" => s.hard_threshold_ms = v,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "reading log sampling settings; weighting samples 1:1"),
+    }
+    s
+}
+
 fn types_of(t: &[(&str, &str)]) -> BTreeMap<String, String> {
     t.iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect()
 }
 
+type LatencyKey = (
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    chrono::DateTime<chrono::Utc>,
+);
+
 #[derive(Default)]
 struct Outputs {
+    /// Durations below this only count in the histogram; see `LogsConfig`.
+    sample_rows_over_ms: f64,
+    /// The server's `log_statement_sample_rate` and `log_min_duration_statement`
+    /// while these lines were logged; stored with every histogram row so the
+    /// weighting survives a settings change.
+    sample_rate: f64,
+    hard_threshold_ms: f64,
     durations: Vec<Row>,
+    /// (datname, fingerprint, query id, minute) → latency histogram.
+    latency: BTreeMap<LatencyKey, Histogram>,
     /// (datname, fingerprint) → statement text, stored once per fingerprint in
     /// `cur_query_texts` rather than on every duration row.
     texts: BTreeMap<(Option<String>, i64), String>,
@@ -435,19 +547,33 @@ impl Outputs {
                 if kind == "parse" || kind == "bind" {
                     return;
                 }
-                let mut r = Self::base(stream, e);
-                r.insert("duration_ms".into(), Value::Float(duration_ms));
-                r.insert("kind".into(), Value::Text(kind));
                 let fp = query.as_deref().map(fingerprint);
-                r.insert(
-                    "fingerprint".into(),
-                    fp.map(Value::Int).unwrap_or(Value::Null),
-                );
                 if let (Some(fp), Some(q)) = (fp, &query) {
                     self.texts
                         .entry((e.db.clone(), fp))
                         .or_insert_with(|| representative_text(q).chars().take(MAX_TEXT).collect());
                 }
+                if let Some(ts) = e.ts {
+                    let minute = ts
+                        - chrono::Duration::seconds(ts.timestamp().rem_euclid(60))
+                        - chrono::Duration::nanoseconds(ts.timestamp_subsec_nanos() as i64);
+                    let always_logged =
+                        self.hard_threshold_ms >= 0.0 && duration_ms >= self.hard_threshold_ms;
+                    self.latency
+                        .entry((e.db.clone(), fp, e.query_id, minute))
+                        .or_default()
+                        .add(duration_ms, always_logged);
+                }
+                if duration_ms < self.sample_rows_over_ms {
+                    return;
+                }
+                let mut r = Self::base(stream, e);
+                r.insert("duration_ms".into(), Value::Float(duration_ms));
+                r.insert("kind".into(), Value::Text(kind));
+                r.insert(
+                    "fingerprint".into(),
+                    fp.map(Value::Int).unwrap_or(Value::Null),
+                );
                 self.durations.push(r);
             }
             Record::Plan {
@@ -559,12 +685,18 @@ mod tests {
     fn parse_and_bind_durations_are_counted_but_not_stored() {
         let re = prefix_regex("%t:%r:%u@%d:[%p]:");
         let mut asm = Assembler::default();
-        let mut out = Outputs::default();
+        let mut out = Outputs {
+            sample_rows_over_ms: 100.0,
+            sample_rate: 0.1,
+            hard_threshold_ms: 200.0,
+            ..Default::default()
+        };
         let lines = [
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 0.010 ms  parse <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 0.020 ms  bind <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 1.500 ms  execute <unnamed>: select id from t where id = $1",
-            "2026-08-27 18:22:50 UTC:10.1.2.3(5000):app@app:[141]:LOG:  duration: 2.500 ms  statement: select count(*) from t /* not stored */",
+            "2026-08-27 18:22:59 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 3.000 ms  execute <unnamed>: select id from t where id = $1",
+            "2026-08-27 18:22:50 UTC:10.1.2.3(5000):app@app:[141]:LOG:  duration: 250.0 ms  statement: select count(*) from t /* not stored */",
         ];
         for l in lines {
             if let Some(e) = asm.push(&re, l) {
@@ -584,20 +716,26 @@ mod tests {
             [Some("app"), Some("app")]
         );
         let kinds: Vec<&Value> = out.durations.iter().map(|r| &r["kind"]).collect();
-        assert_eq!(
-            kinds,
-            [
-                &Value::Text("execute".into()),
-                &Value::Text("statement".into())
-            ]
-        );
+        assert_eq!(kinds, [&Value::Text("statement".into())]);
+        // The 250 ms statement is over the always-log threshold, the executes were sampled.
+        let mut hists: Vec<(i64, f64, i32, i32)> = out
+            .latency
+            .values()
+            .map(|h| (h.n, h.max_ms, h.sampled.iter().sum(), h.logged.iter().sum()))
+            .collect();
+        hists.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(hists, [(1, 250.0, 0, 1), (2, 3.0, 2, 0)]);
+        assert!(out
+            .latency
+            .keys()
+            .all(|(_, _, _, minute)| minute.to_rfc3339() == "2026-08-27T18:22:00+00:00"));
         assert_eq!(
             out.counts[&(
                 "writer".to_string(),
                 "LOG".to_string(),
                 "duration".to_string()
             )],
-            4
+            5
         );
     }
 }
