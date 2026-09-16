@@ -2,6 +2,7 @@ import os
 import time
 import warnings
 import subprocess
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -9,6 +10,8 @@ from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+from _pytest.junitxml import bin_xml_escape
 
 if TYPE_CHECKING:
     from _pytest.terminal import TerminalReporter
@@ -544,10 +547,9 @@ class _JUnitTimingsPlugin:
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
 
-    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
-    junitxml appends children only for passed/failed/skipped reports, so a rerun
-    report leaves no trace and a flaky fail-then-pass serializes as a clean
-    `<testcase/>` — invisible to flaky-test telemetry.
+    Also records pytest-rerunfailures retries as a `<testcase>` property and
+    JUnit retry elements. Pytest's junitxml ignores intermediate rerun reports;
+    the retry elements preserve their failures for Trunk.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
@@ -558,9 +560,14 @@ class _JUnitTimingsPlugin:
         self._session_start: float | None = None
         self._collection_finish: float | None = None
         self._first_test_call_start: float | None = None
+        self._failed_attempts: dict[tuple[str, object | None], list[ET.Element]] = {}
+        self._final_failures: set[tuple[str, object | None]] = set()
+        self._skipped: set[tuple[str, object | None]] = set()
+        self._junit_xml: Any = None
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self._session_start = time.monotonic()
+        self._junit_xml = self._find_junit_xml_plugin(session.config)
 
     def pytest_collection_finish(self, session: pytest.Session) -> None:
         if self._collection_finish is None:
@@ -578,9 +585,32 @@ class _JUnitTimingsPlugin:
     # logreport consumes `user_properties` into the `<testcase>` element.
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        key = (report.nodeid, getattr(report, "node", None))
         reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        if str(report.outcome) == "rerun" and report.longrepr is not None:
+            reprcrash = getattr(report.longrepr, "reprcrash", None)
+            message = getattr(reprcrash, "message", None) or str(report.longrepr)
+            tag = "flakyFailure" if report.when == "call" else "flakyError"
+            attempt = ET.Element(tag, message=bin_xml_escape(message), time=f"{report.duration:.3f}")
+            ET.SubElement(attempt, "stackTrace").text = bin_xml_escape(report.longreprtext)
+            self._failed_attempts.setdefault(key, []).append(attempt)
+        elif report.failed:
+            self._final_failures.add(key)
+        elif report.skipped:
+            self._skipped.add(key)
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
-        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
+        if report.when != "teardown" or str(report.outcome) == "rerun":
+            return
+        attempts = self._failed_attempts.pop(key, [])
+        if attempts and key not in self._skipped and self._junit_xml is not None:
+            if key in self._final_failures:
+                for attempt in attempts:
+                    attempt.tag = attempt.tag.replace("flaky", "rerun")
+            # Pytest's JUnit hook finalizes this reporter later in the same logreport call.
+            self._junit_xml.node_reporter(report).nodes.extend(attempts)
+        self._final_failures.discard(key)
+        self._skipped.discard(key)
+        if not reruns:
             return
         # Appended exactly once: intermediate attempts never log a non-rerun teardown,
         # and each report owns its own copy of `user_properties`.

@@ -2,10 +2,12 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal, cast
+from xml.etree import ElementTree
 
 import pytest
 
 from _pytest._io import TerminalWriter
+from _pytest.junitxml import LogXML
 from _pytest.terminal import TerminalReporter
 
 from posthog.conftest import _JUnitTimingsPlugin
@@ -65,3 +67,69 @@ def test_retry_diagnostics_survive_a_passing_final_attempt(
     plugin.pytest_terminal_summary(cast(TerminalReporter, reporter))
     assert f"RERUN test_example.py::test_retry ({when})" in output.getvalue()
     assert "ConnectionError: example connection dropped" in output.getvalue()
+
+
+@pytest.mark.parametrize("final_outcome", ["passed", "failed"])
+@pytest.mark.parametrize("when", ["setup", "call"])
+def test_retry_attempt_is_preserved_in_junit_xml(
+    tmp_path: Path, final_outcome: Literal["passed", "failed"], when: Literal["setup", "call"]
+) -> None:
+    junit_path = tmp_path / "junit.xml"
+    xml = LogXML(junit_path, prefix=None)
+    xml.pytest_sessionstart()
+    plugin = _JUnitTimingsPlugin()
+    session = cast(
+        pytest.Session,
+        SimpleNamespace(config=SimpleNamespace(pluginmanager=SimpleNamespace(list_name_plugin=lambda: [("xml", xml)]))),
+    )
+    plugin.pytest_sessionstart(session)
+
+    first_attempt = pytest.TestReport(
+        nodeid="test_example.py::test_retry",
+        location=("test_example.py", 1, "test_retry"),
+        keywords={},
+        outcome=cast(Literal["passed", "failed", "skipped"], "rerun"),
+        longrepr="first failure",
+        when=when,
+        duration=0.1,
+    )
+    plugin.pytest_runtest_logreport(first_attempt)
+
+    final_call = pytest.TestReport(
+        nodeid=first_attempt.nodeid,
+        location=first_attempt.location,
+        keywords={},
+        outcome=final_outcome,
+        longrepr="final failure" if final_outcome == "failed" else None,
+        when="call",
+        duration=0.1,
+    )
+    plugin.pytest_runtest_logreport(final_call)
+    xml.pytest_runtest_logreport(final_call)
+    teardown = pytest.TestReport(
+        nodeid=first_attempt.nodeid,
+        location=first_attempt.location,
+        keywords={},
+        outcome="passed",
+        longrepr=None,
+        when="teardown",
+        duration=0.01,
+        rerun=1,
+    )
+    plugin.pytest_runtest_logreport(teardown)
+    xml.pytest_runtest_logreport(teardown)
+    plugin.pytest_sessionfinish(session, 0)
+    xml.pytest_sessionfinish()
+
+    suite = ElementTree.parse(junit_path).getroot().find("testsuite")
+    assert suite is not None
+    assert suite.get("tests") == "1"
+    assert suite.get("failures") == ("1" if final_outcome == "failed" else "0")
+    testcase = suite.find("testcase")
+    assert testcase is not None
+    retry_tag = ("rerun" if final_outcome == "failed" else "flaky") + ("Failure" if when == "call" else "Error")
+    retry = testcase.find(retry_tag)
+    assert retry is not None
+    assert retry.get("message") == "first failure"
+    assert retry.findtext("stackTrace") == "first failure"
+    assert (testcase.find("failure") is not None) == (final_outcome == "failed")

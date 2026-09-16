@@ -3690,7 +3690,7 @@ jobs:
               with:
                   junit-paths: junit-core.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
@@ -3702,7 +3702,7 @@ jobs:
               with:
                   junit-paths: junit-temporal.xml
                   org-slug: posthog-inc
-                  cli-version: '0.13.7'
+                  cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}

@@ -438,14 +438,13 @@ def test_normalize_jest_file(junit_file: str, expected: str) -> None:
     assert report_test_timings.normalize_jest_file(junit_file) == expected
 
 
-# ---------- rerun classification (posthog.reruns testcase property) ----------
+# ---------- rerun classification ----------
 
 
 @pytest.mark.parametrize(
     "testcase_xml,expected",
     [
-        # pytest 8's junitxml drops rerun attempts entirely; the posthog-junit-timings
-        # plugin records them as a testcase property — the only rerun signal we get.
+        # The property remains useful for JUnit consumers that ignore retry elements.
         (
             '<testcase name="t"><properties><property name="posthog.reruns" value="2"/></properties></testcase>',
             ("rerun_passed", 3),
@@ -465,6 +464,16 @@ def test_normalize_jest_file(junit_file: str, expected: str) -> None:
         # that failed before the final successful retry.
         ('<testcase name="t"><flakyFailure message="x"/></testcase>', ("rerun_passed", 2)),
         ('<testcase name="t"><flakyError message="x"/></testcase>', ("rerun_passed", 2)),
+        (
+            '<testcase name="t"><properties><property name="posthog.reruns" value="1"/></properties>'
+            '<flakyFailure message="x"/></testcase>',
+            ("rerun_passed", 2),
+        ),
+        (
+            '<testcase name="t"><properties><property name="posthog.reruns" value="1"/></properties>'
+            '<failure message="final"/><rerunFailure message="first"/></testcase>',
+            ("failed", 2),
+        ),
     ],
 )
 def test_classify_testcase_reads_retry_attempts(testcase_xml: str, expected: tuple[str, int]) -> None:

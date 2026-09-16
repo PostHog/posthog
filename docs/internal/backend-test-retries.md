@@ -12,9 +12,10 @@ CI does not rerun the step or job automatically.
 
 ## Keeping the failure evidence
 
-The existing JUnit hook records `posthog.reruns` on the final test report.
+The JUnit hook records `posthog.reruns` on the final test report and adds each failed attempt as a JUnit retry element.
+Recovered tests use `<flakyFailure>` or `<flakyError>`; tests that still fail use `<rerunFailure>` or `<rerunError>`.
 For retried tests it also records the executing GitHub `RUNNER_NAME` as `posthog.runner_name`.
-The timing reporter exports these as `test.attempts`, `test.outcome` (`rerun_passed` for a recovered test), and `test.runner_name`.
+The timing reporter counts the property and retry elements as the same attempts, then exports `test.attempts`, `test.outcome` (`rerun_passed` for a recovered test), and `test.runner_name`.
 Recovered tests are retained even if they are below the normal duration threshold.
 Engineering analytics already treats `rerun_passed` as evidence of flakiness.
 
@@ -25,5 +26,5 @@ If a runner is reused for several jobs in one run attempt, those successful jobs
 The normal log retention limits still apply, and `RERUN` lines preserve the surrounding diagnostics during thinning.
 These logs retain the job's `success` conclusion; recovery is not a persistent job failure.
 
-Trunk still receives the final JUnit result.
-This preserves retry evidence in Engineering analytics, but does not restore Trunk's visibility into each failed attempt.
+Trunk Analytics CLI 0.15.4 reads these retry elements as failed attempts followed by the final result.
+The JUnit suite counts and quarantine gate still use the final result.
