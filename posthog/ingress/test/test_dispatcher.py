@@ -7,7 +7,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryDedup
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -28,7 +28,7 @@ def _delivery(delivery_id: str | None = "delivery-1") -> WebhookDelivery:
     )
 
 
-def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
+def _consumer(name: str, handler, *, dedup: bool = True, ownership=None) -> WebhookConsumer:
     return WebhookConsumer(
         name=name,
         provider="github",
@@ -36,7 +36,17 @@ def _consumer(name: str, handler, *, dedup: bool = True) -> WebhookConsumer:
         event_types=frozenset({"pull_request"}),
         handler=handler,
         dedup=dedup,
+        ownership=ownership,
     )
+
+
+def _ownership(answer):
+    def lookup(delivery: WebhookDelivery) -> DeliveryOwnership:
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return lookup
 
 
 def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | None = None) -> WebhookDispatcher:
@@ -158,6 +168,50 @@ class TestWebhookDispatcher(SimpleTestCase):
             _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
 
         second.assert_not_called()
+
+
+class TestDeliveryOwnership(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("nobody_declares_one", [], DeliveryOwnership.UNDECIDED, ()),
+            ("every_answer_is_local", [DeliveryOwnership.LOCAL] * 2, DeliveryOwnership.LOCAL, ()),
+            (
+                "one_elsewhere_decides_the_request",
+                [DeliveryOwnership.LOCAL, DeliveryOwnership.ELSEWHERE],
+                DeliveryOwnership.ELSEWHERE,
+                ("consumer-1",),
+            ),
+            (
+                "a_lookup_that_raises_leaves_the_others_deciding",
+                [RuntimeError("lookup failed"), DeliveryOwnership.ELSEWHERE],
+                DeliveryOwnership.ELSEWHERE,
+                ("consumer-1",),
+            ),
+            (
+                "a_lookup_that_raises_alone_is_undecided",
+                [RuntimeError("lookup failed")],
+                DeliveryOwnership.UNDECIDED,
+                (),
+            ),
+        ]
+    )
+    def test_any_consumer_answering_elsewhere_forwards_the_request(
+        self, _name: str, answers: list, expected: DeliveryOwnership, expected_names: tuple[str, ...]
+    ) -> None:
+        consumers = [
+            _consumer(f"consumer-{index}", Mock(), ownership=_ownership(answer)) for index, answer in enumerate(answers)
+        ]
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            self.assertEqual(_dispatcher(consumers).ownership_of(_delivery()), (expected, expected_names))
+
+    def test_a_consumer_without_an_ownership_lookup_is_never_asked(self) -> None:
+        asked = Mock(return_value=DeliveryOwnership.LOCAL)
+        consumers = [_consumer("alpha", Mock()), _consumer("zulu", Mock(), ownership=asked)]
+
+        _dispatcher(consumers).ownership_of(_delivery())
+
+        asked.assert_called_once()
 
 
 class TestDeliveryBudgetSeconds(SimpleTestCase):
