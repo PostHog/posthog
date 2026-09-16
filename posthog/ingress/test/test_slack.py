@@ -7,7 +7,7 @@ from django.test import RequestFactory, SimpleTestCase
 from parameterized import parameterized
 
 from posthog.ingress.providers import InvalidPayload
-from posthog.ingress.slack.provider import SLACK_RAW_PAYLOAD_KEY, build_slack_interactivity_provider
+from posthog.ingress.slack.provider import build_slack_interactivity_provider
 
 URL = "/webhooks/slack/interactivity"
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
@@ -28,12 +28,16 @@ class TestSlackInteractivityProvider(SimpleTestCase):
 
     def test_the_signed_payload_field_reaches_the_consumer_unaltered(self) -> None:
         # A consumer hashes these exact bytes for its idempotency key, and the parsed mapping
-        # cannot be serialized back into them.
+        # cannot be serialized back into them: this spacing does not survive the round trip.
         raw_payload = '{"type":"block_actions", "team":{"id":"T123"}}'
+        request = _form_request(raw_payload)
 
-        payload = self.provider.parse(_form_request(raw_payload))
+        delivery = self.provider.deliveries(request, self.provider.parse(request), {})[0]
 
-        self.assertEqual(payload[SLACK_RAW_PAYLOAD_KEY], raw_payload)
+        self.assertEqual(delivery.context["raw_payload"], raw_payload)
+        # The payload stays what Slack sent inside the field. Carrying the raw string in it
+        # instead would put a key of ours in the receipt the consumer stores.
+        self.assertEqual(delivery.payload, {"type": "block_actions", "team": {"id": "T123"}})
 
     @parameterized.expand(
         [

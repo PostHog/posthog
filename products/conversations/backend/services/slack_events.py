@@ -15,7 +15,6 @@ from typing import Any
 
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.ingress.dispatch.database import bounded_statement_timeout
-from posthog.ingress.slack.provider import SLACK_RAW_PAYLOAD_KEY
 from posthog.models.team import Team
 
 from products.conversations.backend.models import ConversationInboundEventSource, TeamConversationsSlackConfig
@@ -112,10 +111,9 @@ def accept_slack_event(delivery: WebhookDelivery) -> None:
 def accept_slack_interactivity(delivery: WebhookDelivery) -> None:
     """Record a verified Slack interactive payload against the workspace's team and wake its worker."""
     payload: dict[str, Any] = dict(delivery.payload)
-    # The signed `payload` field, which the incarnation carried through so the source id hashes
-    # the bytes Slack signed. It is not part of what Slack sent inside the field, so it comes off
-    # the payload again before the receipt stores it.
-    raw_payload = str(payload.pop(SLACK_RAW_PAYLOAD_KEY, ""))
+    # The signed `payload` field, which the incarnation carries on the context so the source id
+    # hashes the bytes Slack signed rather than a re-serialization of the parsed mapping.
+    raw_payload = delivery.context.get("raw_payload", "")
     _accept_delivery(
         delivery,
         source=ConversationInboundEventSource.SLACK_INTERACTIVITY,

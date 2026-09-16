@@ -43,12 +43,6 @@ SLACK_INTERACTIVITY_TYPES = frozenset(
     }
 )
 
-# Slack signs the raw form body, so a consumer that keys idempotency on the bytes Slack signed
-# cannot rebuild them from the parsed mapping: key order and separators are already lost. The
-# `payload` field rides along under this key, and the consumer removes it before it stores the
-# payload.
-SLACK_RAW_PAYLOAD_KEY = "_posthog_raw_payload"
-
 SPECS = (
     ProviderSpec(provider="slack", app="supporthog", event_types=SLACK_EVENT_TYPES),
     ProviderSpec(provider="slack", app=SLACK_INTERACTIVITY_APP, event_types=SLACK_INTERACTIVITY_TYPES),
@@ -125,20 +119,26 @@ class SlackInteractivityProvider(SlackProvider):
         return None
 
     def parse(self, request: HttpRequest) -> Any:
-        """The JSON Slack put in the form's `payload` field, plus the field itself."""
+        """The JSON Slack put in the form's `payload` field."""
         raw_payload = request.POST.get("payload")
         if raw_payload is None:
             raise InvalidPayload("no payload field in the form body")
         payload = decode_json(raw_payload)
         if not isinstance(payload, dict):
             raise InvalidPayload("payload field is not a JSON object")
-        return {**payload, SLACK_RAW_PAYLOAD_KEY: raw_payload}
+        return payload
 
     def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
         team = payload.get("team")
         slack_team_id = str(team.get("id") or "") if isinstance(team, Mapping) else ""
+        context = _delivery_context(request, slack_team_id=slack_team_id)
+        # Slack signs the form body rather than the `payload` field, and the parsed mapping cannot
+        # be serialized back into the signed bytes: key order and separators are already lost. A
+        # consumer that keys idempotency on those bytes reads the field verbatim here. Django
+        # caches the parsed form, so this reads the request stream no second time.
+        context["raw_payload"] = request.POST.get("payload", "")
         return (
             WebhookDelivery(
                 provider=self.provider,
@@ -149,7 +149,7 @@ class SlackInteractivityProvider(SlackProvider):
                 event_type=str(payload.get("type", "")),
                 payload=payload,
                 received_at=timezone.now(),
-                context=_delivery_context(request, slack_team_id=slack_team_id),
+                context=context,
             ),
         )
 

@@ -25,6 +25,7 @@ Its event type is the payload's own `type`, such as `block_actions`.
 A consumer that needs idempotency there brings its own key.
 
 Both contexts carry `slack_team_id`, which is `team_id` on an event envelope and `team.id` on an interactive payload.
+An interactive delivery's context also carries `raw_payload`, the signed form field (see [Quirks](#quirks)).
 
 ## Apps and secrets
 
@@ -44,8 +45,8 @@ The other status codes are the defaults.
 
 Interactive components are posted as a form with one `payload` field holding the JSON, so `SlackInteractivityProvider` overrides `parse()` and reads `request.POST`.
 That read consumes the request stream under ASGI, which is safe only because the view verifies the raw body first.
-Slack signs the form body rather than the field, and a parsed mapping cannot be serialized back into the signed bytes, so the field itself is carried on the delivery payload under the reserved key `_posthog_raw_payload` (`SLACK_RAW_PAYLOAD_KEY`).
-A consumer that hashes it removes the key before it stores the payload.
+Slack signs the form body rather than the field, and a parsed mapping cannot be serialized back into the signed bytes, so the field itself travels verbatim in the delivery context under `raw_payload`.
+A consumer that keys idempotency on the signed bytes reads it there, and the payload stays exactly what Slack sent.
 
 ## Consumers
 
