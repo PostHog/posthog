@@ -154,6 +154,29 @@ class TestSlackIntegration:
         assert channels[-1]["name"] == "channel_14"
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_records_a_listing_it_had_to_cut_short(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # A cap that stops a listing early is the failure this whole change is about: the caller
+        # cannot tell a partial list from a complete one, so the cap has to leave a trail.
+        mock_client.conversations_list.side_effect = lambda cursor=None, **kwargs: {
+            "channels": [
+                {"id": f"C{cursor or 0}", "name": f"channel_{cursor or 0}", "is_private": False, "is_ext_shared": False}
+            ],
+            "response_metadata": {"next_cursor": str(int(cursor or 0) + 1)},
+        }
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        with patch("posthog.models.integration.slack.SLACK_LISTING_MAX_REQUESTS", 3):
+            with patch("posthog.models.integration.slack.slack_listing_truncated_counter") as mock_counter:
+                channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == 3
+        mock_counter.labels.assert_called_once_with(kind="channels_public_channel")
+        mock_counter.labels.return_value.inc.assert_called_once()
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

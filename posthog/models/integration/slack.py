@@ -48,16 +48,20 @@ SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
 
-# Slack returns fewer items than the requested limit whenever it likes, so a page count is not a
-# channel count. Cap the collected items instead, and keep the page cap only as a runaway guard.
-SLACK_CHANNELS_MAX_ITEMS = 50000
+# Slack returns fewer items than the requested limit whenever it likes, so a page count is not an
+# item count. The stated limit on a listing is the item count; the request count only stops a
+# runaway loop, and is set high enough that the item cap decides the outcome at any realistic page
+# size. When either one stops a listing, _record_truncation says which.
+SLACK_LISTING_MAX_ITEMS = 50000
 
-SLACK_CHANNELS_MAX_PAGES = 500
+SLACK_LISTING_MAX_REQUESTS = 100
 
 # conversations.members returns at most 1000 ids per call, whatever limit is asked for.
 SLACK_MEMBERS_PAGE_SIZE = 1000
 
-SLACK_MEMBERS_MAX_PAGES = 500
+# A membership check runs inside a request a person is waiting on, so it gets a much tighter budget
+# than a listing. Ten calls covers every channel short of the largest Slack allows.
+SLACK_MEMBERS_MAX_REQUESTS = 10
 
 
 class SlackIntegration:
@@ -123,18 +127,21 @@ class SlackIntegration:
         """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
         member past the first page needs the cursor followed rather than a bigger limit."""
         cursor = None
-        pages = 0
+        requests = 0
+        seen = 0
 
-        while pages < SLACK_MEMBERS_MAX_PAGES:
-            pages += 1
+        while requests < SLACK_MEMBERS_MAX_REQUESTS:
+            requests += 1
             res = self.client.conversations_members(channel=channel_id, limit=SLACK_MEMBERS_PAGE_SIZE, cursor=cursor)
-            if authed_user in res["members"]:
+            members = res["members"]
+            seen += len(members)
+            if authed_user in members:
                 return True
             cursor = (res.get("response_metadata") or {}).get("next_cursor")
             if not cursor:
                 return False
 
-        self._record_truncation("channel_members", collected=pages * SLACK_MEMBERS_PAGE_SIZE, pages=pages)
+        self._record_truncation("channel_members", collected=seen, requests=requests)
         return False
 
     def get_channel_by_id(
@@ -166,11 +173,11 @@ class SlackIntegration:
         """Human workspace members the bot can DM, as raw Slack member payloads."""
         users: list[dict] = []
         cursor = None
-        pages = 0
+        requests = 0
         fetched = 0
 
-        while pages < SLACK_CHANNELS_MAX_PAGES:
-            pages += 1
+        while requests < SLACK_LISTING_MAX_REQUESTS:
+            requests += 1
             res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
             fetched += len(res["members"])
             users.extend(
@@ -181,11 +188,11 @@ class SlackIntegration:
             cursor = (res.get("response_metadata") or {}).get("next_cursor")
             # Cap on members fetched, not members kept, so a workspace full of bots and guests
             # cannot page forever.
-            if not cursor or fetched >= SLACK_CHANNELS_MAX_ITEMS:
+            if not cursor or fetched >= SLACK_LISTING_MAX_ITEMS:
                 break
 
         if cursor:
-            self._record_truncation("users", collected=fetched, pages=pages)
+            self._record_truncation("users", collected=fetched, requests=requests)
 
         return users
 
@@ -237,10 +244,10 @@ class SlackIntegration:
     ) -> list[dict]:
         channels: list[dict] = []
         cursor = None
-        pages = 0
+        requests = 0
 
-        while pages < SLACK_CHANNELS_MAX_PAGES:
-            pages += 1
+        while requests < SLACK_LISTING_MAX_REQUESTS:
+            requests += 1
             if type == "public_channel":
                 res = self.client.conversations_list(
                     exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
@@ -261,15 +268,15 @@ class SlackIntegration:
 
             channels.extend(res["channels"])
             cursor = (res.get("response_metadata") or {}).get("next_cursor")
-            if not cursor or len(channels) >= SLACK_CHANNELS_MAX_ITEMS:
+            if not cursor or len(channels) >= SLACK_LISTING_MAX_ITEMS:
                 break
 
         if cursor:
-            self._record_truncation(f"channels_{type}", collected=len(channels), pages=pages)
+            self._record_truncation(f"channels_{type}", collected=len(channels), requests=requests)
 
         return channels
 
-    def _record_truncation(self, kind: str, *, collected: int, pages: int) -> None:
+    def _record_truncation(self, kind: str, *, collected: int, requests: int) -> None:
         """A cap stopped a listing with more to fetch, so the caller is holding a partial list.
 
         Nothing downstream can tell a partial list from a complete one, and a channel missing from
@@ -283,7 +290,7 @@ class SlackIntegration:
             integration_id=self.integration.id,
             team_id=self.integration.team_id,
             collected=collected,
-            pages=pages,
+            requests=requests,
         )
 
     @classmethod
