@@ -8,7 +8,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
+from products.workflows.backend.api.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
@@ -64,13 +64,16 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert staged.status_code == 200, staged.json()
         disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
         assert disable.status_code == 200, disable.json()
-        assert HogFlow.objects.get(pk=flow_id).draft is not None
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        flow.draft_encrypted_inputs = {"action_1": {"api_key": "fake-draft-secret"}}
+        flow.save(update_fields=["draft_encrypted_inputs"])
         return flow_id
 
     def _editor_save_payload(self, flow_id: str, url: str) -> dict:
         flow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
-        payload = {field: flow[field] for field in DRAFT_CONTENT_FIELDS}
-        payload.update(flow["draft"] or {})
+        payload = {field: flow[field] for field in WRITABLE_DRAFT_CONTENT_FIELDS}
+        payload.update({field: value for field, value in (flow["draft"] or {}).items() if field in payload})
         payload["actions"] = [_trigger_action(), _webhook_action(url=url)]
         return payload
 
@@ -283,6 +286,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is None
         assert flow.draft_updated_at is None
+        assert flow.draft_encrypted_inputs is None
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
         assert live_urls == ["https://saved.example.com"]
 

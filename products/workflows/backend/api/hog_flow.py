@@ -3830,6 +3830,9 @@ def mint_audience_confirm_token(
     )
 
 
+WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
     list=extend_schema(
@@ -4321,13 +4324,10 @@ class HogFlowViewSet(
                     before_update is not None
                     and before_update.status != HogFlow.State.ACTIVE
                     and before_update.draft is not None
-                    and set(DRAFT_CONTENT_FIELDS) <= set(self.request.data.keys())
+                    and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
                 ):
-                    # A draft staged while the flow was active survives a disable. The editor shows
-                    # that draft merged over the live row and saves every content field, so this
-                    # save already carries the draft's content. Keeping the draft would make the
-                    # editor merge the older draft over this save and silently revert the edit. A
-                    # partial save keeps the draft, because it would drop staged fields it omits.
+                    # A draft staged before a disable outlives it. A full save already carries that draft,
+                    # and keeping it makes the editor merge the stale draft back over this save.
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
                 else:
                     serializer.save()
