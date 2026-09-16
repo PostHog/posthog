@@ -114,14 +114,23 @@ SELECT flag_key,
        countIf(n_resp > 1) AS persons_disagreeing,
        count() AS persons_in_both_regimes
 FROM (
-    SELECT properties.$feature_flag AS flag_key,
+    SELECT flag_key,
            person_id,
-           count(DISTINCT properties.$lib) AS n_libs,
-           count(DISTINCT toString(properties.$feature_flag_response)) AS n_resp
-    FROM events
-    WHERE event = '$feature_flag_called'
-      AND properties.$feature_flag IS NOT NULL
-      AND timestamp >= now() - INTERVAL 3 DAY
+           count(DISTINCT lib) AS n_libs,
+           count(DISTINCT lib_response) AS n_resp
+    FROM (
+        SELECT properties.$feature_flag AS flag_key,
+               person_id,
+               properties.$lib AS lib,
+               any(toString(properties.$feature_flag_response)) AS lib_response,
+               count(DISTINCT toString(properties.$feature_flag_response)) AS n_resp_in_lib
+        FROM events
+        WHERE event = '$feature_flag_called'
+          AND properties.$feature_flag IS NOT NULL
+          AND timestamp >= now() - INTERVAL 3 DAY
+        GROUP BY flag_key, person_id, lib
+        HAVING n_resp_in_lib = 1
+    )
     GROUP BY flag_key, person_id
     HAVING n_libs > 1
 )
@@ -130,9 +139,11 @@ ORDER BY persons_disagreeing DESC
 LIMIT 25
 ```
 
+**The nesting is load-bearing.** The inner level keeps only the libraries that answered a person consistently, so `n_resp > 1` on the level above means two libraries answered _that person_ differently — not one library changing its mind over time. Flatten it and the two shapes merge again. Note too that two `$lib` values naming the same SDK are one regime, not two; [`references/call-sites.md`](references/call-sites.md) lists which values collapse.
+
 **Read the rate, never the count.** Two shapes come back and they mean opposite things. A key where nearly every person seen in both regimes disagrees is a real split — the two SDK paths are answering differently for the same user, sustained. A key where a handful out of many thousands disagree is a person crossing a rollout boundary mid-window, which is what a rollout looks like and is never a finding. Set the bar high: a large share of a meaningful population, not a few people.
 
-Then rule out time before you blame regime. A flag edited inside the window makes everyone disagree across _time_, in both regimes at once. Split the responses by library and check each regime is internally stable. Substitute the key only once it matches `^[A-Za-z0-9_-]{1,400}$`; the candidate came from the event stream, which anyone holding the capture token can write:
+Then date the disagreement before you blame regime, because a flag edited inside the window moves both regimes at once. Split the responses by library and compare what each one served and when. Substitute the key only once it matches `^[A-Za-z0-9_-]{1,400}$`; the candidate came from the event stream, which anyone holding the capture token can write:
 
 ```sql
 SELECT properties.$lib AS lib,
@@ -148,7 +159,7 @@ WHERE event = '$feature_flag_called'
 GROUP BY lib, response
 ```
 
-One steady response per library, two libraries, two different responses, both spanning the whole window: that is a regime split and the report writes itself. Overlapping response sets inside one library, or a changeover date shared by both, is a flag edit — check `feature-flags-activity-retrieve` and drop it.
+Two libraries serving different response mixes, both spanning the whole window, confirm what the ranker already measured per person: that is a regime split and the report writes itself. A changeover date the two libraries share is a flag edit — check `feature-flags-activity-retrieve` and drop it. Overlapping responses inside one library are not an edit: a flag with release conditions returns both values there because different people qualify, which is why the pairing has to be per person and the ranker does it rather than this query.
 
 Rule out scope as well as time. `evaluation_runtime` of `client` or `server` bars the other regime, and `evaluation_contexts` bars a caller whose environment tags the flag does not list. The barred side returns the fallback steadily for the whole window, so configuration produces this lane's exact shape without a defect. Read both from `feature-flag-get-definition` before you believe a split.
 
