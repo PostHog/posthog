@@ -31,7 +31,7 @@ export type StoredRepublishReason =
 export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
-    privacyKey?: MlDataKey
+    dataKey?: MlDataKey
     originalRef: string
     currentUrl: string
     host: string
@@ -299,7 +299,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
 }
 
 export function fetchCandidateHistoryKey(candidate: FetchCandidate): string {
-    return candidate.privacyKey?.identity.sessionId
-        ? `${candidate.originalRef}:session:${identityDigest(candidate.privacyKey.identity.sessionId)}`
+    return candidate.dataKey?.identity.sessionId
+        ? `${candidate.originalRef}:session:${identityDigest(candidate.dataKey.identity.sessionId)}`
         : candidate.originalRef
 }

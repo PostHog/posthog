@@ -173,7 +173,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
-        const privacyKeys = keyManager?.keys(input.team.teamId, headers.session_id)
+        const sessionKeys = keyManager?.keys(input.team.teamId, headers.session_id)
         let referenceNamespace: string | undefined
         let imageTeamId: string | undefined
         const t0 = performance.now()
@@ -181,7 +181,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         let result
         try {
             referenceNamespace =
-                privacyKeys && usesRawSessionIdentifiers(headers.session_id)
+                sessionKeys && usesRawSessionIdentifiers(headers.session_id)
                     ? `v2:${input.team.teamId}:${sessionStartMonth(headers.session_id)}`
                     : undefined
             imageTeamId = referenceNamespace ?? teamKeys?.teamId

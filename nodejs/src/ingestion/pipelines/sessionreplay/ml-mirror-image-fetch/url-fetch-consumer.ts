@@ -138,7 +138,7 @@ export class UrlFetchConsumer {
                     continue
                 }
                 for (const candidate of parsed.candidates) {
-                    const partitionCandidate = { ...candidate, privacyKey: key, sourcePartitions: [message.partition] }
+                    const partitionCandidate = { ...candidate, dataKey: key, sourcePartitions: [message.partition] }
                     const existing = candidatesByRef.get(fetchCandidateHistoryKey(partitionCandidate))
                     if (existing) {
                         dedupedInBatch += 1

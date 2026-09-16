@@ -111,7 +111,7 @@ export class FrontierPublisher {
         if (!result.bytes || !result.contentType) {
             throw new Error('an image publish needs response bytes and a content type')
         }
-        const encrypted = encryptedKafkaValue(candidate.privacyKey, 'image-source', result.bytes, candidate.originalRef)
+        const encrypted = encryptedKafkaValue(candidate.dataKey, 'image-source', result.bytes, candidate.originalRef)
         const headers: Record<string, string> = {
             'content-type': result.contentType,
             [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
@@ -230,7 +230,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${JSON.stringify(item.candidate.privacyKey?.identity ?? null)}`
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${JSON.stringify(item.candidate.dataKey?.identity ?? null)}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)
@@ -305,7 +305,7 @@ class BufferedRepublishBatch implements RepublishBatch {
                                 topic: plan.topic,
                                 key: Buffer.from(plan.registrableDomain),
                                 ...encryptedKafkaValue(
-                                    plan.candidates[0].privacyKey,
+                                    plan.candidates[0].dataKey,
                                     'image-frontier',
                                     serializeFrontierRecord(plan.candidates)
                                 ),

@@ -49,7 +49,7 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
         this.batch = await this.store.prepare(
             identities.filter((identity) => usesRawSessionIdentifiers(identity.sessionId))
         )
-        MlMirrorMetrics.observeMlPrivacyPhase('prepare', performance.now() - startedAt)
+        MlMirrorMetrics.observeMlKeyPhase('prepare', performance.now() - startedAt)
     }
 
     public keys(teamId: number, sessionId: string): MlSessionKeys | undefined {
@@ -80,7 +80,7 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
         const startedAt = performance.now()
         await this.batch.commit()
         const committedAt = performance.now()
-        MlMirrorMetrics.observeMlPrivacyPhase('commit', committedAt - startedAt)
+        MlMirrorMetrics.observeMlKeyPhase('commit', committedAt - startedAt)
         const sideEffects = async (promises: Promise<unknown>[]): Promise<void> => {
             if (!promises.length) {
                 return
@@ -95,7 +95,7 @@ export class MlKeyBatchController implements KeyStore, RecordingEncryptor {
         }
         await Promise.all(this.deferred.map((action) => this.publish(() => action(sideEffects))))
         this.deferred = []
-        MlMirrorMetrics.observeMlPrivacyPhase('publish', performance.now() - committedAt)
+        MlMirrorMetrics.observeMlKeyPhase('publish', performance.now() - committedAt)
     }
 
     public getKey(sessionId: string, teamId: number): Promise<SessionKey> {

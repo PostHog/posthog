@@ -11,7 +11,7 @@ describe('image scrub server startup', () => {
         'rejects key manager configuration without a DLQ before starting dependencies (%p)',
         async (topic) => {
             const server = new TestImageScrubServer({
-                AI_RESEARCH_REPLAY_KEY_TABLE: 'privacy-table',
+                AI_RESEARCH_REPLAY_KEY_TABLE: 'key-table',
                 AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
                 SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: topic,
             })

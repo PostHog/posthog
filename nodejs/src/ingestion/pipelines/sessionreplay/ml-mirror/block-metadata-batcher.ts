@@ -55,7 +55,7 @@ export class BlockMetadataBatcher {
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
-        MlParquetSinkMetrics.incRowsRejected('privacy', messages.length - decoded.length)
+        MlParquetSinkMetrics.incRowsRejected('key_missing', messages.length - decoded.length)
         let encryptedRows = 0
         for (const { message, key, invalid } of decoded) {
             if (invalid) {

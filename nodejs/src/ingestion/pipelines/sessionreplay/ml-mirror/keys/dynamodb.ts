@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
 
-import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { TableKey, tableKeyString } from './schema'
 
@@ -106,12 +106,12 @@ export class MlKeyDynamoDB {
         )
     }
 
-    private async timed<T>(request: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+    private async timed<T>(request: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
         const startedAt = performance.now()
         try {
             return await operation()
         } finally {
-            MlMirrorMetrics.observeMlPrivacyRequest(request, performance.now() - startedAt)
+            MlMirrorMetrics.observeMlKeyRequest(request, performance.now() - startedAt)
         }
     }
 

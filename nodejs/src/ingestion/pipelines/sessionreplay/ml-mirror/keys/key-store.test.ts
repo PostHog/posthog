@@ -30,7 +30,7 @@ const session: MlSessionIdentity = {
     organizationId: 'organization-test',
     sessionId: '01994569-4380-7000-8000-000000000007',
 }
-const table = 'ml-privacy-test'
+const table = 'ml-keys-test'
 
 function transientError(name: string): Error {
     return Object.assign(new Error(name), { name })
@@ -459,7 +459,7 @@ describe('ML session key batches', () => {
             const rejected = await register.getSingleMetric('ml_mirror_parquet_sink_rows_rejected_total')!.get()
             expect(rejected.values).toEqual(
                 expect.arrayContaining([
-                    expect.objectContaining({ labels: { reason: 'privacy' }, value: 1 }),
+                    expect.objectContaining({ labels: { reason: 'key_missing' }, value: 1 }),
                     expect.objectContaining({ labels: { reason: 'invalid_envelope' }, value: 1 }),
                 ])
             )

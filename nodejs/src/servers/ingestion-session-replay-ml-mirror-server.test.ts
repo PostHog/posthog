@@ -26,7 +26,7 @@ describe('buildMlMirrorServerConfig', () => {
     )
     it.each([
         ['', ''],
-        ['privacy-table', ''],
+        ['key-table', ''],
         ['', 'kms-key'],
     ])('rejects missing key manager configuration before starting services (%s, %s)', (table, kmsKey) => {
         expect(
