@@ -409,7 +409,13 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 if (connectionId) {
                     return []
                 }
-                const visiblePosthogTableNames = new Set(['events', 'groups', 'persons', 'sessions'])
+                const visiblePosthogTableNames = new Set([
+                    'events',
+                    'groups',
+                    'persons',
+                    'sessions',
+                    'posthog.ai_events',
+                ])
                 return allPosthogTables.filter((table) => visiblePosthogTableNames.has(table.name))
             },
             { resultEqualityCheck: objectsEqual },

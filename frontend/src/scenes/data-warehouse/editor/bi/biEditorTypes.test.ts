@@ -226,6 +226,7 @@ describe('BI editor query generation', () => {
         ['heatmaps', 'timestamp'],
         ['session_replay_events', 'start_time'],
         ['raw_session_replay_events', 'min_first_timestamp'],
+        ['posthog.ai_events', 'timestamp'],
     ])('creates a relative date filter for the %s table', (table, expression) => {
         const filter = createDefaultDateFilter({ table })
 
