@@ -9,10 +9,23 @@
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --color-text-warning: var(--color-text-primary);
 
-    background-color: #b5cd8f;
+    // .AuthScene--fromWebsite below is the only thing that repaints these.
+    --auth-scene-backdrop-top: #eef4fa;
+    --auth-scene-backdrop-mid: #dbe8f4;
+    --auth-scene-backdrop-bottom: #c4d8ea;
+    --auth-scene-backdrop-glow: rgb(255 255 255 / 55%);
+    --auth-scene-backdrop-ink: rgb(30 56 84 / 62%);
+    --auth-scene-card-shadow: rgb(20 44 72 / 18%);
+
+    background-color: var(--auth-scene-backdrop-mid);
     background-image:
-        radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),
-        linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%);
+        radial-gradient(80% 70% at 50% 30%, var(--auth-scene-backdrop-glow), transparent 70%),
+        linear-gradient(
+            180deg,
+            var(--auth-scene-backdrop-top) 0%,
+            var(--auth-scene-backdrop-mid) 55%,
+            var(--auth-scene-backdrop-bottom) 100%
+        );
     background-repeat: no-repeat;
     background-size: auto;
 
@@ -25,13 +38,23 @@
     .AuthScene__card {
         border-color: #e3e0d4;
         border-radius: 1rem;
-        box-shadow: 0 16px 40px rgb(30 50 10 / 25%);
+        box-shadow: 0 16px 40px var(--auth-scene-card-shadow);
     }
 
-    // Corner notes read as dark-green ink on the garden rather than gray on parchment.
+    // Corner notes read as ink on the backdrop rather than gray on parchment.
     .AuthScene__notes div {
-        color: rgb(45 74 22 / 65%);
+        color: var(--auth-scene-backdrop-ink);
     }
+}
+
+// Continues the green posthog.com just showed the visitor.
+.AuthScene--fromWebsite {
+    --auth-scene-backdrop-top: #cfe0ae;
+    --auth-scene-backdrop-mid: #b5cd8f;
+    --auth-scene-backdrop-bottom: #9dbb78;
+    --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
+    --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
+    --auth-scene-card-shadow: rgb(30 50 10 / 25%);
 }
 
 // A band that sits flush inside a card, such as a sticky section header. It repeats the card's
