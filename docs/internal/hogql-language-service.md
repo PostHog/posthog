@@ -104,6 +104,12 @@ Measurements must separate catalog lookup, parsing, translation, network transit
 decoding, and serialization. A combined translation and execution path is justified only if the extra service hop
 prevents the overhead target.
 
+## Local playground
+
+For manual development testing, the separate [local playground](hogql-language-service-demo.md) starts an isolated service with a synthetic catalog and a browser editor.
+It is excluded from the production binary and container image.
+Its guide records catalog approximations, unsupported workflows, and follow-up checks.
+
 ## Non-goals
 
 - Reimplementing PostHog membership or permission resolution in Go.
