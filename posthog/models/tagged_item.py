@@ -261,8 +261,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
 
             self.content_type = content_type_for_entry(entry)
             setattr(self, entry.object_field, related_id)
-            if self.team_id is None:
-                self.team_id = self.tag.team_id
+            self.team_id = self.tag.team_id
             return
 
     def save(self, *args, **kwargs):

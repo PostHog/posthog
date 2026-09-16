@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 
-from posthog.models import Tag, TaggedItem
+from posthog.models import Tag, TaggedItem, Team
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -176,6 +176,18 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert tagged_item.object_id == dashboard.id
         assert tagged_item.content_type == ContentType.objects.get_for_model(Dashboard)
         assert tagged_item.team_id == tag.team_id
+
+    def test_team_follows_the_tag(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        tagged_item = TaggedItem.objects.create(
+            dashboard_id=dashboard.id, tag=Tag.objects.create(name="tag", team_id=self.team.id)
+        )
+
+        tagged_item.tag = Tag.objects.create(name="tag", team_id=other_team.id)
+        tagged_item.sync_generic_columns()
+
+        assert tagged_item.team_id == other_team.id
 
     def test_helpers_report_the_tagged_object(self):
         insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
