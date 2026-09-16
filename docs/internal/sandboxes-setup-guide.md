@@ -84,8 +84,16 @@ orchestrates these activities:
 2. **get_sandbox_for_repository** — Creates an OAuth access token, provisions a
    Docker sandbox (reusing a snapshot if one exists), clones the repository, and
    stores the sandbox URL in `TaskRun.state`
-3. **start_agent_server** — Runs `npx agent-server` inside the sandbox and polls
-   `/health` until it responds
+3. **start_agent_server** — Prepares and starts the agent server inside the sandbox, then polls `/health` until it responds.
+   Modal uploads one preparation script to install the shell environment hook and GitHub CLI shim.
+   When network enforcement is enabled, that script also installs the agentsh configuration, policy, and environment wrapper, then starts the daemon and creates its session.
+   Files are staged with their required permissions before atomic replacement, and any preparation failure stops the launch.
+   Failed preparation terminates and reaps its agentsh daemon, and captured errors include a bounded daemon log tail when available.
+   The `Modal launch preparation finished` worker log records upload, installation, daemon/session, and total preparation times in milliseconds.
+   This preparation runs inside the `agent_server_invoke` latency metric; `agent_server_prepare` measures credentials and MCP configuration before the sandbox call.
+   The `tasks_modal_launch_preparation_latency` histogram measures the preparation upload and execution in milliseconds, excluding later launch work and failure diagnostics.
+   Labels identify runtime, boot path, origin product, snapshot use, and `COMPLETED` or `FAILED` status; healthy-server reuse emits no preparation sample.
+   Its `_count`, `_sum`, and `_bucket` series support attempt counts, mean duration, and percentiles, with finer buckets between 1 and 10 seconds.
 4. **wait_condition** — The workflow blocks with a 30-minute inactivity timeout,
    extended by `heartbeat` signals from the agent. Exits on a `complete_task`
    signal or when no heartbeat arrives within 30 minutes
@@ -168,12 +176,25 @@ per-run dollar cap. Two JSON object settings can override it:
 
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
-  caps and defaults to `{"signals_implementation": "15"}`.
+  caps and defaults to
+  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
 
 A product override takes precedence over a team override, which takes precedence
 over the default cap. Set the product override to `{}` to disable the built-in
 implementation override. An empty environment value is treated as unset and
 restores the built-in map.
+
+### Which gateway a sandbox run uses
+
+A run reaches the Go gateway only when its `ai_product` is listed in
+`SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
+worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
+the product the token is pinned to, and the agent routes on those in preference to
+what it derives itself. Both are reserved keys: a sandbox environment cannot set them.
+
+When a run lands on the Python gateway unexpectedly, check those two variables first.
+Their absence means no token was minted, so the agent falls back to deriving the
+product from the task run it fetches at boot, which is the path that fails quietly.
 
 ### Agent run telemetry (optional)
 

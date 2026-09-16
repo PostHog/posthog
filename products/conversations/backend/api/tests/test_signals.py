@@ -51,6 +51,15 @@ class TestTicketMessageSignals(BaseTest):
             item_context={"author_type": "team", "is_private": is_private},
         )
 
+    def _create_ai_message(self, content: str, *, is_private: bool = True) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content=content,
+            item_context={"author_type": "AI", "is_private": is_private},
+        )
+
     def test_customer_message_updates_stats(self, mock_on_commit):
         comment = self._create_customer_message("Hello from customer")
 
@@ -70,6 +79,63 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "Response from team"
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 1  # Team messages increment this
+
+    def test_first_public_human_reply_records_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_second_public_human_reply_does_not_overwrite_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_private_human_note_does_not_record_human_outcome(self, mock_on_commit):
+        self._create_ai_message("Add the snippet to the head of every page.")
+        self._create_team_message("Add the snippet to the head of every page.", is_private=True)
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
+
+    def test_human_reply_without_ai_note_does_not_record_human_outcome(self, mock_on_commit):
+        self._create_team_message("Add the snippet to the head of every page.")
+
+        self.ticket.refresh_from_db()
+        assert "human_outcome" not in (self.ticket.ai_triage or {})
+
+    def test_public_ai_reply_is_not_treated_as_a_draft(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("Totally different automated billing answer.", is_private=False)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    def test_human_reply_before_ai_note_does_not_block_later_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_team_message("Looking into this.")
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
+    @patch("products.conversations.backend.signals.capture_message_sent")
+    @patch(
+        "products.conversations.backend.signals.maybe_record_human_outcome",
+        side_effect=RuntimeError("boom"),
+    )
+    def test_human_outcome_failure_does_not_block_message_analytics(self, _mock_record, mock_sent, mock_on_commit):
+        self._create_team_message("Thanks")
+        mock_sent.assert_called_once()
 
     def test_multiple_messages_accumulate(self, mock_on_commit):
         self._create_customer_message("First")
@@ -270,7 +336,7 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_text == "First public"
         assert self.ticket.last_message_at == first_public.created_at
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_slack_ticket_team_message_enqueues_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
@@ -296,7 +362,7 @@ class TestTicketMessageSignals(BaseTest):
         call_kwargs = mock_delay.call_args[1]
         assert call_kwargs["author_email"] == self.user.email
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_private_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()
@@ -320,7 +386,7 @@ class TestTicketMessageSignals(BaseTest):
 
         mock_delay.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.post_reply_to_slack.delay")
+    @patch("products.conversations.backend.tasks.slack.post_reply_to_slack.delay")
     def test_customer_slack_message_does_not_enqueue_slack_reply(self, mock_delay, mock_on_commit):
         self.team.conversations_settings = {"slack_enabled": True}
         self.team.save()

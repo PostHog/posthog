@@ -12,8 +12,9 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_HISTORICAL_DROP,
-    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_AI_EVENT,
+    DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
@@ -25,7 +26,8 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
-use crate::ingestion_warnings::emit_rate_limit_warning;
+use crate::config::CaptureMode;
+use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -56,11 +58,29 @@ fn destination_for_event_name(name: &str) -> Destination {
     }
 }
 
+/// Run the batch through the pipeline, then report its drops and build the
+/// response. The pipeline itself only decides each event's outcome; whatever
+/// stage it exits from, the warnings sweep sees the final outcomes exactly
+/// once, here.
 pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let events = run_pipeline(state, context, batch).await?;
+    emit_drop_warnings(state, context, &events);
+    Ok(BatchResponse::build(context, &events))
+}
+
+/// Every stage of the v1 pipeline, from validation to publishing. Returns the
+/// events with their final per-event outcomes; a whole-batch failure is the
+/// `Err`. Stages that leave nothing to publish return early with what they
+/// have, so the 200 with per-event drops still comes from `process_batch`.
+async fn run_pipeline(
+    state: &router::State,
+    context: &mut Context,
+    batch: Batch,
+) -> Result<Vec<WrappedEvent>, Error> {
     let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
@@ -79,10 +99,6 @@ pub async fn process_batch(
         }
     };
 
-    // Best-effort v2 ingestion warnings for validation drops, emitted before
-    // the all-dropped early return so those batches are covered too.
-    emit_validation_drop_warnings(state, context, &events);
-
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
     // returning 200 (accept-and-discard) so the batch-import-worker doesn't retry.
@@ -100,12 +116,16 @@ pub async fn process_batch(
             dropped_events = events.len(),
             "import mode dropped non-historical batch"
         );
-        return Ok(BatchResponse::build(context, &events));
+        return Ok(events);
+    }
+
+    if state.capture_mode == CaptureMode::Ai {
+        drop_non_ai_events(state, context, &mut events);
     }
 
     // Nothing left to process — return 200 with per-event drops.
     if events.iter().all(|ev| ev.result != EventResult::Ok) {
-        return Ok(BatchResponse::build(context, &events));
+        return Ok(events);
     }
 
     // Verify gateway provenance before the quota limiter so verified events can
@@ -209,7 +229,7 @@ pub async fn process_batch(
     all_results.extend(sink_results);
     merge_sink_results(&mut events, &all_results);
 
-    Ok(BatchResponse::build(context, &events))
+    Ok(events)
 }
 
 // Verify gateway provenance on each `$ai_*` event: a fresh, valid signature stamps
@@ -362,16 +382,17 @@ fn emit_batch_abort_warning(
     );
 }
 
-/// Best-effort v2 ingestion warnings for per-event validation drops: one
-/// message per registered drop tag with the deduped occurrence count.
+/// Best-effort v2 ingestion warnings for per-event drops: one message per
+/// registered drop tag with the deduped occurrence count.
 /// `distinctId`/`eventUuid` are included only when a tag matched exactly one
 /// event — with multiple events they would be ambiguous, so they are omitted.
 /// Skips entirely when the emitter is off or the batch had no drops.
-fn emit_validation_drop_warnings(
-    state: &router::State,
-    context: &Context,
-    events: &[WrappedEvent],
-) {
+///
+/// Runs once per batch, from `process_batch`, after the pipeline has settled
+/// every outcome, so a stage reports a drop by tagging it and nothing else.
+/// Whether the tag turns into a warning is decided in one place,
+/// `WarningType::from_tag`.
+fn emit_drop_warnings(state: &router::State, context: &Context, events: &[WrappedEvent]) {
     let emitter = state.ingestion_warning_emitter.as_deref();
     if emitter.is_none() {
         // Checked up front so a deployment with warnings off doesn't pay for the
@@ -825,6 +846,81 @@ async fn apply_restrictions(
                 .increment(1);
         }
     }
+}
+
+/// Drop every event an AI-mode deployment was sent that is not on the AI lane.
+///
+/// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
+/// so an analytics, exception, or heatmap event reaching it would ingest
+/// governed by nothing. Refusing it is what keeps "which restrictions apply"
+/// answerable from the event name alone, on every deployment. Only the
+/// offenders drop, since v1 reports per-event outcomes; the v0 path on this
+/// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
+/// because its contract has no way to say less. The gate runs before quota and
+/// restrictions so a refused event spends neither.
+fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    let mut dropped: u64 = 0;
+    // Identifiers for the warning, kept only while exactly one event offended.
+    // With several they would be an arbitrary pick, and the count already says
+    // how many there were.
+    let mut single_offender: Option<(String, Uuid)> = None;
+
+    for event in events.iter_mut() {
+        // Gate on the event name, not the destination: `on_ai_lane` documents
+        // why the destination is the wrong question. `should_publish` rather
+        // than `result == Ok` so a Warning event -- which also publishes --
+        // cannot ride an analytics lane out of an AI deployment. Neither case
+        // is reachable at this point today; both make the gate correct on its
+        // own terms rather than on its position in the pipeline.
+        if !event.should_publish() || on_ai_lane(event) {
+            continue;
+        }
+        event.result = EventResult::Drop;
+        event.destination = Destination::Drop;
+        event.details = Some(DETAIL_NON_AI_EVENT);
+        dropped += 1;
+        single_offender = match dropped {
+            1 => Some((event.event.event.clone(), event.uuid)),
+            _ => None,
+        };
+    }
+
+    if dropped == 0 {
+        return;
+    }
+
+    metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "non_ai_event").increment(dropped);
+    // DEBUG, not WARN: a client sending the wrong event name is not an operator
+    // problem, and the SDKs route on the `$ai_` prefix while this gate is the
+    // narrower name allowlist, so it is expected to fire at client volume. The
+    // counter above carries the alerting signal and the warning below tells the
+    // project owner.
+    crate::ctx_log!(
+        Level::DEBUG,
+        context,
+        dropped_events = dropped,
+        "dropped non-AI events sent to the AI lane"
+    );
+
+    // The same `invalid_ai_event` type the v0 AI endpoint emits for an event
+    // name off the allowlist: identical mistake, so a reader of the v2 warnings
+    // table doesn't have to learn a second vocabulary for it.
+    let mut details = serde_json::Map::new();
+    if let Some((event_name, uuid)) = single_offender {
+        details.insert(
+            "eventName".to_string(),
+            serde_json::json!(bounded_detail(&event_name)),
+        );
+        details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
+    }
+    emit_request_warning(
+        state.ingestion_warning_emitter.as_deref(),
+        &context.warning_context(),
+        CAPTURE_V1_ANALYTICS,
+        WarningType::InvalidAiEvent,
+        details,
+        dropped,
+    );
 }
 
 /// Whether this event rides the AI lane, independent of where restrictions
@@ -4315,6 +4411,322 @@ mod tests {
             Some(DETAIL_PERSON_PROCESSING_DISABLED),
             "Events mode must apply the GRL and flag the hot key"
         );
+    }
+
+    // =========================================================================
+    // AI-mode process_batch tests — the non-AI event gate
+    // =========================================================================
+
+    fn named_event(name: &str) -> Event {
+        Event {
+            event: name.to_string(),
+            ..valid_event()
+        }
+    }
+
+    #[tokio::test]
+    async fn ai_mode_drops_non_ai_events_and_publishes_the_rest() {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let ai = named_event("$ai_generation");
+        let ai_uuid = ai.uuid.clone();
+        let batch = valid_batch(vec![
+            ai,
+            named_event("$pageview"),
+            named_event("$exception"),
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let entries = resp.entries();
+        assert_eq!(entries.len(), 3);
+        for (uuid, entry) in entries {
+            if uuid.to_string() == ai_uuid {
+                assert_eq!(entry.result, EventResult::Ok);
+            } else {
+                assert_eq!(entry.result, EventResult::Drop);
+                assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+            }
+        }
+        assert!(!resp.has_retry, "a gated batch must not signal retry");
+
+        ts.mock_producer.with_records(|records| {
+            assert_eq!(records.len(), 1, "only the AI event may publish");
+            assert_eq!(records[0].topic, "ai_events");
+        });
+    }
+
+    /// Lane membership is the `AI_EVENT_NAMES` allowlist, so an `$ai_`-prefixed
+    /// name that is not on it is dropped like any other non-AI event; the Node
+    /// AI pipeline would DLQ it anyway.
+    #[rstest::rstest]
+    #[case::allowlisted("$ai_generation", EventResult::Ok)]
+    #[case::allowlisted_span("$ai_span", EventResult::Ok)]
+    #[case::prefixed_but_unlisted("$ai_not_a_real_event", EventResult::Drop)]
+    #[case::analytics("$pageview", EventResult::Drop)]
+    #[case::exception("$exception", EventResult::Drop)]
+    #[case::heatmap("$$heatmap", EventResult::Drop)]
+    #[tokio::test]
+    async fn ai_mode_gates_on_the_ai_event_allowlist(
+        #[case] event_name: &str,
+        #[case] expected: EventResult,
+    ) {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![named_event(event_name)]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let (_, entry) = &resp.entries()[0];
+        assert_eq!(entry.result, expected, "event={event_name}");
+        if expected == EventResult::Drop {
+            assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+        }
+    }
+
+    /// The control proving the gate is mode-scoped, not a change to how the
+    /// shared pipeline treats these names.
+    #[tokio::test]
+    async fn events_mode_leaves_non_ai_events_alone() {
+        let ts = TestStateBuilder::new().build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![
+            named_event("$ai_generation"),
+            named_event("$pageview"),
+            named_event("$exception"),
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        for (_, entry) in resp.entries() {
+            assert_eq!(entry.result, EventResult::Ok);
+            assert_eq!(entry.details, None);
+        }
+        ts.mock_producer
+            .with_records(|records| assert_eq!(records.len(), 3));
+    }
+
+    /// A batch with nothing but non-AI events leaves no event publishable, so
+    /// the gate hands straight to the all-dropped early return. Every other
+    /// AI-mode test keeps at least one `$ai_` event, so this is the only one
+    /// that exercises that path: the response must still be a 200 carrying a
+    /// per-event verdict for each event, not an error.
+    #[tokio::test]
+    async fn ai_mode_batch_of_only_non_ai_events_returns_200_with_every_event_dropped() {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![
+            named_event("$pageview"),
+            named_event("$exception"),
+            named_event("$ai_not_a_real_event"),
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let entries = resp.entries();
+        assert_eq!(entries.len(), 3, "every event still gets a verdict");
+        for (_, entry) in entries {
+            assert_eq!(entry.result, EventResult::Drop);
+            assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+        }
+        assert!(!resp.has_retry, "a fully gated batch must not signal retry");
+        ts.mock_producer
+            .with_records(|records| assert!(records.is_empty(), "nothing may publish"));
+    }
+
+    /// The gate keys on the event name, not the destination, so a restriction
+    /// that has already retargeted an AI event cannot smuggle it into the
+    /// non-AI drop. `force_overflow` sends it to `AiEventsOverflow`,
+    /// `redirect_to_topic` to `Custom`, a DLQ restriction to `Dlq` -- all three
+    /// are still the AI lane.
+    ///
+    /// `apply_restrictions` runs after the gate, so this state is not reachable
+    /// through `process_batch`. The gate is called directly here so the
+    /// invariant holds on its own terms rather than on stage ordering: if the
+    /// two stages were ever reordered, nothing else in the suite would fail.
+    #[rstest::rstest]
+    #[case::force_overflow(Destination::AiEventsOverflow)]
+    #[case::redirect_to_topic(Destination::Custom("some_other_topic".to_string()))]
+    #[case::redirect_to_dlq(Destination::Dlq)]
+    #[tokio::test]
+    async fn ai_lane_events_survive_the_gate_wherever_restrictions_pointed_them(
+        #[case] destination: Destination,
+    ) {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let ctx = test_utils::test_analytics_context();
+        let mut events = vec![test_utils::wrapped_event("$ai_generation", "user-1")
+            .with_destination(destination.clone())];
+
+        drop_non_ai_events(&ts.state, &ctx, &mut events);
+
+        assert_eq!(
+            events[0].result,
+            EventResult::Ok,
+            "an allowlisted AI event stays on the lane wherever it was pointed"
+        );
+        assert_eq!(events[0].destination, destination);
+        assert_eq!(events[0].details, None);
+    }
+
+    /// The other direction: a destination of `AiEvents` does not put a non-AI
+    /// event on the lane. Only the event name decides membership.
+    #[tokio::test]
+    async fn a_non_ai_event_pointed_at_the_ai_destination_is_still_dropped() {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let ctx = test_utils::test_analytics_context();
+        let mut events = vec![test_utils::wrapped_event("$pageview", "user-1")
+            .with_destination(Destination::AiEvents)];
+
+        drop_non_ai_events(&ts.state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].destination, Destination::Drop);
+        assert_eq!(events[0].details, Some(DETAIL_NON_AI_EVENT));
+    }
+
+    #[tokio::test]
+    async fn ai_mode_non_ai_drop_emits_the_invalid_ai_event_warning() {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let offender = named_event("$pageview");
+        let offender_uuid = offender.uuid.clone();
+        let batch = valid_batch(vec![named_event("$ai_generation"), offender]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+        assert_eq!(emitted[0].count, 1);
+        assert_eq!(
+            emitted[0].extra_details.get("eventName"),
+            Some(&serde_json::json!("$pageview"))
+        );
+        assert_eq!(
+            emitted[0].extra_details.get("eventUuid"),
+            Some(&serde_json::json!(offender_uuid))
+        );
+    }
+
+    /// An oversized AI event must stay visible to the project owner. v0 maps
+    /// `CaptureError::AiEventTooBig` to `MessageSizeTooLarge`; v1 reaches the
+    /// same warning through the drop tag. The ceiling applies on every
+    /// deployment that carries AI events, so the warning does too: SDKs send
+    /// `$ai_*` events through the analytics endpoint as well.
+    #[rstest::rstest]
+    #[case::ai_deployment(CaptureMode::Ai)]
+    #[case::analytics_deployment(CaptureMode::Events)]
+    #[tokio::test]
+    async fn oversize_ai_event_emits_the_message_size_warning(#[case] capture_mode: CaptureMode) {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(capture_mode)
+            .with_ai_max_event_bytes(700)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        let oversized_uuid = oversized.uuid.clone();
+        let batch = valid_batch(vec![oversized, named_event("$ai_generation")]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let dropped: Vec<_> = resp
+            .entries()
+            .iter()
+            .filter(|(_, e)| e.result == EventResult::Drop)
+            .collect();
+        assert_eq!(dropped.len(), 1, "only the oversized event drops");
+        assert_eq!(dropped[0].1.details, Some(DETAIL_AI_EVENT_TOO_BIG));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1, "exactly one warning, not one per pass");
+        assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+        assert_eq!(emitted[0].count, 1);
+        assert_eq!(
+            emitted[0].extra_details.get("eventUuid"),
+            Some(&serde_json::json!(oversized_uuid))
+        );
+    }
+
+    /// Drops from different stages of one batch each surface once. Validation
+    /// and the AI size ceiling both drop an event here; the single end-of-batch
+    /// sweep reports both without repeating either.
+    #[tokio::test]
+    async fn drops_from_several_stages_each_surface_once() {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ai_max_event_bytes(700)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        let mut no_distinct_id = named_event("$ai_generation");
+        no_distinct_id.distinct_id = String::new();
+
+        let batch = valid_batch(vec![
+            oversized,
+            no_distinct_id,
+            named_event("$ai_generation"),
+        ]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        let mut seen: Vec<_> = emitted.iter().map(|e| e.warning).collect();
+        seen.sort_by_key(|w| w.as_str());
+        let unique: std::collections::HashSet<_> = seen.iter().collect();
+        assert_eq!(
+            seen.len(),
+            unique.len(),
+            "each warning type may be emitted at most once: {seen:?}"
+        );
+        assert!(seen.contains(&WarningType::MessageSizeTooLarge));
+        assert!(seen.contains(&WarningType::MissingDistinctId));
+    }
+
+    /// With several offenders the identifiers would be an arbitrary pick, so
+    /// only the count rides along, the same rule the validation-drop warnings
+    /// follow.
+    #[tokio::test]
+    async fn ai_mode_several_non_ai_drops_report_a_count_without_identifiers() {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![named_event("$pageview"), named_event("$exception")]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidAiEvent);
+        assert_eq!(emitted[0].count, 2);
+        assert!(!emitted[0].extra_details.contains_key("eventName"));
+        assert!(!emitted[0].extra_details.contains_key("eventUuid"));
     }
 
     // =========================================================================

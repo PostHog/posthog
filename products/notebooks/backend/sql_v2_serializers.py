@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from django.db import models
@@ -48,6 +49,16 @@ MAX_VARIABLE_NAME_CHARS = 200
 MAX_VARIABLE_VALUE_CHARS = 1_000
 
 
+def _is_absolute_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value.strip())
+    except ValueError:
+        return False
+    return True
+
+
 class NotebookVariableSerializer(serializers.Serializer):
     """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
 
@@ -64,16 +75,32 @@ class NotebookVariableSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "The variable's current value. A 'date' accepts an absolute date or a relative "
-            "expression ('-7d', 'mStart'), resolved against the project timezone."
+            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form "
+            "('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
         ),
     )
 
     def validate_value(self, value: Any) -> Any:
-        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
-        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+        if value is None:
+            return value
+        # Only scalars are ever bound. A dict or a list binds as its Python repr, which the
+        # state endpoint prints again for every cell that reads the name.
+        if not isinstance(value, str | int | float | bool):
+            raise serializers.ValidationError("Use a string, a number, a boolean, or null.")
+        # The printed form is what a run and a state read carry, so bound that rather than the
+        # string alone. A long number reaches the engine the same way a long string does.
+        if len(str(value)) > MAX_VARIABLE_VALUE_CHARS:
             raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # The editor's date picker only writes absolute dates, and a relative one would re-resolve
+        # against the clock on every read, so a cell reading it could never compare equal to the
+        # value its last run bound.
+        value = attrs.get("value")
+        if attrs.get("type") == "date" and value is not None and not _is_absolute_date(value):
+            raise serializers.ValidationError({"value": "Use an absolute date, like 2025-01-31."})
+        return attrs
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
@@ -92,6 +119,11 @@ class NotebookSQLV2NodeType(models.TextChoices):
 
 
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
+    reuse_results = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Reuse the requesting user's running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to token-only callers, kernel runs, or connection runs.",
+    )
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
         choices=NotebookSQLV2NodeType.choices,
@@ -392,13 +424,33 @@ class NotebookCellLastRunSerializer(serializers.Serializer):
 class NotebookCellStateSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Durable cell identity, used by the cell run and edit endpoints.")
     cell_type = serializers.CharField(
-        help_text="Cell kind: 'sql', 'python', or 'saved_insight' (embedded insight, never runs)."
+        help_text=(
+            "Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or "
+            "'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph)."
+        )
     )
     dataframe_name = serializers.CharField(
         allow_blank=True,
         help_text="Name other cells reference this cell's result by; blank means display-only.",
     )
-    code = serializers.CharField(allow_blank=True, help_text="The cell's source, truncated with a marker past 8KB.")
+    code = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "The cell's source, truncated with a marker past 8KB. For a markdown cell this is the block's markdown."
+        ),
+    )
+    start = serializers.IntegerField(
+        help_text=(
+            "Offset where the cell's source starts in the notebook's markdown, in UTF-16 code "
+            "units, the same unit the collaboration diffs use."
+        )
+    )
+    end = serializers.IntegerField(
+        help_text=(
+            "Offset just past the cell's source, in UTF-16 code units, excluding the blank lines "
+            "that separate it from the next cell."
+        )
+    )
     status = serializers.CharField(
         help_text=(
             "Derived cell state: 'never_run', 'running', 'done', 'failed', 'interrupted', or 'stale' — "
@@ -431,7 +483,9 @@ class NotebookKernelStateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Memory in GB the notebook's sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
 
 
@@ -457,6 +511,13 @@ class NotebookSQLV2StateResponseSerializer(serializers.Serializer):
         ),
     )
     kernel = NotebookKernelStateSerializer(help_text="The notebook's kernel runtime state and compute config.")
+    variables = NotebookVariableSerializer(
+        many=True,
+        help_text=(
+            "The notebook's declared variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global; a cell that reads an undeclared name fails to run."
+        ),
+    )
     cells = NotebookCellStateSerializer(
         many=True,
         help_text="Every cell in document order, with its dependency edges and derived run state.",
@@ -496,7 +557,9 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Disk size in GB the sandbox is configured with."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Seconds of inactivity before the sandbox shuts down."
+        required=False,
+        allow_null=True,
+        help_text="Maximum lifetime of the sandbox in seconds. It shuts down this long after it starts, even while in use.",
     )
     hourly_price = serializers.FloatField(
         help_text=(
@@ -539,7 +602,8 @@ class NotebookComputeOptionsResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(), help_text="Memory sizes in GB the kernel config endpoint accepts."
     )
     allowed_idle_timeout_seconds = serializers.ListField(
-        child=serializers.IntegerField(), help_text="Idle timeouts in seconds the kernel config endpoint accepts."
+        child=serializers.IntegerField(),
+        help_text="Maximum sandbox lifetimes in seconds that the kernel config endpoint accepts.",
     )
 
 
@@ -551,7 +615,9 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Configured memory in GB; null means the default applies."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Configured idle timeout in seconds; null means the default."
+        required=False,
+        allow_null=True,
+        help_text="Configured maximum sandbox lifetime in seconds; null means the default.",
     )
     restarted = serializers.BooleanField(
         help_text=(

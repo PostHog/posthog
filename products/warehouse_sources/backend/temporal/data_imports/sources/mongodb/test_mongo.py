@@ -2,9 +2,10 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -13,21 +14,31 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
     _build_query,
+    _get_avg_document_size,
+    _get_partition_settings,
     _get_rows_to_sync,
     _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
+    get_server_metadata,
     mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -48,16 +59,20 @@ class TestSafeServerSelector(SimpleTestCase):
         assert result[0].address == ("8.8.8.8", 27017)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_returns_empty_when_all_servers_internal(self):
+    def test_raises_when_all_servers_internal(self):
+        # Returning an empty selection would let pymongo time out with the same text a cluster
+        # outage produces, which is classified retryable — so the schedule would keep probing a
+        # host the policy already refused. The raised error disables the sync instead.
         selector = _make_safe_server_selector(team_id=999)
         servers = [
             ServerDescription(("10.0.0.1", 27017)),
             ServerDescription(("192.168.1.1", 27017)),
         ]
 
-        result = selector(servers)
+        with pytest.raises(HostNotAllowedError) as excinfo:
+            selector(servers)
 
-        assert result == []
+        assert DATABASE_HOST_NOT_ALLOWED_ERROR in str(excinfo.value)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_allows_all_public_servers(self):
@@ -83,9 +98,8 @@ class TestSafeServerSelector(SimpleTestCase):
         selector = _make_safe_server_selector(team_id=999)
         servers = [ServerDescription((host, 27017))]
 
-        result = selector(servers)
-
-        assert result == []
+        with pytest.raises(HostNotAllowedError):
+            selector(servers)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_whitelisted_team_allows_internal_ips(self):
@@ -396,26 +410,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Port contains non-digit characters. Hint: username and password must be escaped "
                 "according to RFC 3986, use urllib.parse.quote_plus",
             ),
-            # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
-            # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
-            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            # The resolver says the cluster host name does not exist. pymongo reports it as a
+            # server-selection timeout, but the OS marker makes it a connection-string mistake that
+            # no retry recovers, unlike the bare topology timeout below.
             (
-                "no_replica_set_members",
-                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
-                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
-            ),
-            # Host resolves but every connection attempt is closed for the whole window — the driver
-            # never identifies the server (topology_type: Unknown) and wraps the per-server
-            # AutoReconnect. Persistent connectivity/config problem, not a momentary blip.
-            (
-                "connection_closed_selection_timeout",
-                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
-                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
-                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
-                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
-                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
-                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
-                "connectTimeoutMS: 20000.0ms)')>]>",
+                "dns_name_not_found",
+                "cluster0.example.mongodb.net:27017: [Errno -2] Name or service not known, Timeout: "
+                "10.0s, Topology Description: <TopologyDescription topology_type: Unknown>",
             ),
             # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
             # driver, so the topology stays Unknown and selection times out. Despite the "connection
@@ -428,6 +429,26 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "topology_type: Unknown, servers: [<ServerDescription "
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
+            ),
+            # The connection string names a replica set the cluster doesn't answer to, so pymongo
+            # drops every server and the selection error names the set instead of a host. Only a
+            # corrected name recovers this, unlike the "found yet" wording a down cluster emits.
+            (
+                "replica_set_name_no_members",
+                'No replica set members available for replica set name "rs0", Timeout: 10.0s, '
+                "Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: ReplicaSetNoPrimary, servers: []>",
+            ),
+            # The same mismatch on a direct connection: the node stays Unknown carrying pymongo's
+            # ConfigurationError, which names both set names.
+            (
+                "replica_set_name_mismatch",
+                "client is configured to connect to a replica set named 'rs0' but this node belongs "
+                "to a set named 'rs1', Timeout: 10.0s, Topology Description: <TopologyDescription "
+                "id: 6a304febea674ebc4c8c051e, topology_type: Single, servers: [<ServerDescription "
+                "('cluster0.example.mongodb.net', 27017) server_type: Unknown, rtt: None, "
+                'error=ConfigurationError("client is configured to connect to a replica set named '
+                "'rs0' but this node belongs to a set named 'rs1'\")>]>",
             ),
             # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
             # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
@@ -458,6 +479,24 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
                 "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)",
             ),
+            # A cluster that is down for one selection window emits the same server-selection
+            # timeout a permanently blocked one does, so none of these may disable the schema.
+            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            (
+                "no_replica_set_members",
+                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
+            (
+                "connection_closed_selection_timeout",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
+                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
+                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
+                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
+                "connectTimeoutMS: 20000.0ms)')>]>",
+            ),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -470,11 +509,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
             ("atlas_bad_auth", "bad auth", "password"),
-            ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("dns_name_not_found", "Name or service not known", "resolved"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
             ("key_not_found", "No keys found for HMAC", "key management"),
+            ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
+            ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -515,6 +556,68 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
 
+    def test_signing_keys_unavailable_is_classified_retryable(self):
+        # mongo.py rewrites OperationFailure code 211 (KeyNotFound) to this message, so it is the
+        # text that reaches classification. Without a match the run reports as a bug nobody can act
+        # on, because the cluster clears a key rotation on its own.
+        assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
+            f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
+        )
+
+    def test_server_selection_timeout_is_classified_retryable(self):
+        # Regression: a cluster down for one selection window used to disable the schema, leaving
+        # the table stale until someone re-enabled the sync by hand.
+        error_msg = (
+            "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+            "<TopologyDescription topology_type: ReplicaSetNoPrimary>"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB server selection timeout should be classified retryable: {error_msg}"
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "unreachable_cluster",
+                "No servers found yet, Timeout: 5.0s, Topology Description: <TopologyDescription ...>",
+                "allowlisted",
+            ),
+            # A resolver answering EAI_AGAIN fails server selection too, so this error carries the
+            # topology marker as well and would otherwise be told to check a correct allowlist.
+            (
+                "temporary_resolution_failure",
+                "cluster0.example.mongodb.net:27017: [Errno -3] Temporary failure in name resolution, "
+                "Timeout: 10.0s, Topology Description: <TopologyDescription ...>",
+                "dns records",
+            ),
+        ]
+    )
+    def test_exhausted_retries_replace_the_topology_dump(self, _name, error_msg, expected_phrase):
+        # The schema stays enabled, so the stored error is what the user reads. Left alone it would
+        # be the raw dump of every seed host, port, and per-server driver exception. Mirror the
+        # finalizer's first-match selection over get_retry_exhausted_errors.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
+
+        exhausted = MongoDBSource().get_retry_exhausted_errors()
+        message = next(
+            (m for pattern, m in exhausted.items() if error_message_matches(error_msg, [pattern])),
+            None,
+        )
+        assert message is not None, f"Exhausted retryable error must surface a message: {error_msg}"
+        assert "Topology Description" not in message
+        assert expected_phrase in message.lower()
+
+    def test_interrupted_at_shutdown_is_classified_retryable(self):
+        # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
+        # primary shutting down or stepping down); the next retry hits the new primary.
+        error_msg = (
+            "PlanExecutor error during aggregation :: caused by :: interrupted at shutdown, "
+            "full error: {'ok': 0.0, 'code': 11600, 'codeName': 'InterruptedAtShutdown'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB shutdown failover should be classified retryable: {error_msg}"
+        )
+
 
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
@@ -528,9 +631,7 @@ class TestGetRowsToSync(SimpleTestCase):
 
     def test_pymongo_error_returns_zero_without_capture(self):
         coll = MagicMock()
-        coll.count_documents.side_effect = ServerSelectionTimeoutError(
-            "atlas-sql.query.mongodb.net:27017: connection closed, Timeout: 10.0s"
-        )
+        coll.count_documents.side_effect = OperationFailure("count command not supported on this view")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.capture_exception"
         ) as capture:
@@ -545,6 +646,40 @@ class TestGetRowsToSync(SimpleTestCase):
         ) as capture:
             assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
             capture.assert_called_once()
+
+
+class TestProbesFailFastOnUnreachableCluster(SimpleTestCase):
+    """The metadata probes are best-effort and swallow their errors. Each one runs its own server
+    selection, so swallowing an unreachable cluster spends another full selection window before
+    the extraction read fails the attempt anyway."""
+
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_rows_to_sync_propagates(self, _name, error):
+        coll = MagicMock()
+        coll.count_documents.side_effect = error
+
+        with pytest.raises(type(error)):
+            _get_rows_to_sync(coll, {}, MagicMock())
+
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_collstats_probes_propagate(self, _name, error):
+        coll = MagicMock()
+        coll.database.command.side_effect = error
+
+        with pytest.raises(type(error)):
+            _get_partition_settings(coll, "orders")
+        with pytest.raises(type(error)):
+            _get_avg_document_size(coll, MagicMock())
 
 
 class TestListImportableCollectionNames(SimpleTestCase):
@@ -744,6 +879,35 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.cursors[0].sorted_by == ["_id", 1]
         assert collection.cursors[1].sorted_by == ["_id", 1]
 
+    def test_execution_timeout_mid_stream_resumes_from_last_id(self):
+        # Regression: Atlas free/shared/flex tier clusters enforce a hard operation execution-time
+        # limit independent of no_cursor_timeout, so a getMore against a large collection can be
+        # killed with OperationFailure code 50 (MaxTimeMSExpired) partway through. The cursor is
+        # _id-ordered, so last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=OperationFailure("operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3", 50),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+
+    def test_execution_timeout_without_progress_is_not_retried_forever(self):
+        # Resuming re-runs the same query, so a getMore that times out before yielding anything
+        # would hit the identical limit again — it must re-raise instead of looping forever.
+        collection = _FakeCollection([], error=OperationFailure("operation exceeded time limit", 50))
+
+        with self.assertRaises(OperationFailure):
+            self._run_get_rows(collection)
+
+        assert len(collection.find_calls) == 1
+
     @parameterized.expand(
         [
             (
@@ -780,6 +944,25 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert "no_cursor_timeout" not in collection.find_calls[1]
         assert collection.cursors[0].closed is True
         assert collection.cursors[1].closed is True
+
+    def test_key_rotation_failure_reports_a_message_without_the_server_response(self):
+        # A cluster mid key rotation fails a getMore with code 211 part way through the read, and
+        # pymongo's str() appends the whole server response, which must not reach the customer's
+        # sync error. The rewrite must also come before the no_cursor_timeout fallback check, which
+        # re-raises everything once a document was read.
+        raw_error = OperationFailure(
+            "No keys found for HMAC that is valid for time: { ts: Timestamp(1756713600, 4) } with id: "
+            "7300000000000000001, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC', 'code': 211, "
+            "'codeName': 'KeyNotFound'}",
+            211,
+        )
+        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}], error=raw_error, error_after=1)
+
+        with self.assertRaises(OperationFailure) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_KEYS_UNAVAILABLE_ERROR
+        assert ctx.exception.__cause__ is raw_error
 
     def test_other_operation_failures_are_not_retried(self):
         # The fallback must be scoped to the specific tier-limitation error, not OperationFailure
@@ -837,3 +1020,63 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestGetServerMetadata(SimpleTestCase):
+    @staticmethod
+    def _server(host: str, max_wire_version: int | None) -> ServerDescription:
+        # A ServerDescription built without a hello response is the state pymongo holds for a node
+        # it has not handshaked with, which is what the probe has to leave out.
+        if max_wire_version is None:
+            return ServerDescription((host, 27017))
+        return ServerDescription(
+            (host, 27017),
+            Hello({"ok": 1, "isWritablePrimary": True, "minWireVersion": 0, "maxWireVersion": max_wire_version}),
+        )
+
+    @contextlib.contextmanager
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterator[None]:
+        client = MagicMock()
+        client.server_info.return_value = {"version": server_version}
+        client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client"
+        ) as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            yield
+
+    @parameterized.expand(
+        [
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21, 1, 1),
+            # The driver refuses the whole topology over one node below its floor, so reporting
+            # anything but the weakest node would mark this source safe to upgrade when it is not.
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7, 2, 2),
+            # Server selection returns on the first usable node, so the wire version here comes
+            # from a partial view. The counts have to disagree, or the reading passes as complete
+            # and an older secondary the probe never saw goes uncounted.
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13, 1, 2),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None, 0, 1),
+        ]
+    )
+    def test_wire_version_comes_from_the_weakest_handshaked_node(
+        self,
+        _name: str,
+        server_version: str,
+        nodes: list[tuple[str, int | None]],
+        expected_wire_version: int | None,
+        expected_handshaked_nodes: int,
+        expected_topology_nodes: int,
+    ) -> None:
+        servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
+
+        with self._patched_client(server_version, servers):
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db?tls=true", team_id=1)
+
+        assert metadata["engine"] == "mongodb"
+        assert metadata["server_version"] == server_version
+        assert metadata["handshaked_nodes"] == expected_handshaked_nodes
+        assert metadata["topology_nodes"] == expected_topology_nodes
+        if expected_wire_version is None:
+            assert "wire_version" not in metadata
+        else:
+            assert metadata["wire_version"] == expected_wire_version

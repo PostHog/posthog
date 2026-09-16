@@ -264,6 +264,11 @@ export function computeAreaBounds(element: HTMLElement): HeatmapBoundsFilter {
 // a page and can't miss rows that shifted across page boundaries between scans
 const ELEMENT_STATS_AUTO_LOAD_LIMIT = 50000
 
+// one press of "Load all" covers at most this many pages. Each page re-runs the matcher over every
+// row loaded so far, so an uncapped run on a busy site grows its own cost with each page. The button
+// comes back when the cap is reached, so a longer range takes another press rather than a hung tab.
+export const LOAD_ALL_MAX_PAGES = 20
+
 export type ClickmapProcessingTrigger = 'initial' | 'auto-load' | 'pagination' | 'refresh' | 'toggle'
 
 interface ElementProcessingCache {
@@ -338,7 +343,6 @@ export interface heatmapToolbarMenuLogicValues {
     heatmapElements: HeatmapElement[] // heatmapDataLogic
     heatmapFilters: HeatmapFilters // heatmapDataLogic
     heatmapFixedPositionMode: HeatmapFixedPositionMode // heatmapDataLogic
-    heatmapTooltipLabel: string // heatmapDataLogic
     rawHeatmapLoading: boolean // heatmapDataLogic
     viewportRange: {
         max: number
@@ -375,7 +379,9 @@ export interface heatmapToolbarMenuLogicValues {
         limit: number
         url: string | null
     } | null
+    loadAllPagesLoaded: number
     loadedElementStatsCount: number
+    loadingAllElementStats: boolean
     matchLinksByHref: boolean
     processedElements: CountedHTMLElement[]
     processingInputs: {
@@ -393,7 +399,6 @@ export interface heatmapToolbarMenuLogicValues {
         processed: number
         total: number
     } | null
-    samplingFactor: number
     scrollDepthPosthogJsError: 'disabled' | 'version' | null
     wantedDataAttributes: string[]
     windowHeight: number
@@ -567,19 +572,22 @@ export interface heatmapToolbarMenuLogicActions {
         processed: number
         total: number
     }
-    setSamplingFactor: (samplingFactor: number) => {
-        samplingFactor: number
-    }
     startAreaSelection: () => {
         value: true
     }
     startElementObservation: () => {
         value: true
     }
+    startLoadingAllElementStats: () => {
+        value: true
+    }
     stepAreaHover: (direction: 'down' | 'up') => {
         direction: 'down' | 'up'
     }
     stopElementObservation: () => {
+        value: true
+    }
+    stopLoadingAllElementStats: () => {
         value: true
     }
     toggleClickmapsEnabled: (enabled: boolean) => {
@@ -659,7 +667,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'viewportRange',
                 'heatmapFilters',
                 'heatmapElements',
-                'heatmapTooltipLabel',
                 'dateRange',
             ],
         ],
@@ -690,8 +697,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         enableHeatmap: true,
         disableHeatmap: true,
         toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
-        setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
+        startLoadingAllElementStats: true,
+        stopLoadingAllElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
         loadAllEnabled: true,
         maybeLoadClickmap: true,
@@ -800,6 +808,29 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 getElementStatsFailure: () => true, // so at least someone can recover from transient errors
             },
         ],
+        loadAllPagesLoaded: [
+            0,
+            {
+                startLoadingAllElementStats: () => 0,
+                getElementStatsSuccess: (state) => state + 1,
+            },
+        ],
+        loadingAllElementStats: [
+            false,
+            {
+                startLoadingAllElementStats: () => true,
+                stopLoadingAllElementStats: () => false,
+                // the last page ends the run; a page that carries no next link at all ends it too,
+                // so a refused request cannot leave the button reading "Stop loading" forever
+                getElementStatsSuccess: (state, { elementStats }) => state && !!elementStats.next,
+                getElementStatsFailure: () => false,
+                resetElementStats: () => false,
+                disableHeatmap: () => false,
+                // the run belongs to the page and pattern it started on
+                setHref: () => false,
+                setWildcardHref: () => false,
+            },
+        ],
         heatmapEnabled: [
             false,
             {
@@ -811,13 +842,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             true,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        samplingFactor: [
-            1,
-            { persist: true },
-            {
-                setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
             },
         ],
         elementMetrics: [
@@ -902,7 +926,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   date_from: values.commonFilters.date_from,
                                   date_to: values.commonFilters.date_to,
                                   paginate_response: true,
-                                  sampling_factor: values.samplingFactor,
                                   limit: limit ?? ELEMENT_STATS_PAGE_LIMIT,
                                   // the matchers only read the configured data attributes from each
                                   // element's attributes map, so let the server drop the rest
@@ -1214,9 +1237,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
 
-        // the feature flag gates only the menu button; the whole selection machine stays
-        // dormant because startAreaSelection is that button's only caller — a second caller
-        // would silently un-gate the feature
         startAreaSelection: () => {
             // product tours' picker also listens for document clicks; two armed pickers
             // would both consume the same page click
@@ -1362,10 +1382,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setCommonFilters: () => {
             actions.loadAllEnabled()
         },
-        setSamplingFactor: () => {
-            actions.maybeLoadClickmap()
-        },
-
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.maybeLoadClickmap()
@@ -1378,6 +1394,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 cache.lastHref = undefined
                 cache.visibilityCache = new WeakMap()
             }
+        },
+
+        startLoadingAllElementStats: () => {
+            // the first page starts the run; getElementStatsSuccess requests the next one
+            actions.loadMoreElementStats()
         },
 
         loadMoreElementStats: () => {
@@ -1402,6 +1423,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             // trigger refetches, so an auto-load result can never re-trigger itself.
             if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
+            } else if (
+                values.loadingAllElementStats &&
+                elementStats?.next &&
+                values.heatmapEnabled &&
+                values.clickmapsEnabled
+            ) {
+                if (values.loadAllPagesLoaded >= LOAD_ALL_MAX_PAGES) {
+                    actions.stopLoadingAllElementStats()
+                } else {
+                    actions.getElementStats(elementStats.next)
+                }
             }
         },
 

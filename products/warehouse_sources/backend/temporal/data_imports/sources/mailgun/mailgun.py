@@ -282,7 +282,21 @@ def get_domain_names(api_key: str, base_url: str, logger: FilteringBoundLogger) 
         skip += config.page_size
 
 
-def validate_credentials(api_key: str, region: str) -> bool:
+# Mailgun keys are scoped to one region, so a good key checked against the wrong region is
+# rejected exactly like a bad key. Naming both leaves something to act on either way.
+INVALID_KEY_ERROR = (
+    "Mailgun rejected the API key. Check that you copied the private API key from Settings > API "
+    "security, and that the region matches where your account is hosted."
+)
+FORBIDDEN_ERROR = (
+    "Mailgun denied access with this API key. Use a key that can read your sending domains, then try again."
+)
+UNREACHABLE_ERROR = (
+    "Couldn't reach Mailgun to check your API key. This is usually temporary, so try again in a few minutes."
+)
+
+
+def validate_credentials(api_key: str, region: str) -> tuple[bool, str | None]:
     """Confirm the private API key is valid for the region. A 1-item domain listing is a cheap probe."""
     try:
         response = make_tracked_session().get(
@@ -291,9 +305,16 @@ def validate_credentials(api_key: str, region: str) -> bool:
             auth=("api", api_key),
             timeout=10,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, UNREACHABLE_ERROR
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 403:
+        return False, FORBIDDEN_ERROR
+    if response.status_code >= 500:
+        return False, UNREACHABLE_ERROR
+    return False, INVALID_KEY_ERROR
 
 
 def get_rows(

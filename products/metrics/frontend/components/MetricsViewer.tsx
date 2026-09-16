@@ -29,6 +29,8 @@ import { AccessControlLevel, AccessControlResourceType, DateMappingOption } from
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
+import { MetricsPanel } from '../panels/MetricsPanel'
+import { METRICS_PANELS } from '../panels/registry'
 import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
@@ -37,18 +39,13 @@ import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
-import { MetricsSeriesChart } from './MetricsSeriesChart'
 import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
 
-// `stat` is in the schema but has no renderer yet, so the picker doesn't offer it.
-const DISPLAY_TYPE_OPTIONS: { value: MetricsDisplayType; label: string }[] = [
-    { value: 'line', label: 'Line' },
-    { value: 'area', label: 'Area' },
-    { value: 'bar', label: 'Bar' },
-]
+const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
+const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table']
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
 const DATE_OPTIONS: DateMappingOption[] = [
@@ -123,6 +120,7 @@ export const MetricsViewer = (): JSX.Element => {
         clearAnomaly,
         saveAsInsight,
         addToDashboard,
+        createAlert,
         closeAddToDashboardModal,
         setDisplayType,
     } = useActions(logic)
@@ -130,6 +128,20 @@ export const MetricsViewer = (): JSX.Element => {
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
     // Staff-only PoC gate, layered on top of the wider metrics alpha flag.
     const errorOverlaysEnabled = useFeatureFlag('METRICS_ERROR_OVERLAYS')
+    // Grafana-style scalar/categorical panels. Flag-gated; the registry describes each panel.
+    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
+
+    // Gate on the result shape, not the clause edits: a formula result is ungrouped even
+    // when its input clauses group, and a clause without a metric name never runs.
+    const resultIsGrouped = chartSeries.some((s) => Object.keys(s.labels).length > 0)
+    const displayTypeOptions = useMemo(() => {
+        const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
+        return types.map((value) => {
+            const def = METRICS_PANELS[value]
+            const disabledReason = def.needsGroupBy && !resultIsGrouped ? 'Add a group-by to use this panel' : undefined
+            return { value, label: def.label, disabledReason }
+        })
+    }, [dashboardPanelsEnabled, resultIsGrouped])
     const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
@@ -288,7 +300,7 @@ export const MetricsViewer = (): JSX.Element => {
                         <LemonSelect
                             size="small"
                             value={displayType}
-                            options={DISPLAY_TYPE_OPTIONS}
+                            options={displayTypeOptions}
                             onChange={setDisplayType}
                             data-attr="metrics-viewer-display-type"
                             disabledReason={metricsViewerDisabledReason}
@@ -309,6 +321,19 @@ export const MetricsViewer = (): JSX.Element => {
                             }
                         >
                             Save as insight
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() => createAlert()}
+                            loading={savedInsightLoading}
+                            tooltip="Get notified when this metric crosses a threshold (uses insight alerts)"
+                            disabledReason={
+                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                            }
+                            data-attr="metrics-viewer-create-alert"
+                        >
+                            Create alert
                         </LemonButton>
                         <LemonButton
                             size="small"
@@ -364,7 +389,7 @@ export const MetricsViewer = (): JSX.Element => {
                                 </LemonBanner>
                             </div>
                         ) : hasResults ? (
-                            <MetricsSeriesChart
+                            <MetricsPanel
                                 series={chartSeries}
                                 fallbackName={formula || metricName || 'metric'}
                                 display={metricsDisplay}

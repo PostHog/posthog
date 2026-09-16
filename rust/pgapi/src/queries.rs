@@ -9,6 +9,13 @@ use serde_json::{json, Value};
 
 type Ts = DateTime<Utc>;
 
+/// Read a bigint back out of a row `Db::query` produced. Values past 2^53 come back
+/// as strings so JavaScript keeps them intact; query ids and fingerprints always do.
+fn json_i64(v: &Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+}
+
 /// Query a table that may not exist yet (created on first data by the collector).
 async fn opt(
     db: &Db,
@@ -115,52 +122,161 @@ async fn has_column(db: &Db, table: &str, col: &str) -> bool {
     .unwrap_or(false)
 }
 
-pub async fn query_detail(db: &Db, server: &str, queryid: i64, from: Ts, to: Ts) -> Result<Value> {
+/// Bucket width for time series; unknown values fall back to one minute.
+fn bucket_interval(bucket: &str) -> &'static str {
+    match bucket {
+        "10s" => "10 seconds",
+        "5m" => "5 minutes",
+        "1h" => "1 hour",
+        _ => "1 minute",
+    }
+}
+
+fn bucket_expr(col: &str, interval: &str) -> String {
+    format!("to_timestamp(floor(extract(epoch FROM {col}) / extract(epoch FROM interval '{interval}')) * extract(epoch FROM interval '{interval}'))")
+}
+
+pub async fn query_detail(
+    db: &Db,
+    server: &str,
+    queryid: i64,
+    from: Ts,
+    to: Ts,
+    bucket: &str,
+) -> Result<Value> {
+    let interval = bucket_interval(bucket);
+    // Latency histograms are per minute, so the finest latency bucket is a minute.
+    let latency_interval = if interval == "10 seconds" {
+        "1 minute"
+    } else {
+        interval
+    };
     let texts = opt(db, "SELECT datname, query, fingerprint, truncated, first_seen, last_seen FROM cur_queries WHERE server_id = $1 AND queryid = $2", &[&server, &queryid]).await?;
-    let fingerprint: Option<i64> = texts.first().and_then(|t| t["fingerprint"].as_i64());
-    let series = opt(db, "SELECT date_trunc('minute', collected_at) AS minute, instance, datname,
+    let fingerprint: Option<i64> = texts.first().and_then(|t| json_i64(&t["fingerprint"]));
+    let series = opt(db, &format!("SELECT {b} AS bucket, instance, datname,
                 sum(calls)::bigint AS calls, sum(total_exec_time)::float8 AS total_ms,
                 CASE WHEN sum(calls) > 0 THEN sum(total_exec_time) / sum(calls) END::float8 AS mean_ms,
                 sum(rows)::bigint AS rows, sum(shared_blks_read)::bigint AS shared_blks_read, sum(shared_blks_hit)::bigint AS shared_blks_hit
          FROM ts_query_stats WHERE server_id = $1 AND queryid = $2 AND collected_at >= $3 AND collected_at < $4
-         GROUP BY 1, 2, 3 ORDER BY 1", &[&server, &queryid, &from, &to]).await?;
-    let quantiles = opt(db, "SELECT count(*)::bigint AS samples,
-                percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p50,
-                percentile_cont(0.9) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p90,
-                percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95,
-                percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p99,
-                max(duration_ms)::float8 AS max_ms, min(log_time) AS first_sample, max(log_time) AS last_sample
-         FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5))", &[&server, &queryid, &from, &to, &fingerprint]).await?;
-    let slow_samples = opt(db, "SELECT log_time, log_stream, datname, usename, duration_ms, left(query, 500) AS query
-         FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) ORDER BY duration_ms DESC LIMIT 10", &[&server, &queryid, &from, &to, &fingerprint]).await?;
+         GROUP BY 1, 2, 3 ORDER BY 1", b = bucket_expr("collected_at", interval)), &[&server, &queryid, &from, &to]).await?;
+    let sampling = log_sampling_settings(db, server).await?;
+    // Each histogram row carries the sample rate it was collected under: a sampled
+    // count stands for 1/rate statements, an always-logged one for itself. Edges
+    // mirror pgcollector's histogram module (array ordinal i starts at
+    // 10^((i-1)/20 - 2) ms); a quantile reports its bucket's upper edge, capped at the
+    // largest duration seen. One pass serves the per-bucket series and the
+    // whole-range row (bucket NULL).
+    let quantile_sql = format!(
+        "WITH l AS (
+           SELECT {bucket} AS bucket, max_ms, sampled_counts, logged_counts, sample_rate
+           FROM ts_query_latency WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
+             AND (query_id = $2 OR fingerprint = $5)),
+         h AS (
+           SELECT bucket, u.i, sum(u.sc)::float8 AS sc, sum(u.lc)::float8 AS lc,
+                  sum(CASE WHEN l.sample_rate > 0 THEN u.sc / l.sample_rate ELSE 0 END + u.lc)::float8 AS wc
+           FROM l, unnest(l.sampled_counts, l.logged_counts) WITH ORDINALITY AS u(sc, lc, i)
+           WHERE u.sc > 0 OR u.lc > 0 GROUP BY 1, 2),
+         r AS (
+           SELECT bucket, i, sc, lc, power(10, i / 20.0 - 2) AS hi,
+                  sum(wc) OVER (PARTITION BY bucket ORDER BY i) AS cw, sum(wc) OVER (PARTITION BY bucket) AS tw,
+                  sum(wc) OVER (ORDER BY i) AS cw_all, sum(wc) OVER () AS tw_all
+           FROM h),
+         q AS (
+           SELECT bucket, sum(sc + lc)::bigint AS samples, sum(sc)::bigint AS sampled,
+                  min(hi) FILTER (WHERE cw >= 0.5 * tw) AS p50, min(hi) FILTER (WHERE cw >= 0.9 * tw) AS p90,
+                  min(hi) FILTER (WHERE cw >= 0.95 * tw) AS p95, min(hi) FILTER (WHERE cw >= 0.99 * tw) AS p99
+           FROM r GROUP BY bucket
+           UNION ALL
+           SELECT NULL, sum(sc + lc)::bigint, sum(sc)::bigint,
+                  min(hi) FILTER (WHERE cw_all >= 0.5 * tw_all), min(hi) FILTER (WHERE cw_all >= 0.9 * tw_all),
+                  min(hi) FILTER (WHERE cw_all >= 0.95 * tw_all), min(hi) FILTER (WHERE cw_all >= 0.99 * tw_all)
+           FROM r),
+         m AS (SELECT bucket, max(max_ms) AS max_ms FROM l GROUP BY GROUPING SETS ((bucket), ()))
+         SELECT q.bucket, q.samples, q.sampled,
+                least(q.p50, m.max_ms)::float8 AS p50, least(q.p90, m.max_ms)::float8 AS p90,
+                least(q.p95, m.max_ms)::float8 AS p95, least(q.p99, m.max_ms)::float8 AS p99,
+                m.max_ms::float8 AS max_ms
+         FROM q JOIN m ON m.bucket IS NOT DISTINCT FROM q.bucket
+         WHERE q.samples > 0
+         ORDER BY q.bucket NULLS FIRST",
+        bucket = bucket_expr("minute", latency_interval)
+    );
+    let (quantiles, latency_series): (Vec<Value>, Vec<Value>) = opt(
+        db,
+        &quantile_sql,
+        &[&server, &queryid, &from, &to, &fingerprint],
+    )
+    .await?
+    .into_iter()
+    .partition(|r| r["bucket"].is_null());
+    let slow_samples = opt(
+        db,
+        "SELECT d.log_time, d.log_stream, d.datname, d.usename, d.duration_ms, left(t.query, 500) AS query
+         FROM ts_query_durations d
+         LEFT JOIN cur_query_texts t ON t.server_id = d.server_id AND t.instance = d.instance AND t.datname = coalesce(d.datname, '') AND t.fingerprint = d.fingerprint
+         WHERE d.server_id = $1 AND d.collected_at >= $3 AND d.collected_at < $4
+           AND (d.query_id = $2 OR d.fingerprint = $5) AND d.kind NOT IN ('parse', 'bind')
+         ORDER BY d.duration_ms DESC LIMIT 10",
+        &[&server, &queryid, &from, &to, &fingerprint],
+    )
+    .await?;
     let aurora_plans = opt(db, "SELECT p.planid, p.plan_type, p.plan_captured_time, p.explain_plan,
                 (SELECT sum(calls) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::bigint AS calls,
                 (SELECT sum(total_exec_time) FROM ts_aurora_plans a WHERE a.server_id = $1 AND a.planid = p.planid AND a.queryid = $2 AND a.collected_at >= $3 AND a.collected_at < $4)::float8 AS total_ms
          FROM cur_query_plans p WHERE p.server_id = $1 AND p.queryid = $2 ORDER BY calls DESC NULLS LAST", &[&server, &queryid, &from, &to]).await?;
     let logged_plans = opt(db, "SELECT log_time, datname, duration_ms, plan FROM ts_log_plans WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR ($5::bigint IS NOT NULL AND fingerprint = $5)) ORDER BY duration_ms DESC LIMIT 5", &[&server, &queryid, &from, &to, &fingerprint]).await?;
+           AND (query_id = $2 OR fingerprint = $5) ORDER BY duration_ms DESC LIMIT 5", &[&server, &queryid, &from, &to, &fingerprint]).await?;
     let waits = opt(db, "SELECT wait_event_type, wait_event, sum(backends)::bigint AS samples FROM ts_activity_samples
          WHERE server_id = $1 AND query_id = $2 AND collected_at >= $3 AND collected_at < $4 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10", &[&server, &queryid, &from, &to]).await?;
     Ok(
-        json!({ "queryid": queryid, "texts": texts, "series": series, "latency_from_logs": quantiles.into_iter().next(), "slowest_samples": slow_samples,
+        json!({ "queryid": queryid, "bucket": interval, "latency_bucket": latency_interval, "texts": texts, "series": series, "latency_series": latency_series,
+               // Always-logged slow statements alone are a tail, not a distribution.
+               "latency_from_logs": quantiles.into_iter().next().filter(|q| json_i64(&q["sampled"]).unwrap_or(0) > 0),
+               "log_sampling": sampling, "slowest_samples": slow_samples,
                "plans": aurora_plans, "logged_plans": logged_plans, "wait_events": waits }),
     )
 }
 
-pub async fn wait_events(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) -> Result<Value> {
-    let b = match bucket {
-        "10s" => "10 seconds",
-        "5m" => "5 minutes",
-        "1h" => "1 hour",
-        _ => "1 minute",
+/// How the monitored server samples statement durations into its log. Drives the
+/// quantile weighting and tells the UI what the samples cover.
+#[derive(serde::Serialize)]
+struct LogSampling {
+    /// `log_min_duration_sample`: statements below this are never sampled (-1 = off).
+    sample_floor_ms: f64,
+    /// `log_statement_sample_rate`, as configured.
+    rate: f64,
+    /// `log_min_duration_statement`: statements at or above this are always logged (-1 = off).
+    hard_threshold_ms: f64,
+    /// Sampling is on: a floor is set and the rate is above zero.
+    enabled: bool,
+}
+
+async fn log_sampling_settings(db: &Db, server: &str) -> Result<LogSampling> {
+    let rows = opt(db, "SELECT name, setting FROM cur_settings WHERE server_id = $1
+         AND name IN ('log_min_duration_sample', 'log_statement_sample_rate', 'log_min_duration_statement')
+         ORDER BY instance", &[&server]).await?;
+    let get = |name: &str, default: f64| -> f64 {
+        rows.iter()
+            .find(|r| r["name"] == name)
+            .and_then(|r| r["setting"].as_str()?.parse().ok())
+            .unwrap_or(default)
     };
-    let sql = format!("SELECT to_timestamp(floor(extract(epoch FROM collected_at) / extract(epoch FROM interval '{b}')) * extract(epoch FROM interval '{b}')) AS bucket,
+    let rate = get("log_statement_sample_rate", 1.0);
+    let sample_floor_ms = get("log_min_duration_sample", -1.0);
+    Ok(LogSampling {
+        sample_floor_ms,
+        rate,
+        hard_threshold_ms: get("log_min_duration_statement", -1.0),
+        enabled: sample_floor_ms >= 0.0 && rate > 0.0,
+    })
+}
+
+pub async fn wait_events(db: &Db, server: &str, from: Ts, to: Ts, bucket: &str) -> Result<Value> {
+    let sql = format!("SELECT {b} AS bucket,
                 instance, coalesce(wait_event_type, 'CPU') AS wait_event_type, coalesce(wait_event, 'CPU') AS wait_event,
                 round(avg(backends)::numeric, 2)::float8 AS avg_active_sessions
          FROM ts_activity_samples WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND state = 'active'
-         GROUP BY 1, 2, 3, 4 ORDER BY 1");
+         GROUP BY 1, 2, 3, 4 ORDER BY 1", b = bucket_expr("collected_at", bucket_interval(bucket)));
     let sampled = opt(db, &sql, &[&server, &from, &to]).await?;
     let measured = opt(db, "SELECT instance, type_name, event_name, sum(waits)::bigint AS waits, sum(wait_time)::bigint AS wait_time_us
          FROM ts_aurora_system_waits WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1, 2, 3 ORDER BY 5 DESC LIMIT 30", &[&server, &from, &to]).await?;
@@ -409,7 +525,18 @@ pub async fn schema_of_stats_db(db: &Db) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::denied_function;
+    use super::{denied_function, json_i64};
+    use serde_json::json;
+
+    #[test]
+    fn bigints_read_back_from_number_or_string() {
+        assert_eq!(json_i64(&json!(42)), Some(42));
+        assert_eq!(
+            json_i64(&json!("-9200948535353843818")),
+            Some(-9200948535353843818)
+        );
+        assert_eq!(json_i64(&json!(null)), None);
+    }
 
     #[test]
     fn denylist_catches_side_effecting_calls() {

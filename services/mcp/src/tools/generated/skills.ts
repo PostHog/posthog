@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/skills/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SkillArchiveSchema = () => {
@@ -134,7 +135,16 @@ const skillFileCreate = (): ToolBase<ReturnType<typeof SkillFileCreateSchema>, S
 const SkillFileDeleteSchema = () => {
     const LlmSkillsNameFilesDestroyParams = orvalSchemas.LlmSkillsNameFilesDestroyParams()
     const LlmSkillsNameFilesDestroyQueryParams = orvalSchemas.LlmSkillsNameFilesDestroyQueryParams()
-    return LlmSkillsNameFilesDestroyParams.omit({ project_id: true }).extend(LlmSkillsNameFilesDestroyQueryParams.shape)
+    return z.preprocess(
+        normalizeParamAliases({ file_path: ['path'] }),
+        LlmSkillsNameFilesDestroyParams.omit({ project_id: true })
+            .extend(LlmSkillsNameFilesDestroyQueryParams.shape)
+            .extend({
+                file_path: LlmSkillsNameFilesDestroyParams.shape['file_path'].describe(
+                    "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works."
+                ),
+            })
+    )
 }
 
 const skillFileDelete = (): ToolBase<ReturnType<typeof SkillFileDeleteSchema>, Schemas.LLMSkill> => ({
@@ -156,8 +166,15 @@ const skillFileDelete = (): ToolBase<ReturnType<typeof SkillFileDeleteSchema>, S
 const SkillFileGetSchema = () => {
     const LlmSkillsNameFilesRetrieveParams = orvalSchemas.LlmSkillsNameFilesRetrieveParams()
     const LlmSkillsNameFilesRetrieveQueryParams = orvalSchemas.LlmSkillsNameFilesRetrieveQueryParams()
-    return LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
-        LlmSkillsNameFilesRetrieveQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ file_path: ['path'] }),
+        LlmSkillsNameFilesRetrieveParams.omit({ project_id: true })
+            .extend(LlmSkillsNameFilesRetrieveQueryParams.shape)
+            .extend({
+                file_path: LlmSkillsNameFilesRetrieveParams.shape['file_path'].describe(
+                    "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works."
+                ),
+            })
     )
 }
 
@@ -254,6 +271,36 @@ const skillList = (): ToolBase<ReturnType<typeof SkillListSchema>, Schemas.Pagin
                 owner_id: params.owner_id,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const SkillRenameSchema = () => {
+    const LlmSkillsNameRenameCreateBody = orvalSchemas.LlmSkillsNameRenameCreateBody()
+    const LlmSkillsNameRenameCreateParams = orvalSchemas.LlmSkillsNameRenameCreateParams()
+    return LlmSkillsNameRenameCreateParams.omit({ project_id: true })
+        .extend(LlmSkillsNameRenameCreateBody.shape)
+        .extend({
+            skill_name: LlmSkillsNameRenameCreateParams.shape['skill_name'].describe(
+                'The current kebab-case name of the skill to rename.'
+            ),
+        })
+}
+
+const skillRename = (): ToolBase<ReturnType<typeof SkillRenameSchema>, Schemas.LLMSkill> => ({
+    name: 'skill-rename',
+    schema: SkillRenameSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SkillRenameSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.new_name !== undefined) {
+            body['new_name'] = params.new_name
+        }
+        const result = await context.api.request<Schemas.LLMSkill>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/rename/`,
+            body,
         })
         return result
     },
@@ -356,6 +403,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'skill-file-rename': skillFileRename,
     'skill-get': skillGet,
     'skill-list': skillList,
+    'skill-rename': skillRename,
     'skill-store-install-command': skillStoreInstallCommand,
     'skill-update': skillUpdate,
 }

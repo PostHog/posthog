@@ -12,19 +12,11 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import Organization, OrganizationMembership
-from posthog.utils import GenericEmails, get_instance_region
+from posthog.models.organization import Organization
 
-from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
+from products.growth.backend.enrichment import gates
+from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_signup_enrichment
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
-
-_generic_emails = GenericEmails()
-
-# The signup creator's membership is written in the signup transaction, so it lands within
-# seconds of the org row. An earliest membership older than this window means the signup
-# user has left and the remaining members can't stand in for the signup identity.
-_SIGNUP_MEMBERSHIP_WINDOW = dt.timedelta(minutes=5)
 
 
 class Command(BaseCommand):
@@ -43,10 +35,9 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         # The kill switch is the master control for sending org data to the provider; a backfill
         # must not defeat it if it was turned off for a compliance, cost, or vendor reason.
-        if not get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+        if not gates.enrichment_enabled():
             raise CommandError("Signup enrichment is disabled (GROWTH_SIGNUP_ENRICHMENT_ENABLED); refusing to dispatch")
-        # Cloud only, mirrors the signup-path region gate (products/growth/backend/temporal/signup_enrichment/trigger.py).
-        if get_instance_region() not in ("US", "EU"):
+        if not gates.region_allowed():
             raise CommandError("Signup enrichment is US/EU-only; refusing to dispatch in this region")
 
         after = self._parse_datetime(options["after"])
@@ -73,28 +64,22 @@ class Command(BaseCommand):
         for org in orgs:
             if limit is not None and dispatched >= limit:
                 break
-            membership = (
-                OrganizationMembership.objects.filter(organization=org)
-                .select_related("user")
-                .order_by("joined_at")
-                .first()
+            identity = gates.resolve_signup_identity(str(org.id))
+            if isinstance(identity, gates.SignupIdentitySkip):
+                skipped += 1
+                if identity.reason == "signup_user_left":
+                    self.stdout.write(
+                        f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (signup user no longer a member)"
+                    )
+                else:
+                    self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")
+                continue
+
+            inputs = SignupEnrichmentInputs(
+                organization_id=str(org.id), distinct_id=identity.distinct_id, domain=identity.domain
             )
-            if membership is not None and membership.joined_at - org.created_at > _SIGNUP_MEMBERSHIP_WINDOW:
-                skipped += 1
-                self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (signup user no longer a member)")
-                continue
-
-            user = membership.user if membership else None
-            domain = domain_from_email(user.email) if user else None
-            # The signup user's email can have changed since signup, so re-check it's a work email.
-            if user is None or not user.distinct_id or not domain or _generic_emails.is_generic(user.email):
-                skipped += 1
-                self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")
-                continue
-
-            inputs = SignupEnrichmentInputs(organization_id=str(org.id), distinct_id=user.distinct_id, domain=domain)
             if options["dry_run"]:
-                self.stdout.write(f"would dispatch {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={domain}")
+                self.stdout.write(f"would dispatch {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={identity.domain}")
             else:
                 try:
                     dispatch_signup_enrichment(inputs)
@@ -102,7 +87,7 @@ class Command(BaseCommand):
                     errored += 1
                     self.stderr.write(f"error {org.id} ({org.created_at:%Y-%m-%d %H:%M}): {e}")
                     continue
-                self.stdout.write(f"dispatched {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={domain}")
+                self.stdout.write(f"dispatched {org.id} ({org.created_at:%Y-%m-%d %H:%M}) domain={identity.domain}")
                 time.sleep(options["delay"])
             dispatched += 1
 

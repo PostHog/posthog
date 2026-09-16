@@ -1,0 +1,124 @@
+rules:
+    - id: inbound-webhooks-go-through-ingress
+      message: |
+          Inbound webhook signature verification goes through `posthog.ingress`, never a
+          hand-rolled `hmac` check in a view or a per-product helper.
+          Add a `<provider>/` incarnation under `posthog/ingress/` carrying the signature
+          scheme and the delivery parsing, hand it to `build_webhook_view()` in the URLconf,
+          and register the handlers in `products/<product>/backend/webhook_consumers.py`.
+          An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
+          subclasses `WebhookSignatureAuthentication`, which itself verifies through the ingress
+          schemes. `posthog/ingress/README.md` holds the transport contract.
+
+          Why: a hand-rolled verifier repeats the parts that are easy to get wrong, the
+          constant-time compare, the replay window and the exact signed input, and it lands
+          outside the shared dedup, delivery budget, and delivery metrics, so a wedged
+          consumer is invisible and holds the connection open.
+
+          The rule fires on three shapes: an `hmac` digest or compare in a module that also
+          reads one of the known signature headers, `hmac` inside a function named like a
+          signature verifier, and a vendor SDK call that verifies an inbound signature.
+          What it misses follows from those three. The header list is closed, so a provider
+          whose header is not in it is caught only by the other two branches. A verifier with
+          a name outside the regex, in a module that reads no known header, passes. So does a
+          vendor SDK the third branch does not name, and a verifier in another language.
+
+          Suppress a legitimate exception with
+          `# nosemgrep: inbound-webhooks-go-through-ingress -- <reason>`.
+
+          See `posthog/ingress/README.md` and `posthog/ingress/<provider>/README.md`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                # A module that reads a signature header and builds or compares a digest
+                # verifies by hand. Every `hmac` entry point counts, not just the compare:
+                # `hmac.new(secret, body, sha256).hexdigest() == header` is the non-constant-time
+                # mistake the rule exists to catch, and it never reaches `compare_digest`.
+                # Signing an outbound request is legitimate, and stays out because a module that
+                # only signs does not read an inbound signature header.
+                - patterns:
+                      - pattern-either:
+                            - pattern: hmac.compare_digest(...)
+                            - pattern: hmac.new(...)
+                            - pattern: hmac.digest(...)
+                            - pattern: hmac.HMAC(...)
+                      # Both header mappings, and both ways of reading one. The attribute
+                      # names are spelled out rather than bound to a metavariable, because a
+                      # generic `$REQ.$ATTR.get(...)` makes semgrep time out on a large
+                      # module, which drops that file from the scan without failing it.
+                      - pattern-either:
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.headers.get($HEADER, ...)
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.headers[$HEADER]
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.META.get($HEADER, ...)
+                                  ...
+                            - pattern-inside: |
+                                  ...
+                                  $REQ.META[$HEADER]
+                                  ...
+                      - metavariable-regex:
+                            metavariable: $HEADER
+                            regex: (?i)^["'](http[_-])?(x[_-](hub[_-]signature[_-]256|slack[_-]signature|pandadoc[_-]signature|cio[_-]signature|vapi[_-]signature|vercel[_-]signature)|stripe[_-]signature)["']$
+                # The verifier often sits in its own module, away from the header read, so
+                # catch it by what it is called. Both name shapes a verifier takes: a verb
+                # first (`verify_signature`), or a predicate (`signature_ok`,
+                # `_is_valid_signature`). A name that only signs (`compute_signature`,
+                # `build_test_signature`) carries no validity word and stays out.
+                # `hmac.digest` is the stdlib one-shot form of `hmac.new(...).digest()`; a
+                # verifier that reaches for it skips `hmac.new` entirely.
+                # Both def forms, because `def` does not match an `async def` verifier.
+                - patterns:
+                      - pattern-either:
+                            - pattern: hmac.compare_digest(...)
+                            - pattern: hmac.new(...)
+                            - pattern: hmac.digest(...)
+                            - pattern: hmac.HMAC(...)
+                      - pattern-either:
+                            - pattern-inside: |
+                                  def $VERIFY(...):
+                                      ...
+                            - pattern-inside: |
+                                  async def $VERIFY(...):
+                                      ...
+                      - metavariable-regex:
+                            metavariable: $VERIFY
+                            regex: ^_?((is_|has_)?(verify|valid|check|match)[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*|(is_|has_)?[a-z0-9_]*(signature|webhook|digest)[a-z0-9_]*_(ok|valid|verified|match)[a-z0-9_]*)$
+                # A vendor SDK can own the compare, so neither branch above sees any `hmac`.
+                # These calls only ever verify an inbound signature; nothing signs with them.
+                - patterns:
+                      - pattern-either:
+                            - pattern: stripe.WebhookSignature.verify_header(...)
+                            - pattern: stripe.Webhook.construct_event(...)
+      paths:
+          include:
+              - /common/**/*.py
+              - /ee/**/*.py
+              - /posthog/**/*.py
+              - /products/**/*.py
+          exclude:
+              # Ingress is the sanctioned implementation.
+              - /posthog/ingress/**
+              # A test builds a signature to send; it does not verify an inbound one.
+              - '**/test/**'
+              - '**/tests/**'
+              - 'test_*.py'
+              - '*_test.py'
+              # Ratchet. Each entry is a verifier that predates ingress, and the PR that
+              # migrates that endpoint removes its line. The paths are the ones on master,
+              # so the rule holds whether or not the migrations land with it.
+              - /ee/api/vercel/vercel_webhooks.py
+              - /ee/partners/stripe/api/provisioning/signature.py
+              - /posthog/models/integration/slack.py
+              - /products/conversations/backend/api/slack_events.py
+              - /products/conversations/backend/mailgun.py
+              - /products/conversations/backend/support_slack.py
+              - /products/user_interviews/backend/presentation/webhooks.py
+              - /products/workflows/backend/api/ses_events_webhook.py

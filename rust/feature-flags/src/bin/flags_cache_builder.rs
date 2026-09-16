@@ -44,6 +44,7 @@ use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::FutureProducer;
+use strum::{EnumIter, IntoEnumIterator};
 use tokio_util::sync::CancellationToken;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -51,7 +52,8 @@ use tracing_subscriber::EnvFilter;
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::cache_invalidation::FlagsCacheInvalidation;
 use feature_flags::flags::cache_shadow::{
-    diff_live_entry, summarize_diffs, MismatchTracker, ShadowLiveEntry, ShadowObservation,
+    diff_live_entry, summarize_diffs, MismatchTracker, ShadowIssueType, ShadowLiveEntry,
+    ShadowObservation, TrackerStoreOp,
 };
 use feature_flags::flags::cache_writer::{self, persist_flags_cache, PersistOutcome};
 use feature_flags::server::create_redis_client;
@@ -91,6 +93,12 @@ const PARSE_ERRORS: &str = "flags_cache_builder_parse_errors_total";
 const KAFKA_RECV_ERRORS: &str = "flags_cache_builder_kafka_recv_errors_total";
 const DLQ_PRODUCED: &str = "flags_cache_builder_dlq_produced_total";
 const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
+
+// The `result` label values on BUILDS_TOTAL and DLQ_PRODUCED. Shared with
+// `precreate_counters` so a pre-created series and the series its emitter
+// writes to cannot differ in spelling.
+const RESULT_SUCCESS: &str = "success";
+const RESULT_FAILURE: &str = "failure";
 
 // Shadow-compare metrics. Deliberately disjoint from the real-build metrics:
 // BUILDS_TOTAL{result=failure} feeds the FlagsCacheBuilderBuildFailureRate page,
@@ -313,6 +321,72 @@ async fn main() -> anyhow::Result<()> {
 
     monitor.wait().await?;
     Ok(())
+}
+
+/// Register every counter series this binary can emit, at zero, so all of them
+/// are present on `/metrics` from boot. Called from `spawn_metrics_server`,
+/// immediately after the recorder install it depends on.
+///
+/// Counters are created lazily by `metrics::counter!`, so a series does not
+/// exist until its first increment, and an absent series is indistinguishable
+/// from a real zero: a silent DLQ producer reads exactly like a healthy one
+/// that has had nothing to route. Two more consequences follow from that.
+/// `increase()` needs a series to exist before an increment to count it, so the
+/// first DLQ entry or the first parse error is invisible to a rate query. Alert
+/// expressions also need live series to validate against, which has to be
+/// possible outside an incident.
+///
+/// `posthog/tasks/hypercache_verification.py` pre-creates its label triples at
+/// import for the same two reasons; this is the same guarantee on the Rust side.
+///
+/// Registration must not change what a counter reports, so every series is
+/// incremented by zero. Histograms are left out: a histogram is only read as a
+/// quantile or a rate over its buckets, neither of which misreads an absent
+/// series as zero, and pre-creating them would publish a bucket ladder per
+/// metric for no gain.
+fn precreate_counters() {
+    for name in [
+        MESSAGES_RECEIVED,
+        BUILD_RETRIES,
+        PARSE_ERRORS,
+        KAFKA_RECV_ERRORS,
+    ] {
+        metrics::counter!(name).increment(0);
+    }
+
+    // The success arm of BUILDS_TOTAL emits no `reason` (see `process_team`), so
+    // it is pre-created without one. Adding `reason="none"` there would change a
+    // live metric's label set and regroup the dashboard panel that reads it.
+    metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS).increment(0);
+
+    metrics::counter!(DLQ_PRODUCED, "result" => RESULT_SUCCESS).increment(0);
+    metrics::counter!(DLQ_PRODUCED, "result" => RESULT_FAILURE).increment(0);
+
+    // The whole category set on both metrics. That publishes four series no
+    // emitter reaches: `BUILDS_TOTAL{reason=cache_parse}`, which only the
+    // shadow live-read produces, and `SHADOW_FAILURES` for `s3`, `serialize`
+    // and `other`, which only the real write produces. The alternative is a
+    // per-category map of which metric it reaches, and the compiler can force a
+    // new variant to fill that in but not to fill it in correctly.
+    for category in FailureCategory::iter() {
+        metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => category.as_label())
+            .increment(0);
+        metrics::counter!(SHADOW_FAILURES, "category" => category.as_label()).increment(0);
+    }
+
+    for outcome in ShadowOutcomeLabel::iter() {
+        metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.as_label()).increment(0);
+    }
+
+    for issue_type in ShadowIssueType::iter() {
+        metrics::counter!(SHADOW_MISMATCH, "issue_type" => issue_type.as_label()).increment(0);
+        metrics::counter!(SHADOW_MISMATCH_FIRST_SIGHT, "issue_type" => issue_type.as_label())
+            .increment(0);
+    }
+
+    for op in TrackerStoreOp::iter() {
+        metrics::counter!(SHADOW_TRACKER_STORE_ERRORS, "op" => op.as_label()).increment(0);
+    }
 }
 
 /// Build the cache writer (real builds) and a reader over the same Redis + config
@@ -575,7 +649,7 @@ async fn process_team(
 ) -> Vec<Offset> {
     match build_with_retry(pg_reader, writer, team_id, cfg).await {
         Ok(()) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => "success").increment(1);
+            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_SUCCESS).increment(1);
             let latency = (Utc::now() - team_batch.oldest_emitted_at)
                 .num_milliseconds()
                 .max(0) as f64
@@ -583,9 +657,9 @@ async fn process_team(
             metrics::histogram!(E2E_LATENCY_SECONDS).record(latency);
         }
         Err(failure) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => "failure", "reason" => failure.category)
+            metrics::counter!(BUILDS_TOTAL, "result" => RESULT_FAILURE, "reason" => failure.category.as_label())
                 .increment(1);
-            tracing::error!(team_id, category = failure.category, error = %failure.message, "Cache build failed after retries; routing to DLQ");
+            tracing::error!(team_id, category = failure.category.as_label(), error = %failure.message, "Cache build failed after retries; routing to DLQ");
             // The message is a trigger, not a payload, so reconstruct it for the
             // DLQ from the team and its oldest coalesced timestamp.
             let dlq_message = FlagsCacheInvalidation::new(team_id, team_batch.oldest_emitted_at);
@@ -604,8 +678,8 @@ async fn process_team(
     team_batch.offsets
 }
 
-/// Outcome of a single shadow compare, mapped 1:1 onto a `SHADOW_BUILDS` outcome
-/// label via `as_label`.
+/// Outcome of a single shadow compare. Each outcome carries exactly one
+/// `SHADOW_BUILDS` label, via `label`.
 enum ShadowOutcome {
     Match,
     Mismatch(ShadowObservation),
@@ -618,18 +692,45 @@ enum ShadowOutcome {
     Failed(BuildFailure),
 }
 
-impl ShadowOutcome {
-    /// The `SHADOW_BUILDS{outcome}` label. Every outcome maps to exactly one
-    /// label, so the counter's unlabelled sum is the processed count.
+/// The `SHADOW_BUILDS{outcome}` label values. Held apart from `ShadowOutcome`
+/// because the two are not 1:1: `Mismatch` reports as `mismatch_suppressed` or
+/// `mismatch_confirmed` depending on its payload. Iterating this enum is what
+/// lets `precreate_counters` cover the label set without a hand-written list of
+/// strings, and `ShadowOutcome::label` must map every outcome into it, so
+/// neither side can gain a value the other misses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+enum ShadowOutcomeLabel {
+    Match,
+    LiveEntryMissing,
+    Error,
+    MismatchSuppressed,
+    MismatchConfirmed,
+}
+
+impl ShadowOutcomeLabel {
     fn as_label(&self) -> &'static str {
         match self {
             Self::Match => "match",
             Self::LiveEntryMissing => "live_entry_missing",
-            Self::Failed(_) => "error",
+            Self::Error => "error",
+            Self::MismatchSuppressed => "mismatch_suppressed",
+            Self::MismatchConfirmed => "mismatch_confirmed",
+        }
+    }
+}
+
+impl ShadowOutcome {
+    /// Every outcome maps to exactly one label, so the counter's unlabelled sum
+    /// is the processed count.
+    fn label(&self) -> ShadowOutcomeLabel {
+        match self {
+            Self::Match => ShadowOutcomeLabel::Match,
+            Self::LiveEntryMissing => ShadowOutcomeLabel::LiveEntryMissing,
+            Self::Failed(_) => ShadowOutcomeLabel::Error,
             Self::Mismatch(observation) if observation.confirmed.is_empty() => {
-                "mismatch_suppressed"
+                ShadowOutcomeLabel::MismatchSuppressed
             }
-            Self::Mismatch(_) => "mismatch_confirmed",
+            Self::Mismatch(_) => ShadowOutcomeLabel::MismatchConfirmed,
         }
     }
 }
@@ -649,12 +750,13 @@ async fn process_shadow_team(
     // Recorded for every outcome: the per-team wall time delays the next batch
     // whether the compare matched, mismatched, or failed.
     metrics::histogram!(SHADOW_BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
-    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.as_label()).increment(1);
+    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.label().as_label()).increment(1);
     match outcome {
         ShadowOutcome::Match | ShadowOutcome::LiveEntryMissing => {}
         ShadowOutcome::Failed(failure) => {
-            metrics::counter!(SHADOW_FAILURES, "category" => failure.category).increment(1);
-            tracing::warn!(team_id, category = failure.category, error = %failure.message, "Shadow build failed; dropping (not DLQ'd)");
+            metrics::counter!(SHADOW_FAILURES, "category" => failure.category.as_label())
+                .increment(1);
+            tracing::warn!(team_id, category = failure.category.as_label(), error = %failure.message, "Shadow build failed; dropping (not DLQ'd)");
         }
         ShadowOutcome::Mismatch(observation) => {
             for diff in &observation.confirmed {
@@ -737,12 +839,39 @@ async fn shadow_compare(
     }
 }
 
+/// The tier that failed, carried on `BuildFailure` and emitted as the `reason`
+/// label on `BUILDS_TOTAL` and the `category` label on `SHADOW_FAILURES`. An
+/// enum rather than a bare `&'static str` so the label vocabulary is one closed
+/// set: `precreate_counters` iterates it, so a new tier cannot reach a metric
+/// without also being pre-created at zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter)]
+enum FailureCategory {
+    Database,
+    CacheParse,
+    Redis,
+    S3,
+    Serialize,
+    Other,
+}
+
+impl FailureCategory {
+    fn as_label(&self) -> &'static str {
+        match self {
+            Self::Database => "database",
+            Self::CacheParse => "cache_parse",
+            Self::Redis => "redis",
+            Self::S3 => "s3",
+            Self::Serialize => "serialize",
+            Self::Other => "other",
+        }
+    }
+}
+
 /// A terminal build failure tagged with the tier that failed, so the error metric
 /// and DLQ headers can attribute it — that tier (database / redis / s3 / serialize)
-/// is the triage signal the DLQ exists to provide. `category` is a fixed set of
-/// `&'static str`, safe to use as a metric label without cardinality risk.
+/// is the triage signal the DLQ exists to provide.
 struct BuildFailure {
-    category: &'static str,
+    category: FailureCategory,
     message: String,
 }
 
@@ -751,7 +880,7 @@ impl BuildFailure {
     /// step). The whole step is DB-bound on this path, so it's attributed wholesale.
     fn database(err: impl std::fmt::Display) -> Self {
         Self {
-            category: "database",
+            category: FailureCategory::Database,
             message: err.to_string(),
         }
     }
@@ -763,8 +892,8 @@ impl BuildFailure {
     /// maps it to `LiveEntryMissing` first.
     fn from_live_read(err: HyperCacheError) -> Self {
         let category = match err {
-            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => "cache_parse",
-            _ => "redis",
+            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => FailureCategory::CacheParse,
+            _ => FailureCategory::Redis,
         };
         Self {
             category,
@@ -777,10 +906,10 @@ impl BuildFailure {
     /// fall through to `other`.
     fn from_persist(err: HyperCacheError) -> Self {
         let category = match err {
-            HyperCacheError::Redis(_) => "redis",
-            HyperCacheError::S3(_) => "s3",
-            HyperCacheError::Json(_) => "serialize",
-            _ => "other",
+            HyperCacheError::Redis(_) => FailureCategory::Redis,
+            HyperCacheError::S3(_) => FailureCategory::S3,
+            HyperCacheError::Json(_) => FailureCategory::Serialize,
+            _ => FailureCategory::Other,
         };
         Self {
             category,
@@ -822,7 +951,7 @@ async fn build_with_retry(
                 tracing::warn!(
                     team_id,
                     attempt,
-                    category = failure.category,
+                    category = failure.category.as_label(),
                     error = %failure.message,
                     backoff_ms = backoff.as_millis() as u64,
                     "Cache build attempt failed; retrying"
@@ -889,7 +1018,7 @@ async fn dlq_produce(
     let failed_at = Utc::now().to_rfc3339();
     let team_key = message.team_id.to_string();
     let error_header = truncate_for_header(&failure.message);
-    let category = failure.category;
+    let category = failure.category.as_label();
     let results = send_keyed_iter_to_kafka_with_headers(
         dlq_producer,
         topic,
@@ -919,9 +1048,9 @@ async fn dlq_produce(
     .await;
 
     match results.into_iter().next() {
-        Some(Ok(())) => metrics::counter!(DLQ_PRODUCED, "result" => "success").increment(1),
+        Some(Ok(())) => metrics::counter!(DLQ_PRODUCED, "result" => RESULT_SUCCESS).increment(1),
         Some(Err(e)) => {
-            metrics::counter!(DLQ_PRODUCED, "result" => "failure").increment(1);
+            metrics::counter!(DLQ_PRODUCED, "result" => RESULT_FAILURE).increment(1);
             tracing::error!(team_id = message.team_id, error = %e, "Failed to produce to DLQ");
         }
         None => {}
@@ -992,6 +1121,16 @@ fn init_tracing() {
         .init();
 }
 
+/// Install the Prometheus recorder and serve `/metrics` plus the health routes.
+///
+/// The recorder install stays inside the spawned task, and `precreate_counters`
+/// runs directly after it in that same task. Two reasons it sits here rather
+/// than in `main`. Straight-line order in one task is what guarantees the
+/// registrations reach the installed recorder, because `metrics::counter!`
+/// writes to whichever recorder is installed at the moment it runs. And
+/// `install_recorder` builds a `quanta::Clock`, whose TSC calibration busy-spins
+/// for up to 200ms, so running it here keeps that off the startup critical path
+/// and overlaps it with the database, Redis, and Kafka client setup in `main`.
 fn spawn_metrics_server(
     handle: lifecycle::Handle,
     readiness: lifecycle::ReadinessHandler,
@@ -1033,6 +1172,7 @@ fn spawn_metrics_server(
             METRICS_PRODUCT,
             &overrides,
         );
+        precreate_counters();
 
         let bind = format!("0.0.0.0:{port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -1053,8 +1193,8 @@ mod tests {
     use chrono::{DateTime, TimeZone, Utc};
 
     use super::{
-        fold_message, max_per_partition, retry_backoff, truncate_for_header, BuildFailure,
-        ShadowOutcome, TeamBatch, DLQ_ERROR_HEADER_MAX,
+        fold_message, max_per_partition, precreate_counters, retry_backoff, truncate_for_header,
+        BuildFailure, ShadowOutcome, ShadowOutcomeLabel, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -1206,14 +1346,17 @@ mod tests {
             (HyperCacheError::CacheMiss, "other"),
         ];
         for (err, expected) in cases {
-            assert_eq!(BuildFailure::from_persist(err).category, expected);
+            assert_eq!(
+                BuildFailure::from_persist(err).category.as_label(),
+                expected
+            );
         }
     }
 
     #[test]
     fn build_failure_attributes_build_step_to_database() {
         assert_eq!(
-            BuildFailure::database("pg unreachable").category,
+            BuildFailure::database("pg unreachable").category.as_label(),
             "database"
         );
     }
@@ -1236,7 +1379,10 @@ mod tests {
             (HyperCacheError::Timeout("redis timeout".into()), "redis"),
         ];
         for (err, expected) in cases {
-            assert_eq!(BuildFailure::from_live_read(err).category, expected);
+            assert_eq!(
+                BuildFailure::from_live_read(err).category.as_label(),
+                expected
+            );
         }
     }
 
@@ -1319,23 +1465,26 @@ mod tests {
         // The outcome label is the shadow window's primary telemetry; a wrong
         // label here misreads the ramp with no other test catching it.
         let cases = [
-            (ShadowOutcome::Match, "match"),
-            (ShadowOutcome::LiveEntryMissing, "live_entry_missing"),
+            (ShadowOutcome::Match, ShadowOutcomeLabel::Match),
+            (
+                ShadowOutcome::LiveEntryMissing,
+                ShadowOutcomeLabel::LiveEntryMissing,
+            ),
             (
                 ShadowOutcome::Failed(BuildFailure::database("pg unreachable")),
-                "error",
+                ShadowOutcomeLabel::Error,
             ),
             (
                 ShadowOutcome::Mismatch(shadow_observation(false).await),
-                "mismatch_suppressed",
+                ShadowOutcomeLabel::MismatchSuppressed,
             ),
             (
                 ShadowOutcome::Mismatch(shadow_observation(true).await),
-                "mismatch_confirmed",
+                ShadowOutcomeLabel::MismatchConfirmed,
             ),
         ];
         for (outcome, expected) in cases {
-            assert_eq!(outcome.as_label(), expected);
+            assert_eq!(outcome.label(), expected);
         }
     }
 
@@ -1349,6 +1498,105 @@ mod tests {
         assert!(got.ends_with('…'), "missing truncation marker");
         // `String` is UTF-8 by construction; reaching here without a slice panic is
         // the real assertion.
+    }
+
+    /// Every series `precreate_counters` must register, as
+    /// `name{label=value,...}` with the labels sorted. The names and label
+    /// values are written out here rather than read back off the enums, so
+    /// adding a variant fails this test: a new label value is a new series on a
+    /// metric that dashboards and alerts group by, and it should not appear
+    /// unnoticed.
+    const EXPECTED_PRECREATED_SERIES: &[&str] = &[
+        "flags_cache_builder_build_retries_total{}",
+        "flags_cache_builder_builds_total{reason=cache_parse,result=failure}",
+        "flags_cache_builder_builds_total{reason=database,result=failure}",
+        "flags_cache_builder_builds_total{reason=other,result=failure}",
+        "flags_cache_builder_builds_total{reason=redis,result=failure}",
+        "flags_cache_builder_builds_total{reason=s3,result=failure}",
+        "flags_cache_builder_builds_total{reason=serialize,result=failure}",
+        "flags_cache_builder_builds_total{result=success}",
+        "flags_cache_builder_dlq_produced_total{result=failure}",
+        "flags_cache_builder_dlq_produced_total{result=success}",
+        "flags_cache_builder_kafka_recv_errors_total{}",
+        "flags_cache_builder_messages_received_total{}",
+        "flags_cache_builder_parse_errors_total{}",
+        "flags_cache_shadow_build_failures_total{category=cache_parse}",
+        "flags_cache_shadow_build_failures_total{category=database}",
+        "flags_cache_shadow_build_failures_total{category=other}",
+        "flags_cache_shadow_build_failures_total{category=redis}",
+        "flags_cache_shadow_build_failures_total{category=s3}",
+        "flags_cache_shadow_build_failures_total{category=serialize}",
+        "flags_cache_shadow_builds_total{outcome=error}",
+        "flags_cache_shadow_builds_total{outcome=live_entry_missing}",
+        "flags_cache_shadow_builds_total{outcome=match}",
+        "flags_cache_shadow_builds_total{outcome=mismatch_confirmed}",
+        "flags_cache_shadow_builds_total{outcome=mismatch_suppressed}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=cohort_field_mismatch}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=cohort_missing_in_cache}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=cohort_stale_in_cache}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=evaluation_metadata_mismatch}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=field_mismatch}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=missing_evaluation_metadata}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=missing_in_cache}",
+        "flags_cache_shadow_mismatch_first_sight_total{issue_type=stale_in_cache}",
+        "flags_cache_shadow_mismatch_total{issue_type=cohort_field_mismatch}",
+        "flags_cache_shadow_mismatch_total{issue_type=cohort_missing_in_cache}",
+        "flags_cache_shadow_mismatch_total{issue_type=cohort_stale_in_cache}",
+        "flags_cache_shadow_mismatch_total{issue_type=evaluation_metadata_mismatch}",
+        "flags_cache_shadow_mismatch_total{issue_type=field_mismatch}",
+        "flags_cache_shadow_mismatch_total{issue_type=missing_evaluation_metadata}",
+        "flags_cache_shadow_mismatch_total{issue_type=missing_in_cache}",
+        "flags_cache_shadow_mismatch_total{issue_type=stale_in_cache}",
+        "flags_cache_shadow_tracker_store_errors_total{op=clear}",
+        "flags_cache_shadow_tracker_store_errors_total{op=read}",
+        "flags_cache_shadow_tracker_store_errors_total{op=write}",
+    ];
+
+    #[test]
+    fn precreate_counters_registers_every_series_at_zero() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use std::collections::BTreeSet;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        metrics::with_local_recorder(&recorder, precreate_counters);
+
+        let got: Vec<(String, DebugValue)> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .map(|(ckey, _, _, value)| {
+                let key = ckey.key();
+                let mut labels: Vec<String> = key
+                    .labels()
+                    .map(|label| format!("{}={}", label.key(), label.value()))
+                    .collect();
+                labels.sort();
+                (format!("{}{{{}}}", key.name(), labels.join(",")), value)
+            })
+            .collect();
+
+        // Compared as the two differences rather than as two full lists, so a
+        // failure names the series instead of printing the whole inventory.
+        let expected: BTreeSet<&str> = EXPECTED_PRECREATED_SERIES.iter().copied().collect();
+        let found: BTreeSet<&str> = got.iter().map(|(name, _)| name.as_str()).collect();
+        let missing: Vec<&str> = expected.difference(&found).copied().collect();
+        let unexpected: Vec<&str> = found.difference(&expected).copied().collect();
+        assert!(
+            missing.is_empty() && unexpected.is_empty(),
+            "not pre-created: {missing:#?}\npre-created but not expected: {unexpected:#?}"
+        );
+
+        // Registering a series must not report activity on it. An increment of
+        // anything but zero here would make every dashboard and alert read one
+        // event per pod from boot.
+        for (name, value) in &got {
+            assert_eq!(
+                *value,
+                DebugValue::Counter(0),
+                "{name} must register at zero"
+            );
+        }
     }
 
     #[test]

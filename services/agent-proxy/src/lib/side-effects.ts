@@ -37,10 +37,33 @@ const PI_GENERATION_EVENTS = new Set([
     'tool_call_updated',
 ])
 
+// pi agent event shapes (byte-identical to ee/hogai/sandbox/types.py)
+const PI_EVENT_TYPE = 'pi_event'
+const PI_TURN_COMPLETED_TYPE = 'turn_completed'
+const PI_STOP_REASON_ERROR = 'error'
+
+function asPiTurnCompletedEvent(event: Record<string, unknown>): Record<string, unknown> | null {
+    if (event['type'] !== PI_EVENT_TYPE) {
+        return null
+    }
+    const piEvent = event['event']
+    if (typeof piEvent !== 'object' || piEvent === null) {
+        return null
+    }
+    const inner = piEvent as Record<string, unknown>
+    return inner['type'] === PI_TURN_COMPLETED_TYPE ? inner : null
+}
+
 // isTurnComplete mirrors ee/hogai/sandbox/types.py:is_turn_complete exactly.
-// Matches both the raw ACP prompt response (result.stopReason == "end_turn")
-// and the synthetic _posthog/turn_complete notification.
+// Matches the raw ACP prompt response (result.stopReason == "end_turn"), the synthetic
+// _posthog/turn_complete notification, and the pi-shaped turn_completed event.
+//
+// True for a pi turn that ended in a runtime error too — the turn is over either way. Check
+// isPiTurnError to tell the two apart before treating this as a successful completion.
 export function isTurnComplete(event: Record<string, unknown>): boolean {
+    if (event['type'] === PI_EVENT_TYPE) {
+        return asPiTurnCompletedEvent(event) !== null
+    }
     if (event['type'] !== ACP_NOTIFICATION_TYPE) {
         return false
     }
@@ -58,6 +81,14 @@ export function isTurnComplete(event: Record<string, unknown>): boolean {
         result !== null &&
         (result as Record<string, unknown>)['stopReason'] === STOP_REASON_END_TURN
     )
+}
+
+// isPiTurnError mirrors ee/hogai/sandbox/types.py:pi_turn_error exactly.
+// True when a pi turn_completed event reports a terminal runtime failure, so the caller
+// can route it to a failed run instead of a successful turn completion.
+export function isPiTurnError(event: Record<string, unknown>): boolean {
+    const piTurnCompleted = asPiTurnCompletedEvent(event)
+    return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
 }
 
 // isSessionUpdate mirrors event_ingest.py:_is_session_update exactly.
@@ -109,6 +140,39 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
     )
 }
 
+const CALLBACK_TIMEOUT_MS = 10_000
+const RETRY_DELAY_MS = 1000
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
+
+function fetchErrorCode(err: unknown): string | undefined {
+    if (!(err instanceof Error)) {
+        return undefined
+    }
+    const cause = (err as Error & { cause?: unknown }).cause
+    if (typeof cause === 'object' && cause !== null && 'code' in cause) {
+        return String((cause as { code: unknown }).code)
+    }
+    return err.name
+}
+
+async function postCallback(url: string, init: RequestInit, runId: string, kind: SideEffectKind): Promise<Response> {
+    const attempt = (): Promise<Response> => fetch(url, { ...init, signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS) })
+    try {
+        const response = await attempt()
+        if (!RETRYABLE_KINDS.has(kind) || response.status < 500) {
+            return response
+        }
+        logger.warn('side_effect:retry', { run: runId, kind, status: response.status })
+    } catch (err: unknown) {
+        if (!RETRYABLE_KINDS.has(kind)) {
+            throw err
+        }
+        logger.warn('side_effect:retry', { run: runId, kind, code: fetchErrorCode(err) })
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+    return attempt()
+}
+
 // fireCallback issues a best-effort POST to the Django agent-proxy callback.
 // The call is fire-and-forget: the promise is not returned to the caller.
 // Any failure is logged but never thrown into the ingest path.
@@ -148,18 +212,13 @@ function fireCallback(
     logger.debug('side_effect:fire', { run: runId, kind, agentActive })
 
     // Detached promise — errors are swallowed and logged.
-    fetch(url, {
-        method: 'POST',
-        headers,
-        body,
-        // Node 18+ fetch doesn't expose a timeout option in the standard API;
-        // we rely on the OS TCP timeout (typically 2 min). The callback is
-        // best-effort so a slow/hanging response is acceptable.
-    })
+    postCallback(url, { method: 'POST', headers, body }, runId, kind)
         .then(async (response) => {
             if (!response.ok) {
                 logger.warn('side_effect:non_2xx', { run: runId, kind, status: response.status })
-                await releaseMilestoneClaim(releaseClaim, runId, kind)
+                if (response.status >= 500) {
+                    await releaseMilestoneClaim(releaseClaim, runId, kind)
+                }
                 return
             }
             const payload: unknown = await response.json().catch(() => null)
@@ -174,7 +233,7 @@ function fireCallback(
         })
         .catch(async (err: unknown) => {
             const message = err instanceof Error ? err.message : String(err)
-            logger.error('side_effect:failed', { run: runId, kind, error: message })
+            logger.error('side_effect:failed', { run: runId, kind, error: message, code: fetchErrorCode(err) })
             await releaseMilestoneClaim(releaseClaim, runId, kind)
         })
 }
@@ -199,7 +258,8 @@ async function releaseMilestoneClaim(
 // and mirrors event_ingest.py:_heartbeat_workflow_if_needed exactly.
 //
 // Decision tree:
-//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback, return.
+//  1. isTurnComplete  -> setAgentActive(false), fire awaiting_input callback (or turn_failed
+//                        for a pi runtime error), return.
 //  2. isSessionUpdate -> setAgentActive(true), set agentActive=true.
 //  3. else            -> agentActive = getAgentActive().
 //  4. if !agentActive -> return.
@@ -229,9 +289,15 @@ export async function heartbeatWorkflowIfNeeded(
 
     if (isTurnComplete(event)) {
         await redisStream.setAgentActive(false)
-        // Let Django decide whether the run is interactive; it will only
-        // dispatch the push notification for interactive mode runs.
-        fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+        if (isPiTurnError(event)) {
+            // A pi runtime error ends the turn but is not a successful completion —
+            // fail the run outright rather than reporting the turn as answered.
+            fireCallback(runId, 'turn_failed', false, taskId, teamId, originalToken, config)
+        } else {
+            // Let Django decide whether the run is interactive; it will only
+            // dispatch the push notification for interactive mode runs.
+            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+        }
         return
     }
 

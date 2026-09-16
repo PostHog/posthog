@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconShieldLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconShieldLock, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,6 +23,7 @@ import { identityProviderConfigLogic } from './identityProviderConfigLogic'
 import type { IdentityProviderConfigLogicProps } from './identityProviderConfigLogic'
 import { IDENTITY_PROVIDER_FEATURES, isIdentityProviderConfigScope } from './identityProviderConfigUtils'
 import { IdentityProviderDomainScope } from './IdentityProviderDomainScope'
+import { OIDCConfigFields } from './OIDCConfigFields'
 import { SAMLConfigFields } from './SAMLConfigFields'
 import { SCIMConfigFields } from './SCIMConfigFields'
 import { XAAConfigFields } from './XAAConfigFields'
@@ -43,6 +46,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         identityProviderConfigLoadFailed,
         identityProviderConfigForm,
         identityProviderConfigFormChanged,
+        identityProviderConfigDeletingLoading,
         isIdentityProviderConfigFormSubmitting,
         hasSamlDomainScopeConflict,
         isConfigScopeValid,
@@ -52,9 +56,19 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         organizationDomainsLoading,
         revealedScimToken,
         regeneratedScimTokenLoading,
+        isDeleteModalOpen,
+        deleteConfirmation,
     } = useValues(identityProviderConfigLogic)
-    const { loadIdentityProviderConfig, loadOrganizationDomains, regenerateScimToken } =
-        useActions(identityProviderConfigLogic)
+    const {
+        loadIdentityProviderConfig,
+        loadOrganizationDomains,
+        regenerateScimToken,
+        deleteIdentityProviderConfig,
+        openDeleteModal,
+        closeDeleteModal,
+        setDeleteConfirmation,
+        setIdentityProviderConfigFormValues,
+    } = useActions(identityProviderConfigLogic)
     const { preflight } = useValues(preflightLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -70,6 +84,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
     }
 
     const feature = IDENTITY_PROVIDER_FEATURES[configScope]
+
     const siteUrl = preflight?.site_url ?? window.location.origin
     const isLoading =
         (!identityProviderConfigLoaded && !identityProviderConfigLoadFailed) ||
@@ -117,6 +132,9 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                             enableFormOnSubmit
                             className="max-w-200 space-y-6"
                         >
+                            <LemonField name="name" label="Configuration name">
+                                <LemonInput placeholder="For example, Okta production" />
+                            </LemonField>
                             {configScope === ConfigScopeEnumApi.Saml ? (
                                 <SAMLConfigFields
                                     siteUrl={siteUrl}
@@ -136,6 +154,18 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     tokenLoading={regeneratedScimTokenLoading}
                                     disabled={isIdentityProviderConfigFormSubmitting}
                                     onRegenerateToken={regenerateScimToken}
+                                />
+                            ) : configScope === ConfigScopeEnumApi.Oidc ? (
+                                <OIDCConfigFields
+                                    siteUrl={siteUrl}
+                                    hasClientSecret={Boolean(identityProviderConfig?.has_oidc_client_secret)}
+                                    clientSecretCleared={identityProviderConfigForm.oidc_client_secret_cleared}
+                                    onClearClientSecret={() => {
+                                        setIdentityProviderConfigFormValues({
+                                            oidc_client_secret: '',
+                                            oidc_client_secret_cleared: true,
+                                        })
+                                    }}
                                 />
                             ) : (
                                 <XAAConfigFields isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)} />
@@ -171,10 +201,73 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     Cancel
                                 </LemonButton>
                             </div>
+                            {identityProviderConfig?.config_scope != null && (
+                                <div className="mt-6">
+                                    <div className="font-semibold">Danger zone</div>
+                                    <p className="mb-0 mt-1 text-secondary">
+                                        These actions cannot be undone. Deleting this configuration removes its identity
+                                        provider settings and may prevent users from authenticating.
+                                    </p>
+                                    <LemonButton
+                                        className="mt-2"
+                                        type="secondary"
+                                        status="danger"
+                                        icon={<IconTrash />}
+                                        onClick={openDeleteModal}
+                                        disabledReason={restrictionReason}
+                                        data-attr={`delete-${configScope}-identity-provider`}
+                                    >
+                                        Delete configuration
+                                    </LemonButton>
+                                </div>
+                            )}
                         </Form>
                     )}
                 </PayGateMini>
             </TimeSensitiveAuthenticationArea>
+            {identityProviderConfig?.config_scope != null && (
+                <LemonModal
+                    isOpen={isDeleteModalOpen}
+                    onClose={identityProviderConfigDeletingLoading ? undefined : closeDeleteModal}
+                    title="Delete identity provider configuration?"
+                    footer={
+                        <div className="flex justify-end gap-2">
+                            <LemonButton
+                                type="secondary"
+                                onClick={closeDeleteModal}
+                                disabled={identityProviderConfigDeletingLoading}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={deleteIdentityProviderConfig}
+                                disabledReason={
+                                    deleteConfirmation !== `Delete ${identityProviderConfig.name}`
+                                        ? `Type Delete ${identityProviderConfig.name} to confirm`
+                                        : undefined
+                                }
+                                loading={identityProviderConfigDeletingLoading}
+                                data-attr={`confirm-delete-${configScope}-identity-provider`}
+                            >
+                                Delete configuration
+                            </LemonButton>
+                        </div>
+                    }
+                >
+                    <p>
+                        This action cannot be undone. Type <strong>{`Delete ${identityProviderConfig.name}`}</strong> to
+                        confirm.
+                    </p>
+                    <LemonInput
+                        value={deleteConfirmation}
+                        onChange={setDeleteConfirmation}
+                        placeholder={`Delete ${identityProviderConfig.name}`}
+                        data-attr={`delete-${configScope}-identity-provider-confirmation-input`}
+                    />
+                </LemonModal>
+            )}
         </SceneContent>
     )
 }

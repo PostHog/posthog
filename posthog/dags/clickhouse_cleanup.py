@@ -24,7 +24,7 @@ import dagster
 import psycopg2
 import pydantic
 from clickhouse_driver.client import Client
-from prometheus_client import Counter
+from prometheus_client import Gauge
 from psycopg2.extras import execute_values
 
 from posthog.clickhouse.cleanup_snapshots import (
@@ -46,21 +46,13 @@ from posthog.dags.common.staged_dictionary import (
     create_on_every_cluster,
     load_and_verify_on_every_cluster,
 )
+from posthog.dags.deletes import deletes_job
 from posthog.dataclasses import frozen
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE, PERSONS_TABLE
 
 logger = dagster.get_dagster_logger(__name__)
-
-REVIVED_PERSON_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_persons_total",
-    "Persons that came back to life between the snapshot and the sweep, and were excluded",
-)
-
-REVIVED_DISTINCT_ID_COUNTER = Counter(
-    "posthog_clickhouse_cleanup_revived_distinct_ids_total",
-    "Distinct id mappings that came back between the snapshot and the sweep, and were excluded",
-)
 
 PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
@@ -76,6 +68,12 @@ PERSIST_PAGE_SIZE = 50_000
 # and per-range progress in the logs. The default is 1 because those rarely justify the cost;
 # raise team_batches together with max_persons when draining a large backlog in checkpoints.
 DEFAULT_TEAM_BATCHES = 1
+
+# How many cohorts one run sweeps per deletion type. Bounded rather than unlimited because a
+# sensor can start this run unattended. One delete chunk covers 500 cohorts and was measured on
+# prod-EU reading 0.63% of `cohortpeople`, so this is a few chunks of work per run, and a capped
+# run leaves the rest queued.
+DEFAULT_MAX_COHORTS = 2_000
 
 
 class CleanupConfig(dagster.Config):
@@ -108,10 +106,25 @@ class CleanupConfig(dagster.Config):
         default=1800,
         description="Fail a delete batch when attempts keep failing and no part completes for this many seconds.",
     )
+    mutation_capacity_timeout: int = pydantic.Field(
+        default=3600,
+        description="Fail a delete batch that cannot be enqueued because another mutation has held the table for "
+        "this many seconds. This wait happens before the mutation exists, so mutation_wait_deadline cannot cover it.",
+    )
     mutation_wait_deadline: int = pydantic.Field(
         default=86400,
         description="Fail a delete batch that has not finished after this many seconds, even when it is healthy. "
         "A mutation blocked behind another table-sized mutation would otherwise hold the run open forever.",
+    )
+    cohort_sweep: bool = pydantic.Field(
+        default=True,
+        description="Run the cohort membership sweep. False skips it and goes straight to the person sweep, "
+        "which is the lever to pull if cohort mutations misbehave.",
+    )
+    max_cohorts: int = pydantic.Field(
+        default=DEFAULT_MAX_COHORTS,
+        description="Sweep at most this many cohorts per deletion type, 0 for all of them. A capped run "
+        "leaves the rest queued for the next one. Bounded by default because this job can run unattended.",
     )
     max_persons: int = pydantic.Field(
         default=0,
@@ -162,27 +175,31 @@ class SnapshotTable:
         """
         return f"SELECT {self.keys} FROM {self.qualified_name} WHERE run_id = '{self.run_id}'"
 
-    def count(self, client: Client) -> int:
+    def count(self, client: Client, settings: Mapping[str, int] | None = None) -> int:
         [[count]] = client.execute(
             f"SELECT count() FROM {self.qualified_name} WHERE run_id = %(run_id)s",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return count
 
-    def team_ids(self, client: Client) -> list[int]:
+    def team_ids(self, client: Client, settings: Mapping[str, int] | None = None) -> list[int]:
         rows = client.execute(
             f"SELECT DISTINCT team_id FROM {self.qualified_name} WHERE run_id = %(run_id)s ORDER BY team_id",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return [row[0] for row in rows]
 
-    def distinct_key_count(self, client: Client) -> int:
+    def distinct_key_count(self, client: Client, settings: Mapping[str, int] | None = None) -> int:
         # Deduplicated, so the number is stable whether or not a merge has collapsed the
-        # duplicate rows a retried populate leaves behind.
+        # duplicate rows a retried populate leaves behind. Grouping a run's whole worklist is the
+        # heaviest read outside the populates, so it takes the same caps they do.
         [[count]] = client.execute(
             f"SELECT count() FROM (SELECT {self.keys} FROM {self.qualified_name}"
             f" WHERE run_id = %(run_id)s GROUP BY {self.keys})",
             {"run_id": self.run_id},
+            settings=settings,
         )
         return count
 
@@ -440,11 +457,14 @@ class CleanupRun:
     dry_run: bool
     cleanup: bool
     team_batches: int
+    cohort_sweep: bool
+    max_cohorts: int
     shards: int
     max_execution_time: int
     max_memory_usage: int
     dictionary_load_timeout: int
     mutation_stall_timeout: int
+    mutation_capacity_timeout: int
     mutation_wait_deadline: int
     max_persons: int
     min_team_id: int
@@ -454,6 +474,12 @@ class CleanupRun:
     # so a snapshot the 14-day TTL reaped mid-run fails the run instead of under-deleting silently.
     persons_count: int = 0
     orphaned_count: int = 0
+    # They ride on the run because the publishing op is the only place that sees a whole sweep.
+    stranded_runs_reaped: int = 0  # clear_removed_cohort_data
+    revived_person_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    revived_distinct_id_count: int = 0  # both recheck_revived_persons checkpoints, summed
+    queued_for_postgres: int = 0  # persist_deleted_persons
+    mutation_seconds_max: float = 0.0  # the slowest mutation of either delete op
 
     @classmethod
     def for_run(cls, run_id: str, config: CleanupConfig) -> "CleanupRun":
@@ -467,11 +493,14 @@ class CleanupRun:
             dry_run=config.dry_run,
             cleanup=config.cleanup,
             team_batches=config.team_batches,
+            cohort_sweep=config.cohort_sweep,
+            max_cohorts=config.max_cohorts,
             shards=config.shards,
             max_execution_time=config.max_execution_time,
             max_memory_usage=config.max_memory_usage,
             dictionary_load_timeout=config.dictionary_load_timeout,
             mutation_stall_timeout=config.mutation_stall_timeout,
+            mutation_capacity_timeout=config.mutation_capacity_timeout,
             mutation_wait_deadline=config.mutation_wait_deadline,
             max_persons=config.max_persons,
             min_team_id=config.min_team_id,
@@ -537,6 +566,7 @@ def clear_removed_cohort_data(
     """
     run = CleanupRun.for_run(context.run_id, config)
     reaped = reap_stranded_run_assets(context, cluster)
+    run = replace(run, stranded_runs_reaped=reaped)
     context.add_output_metadata(
         {
             "dry_run": dagster.MetadataValue.bool(run.dry_run),
@@ -548,12 +578,36 @@ def clear_removed_cohort_data(
         context.log.info("dry run: skipping the cohort sweep")
         return run
 
-    failed = sweep_cohort_deletions()
-    context.add_output_metadata({"failed_passes": dagster.MetadataValue.text(", ".join(failed) or "none")})
+    if not run.cohort_sweep:
+        context.log.warning("cohort sweep disabled, going straight to the person sweep")
+        return run
+
+    # The query tags are what let `system.query_log` tell this run's cohort mutations apart from
+    # any other traffic afterwards, which is how the sweep gets tuned.
+    report = sweep_cohort_deletions(max_cohorts=run.max_cohorts, delete_settings=settings_with_log_comment(context))
+    context.add_output_metadata(
+        {
+            "cohorts_targeted": dagster.MetadataValue.int(report.targets),
+            "cohorts_already_clear": dagster.MetadataValue.int(report.cleared),
+            "deletions_marked_verified": dagster.MetadataValue.int(report.marked),
+            "cohort_mutations": dagster.MetadataValue.int(report.mutations),
+            "unparseable_keys": dagster.MetadataValue.int(report.unparseable_keys),
+            "mark_seconds": dagster.MetadataValue.float(report.mark_seconds),
+            "delete_seconds": dagster.MetadataValue.float(report.delete_seconds),
+            "drain_seconds": dagster.MetadataValue.float(report.drain_seconds),
+            "failed_passes": dagster.MetadataValue.text(", ".join(report.failed) or "none"),
+        }
+    )
+    # Op metadata dies with the run's history; these survive it, and are what a later tuning pass
+    # reads once system.part_log has rolled over.
+    metrics = MetricsClient(cluster)
+    _emit(metrics, "clickhouse_cleanup_cohorts_swept", {}, value=report.targets)
+    _emit(metrics, "clickhouse_cleanup_cohort_mutations", {}, value=report.mutations)
+    _emit(metrics, "clickhouse_cleanup_cohort_deletions_marked", {}, value=report.marked)
     # The prometheus counters sweep_cohort_deletions increments die with this run's pod, so the
     # scrapeable record of a failed pass is the ClickHouse-backed counter.
-    for name in failed:
-        _emit(MetricsClient(cluster), "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
+    for name in report.failed:
+        _emit(metrics, "clickhouse_cleanup_cohort_sweep_failed_passes", {"pass": name})
     return run
 
 
@@ -578,7 +632,9 @@ def snapshot_deleted_persons(
     # The insert lands on one host, but every host reads this table when the dictionary loads.
     cluster.map_all_hosts(run.persons.sync_replica).result()
 
-    count = cluster.any_host_by_role(run.persons.distinct_key_count, NodeRole.DATA).result()
+    count = cluster.any_host_by_role(
+        partial(run.persons.distinct_key_count, settings=run.query_settings), NodeRole.DATA
+    ).result()
     context.add_output_metadata(
         {
             "deleted_persons": dagster.MetadataValue.int(count),
@@ -606,7 +662,9 @@ def snapshot_orphaned_distinct_ids(
     snapshot_seconds = round(time.monotonic() - started, 1)
     _create_dictionary(context, cluster, run.orphaned_dictionary, run)
 
-    count = cluster.any_host_by_role(run.orphaned.distinct_key_count, NodeRole.DATA).result()
+    count = cluster.any_host_by_role(
+        partial(run.orphaned.distinct_key_count, settings=run.query_settings), NodeRole.DATA
+    ).result()
     context.add_output_metadata(
         {
             "orphaned_distinct_ids": dagster.MetadataValue.int(count),
@@ -632,14 +690,18 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
         cluster: dagster.ResourceParam[ClickhouseCluster],
         run: CleanupRun,
     ) -> CleanupRun:
-        persons_before = cluster.any_host_by_role(run.revived.count, NodeRole.DATA).result()
+        persons_before = cluster.any_host_by_role(
+            partial(run.revived.count, settings=run.query_settings), NodeRole.DATA
+        ).result()
         persons_total = cluster.any_host_by_role(
             partial(run.revived.populate, persons=run.persons, settings=run.query_settings), NodeRole.DATA
         ).result()
         cluster.map_all_hosts(run.revived.sync_replica).result()
 
         # Runs second: which distinct ids still qualify depends on which persons are still deleted.
-        ids_before = cluster.any_host_by_role(run.revived_distinct_ids.count, NodeRole.DATA).result()
+        ids_before = cluster.any_host_by_role(
+            partial(run.revived_distinct_ids.count, settings=run.query_settings), NodeRole.DATA
+        ).result()
         ids_total = cluster.any_host_by_role(
             partial(
                 run.revived_distinct_ids.populate,
@@ -660,14 +722,15 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
                 "revived_distinct_ids": dagster.MetadataValue.int(revived_ids),
             }
         )
+        run = replace(
+            run,
+            revived_person_count=run.revived_person_count + revived_persons,
+            revived_distinct_id_count=run.revived_distinct_id_count + revived_ids,
+        )
         if not revived_persons and not revived_ids:
             return run
 
         # Reloading is what applies the exclusion, so it only happens when something came back.
-        # Counted twice on purpose: the prometheus counters only surface if this pod is ever
-        # scraped, while the ClickHouse-backed counters survive the run.
-        REVIVED_PERSON_COUNTER.inc(revived_persons)
-        REVIVED_DISTINCT_ID_COUNTER.inc(revived_ids)
         metrics = MetricsClient(cluster)
         if revived_persons:
             _emit(metrics, "clickhouse_cleanup_revived", {"kind": "persons"}, value=revived_persons)
@@ -861,6 +924,16 @@ def _wait_for_mutation(
         time.sleep(MUTATION_POLL_SECONDS)
 
 
+@frozen
+class OrderedDeleteReport:
+    """What one table's ordered delete cost. The wait deadlines are set from this distribution,
+    so it is recorded as op metadata rather than left in the run's logs."""
+
+    batches: int
+    seconds_total: float
+    seconds_max: float
+
+
 @dataclass(frozen=True, kw_only=True)
 class TeamRange:
     """One inclusive [low, high] slice of the candidate team ids."""
@@ -896,8 +969,9 @@ def _run_ordered_delete(
     team_ranges: list[TeamRange],
     metrics: MetricsClient,
     stall_timeout: float,
+    capacity_timeout: float,
     wait_deadline: float,
-) -> int:
+) -> "OrderedDeleteReport":
     """Delete every snapshotted row from `table`, oldest version first.
 
     Two passes per team range, in this order and never merged:
@@ -922,13 +996,16 @@ def _run_ordered_delete(
     )
 
     batches = 0
+    durations: list[float] = []
     for team_range in team_ranges:
         for pass_name, key_predicate in passes:
+            started = time.monotonic()
             predicate = f"team_id >= {team_range.low} AND team_id <= {team_range.high} AND {key_predicate}"
             runner = LightweightDeleteMutationRunner(
                 table=table,
                 predicate=predicate,
                 settings=settings_with_log_comment(context),
+                capacity_timeout=capacity_timeout,
             )
             # Both tables are replicated and not sharded, so a mutation started on one host
             # reaches all of them.
@@ -942,21 +1019,38 @@ def _run_ordered_delete(
                 stall_timeout,
                 wait_deadline,
             )
+            durations.append(time.monotonic() - started)
             _emit(metrics, "clickhouse_cleanup_delete_pass_total", {"table": table, "pass": pass_name})
             batches += 1
 
     context.log.info("%s: completed %s ordered delete mutations", table, batches)
-    return batches
+    # sum() of an empty list is an int, and dagster's float metadata rejects one.
+    return OrderedDeleteReport(
+        batches=batches,
+        seconds_total=round(sum(durations, 0.0), 1),
+        seconds_max=round(max(durations, default=0.0), 1),
+    )
 
 
-def _require_snapshot_intact(cluster: ClickhouseCluster, table: SnapshotTable, recorded: int) -> None:
+def _delete_metadata(ranges: list[TeamRange], report: "OrderedDeleteReport") -> dict[str, dagster.MetadataValue]:
+    return {
+        "team_ranges": dagster.MetadataValue.int(len(ranges)),
+        "mutation_batches": dagster.MetadataValue.int(report.batches),
+        "mutation_seconds_total": dagster.MetadataValue.float(report.seconds_total),
+        "mutation_seconds_max": dagster.MetadataValue.float(report.seconds_max),
+    }
+
+
+def _require_snapshot_intact(
+    cluster: ClickhouseCluster, table: SnapshotTable, recorded: int, settings: Mapping[str, int]
+) -> None:
     """Fail the run if the snapshot lost rows since it was recorded.
 
     The 14-day TTL drops a run's partition unconditionally, so a run stalled past it would
     otherwise sweep from a silently shrunken worklist, and nothing would distinguish
     "under-deleted" from "had fewer rows".
     """
-    current = cluster.any_host_by_role(table.distinct_key_count, NodeRole.DATA).result()
+    current = cluster.any_host_by_role(partial(table.distinct_key_count, settings=settings), NodeRole.DATA).result()
     if current != recorded:
         raise dagster.Failure(
             f"{table.table_name} holds {current} keys for this run but {recorded} were snapshotted;"
@@ -975,11 +1069,11 @@ def delete_orphaned_distinct_ids(
         context.log.info("dry run: skipping the delete from %s", PERSON_DISTINCT_ID2_TABLE)
         return run
 
-    _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count)
-    ranges = _team_ranges(cluster.any_host_by_role(run.orphaned.team_ids, NodeRole.DATA).result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
+    _require_snapshot_intact(cluster, run.orphaned, run.orphaned_count, run.query_settings)
+    team_ids = cluster.any_host_by_role(partial(run.orphaned.team_ids, settings=run.query_settings), NodeRole.DATA)
+    ranges = _team_ranges(team_ids.result(), run.team_batches)
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSON_DISTINCT_ID2_TABLE,
@@ -988,10 +1082,16 @@ def delete_orphaned_distinct_ids(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
-    return replace(run, distinct_ids_deleted_at=datetime.now(UTC))
+    return replace(
+        run,
+        distinct_ids_deleted_at=datetime.now(UTC),
+        mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max),
+    )
 
 
 @dagster.op
@@ -1006,7 +1106,8 @@ def persist_deleted_persons(
     The queue is advisory, never authoritative. Rows sit here until the drain runs, so a person
     can be revived after being queued no matter how carefully this op checks. ClickHouse also
     trails Postgres, so a person revived in Postgres can still read as deleted here. The drain
-    has to re-verify each person against Postgres before deleting it.
+    has to re-verify each person against Postgres before deleting it, and it deletes a queue row
+    once the person is resolved either way.
     """
     if run.dry_run:
         context.log.info("dry run: skipping the write to %s", PG_CLEANUP_QUEUE_TABLE)
@@ -1056,22 +1157,21 @@ def persist_deleted_persons(
                 page = cluster.any_host_by_role(partial(read_page, after=after), NodeRole.DATA).result()
                 if not page:
                     break
-                # A person can be deleted, drained, re-created and deleted again under the same uuid,
-                # and the drain only looks at rows where cleaned_at is null. Leaving an already-cleaned
-                # row untouched would drop that second deletion on the floor and leak its Postgres rows
-                # for good, so the conflict re-arms the row instead of ignoring it. The WHERE keeps a
-                # retried op from rewriting rows that already hold these values: an unconditional
-                # DO UPDATE writes a new tuple version per row, so a retry over millions of rows would
-                # leave that many dead tuples for the persons writer to vacuum.
+                # A row still pending from an earlier sweep takes this run's deleted_at, and if the drain
+                # had marked it blocked (tombstoned person still owning a live distinct id) the block is
+                # lifted, because a fresh ClickHouse tombstone is new evidence the drain should act on.
+                # The WHERE keeps a retried op from rewriting rows that already hold this run's
+                # deleted_at: an unconditional DO UPDATE writes a new tuple version per row, so a retry
+                # over millions of rows would leave that many dead tuples for the persons writer to
+                # vacuum.
                 execute_values(
                     cursor,
                     f"""
                     INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at)
                     VALUES %s
                     ON CONFLICT (team_id, person_uuid) DO UPDATE
-                    SET deleted_at = EXCLUDED.deleted_at, cleaned_at = NULL
-                    WHERE {PG_CLEANUP_QUEUE_TABLE}.cleaned_at IS NOT NULL
-                       OR {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
+                    SET deleted_at = EXCLUDED.deleted_at, blocked_at = NULL
+                    WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at IS DISTINCT FROM EXCLUDED.deleted_at
                     """,
                     [(team_id, str(person_id), deleted_at) for team_id, person_id in page],
                     page_size=1000,
@@ -1090,7 +1190,7 @@ def persist_deleted_persons(
         persons_database.close()
 
     context.add_output_metadata({"queued_for_postgres": dagster.MetadataValue.int(written)})
-    return run
+    return replace(run, queued_for_postgres=written)
 
 
 @dagster.op
@@ -1108,11 +1208,11 @@ def delete_persons(
         context.log.info("dry run: skipping the delete from %s", PERSONS_TABLE)
         return run
 
-    _require_snapshot_intact(cluster, run.persons, run.persons_count)
-    ranges = _team_ranges(cluster.any_host_by_role(run.persons.team_ids, NodeRole.DATA).result(), run.team_batches)
-    context.add_output_metadata({"team_ranges": dagster.MetadataValue.int(len(ranges))})
+    _require_snapshot_intact(cluster, run.persons, run.persons_count, run.query_settings)
+    team_ids = cluster.any_host_by_role(partial(run.persons.team_ids, settings=run.query_settings), NodeRole.DATA)
+    ranges = _team_ranges(team_ids.result(), run.team_batches)
 
-    _run_ordered_delete(
+    report = _run_ordered_delete(
         context,
         cluster,
         PERSONS_TABLE,
@@ -1121,9 +1221,100 @@ def delete_persons(
         ranges,
         MetricsClient(cluster),
         run.mutation_stall_timeout,
+        run.mutation_capacity_timeout,
         run.mutation_wait_deadline,
     )
+    context.add_output_metadata(_delete_metadata(ranges, report))
 
+    return replace(run, mutation_seconds_max=max(run.mutation_seconds_max, report.seconds_max))
+
+
+# Pushing replaces every gauge stored under this name, so one push carries the whole set.
+SWEEP_METRICS_JOB = "clickhouse_deletion_sweep"
+
+
+@frozen
+class PublishedGauge:
+    """One published measurement. Named so the metric name and its help text cannot swap."""
+
+    name: str
+    help_text: str
+    value: float
+
+    def __post_init__(self) -> None:
+        # Most of these are counts, and Dagster metadata rejects an int where it wants a float.
+        object.__setattr__(self, "value", float(self.value))
+
+
+def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
+    return [
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_last_success_timestamp_seconds",
+            help_text="Unix time when the sweep last finished deleting persons",
+            value=completed_at,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_deleted_persons",
+            help_text="Soft-deleted persons this run snapshotted. Saturates at the max_persons cap",
+            value=run.persons_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_snapshot_orphaned_distinct_ids",
+            help_text="Orphaned distinct id mappings this run snapshotted, under the same cap",
+            value=run.orphaned_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_persons",
+            help_text="Persons that came back between the snapshot and the delete, and were excluded",
+            value=run.revived_person_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_revived_distinct_ids",
+            help_text="Distinct id mappings that came back mid-run, and were excluded",
+            value=run.revived_distinct_id_count,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_queued_for_postgres",
+            help_text="Persons handed to the Postgres cleanup queue by this run",
+            value=run.queued_for_postgres,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_mutation_seconds_max",
+            help_text="Slowest single delete mutation of the run, against mutation_wait_deadline",
+            value=run.mutation_seconds_max,
+        ),
+        PublishedGauge(
+            name="posthog_clickhouse_deletion_sweep_stranded_runs_reaped",
+            help_text="Finished runs whose leftover dictionaries this run dropped",
+            value=run.stranded_runs_reaped,
+        ),
+    ]
+
+
+@dagster.op
+def publish_sweep_metrics(
+    context: dagster.OpExecutionContext,
+    run: CleanupRun,
+) -> CleanupRun:
+    """Publish what the run measured, so alerting and dashboards can read it.
+
+    Runs after the person delete and before the asset drop. That places it at the point where the
+    sweep has done the work it exists for, and keeps a cleanup failure from also hiding the
+    measurements the run already earned.
+
+    A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
+    ad-hoc run from the Dagster UI mask a sweep that has stopped working.
+    """
+    if run.dry_run:
+        context.log.info("dry run: publishing no metrics")
+        return run
+
+    gauges = _sweep_gauges(run, time.time())
+    with pushed_metrics_registry(SWEEP_METRICS_JOB) as registry:
+        for gauge in gauges:
+            Gauge(gauge.name, gauge.help_text, registry=registry).set(gauge.value)
+
+    context.add_output_metadata({gauge.name: dagster.MetadataValue.float(gauge.value) for gauge in gauges})
     return run
 
 
@@ -1184,19 +1375,14 @@ _RUN_SCOPED_DICTIONARY = re.compile(
     r"_([0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12})_dictionary$"
 )
 
-# Statuses in which a run can no longer be using its dictionaries. Sourced from the public enum
-# rather than dagster's private FINISHED_STATUSES so an upstream rename cannot break the import.
-_TERMINAL_RUN_STATUSES = frozenset(
-    {dagster.DagsterRunStatus.SUCCESS, dagster.DagsterRunStatus.FAILURE, dagster.DagsterRunStatus.CANCELED}
-)
-
 
 def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: ClickhouseCluster) -> int:
     """Drop dictionaries left by finished sweep runs, and return how many runs were reaped.
 
     Cancellation, run-worker crashes, and pre-step failures skip the failure hook, and
-    dictionaries have no TTL. Only runs this instance knows to be finished are reaped:
-    an active run's assets are in use, and an unknown run id cannot be proven dead.
+    dictionaries have no TTL. Every run is a clean slate (there is no resume path), and the
+    run-queue limit on clickhouse_deletion_sweep_concurrency guarantees no sibling run is
+    live, so everything that is not the current run's is reaped.
     """
     try:
         current = context.run_id.replace("-", "_")
@@ -1218,13 +1404,7 @@ def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: Click
             if not match or match.group(1) == current or match.group(1) in reaped:
                 continue
             run_id = match.group(1)
-            stranded_run = context.instance.get_run_by_id(run_id.replace("_", "-"))
-            if stranded_run is None:
-                context.log.warning("not reaping %s: this instance does not know run %s", name, run_id)
-                continue
-            if stranded_run.status not in _TERMINAL_RUN_STATUSES:
-                continue
-            context.log.warning("reaping stranded assets of finished run %s", run_id)
+            context.log.warning("reaping stranded assets of run %s", run_id)
             try:
                 _kill_and_drop_run_assets(cluster, run_id)
             except Exception:
@@ -1260,7 +1440,18 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
-@dagster.job(hooks={drop_assets_on_failure}, tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    hooks={drop_assets_on_failure},
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # Matched by a run-queue limit of 1 in charts (argocd/dagster/deployment_settings), so a
+        # second sweep run queues instead of running concurrently. The janitor depends on this.
+        "clickhouse_deletion_sweep_concurrency": "v1",
+        # Nothing else bounds total runtime: the per-wait timeouts can each fire without the run
+        # ending. Safe to lose a killed run, since every op is idempotent.
+        "dagster/max_runtime": 43200,
+    },
+)
 def clickhouse_deletion_sweep_job():
     """Sweep deleted cohort memberships, then deleted persons and their distinct ids."""
     run = snapshot_orphaned_distinct_ids(snapshot_deleted_persons(clear_removed_cohort_data()))
@@ -1275,4 +1466,84 @@ def clickhouse_deletion_sweep_job():
     run = persist_deleted_persons(run)
 
     # Each op takes the previous op's output, which is what keeps the sweeps in sequence.
-    drop_snapshot_assets(delete_persons(run))
+    drop_snapshot_assets(publish_sweep_metrics(delete_persons(run)))
+
+
+# What the sensor launches with. Every field is pinned so a changed default cannot move production,
+# and every value is a ceiling, which is what lets one config serve both regions.
+SCHEDULED_RUN_CONFIG = {
+    "ops": {
+        "clear_removed_cohort_data": {
+            "config": {
+                "dry_run": False,
+                "cleanup": True,
+                "cohort_sweep": True,
+                # Not DEFAULT_MAX_COHORTS: at 2,000 this op is two thirds of the run and still
+                # needs ~24 US runs to drain. Draining is an attended campaign, not weekly work.
+                "max_cohorts": 100,
+                "team_batches": DEFAULT_TEAM_BATCHES,
+                # Never 0: unbounded takes the whole backlog in one run. 30M outpaces both
+                # regions' weekly arrivals, so the backlog converges.
+                "max_persons": 30_000_000,
+                "shards": 16,
+                "max_execution_time": 1800,
+                # The orphaned distinct id populate, not the persons one, sets this. 64 GiB failed it.
+                "max_memory_usage": 128 * 1024**3,
+                "dictionary_load_timeout": 1800,
+                "mutation_stall_timeout": 1800,
+                "mutation_capacity_timeout": 3600,
+                # The only bound on a slow but healthy mutation. Worst measured: 5,844 s.
+                "mutation_wait_deadline": 21600,
+                "min_team_id": 0,
+                "max_team_id": 0,
+            }
+        }
+    }
+}
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[deletes_job],
+    request_job=clickhouse_deletion_sweep_job,
+    # Enabled on registration. A sensor that never fires raises no alert, so shipping it stopped
+    # would end weekly hard-deletion silently.
+    default_status=dagster.DefaultSensorStatus.RUNNING,
+    minimum_interval_seconds=60,
+)
+def run_cleanup_sweep_after_deletes(
+    context: dagster.RunStatusSensorContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    """Chain the sweep behind the GDPR deletes run instead of giving it a cron of its own.
+
+    Both jobs mutate person and person_distinct_id2 across the cluster, and deletes_job starts
+    after the Saturday-night squash and can run for hours, so any fixed cron for the sweep
+    overlaps it in the worst weeks. Chaining on success serializes the weekend into
+    squash -> deletes_job -> sweep. A week where the upstream chain fails skips the sweep, which
+    is safe: the worklist derives from live tombstones, so the next run picks everything up.
+    """
+    active = context.instance.get_run_records(
+        dagster.RunsFilter(
+            job_name=clickhouse_deletion_sweep_job.name,
+            statuses=[
+                dagster.DagsterRunStatus.QUEUED,
+                dagster.DagsterRunStatus.NOT_STARTED,
+                dagster.DagsterRunStatus.STARTING,
+                dagster.DagsterRunStatus.STARTED,
+                # A canceling run still counts: its last mutation keeps applying server-side.
+                # wait_for_mutation_capacity holds stragglers off the tables, and the next
+                # run's janitor reaps a canceled run's dictionaries.
+                dagster.DagsterRunStatus.CANCELING,
+            ],
+        ),
+        limit=1,
+    )
+    if active:
+        # deletes_job can also be launched by hand, so back-to-back successes are possible; a
+        # second sweep mutating the same tables concurrently is the one thing this must prevent.
+        return dagster.SkipReason("a deletion sweep run is already active")
+
+    # The run_key makes each deletes_job success launch at most one sweep. The sensor is the only
+    # launch that deletes: dry_run defaults to true, so an ad-hoc run from the Dagster UI reports
+    # what it would remove rather than removing it.
+    return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=SCHEDULED_RUN_CONFIG)

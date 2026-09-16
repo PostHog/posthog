@@ -116,10 +116,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_events_json_native_json'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -180,15 +180,54 @@ database "posthog" {
       type = "Nullable(Int32)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
       thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_property_mutation_log"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
+    }
+  }
+
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
     }
   }
 
@@ -1002,4 +1041,84 @@ SQL
       type = "UInt8"
     }
   }
+
+  materialized_view "person_property_mutation_log_mv" {
+    to_table = "posthog.person_property_mutation_log"
+    query    = <<SQL
+SELECT
+  team_id,
+  uuid AS event_uuid,
+  concat(
+    '{',
+    arrayStringConcat(
+      arrayMap(
+        property -> concat(toJSONString(property.1), ':', property.2),
+        arrayFilter(
+          property -> property.1 IN ('$set', '$set_once', '$unset'),
+          JSONExtractKeysAndValuesRaw(source.properties)
+        )
+      ),
+      ','
+    ),
+    '}'
+  ) AS properties,
+  toDateTime(_timestamp, 'UTC') AS ingested_at
+FROM kafka_person_property_mutation_log AS source
+WHERE
+  JSONHas(source.properties, '$set')
+OR
+  JSONHas(source.properties, '$set_once')
+OR
+  JSONHas(source.properties, '$unset')
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+  }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

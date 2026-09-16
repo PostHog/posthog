@@ -148,6 +148,28 @@ describe("ActivityTimeline", () => {
     expect(useThreadNavigationStore.getState().scrollRequests).toEqual({});
   });
 
+  it("folds injected PostHog app context by default", () => {
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "posthog-context-message",
+        content:
+          '<posthog_untrusted_context>\n- dashboard 42 ("Weekly active users")\n</posthog_untrusted_context>\n\nHow many active users',
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText("How many active users")).toBeInTheDocument();
+    expect(screen.queryByText(/posthog_untrusted_context/)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /How many active users/ }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "PostHog context" }));
+
+    expect(screen.getByText(/Weekly active users/)).toBeVisible();
+  });
+
   it("hides injected custom instructions from conversation previews", () => {
     renderTimeline(true, [
       {

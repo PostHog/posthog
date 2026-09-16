@@ -18,6 +18,10 @@ export interface PromptHistorySelectedProperties {
 
 type ExecutionType = "cloud" | "local";
 export type RepositoryProvider = "github" | "gitlab" | "local" | "none";
+export type SpaceContextMode =
+  | "none"
+  | "legacy_inline"
+  | "context_wiki_reference";
 type TaskCreatedFrom = "cli" | "command-menu" | "sidebar-worktree";
 type RepositorySelectSource = "task-creation" | "task-detail";
 type GitActionType =
@@ -57,6 +61,7 @@ export type CommandMenuAction =
   | "open-task"
   | "open-task-from-pull-request"
   | "open-artifact"
+  | "open-canvas"
   | "open-channel"
   | "open-command-center"
   | "save-feed"
@@ -104,6 +109,10 @@ export interface TaskCreateProperties {
   adapter?: Adapter;
   codex_model_access?: ModelAccess;
   claude_model_access?: ModelAccess;
+  /** Space that owns the task, when it was created from a Space. */
+  channel_id?: string;
+  /** How shared Space context was delivered to the task. */
+  space_context_mode: SpaceContextMode;
 }
 
 export interface TaskViewProperties {
@@ -304,6 +313,30 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+/** Every row of the account / project / org menu, plus opening it. */
+export type ProjectMenuAction =
+  | "open"
+  | "switch_project"
+  | "switch_organization"
+  | "create_project"
+  | "create_organization"
+  | "discord"
+  | "changelog"
+  | "website"
+  | "privacy_policy"
+  | "keyboard_shortcuts"
+  | "archived"
+  | "settings"
+  | "log_out";
+
+export interface ProjectMenuActionProperties {
+  action: ProjectMenuAction;
+  /** The rail draws the trigger as an icon, the code sidebar as a footer row. */
+  appearance: "row" | "icon";
+  /** For switch_project / switch_organization: whether the pick moved anywhere. */
+  changed?: boolean;
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -341,6 +374,11 @@ export interface SettingChangedProperties {
   setting_name: string;
   new_value: string | boolean | number;
   old_value?: string | boolean | number;
+}
+
+export interface CloudCredentialRelayProperties {
+  credential: "claude_subscription_token";
+  outcome: "sent" | "no_token" | "expired" | "rejected";
 }
 
 export interface CustomSoundAddedProperties {
@@ -415,8 +453,20 @@ export interface ModelSwitchWarningShownProperties {
 
 export interface ModelSwitchWarningActionProperties
   extends ModelSwitchWarningShownProperties {
-  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  action: "cancel" | "switch_now";
   result?: "failed" | "succeeded";
+}
+
+export interface SessionSummaryRequestedProperties {
+  task_id: string;
+  source: "retry" | "task_menu";
+}
+
+export interface SessionSummaryActionProperties {
+  task_id: string;
+  action: "copied" | "dismissed" | "stopped_waiting";
+  /** How long the summary had been running when the action happened. */
+  wait_ms: number;
 }
 
 // Tour events
@@ -499,7 +549,7 @@ export type AiQualityRating = "good" | "bad";
 
 export interface AiFeedbackContextProperties {
   $ai_session_id: string | null;
-  $ai_trace_id: null;
+  $ai_trace_id: string | null;
   ai_product: AiFeedbackProduct;
   task_id: string | null;
   task_run_id?: string;
@@ -522,10 +572,9 @@ export type OnboardingStepId =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
-type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
+type OnboardingSkipReason = "dev_skip";
 
 export interface OnboardingStepViewedProperties {
   step_id: OnboardingStepId;
@@ -559,11 +608,6 @@ export interface OnboardingProjectSelectedProperties {
   had_multiple_projects: boolean;
 }
 
-export interface OnboardingFolderSelectedProperties {
-  has_git_remote: boolean;
-  repository_provider: RepositoryProvider;
-}
-
 export interface OnboardingCliCheckCompletedProperties {
   git_installed: boolean;
   gh_installed: boolean;
@@ -578,7 +622,6 @@ export interface OnboardingCliRunCompletedProperties {
 export interface OnboardingCompletedProperties {
   duration_seconds: number;
   github_connected: boolean;
-  repo_skipped: boolean;
 }
 
 export type OnboardingGithubConnectFlow =
@@ -692,6 +735,7 @@ export type InboxReportActionType =
   | "snooze"
   | "delete"
   | "reingest"
+  | "implement"
   | "create_pr"
   | "open_pr"
   | "open_task"
@@ -818,7 +862,6 @@ export interface InboxReportScrolledProperties {
 }
 
 export interface UsageViewedProperties {
-  is_pro: boolean;
   /** Monthly bucket percent (0-100), null when usage is unavailable. */
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
@@ -948,7 +991,15 @@ type ScoutActionType =
   | "close_settings"
   | "open_findings"
   | "filter_findings"
-  | "sort_findings";
+  | "sort_findings"
+  | "run_now"
+  | "open_new_agent"
+  | "accept_suggestion"
+  | "draft_suggestion"
+  | "dismiss_suggestion"
+  | "filter_origin"
+  | "search_agents"
+  | "switch_detail_tab";
 
 /**
  * How the fleet materialization that preceded this view ended. Without it an
@@ -994,10 +1045,15 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
-  new_value: boolean | number;
+  setting:
+    | "enabled"
+    | "emit"
+    | "run_interval_minutes"
+    | "run_cron_schedule"
+    | "auto_pause_exempt";
+  new_value: boolean | number | string | null;
   /** Null when the backend predates the setting and never sent a value. */
-  old_value: boolean | number | null;
+  old_value: boolean | number | string | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -1110,7 +1166,13 @@ type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  /** Sessions ↔ Canvases in a space's sidebar list. */
+  | "space_tab_change"
+  | "expand_channel"
+  | "activity_unreads_toggle"
+  | "activity_mark_all_read"
+  | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
@@ -1131,14 +1193,19 @@ export interface ChannelActionProperties {
   task_id?: string;
   /** For file_task: destination channel when different from `channel_id`. */
   target_channel_id?: string;
-  /** For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings"). */
+  /**
+   * For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings").
+   * A space's sidebar rows send their page key, where "home" is the row labelled "Feed".
+   */
   nav_target?: string;
   /** For mention_member: the tagged teammate's user uuid. */
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For activity_tab_change: the tab landed on. */
+  /** The tab landed on; space_tab_change sends the kind it lists ("task" reads "Sessions"). */
   tab?: string;
+  /** For activity_unreads_toggle: the state being entered. */
+  enabled?: boolean;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
   /** For auto_archive_update: the selected inactivity window. Null disables it. */
@@ -1276,7 +1343,6 @@ export interface UpgradePromptClickedProperties {
 
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
-  is_pro: boolean;
 }
 
 // Claude Code session import events
@@ -1557,6 +1623,8 @@ export const ANALYTICS_EVENTS = {
   SESSION_CONFIG_CHANGED: "Session config changed",
   MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
   MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
+  SESSION_SUMMARY_REQUESTED: "Session summary requested",
+  SESSION_SUMMARY_ACTION: "Session summary action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1566,6 +1634,9 @@ export const ANALYTICS_EVENTS = {
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
   CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
+  CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
+  CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1585,7 +1656,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
   ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
@@ -1671,6 +1741,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
+  PROJECT_MENU_ACTION: "Project menu action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -1765,9 +1836,14 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_REQUESTED]: SessionSummaryRequestedProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_ACTION]: SessionSummaryActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
@@ -1793,7 +1869,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
@@ -1878,6 +1953,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
+  [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

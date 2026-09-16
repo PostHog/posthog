@@ -17,6 +17,7 @@ import type { InboxReportActionSurface } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
+  SuggestedReviewer,
 } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
@@ -65,8 +66,12 @@ export function SuggestedReviewerAvatarStack({
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
+  // The stack draws GitHub profile avatars, so it can only show reviewers who have a login. A
+  // reviewer identified by PostHog user alone still routes the report; they just have no avatar
+  // to draw here yet.
   const reviewers = (reviewerArtefact?.content ?? []).filter(
-    (reviewer) => reviewer.github_login,
+    (reviewer): reviewer is SuggestedReviewer & { github_login: string } =>
+      !!reviewer.github_login,
   );
   if (reviewers.length === 0) {
     return null;

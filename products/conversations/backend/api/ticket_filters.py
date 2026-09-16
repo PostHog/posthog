@@ -40,6 +40,8 @@ MAX_SEARCH_LENGTH = 200
 SLA_FILTER_VALUES = ["breached", "at-risk", "on-track"]
 AI_TRIAGE_FILTER_VALUES = [
     "persisted",
+    "suggested",
+    "escalated_with_findings",
     "escalated_with_best",
     "escalated_no_reply",
     "skipped_unactionable",
@@ -182,13 +184,16 @@ class TicketViewFiltersSerializer(serializers.Serializer):
     aiTriageResult = serializers.ListField(
         child=serializers.ChoiceField(choices=AI_TRIAGE_FILTER_VALUES),
         required=False,
-        help_text="AI triage outcomes to include. 'in_progress' matches tickets still being triaged.",
+        help_text="AI triage outcomes to include. 'in_progress' matches tickets still being triaged. "
+        "Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, "
+        "escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, in_progress.",
     )
     assignee = TicketViewAssigneeFilterField(
         required=False,
         help_text="Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), "
-        "or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted "
-        "and normalized to a list.",
+        "or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a "
+        "single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace "
+        "'all' with an empty list to apply no assignee filter.",
     )
     tags = serializers.ListField(
         child=serializers.CharField(),

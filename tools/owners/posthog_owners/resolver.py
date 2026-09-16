@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal, Protocol, TypedDict
 
 from .matcher import compile_pattern, normalize_path
-from .schema import UNSET, OwnersFile, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
+from .schema import UNSET, OwnersFile, Producer, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
 
 OWNERS_FILENAME = "owners.yaml"
 PRODUCT_FILENAME = "product.yaml"
@@ -25,9 +25,9 @@ PRODUCT_FILENAME = "product.yaml"
 class TeamChannel:
     """Where a team's Slack messages go, and how that was decided.
 
-    ``declared`` separates an explicit ``teams:`` entry from the derived ``#<slug>``: a caller
-    routing real messages usually treats a declaration as a decision to honor and a derivation as
-    a guess to verify, and cannot tell them apart from ``channel`` alone.
+    ``declared`` separates an answer for this purpose and producer from the derived ``#<slug>``: a
+    caller routing real messages usually treats a declaration as a decision to honor and a
+    derivation as a guess to verify, and cannot tell them apart from ``channel`` alone.
     """
 
     channel: str | None
@@ -41,14 +41,21 @@ Purpose = Literal["slack", "notifications"]
 DEFAULT_PURPOSE: Purpose = "slack"
 
 
-def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = DEFAULT_PURPOSE) -> TeamChannel:
+def team_channel(
+    slug: str,
+    teams: Mapping[str, TeamEntry],
+    purpose: Purpose = DEFAULT_PURPOSE,
+    producer: Producer | None = None,
+) -> TeamChannel:
     """The Slack channel for a team slug and a purpose, else the derived ``#<slug>``.
 
     ``purpose`` is "slack" (where people are) or "notifications" (where automation posts).
     "notifications" falls back to "slack", so a team that never separates automation from people
-    keeps one channel and one entry. A per-producer form, so a team can silence one bot without
-    silencing all of them, is an additive change here later: it widens what a key may hold, and
-    callers keep the call they already make.
+    keeps one channel and one entry.
+
+    ``producer`` names the automation asking, and only matters when the team declared a per-producer
+    ``notifications`` mapping. A mapping that does not name the producer falls through to ``slack``,
+    so silencing one bot leaves the others where they were.
 
     A declared ``false`` means the team has no channel for that purpose, which is different from
     having no entry. The first is an answer and stops the lookup; the second falls through.
@@ -56,7 +63,11 @@ def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = D
     entry = teams.get(slug)
     if entry is not None:
         candidates = (entry.notifications, entry.slack) if purpose == "notifications" else (entry.slack,)
-        for value in candidates:
+        for candidate in candidates:
+            if isinstance(candidate, Mapping):
+                value = candidate.get(producer) if producer is not None else None
+            else:
+                value = candidate
             if value is not None:
                 # Schema only admits `false`; any bool means "no channel".
                 return TeamChannel(channel=value if isinstance(value, str) else None, declared=True)

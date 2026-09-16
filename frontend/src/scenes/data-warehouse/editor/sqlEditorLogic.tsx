@@ -48,7 +48,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    filtersPlaceholderBindings,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -108,7 +112,6 @@ import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/
 import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
-import { dataModelingLogic } from '../scene/dataModelingLogic'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
 import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
@@ -575,6 +578,7 @@ export interface sqlEditorLogicValues {
     editorSource: SqlEditorSource
     error: string | null
     exportContext: ExportContext
+    filtersPlaceholderBindings: string[] | null
     finishedLoading: boolean
     fixErrorsError: string | null
     hasFiltersPlaceholder: boolean
@@ -611,8 +615,10 @@ export interface sqlEditorLogicValues {
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
+        modelId: string
         nodes: DataModelingNode[]
     } | null
+    upstreamLoadFailed: boolean
     upstreamLoading: boolean
     upstreamViewMode: 'graph' | 'table'
     viewLoading: boolean
@@ -635,7 +641,6 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
-                  dag_id?: string
                   folder_id?: string | null
                   types: string[][]
               })
@@ -643,7 +648,6 @@ export interface sqlEditorLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
@@ -666,9 +670,9 @@ export interface sqlEditorLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
-        incremental?: DataWarehouseSavedQueryIncremental | undefined
+        incremental?: DataWarehouseSavedQueryIncremental | null | undefined
     ) => {
-        incremental: DataWarehouseSavedQueryIncremental | undefined
+        incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
@@ -680,26 +684,8 @@ export interface sqlEditorLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -709,30 +695,10 @@ export interface sqlEditorLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     loadDatabase: (
         args_0?:
@@ -890,6 +856,7 @@ export interface sqlEditorLogicActions {
     loadUpstreamSuccess: (
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         },
         payload?: {
@@ -898,6 +865,7 @@ export interface sqlEditorLogicActions {
     ) => {
         upstream: {
             edges: DataModelingEdge[]
+            modelId: string
             nodes: DataModelingNode[]
         }
         payload?: {
@@ -951,10 +919,8 @@ export interface sqlEditorLogicActions {
     saveAsEndpointSubmit: (
         name: string,
         description?: string,
-        queryOverride?: string,
-        dagId?: string
+        queryOverride?: string
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined
@@ -1187,6 +1153,7 @@ export interface sqlEditorLogicMeta {
             splitQueryRanges: QueryRange[]
         ) => boolean
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
+        filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
@@ -1348,11 +1315,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
         }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string, dagId?: string) => ({
+        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string) => ({
             name,
             description,
             queryOverride,
-            dagId,
         }),
         saveAsMetric: true,
         saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
@@ -1537,15 +1503,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     }),
     loaders(() => ({
         upstream: [
-            null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
+            null as { modelId: string; nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    const lineage = await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    return { modelId: payload.modelId, ...lineage }
                 },
             },
         ],
     })),
     reducers(({ props }) => ({
+        upstream: {
+            // The value is shared across views, so a new load must not leave the previous graph on screen.
+            loadUpstream: () => null,
+        },
+        upstreamLoadFailed: [
+            false,
+            {
+                loadUpstream: () => false,
+                loadUpstreamSuccess: () => false,
+                loadUpstreamFailure: () => true,
+            },
+        ],
         selectedQueryTablesAndColumns: [
             {} as Record<string, Record<string, boolean>>,
             {
@@ -1990,18 +1969,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.syncUrlWithQuery()
             },
             enforceConnectionRawQueryMode: () => {
-                // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
-                // natively end-to-end, so raw mode is the better default for it too:
-                // it skips the HogQL reprint and reaches the engine verbatim.
+                // Raw-only connections cannot compile HogQL, so force raw SQL mode.
+                // Trino and the managed warehouse default to raw so native SQL reaches the engine unchanged.
+                // They still advertise HogQL support, which keeps the mode toggle available.
                 if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
                     const option = (values.connectionOptions ?? []).find(
                         (option) => option.id === values.selectedConnectionId
                     )
                     const isManagedWarehouseSource =
                         option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+                    // The serializer only sets `engine` for sources that report connection
+                    // metadata, and Trino does not, so key off the source type instead.
+                    const defaultsToRawQuery = isManagedWarehouseSource || option?.source_type === 'Trino'
 
-                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                    if (!values.selectedConnectionSupportsHogQL || defaultsToRawQuery) {
                         actions.setSendRawQuery(true)
                     }
                 }
@@ -2424,9 +2405,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (fromDraft) {
                         actions.deleteDraft(fromDraft, savedQuery?.name)
                     }
-
-                    // reload DAGs so newly created default DAG appears
-                    dataModelingLogic.findMounted()?.actions.loadDags()
 
                     if (isPartialSave && savedQuery) {
                         actions.createTab(savedQuery.query?.query ?? queryToSave.query, savedQuery)
@@ -3301,6 +3279,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (queryInput: string | null) => {
                 return queryUsesFiltersPlaceholder(queryInput)
             },
+        ],
+        filtersPlaceholderBindings: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): string[] | null => filtersPlaceholderBindings(queryInput),
+            { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
         isEmbeddedMode: [

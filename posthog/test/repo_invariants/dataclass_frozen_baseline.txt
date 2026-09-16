@@ -71,12 +71,10 @@
 1 posthog/temporal/data_modeling/activities/fail_materialization.py
 1 posthog/temporal/data_modeling/activities/materialize_view.py
 1 posthog/temporal/data_modeling/activities/preempt_dag_run.py
-1 posthog/temporal/data_modeling/workflows/materialize_view.py
 1 posthog/temporal/exports/workflows.py
 1 posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py
 1 posthog/temporal/mcp_analytics/intent_clustering/coordinator.py
 1 posthog/temporal/mcp_analytics/intent_clustering/team_discovery.py
-1 posthog/temporal/product_analytics/upgrade_queries_workflow.py
 1 posthog/temporal/session_replay/rasterize_recording/activities/stuck_counter.py
 1 posthog/temporal/tests/common/test_logger.py
 1 posthog/temporal/tests/data_modeling/test_log_routing.py
@@ -127,9 +125,6 @@
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
-1 products/experiments/stats/bayesian/method.py
-1 products/experiments/stats/bayesian/priors.py
-1 products/experiments/stats/bayesian/tests.py
 1 products/experiments/stats/frequentist/method.py
 1 products/experiments/stats/frequentist/tests.py
 1 products/exports/backend/models/subscription.py
@@ -163,6 +158,7 @@
 1 products/posthog_ai/eval_harness/scorers/tracing.py
 1 products/product_analytics/backend/hogql_queries/funnels/funnel_event_query.py
 1 products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner.py
+1 products/product_analytics/backend/temporal/upgrade_queries_workflow.py
 1 products/product_tours/backend/generate_tour_content/generate.py
 1 products/pulse/backend/temporal/activities.py
 1 products/replay_vision/backend/tests/test_gemini_cleanup_activities.py
@@ -218,7 +214,6 @@
 1 products/tasks/backend/temporal/slack_relay/activities.py
 1 products/tasks/backend/temporal/task_management/activities/ensure_execute_sandbox_started.py
 1 products/tasks/backend/tests/agent_log_fixtures.py
-1 products/visual_review/backend/diff.py
 1 products/warehouse_sources/backend/models/ssh_tunnel.py
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
@@ -257,7 +252,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/algolia/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/alguna/alguna.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/alguna/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/alpha_vantage/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amazon_ads/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/amplitude.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/amplitude/settings.py
@@ -375,7 +369,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/capsule_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/care_quality_commission.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/cast_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/census/census.py
@@ -530,8 +523,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/drip/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dropbox_sign/dropbox_sign.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dropbox_sign/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/dub/dub.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/dub/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynamodb/dynamodb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynamodb/tests/test_dynamodb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/dynatrace/dynatrace.py
@@ -1387,7 +1378,7 @@
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
 2 posthog/management/commands/generate_test_events.py
-2 posthog/management/migration_analysis/models.py
+1 posthog/management/migration_analysis/models.py
 2 posthog/models/data_deletion_request.py
 2 posthog/models/js_snippet_versioning.py
 2 posthog/models/kafka_partition_stats/sql.py
@@ -1401,10 +1392,9 @@
 2 posthog/temporal/backfill_group_type_created_at/types.py
 2 posthog/temporal/common/heartbeat.py
 2 posthog/temporal/data_modeling/activities/get_dag_structure.py
-2 posthog/temporal/data_modeling/activities/materialize_view_duckgres.py
 2 posthog/temporal/data_modeling/activities/prepare_queryable_table.py
 2 posthog/temporal/data_modeling/activities/succeed_materialization.py
-2 posthog/temporal/data_modeling/workflows/execute_dag.py
+1 posthog/temporal/data_modeling/workflows/execute_dag.py
 2 posthog/temporal/dlq_replay/workflow.py
 2 posthog/temporal/ingestion_acceptance_test/client.py
 2 posthog/temporal/ingestion_acceptance_test/results.py
@@ -1510,7 +1500,7 @@
 3 posthog/cdp/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
-3 posthog/hogql_queries/insights/trends/test/test_trends_query_runner.py
+3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
 3 posthog/hogql_queries/utils/test/test_time_sliced_query.py
 3 posthog/local_bootstrap/importer.py
 3 posthog/models/kafka_debug/sql.py

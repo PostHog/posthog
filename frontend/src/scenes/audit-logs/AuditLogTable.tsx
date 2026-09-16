@@ -2,12 +2,16 @@ import { useState } from 'react'
 
 import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
+import { AGENT_INTENT_TOOLTIP } from 'lib/components/ActivityLog/AgentAttribution'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { parseAgentAttribution } from 'lib/components/ActivityLog/parseAgentAttribution'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
 export interface AuditLogTableProps {
     logItems: HumanizedActivityLogItem[]
@@ -164,6 +168,7 @@ export function AuditLogTable({ logItems, pagination, teamsById }: AuditLogTable
 
 function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const unprocessed = logItem.unprocessed
+    const agent = parseAgentAttribution(logItem)
 
     if (!unprocessed) {
         return <div className="p-4 text-muted">No additional details available</div>
@@ -195,6 +200,28 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                             <div className="text-[13px] text-default">{unprocessed.item_id}</div>
                         </div>
                     )}
+                    {agent?.intent && (
+                        <div>
+                            <Tooltip title={AGENT_INTENT_TOOLTIP}>
+                                <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1 w-fit">
+                                    Agent intent
+                                </div>
+                            </Tooltip>
+                            <div className="text-[13px] text-default">{agent.intent}</div>
+                        </div>
+                    )}
+                    {agent?.taskId && (
+                        <div>
+                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                                Agent task
+                            </div>
+                            <div className="text-[13px]">
+                                <Link to={urls.codeTaskLink(agent.taskId)} target="_blank" targetBlankIcon>
+                                    {agent.taskId}
+                                </Link>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -203,10 +230,10 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
     )
 }
 
-type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
 
     return (
         <LemonTabs
@@ -214,6 +241,13 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
             onChange={(key) => setActiveTab(key as ActivityLogTabs)}
             data-attr="audit-log-details-tabs"
             tabs={[
+                logItem.expandedView
+                    ? {
+                          key: 'details',
+                          label: logItem.expandedView.label,
+                          content: logItem.expandedView.content,
+                      }
+                    : false,
                 logItem.extendedDescription
                     ? {
                           key: 'extended description',

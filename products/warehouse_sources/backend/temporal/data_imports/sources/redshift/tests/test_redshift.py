@@ -1,7 +1,12 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, call, patch
+
+from django.test import override_settings
 
 import psycopg
 import pyarrow as pa
@@ -9,14 +14,21 @@ from psycopg import sql
 from psycopg.pq import TransactionStatus
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     TemporaryFileSizeExceedsLimitException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
@@ -445,17 +457,52 @@ class TestGetTableMetadata:
 
         assert table.type == "view"
 
-    def test_populates_numeric_precision_and_scale_for_decimals(self, impl, cursor):
+    @pytest.mark.parametrize(
+        "catalog_precision,catalog_scale,expected",
+        [
+            (10, 2, (10, 2)),
+            # `numeric(18,0)` reports a scale of 0, which is a value, not a missing one: swapping it
+            # for the default made `decimal128(18,18)`, which cannot hold an integer.
+            (18, 0, (18, 0)),
+            (None, None, (38, 18)),
+        ],
+    )
+    def test_populates_numeric_precision_and_scale_for_decimals(
+        self, impl, cursor, catalog_precision, catalog_scale, expected
+    ):
         cursor.execute.return_value = cursor
         cursor.fetchone.return_value = (False,)
-        cursor.__iter__.return_value = iter(
-            [
-                ("amount", "decimal", "NO", 10, 2),
-            ]
-        )
+        cursor.__iter__.return_value = iter([("amount", "decimal", "NO", catalog_precision, catalog_scale)])
+
         table = impl.get_table_metadata(cursor, "public", "orders")
-        assert table.columns[0].numeric_precision == 10
-        assert table.columns[0].numeric_scale == 2
+
+        assert (table.columns[0].numeric_precision, table.columns[0].numeric_scale) == expected
+        assert str(table.columns[0].to_arrow_field().type) == f"decimal128({expected[0]}, {expected[1]})"
+
+    def test_reads_columns_from_pg_catalog_when_information_schema_hides_the_relation(self, impl, cursor):
+        # Without the fallback a materialized view the role can read but `information_schema`
+        # does not list synced with an empty Arrow schema.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = (True,)
+        cursor.__iter__.return_value = iter([])
+        cursor.fetchall.return_value = [
+            ("public", "daily_totals", "day", "date", "NO"),
+            ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+            ("public", "daily_totals", "units", "numeric(18)", "YES"),
+        ]
+
+        table = impl.get_table_metadata(cursor, "public", "daily_totals")
+
+        assert table.type == "materialized_view"
+        assert [(c.name, c.data_type, c.nullable) for c in table.columns] == [
+            ("day", "date", False),
+            ("total", "numeric", True),
+            ("units", "numeric", True),
+        ]
+        assert [(c.numeric_precision, c.numeric_scale) for c in table.columns[1:]] == [(18, 2), (18, 0)]
+        catalog_sql, catalog_params = cursor.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert catalog_params == {"schema": "public", "table": "daily_totals", "internal_column": "padb_internal%"}
 
     def test_excludes_redshift_internal_columns_from_arrow_schema(self, impl, cursor):
         # Materialized views expose `padb_internal_*` bookkeeping columns in
@@ -502,6 +549,19 @@ class TestGetRowsToSync:
         cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
             'permission denied for materialized view base relation "Payment_Actions"'
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
+    def test_undefined_table_is_not_reported(self, impl, cursor, logger):
+        # The table can be dropped or renamed between schema discovery and this count query
+        # running. That's an expected, already-known customer/upstream condition (the overall
+        # sync's `get_non_retryable_errors` already stops retrying on "does not exist"), not an
+        # actionable bug — row-count estimation is best-effort (the caller defaults to 0), so skip
+        # gracefully without reporting it to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.apps" does not exist')
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
@@ -876,13 +936,79 @@ class TestHasDuplicatePrimaryKeys:
         cursor.fetchone.return_value = None
         assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
 
-    def test_returns_false_on_exception(self, impl, cursor, logger):
+    def test_returns_inconclusive_on_exception(self, impl: Any, cursor: Any, logger: Any) -> None:
         cursor.execute.side_effect = RuntimeError("boom")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_called_once()
+
+    def test_window_limits_the_scan_to_the_rows_this_run_reads(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '"updated_at" > ' in executed
+
+    def test_window_counts_its_keys_across_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert "EXISTS (SELECT 1 FROM (SELECT DISTINCT" in executed
+        assert executed.index("GROUP BY") > executed.index("EXISTS (SELECT 1 FROM (SELECT DISTINCT")
+
+    def test_window_matches_a_null_key_as_well(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+        impl.has_duplicate_primary_keys(
+            cursor, "public", "t", ["id", "region"], logger, incremental_window=("updated_at", ">", "2026-01-01")
+        )
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert '(t."id" = c."id" OR (t."id" IS NULL AND c."id" IS NULL))' in executed
+        assert '(t."region" = c."region" OR (t."region" IS NULL AND c."region" IS NULL))' in executed
+        assert " IN (" not in executed
+
+    def test_row_filters_bound_both_sides_of_the_check(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(
+            cursor,
+            "public",
+            "t",
+            ["id"],
+            logger,
+            incremental_window=("updated_at", ">", "2026-01-01"),
+            row_filters=[
+                ValidatedRowFilter(column="tenant", operator="=", value="acme", category=ColumnTypeCategory.STRING)
+            ],
+        )
+
+        executed = cursor.execute.call_args.args[0].as_string()
+        assert executed.count('"tenant"') == 2
+
+    def test_an_aborted_check_is_inconclusive_not_clean(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.InternalError_("system requested abort")
+
+        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
+
+    def test_no_window_scans_the_whole_table(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.fetchone.return_value = None
+
+        impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
+
+        assert "WHERE" not in cursor.execute.call_args.args[0].as_string()
+
+    def test_query_canceled_is_propagated(self, impl: Any, cursor: Any, logger: Any) -> None:
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
 
     def test_operational_error_is_propagated(self, impl, cursor, logger):
         # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
@@ -898,7 +1024,7 @@ class TestHasDuplicatePrimaryKeys:
                 impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
         mock_capture.assert_not_called()
 
-    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+    def test_system_requested_abort_is_not_reported(self, impl: Any, cursor: Any, logger: Any) -> None:
         # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
         # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
         abort_message = (
@@ -909,7 +1035,7 @@ class TestHasDuplicatePrimaryKeys:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
         ) as mock_capture:
-            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is None
         mock_capture.assert_not_called()
 
 
@@ -918,17 +1044,24 @@ class TestHasDuplicatePrimaryKeys:
 # ---------------------------------------------------------------------------
 
 
+def _columns_conn(*fetches: list[tuple[Any, ...]]) -> tuple[MagicMock, MagicMock]:
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.fetchall.side_effect = [*fetches, [], [], []]
+    conn.cursor.return_value = cur
+    return conn, cur
+
+
 class TestGetColumns:
     def test_returns_columns_grouped_by_table(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id", "integer", "NO"),
-            ("public", "users", "email", "varchar", "YES"),
-            ("public", "orders", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("public", "users", "id", "integer", "NO"),
+                ("public", "users", "email", "varchar", "YES"),
+                ("public", "orders", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(), names=None)
 
@@ -937,43 +1070,33 @@ class TestGetColumns:
             "users": [("id", "integer", False), ("email", "varchar", True)],
             "orders": [("id", "bigint", False)],
         }
-        executed_sql = cur.execute.call_args.args[0]
+        executed_sql = cur.execute.call_args_list[0].args[0]
         assert "table_schema = %(schema)s" in executed_sql
 
     def test_returns_empty_when_no_rows(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, _cur = _columns_conn([])
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
 
     def test_excludes_redshift_internal_columns(self, impl):
         # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
         # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([])
 
         impl.get_columns(conn, _make_config(), names=None)
 
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "column_name NOT LIKE %(internal_column)s" in executed_sql
         assert executed_params["internal_column"] == "padb_internal%"
 
     def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
         # Same table name in two schemas must stay distinct.
-        cur.fetchall.return_value = [
-            ("analytics", "users", "id", "integer", "NO"),
-            ("public", "users", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("analytics", "users", "id", "integer", "NO"),
+                ("public", "users", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(schema=""), names=None)
 
@@ -981,17 +1104,13 @@ class TestGetColumns:
             "analytics.users": [("id", "integer", False)],
             "public.users": [("id", "bigint", False)],
         }
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "table_schema NOT IN" in executed_sql
         assert "pg_temp_%" in executed_sql
         assert set(executed_params.values()) >= {"pg_catalog", "information_schema", "pg_internal", "pg_automv"}
 
     def test_blank_schema_with_qualified_names_filters_by_pair(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id", "integer", "NO")]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([("analytics", "users", "id", "integer", "NO")])
 
         result = impl.get_columns(conn, _make_config(schema=""), names=["analytics.users"])
 
@@ -1000,6 +1119,72 @@ class TestGetColumns:
         assert "table_schema = %(sch_0)s AND table_name = %(tbl_0)s" in executed_sql
         assert executed_params["sch_0"] == "analytics"
         assert executed_params["tbl_0"] == "users"
+
+    def test_requested_relation_hidden_from_information_schema_is_read_from_pg_catalog(self, impl):
+        # A materialized view the role can read may still have no `information_schema.columns`
+        # rows, which made "edit sync method" report the relation as missing or unreadable.
+        conn, cur = _columns_conn(
+            [("public", "orders", "id", "bigint", "NO")],
+            [
+                ("public", "daily_totals", "day", "date", "NO"),
+                ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+                ("public", "daily_totals", "label", "character varying(256)", "YES"),
+                ("public", "daily_totals", "refreshed_at", "timestamp without time zone", "YES"),
+            ],
+        )
+
+        result = impl.get_columns(conn, _make_config(schema=""), names=["public.orders", "public.daily_totals"])
+
+        assert result == {
+            "public.orders": [("id", "bigint", False)],
+            "public.daily_totals": [
+                ("day", "date", False),
+                ("total", "numeric", True),
+                ("label", "character varying", True),
+                ("refreshed_at", "timestamp without time zone", True),
+            ],
+        }
+        catalog_sql, catalog_params = cur.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert "n.nspname = %(sch_0)s AND c.relname = %(tbl_0)s" in catalog_sql
+        assert catalog_params["tbl_0"] == "daily_totals"
+        assert "orders" not in catalog_params.values()
+
+    def test_full_listing_adds_materialized_views_missing_from_information_schema(self, impl):
+        # A schema refresh disables the sync of every table it no longer lists, so a hidden
+        # materialized view has to come back from `svv_mv_info` + `pg_catalog`. One that
+        # `information_schema` did list must not be read twice.
+        conn, cur = _columns_conn(
+            [
+                ("public", "orders", "id", "bigint", "NO"),
+                ("public", "listed_mv", "id", "bigint", "NO"),
+            ],
+            [("public", "listed_mv"), ("public", "hidden_mv")],
+            [("public", "hidden_mv", "id", "integer", "NO")],
+        )
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {
+            "orders": [("id", "bigint", False)],
+            "listed_mv": [("id", "bigint", False)],
+            "hidden_mv": [("id", "integer", False)],
+        }
+        mv_sql = cur.execute.call_args_list[1].args[0]
+        assert "svv_mv_info" in mv_sql
+        catalog_params = cur.execute.call_args.args[1]
+        assert catalog_params["name_0"] == "hidden_mv"
+        assert "listed_mv" not in catalog_params.values()
+
+    def test_full_listing_keeps_information_schema_rows_when_mv_probe_fails(self, impl):
+        conn, cur = _columns_conn([("public", "orders", "id", "bigint", "NO")])
+        cur.execute.side_effect = [cur, Exception("permission denied for relation svv_mv_info")]
+        conn.info.transaction_status = TransactionStatus.INERROR
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {"orders": [("id", "bigint", False)]}
+        conn.rollback.assert_called_once()
 
 
 class TestGetPrimaryKeys:
@@ -1242,6 +1427,16 @@ class TestRedshiftSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s", TEMPORARY_HOST_RESOLUTION_ERROR],
+    )
+    def test_resolver_failures_before_the_connect_are_classified_retryable(self, error_msg):
+        source = RedshiftSource()
+        assert any(pattern in error_msg for pattern in source.get_retryable_errors())
+        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+        assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
+
     def test_query_timeout_raw_message_is_non_retryable(self):
         # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
         # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
@@ -1278,6 +1473,29 @@ class TestRedshiftValidateCredentials:
 
         assert ok is False
         assert error is not None and "does not support SSL" in error
+        capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "refusal,expected_fragment",
+        [
+            (HostNotAllowedError("Database host not allowed: resolves to a private address"), "not allowed"),
+            (TemporaryHostResolutionError("db.example.com"), "Try again in a moment"),
+        ],
+    )
+    def test_a_host_the_policy_refuses_is_returned_without_capturing(self, mocker, refusal, expected_fragment):
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(source, "get_schemas", side_effect=refusal)
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None and expected_fragment in error
         capture.assert_not_called()
 
     def test_ssh_gateway_session_error_maps_to_actionable_message(self, mocker):
@@ -1380,6 +1598,27 @@ class TestIsTransientConnectionDropError:
     def test_matches_connection_is_lost(self):
         assert _is_transient_connection_drop_error(psycopg.OperationalError("the connection is lost")) is True
 
+    def test_matches_connect_time_server_closed(self):
+        # A drop during the connect handshake surfaces as a different message than an already-open
+        # connection dying, so the guard must match it too or it re-raises on the first attempt.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("connection failed: server closed the connection unexpectedly")
+            )
+            is True
+        )
+
+    def test_matches_consuming_input_failed_ssl_syscall_error(self):
+        # Regression: a drop detected while reading a query's response (e.g. `get_table_metadata`
+        # mid-probe) surfaces as "consuming input failed: SSL SYSCALL error: EOF detected" rather
+        # than either message above, and previously fell through to a full Temporal activity retry.
+        assert (
+            _is_transient_connection_drop_error(
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+            )
+            is True
+        )
+
     def test_does_not_match_unrelated_operational_error(self):
         # A permanent, non-actionable failure that also raises OperationalError must not be
         # swept up by the narrow "the connection is lost" match and retried in-process.
@@ -1462,6 +1701,33 @@ class TestBuildPipeline:
         list(response.items())  # type: ignore[arg-type]
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self, build_pipeline_mocks, mocker):
+        # A role holding column grants instead of table grants cannot run `SELECT *`, because the
+        # star expands to columns it may not read. The cluster drops `nickname` between setup and
+        # the read here: naming it would fail the read as a permanent error, which disables the
+        # schema.
+        def table_with(*columns: str) -> Table:
+            return Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name=name, data_type="varchar", nullable=True) for name in columns],
+                type="table",
+            )
+
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+        )
+        _, streaming_cursor = build_pipeline_mocks
+        impl = RedshiftImplementation()
+
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        streaming_query = streaming_cursor.stream.call_args.args[0]
+        assert streaming_query.as_string().startswith('SELECT "id", "email" FROM')
 
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
@@ -1601,3 +1867,44 @@ class TestGetConnectionMetadata:
         metadata = RedshiftSource().get_connection_metadata(_make_config(schema=schema), team_id=1)
 
         assert metadata == {"engine": "redshift", "database": "dev", "schema": expected_schema}
+
+
+_REDSHIFT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift"
+
+
+class TestRedshiftConnectDialsOnlyValidatedAddresses:
+    @contextmanager
+    def _production_cloud(self, *addresses: str) -> Iterator[MagicMock]:
+        with (
+            override_settings(CLOUD_DEPLOYMENT="US"),
+            patch(f"{_REDSHIFT_MODULE}.open_ssh_tunnel") as tunnel_mock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.settings"
+            ) as mock_settings,
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo(5439, *addresses)),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+            patch(f"{_REDSHIFT_MODULE}.psycopg.connect") as connect_mock,
+        ):
+            tunnel_mock.return_value.__enter__.return_value = ("db.example.com", 5439)
+            mock_settings.TEST = False
+            mock_settings.DEBUG = False
+            mock_settings.E2E_TESTING = False
+            connect_mock.return_value.__enter__.return_value = MagicMock()
+            yield connect_mock
+
+    def test_a_public_set_is_dialed_pinned_with_the_hostname_kept(self) -> None:
+        with self._production_cloud("52.1.2.3", "52.1.2.4") as connect_mock:
+            with RedshiftImplementation().connect(_make_config(), team_id=999):
+                pass
+
+        kwargs = connect_mock.call_args.kwargs
+        assert kwargs["host"] == "db.example.com,db.example.com"
+        assert kwargs["hostaddr"] == "52.1.2.3,52.1.2.4"
+        assert kwargs["port"] == 5439
+
+    def test_the_team_reaches_the_host_policy(self) -> None:
+        with self._production_cloud("10.0.0.5") as connect_mock:
+            with RedshiftImplementation().connect(_make_config(), team_id=2):
+                pass
+
+        assert connect_mock.call_args.kwargs["hostaddr"] == "10.0.0.5"

@@ -16,6 +16,14 @@ pub struct SerializedKafkaMessage {
     pub headers: HashMap<String, String>,
 }
 
+impl SerializedKafkaMessage {
+    /// Approximate payload size for queue accounting: key plus value bytes,
+    /// ignoring headers and framing.
+    pub fn payload_bytes(&self) -> usize {
+        self.key.as_ref().map_or(0, String::len) + self.value.as_ref().map_or(0, String::len)
+    }
+}
+
 /// The demux's view of a message: the Kafka key is the routing key.
 impl From<SerializedKafkaMessage> for PolledMessage<String, SerializedKafkaMessage> {
     fn from(message: SerializedKafkaMessage) -> Self {

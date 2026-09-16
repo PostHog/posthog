@@ -96,22 +96,19 @@ class TestMailgunSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return",
         [
-            (True, True, None),
-            (False, False, "Invalid Mailgun API key or region"),
+            (True, None),
+            (False, "Mailgun rejected the API key."),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.validate_mailgun_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_validate, mock_return):
         mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        assert self.source.validate_credentials(self.config, self.team_id) == mock_return
         mock_validate.assert_called_once_with(self.config.api_key, self.config.region)
 
     def test_version_declaration_defaults_to_v4_with_v3_supported(self):
