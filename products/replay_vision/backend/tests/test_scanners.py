@@ -138,8 +138,8 @@ class TestPreamble:
         rendered = scanner.preamble(
             team_name="Acme",
             navigation=[
-                {"rec_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
-                {"rec_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
+                {"vid_t": 0, "window": "window_1", "url": "https://ex.com/chat", "new_window": False},
+                {"vid_t": 712, "window": "window_2", "url": "https://pay.ex.com/checkout", "new_window": True},
             ],
             navigation_dropped=3,
         )
@@ -249,6 +249,7 @@ class TestMonitorScanner:
         # A `yes` must be corroborated with the events tool, not read off the video alone.
         assert "get_events_around" in instruction
         assert "A plausible story the events do not support is not a `yes`." in instruction
+        assert "Never say you checked the events at a moment unless you called `get_events_around`" in instruction
 
     def test_core_step_escapes_left_angle_in_user_prompt(self) -> None:
         # Scanner creator content is "trusted" but escaped anyway — defense in depth.
