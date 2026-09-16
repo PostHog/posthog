@@ -26,8 +26,8 @@ export function MemberProjectAccessModal(): JSX.Element {
             render: (_, entry) => {
                 const team = currentOrganization?.teams.find((t) => t.id === entry.team_id)
                 return (
-                    <div className="flex items-center font-medium">
-                        {team ? <ProjectName team={team} /> : <span>{entry.team_name}</span>}
+                    <div className="flex flex-col items-start py-1">
+                        <span className="font-medium">{team ? <ProjectName team={team} /> : entry.team_name}</span>
                         <ProjectFreshnessIndicator teamId={entry.team_id} />
                     </div>
                 )
