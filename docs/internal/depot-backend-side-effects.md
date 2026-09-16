@@ -1,32 +1,32 @@
 # Backend CI routing between GitHub Actions and Depot CI
 
-Each Backend CI event runs on exactly one engine. Both workflows call
-`.github/scripts/ci_backend_route.py` from their first job and skip every heavy
-job when the answer is not them, so the tests and their side effects (snapshot
-commits, uploads, comment posters, telemetry) never run twice.
+Each Backend CI event runs on exactly one engine, and GitHub Actions picks it.
+Its `changes` job outputs `engine`. The `Hand off backend tests to Depot CI` job
+succeeds only when that output is `depot` and is skipped otherwise. Depot CI's
+first job polls that check run on the head commit and runs the tests only when it
+concluded `success`. Nothing runs on Depot that GitHub Actions did not hand off,
+so the tests and their side effects (snapshot commits, uploads, comment posters,
+telemetry) never run twice.
 
-## The switch
+## The hand-off wait
 
-- `CI_BACKEND_DEPOT_PERCENT`, a GitHub repository variable from 0 to 100. A pull
-  request routes to Depot when `pr_number % 100 < percent`, so one PR stays on
-  one engine across pushes. GitHub Actions reads it through `vars`; Depot CI reads
-  it through the REST API with its ambient token. Unreadable or invalid means 0.
-- Labels override the percent for one PR: `ci-backend-github` wins over
-  `ci-backend-depot`. Fork PRs and `no-ci` drafts always route to GitHub.
-- Manual dispatches run on the engine that received them. Master pushes prime
-  each engine's own schema cache, on Depot only while the percent is above 0.
-
-Change the percent with `gh variable set CI_BACKEND_DEPOT_PERCENT --repo PostHog/posthog --body <n>`.
-Setting it to 0 routes every new run to GitHub Actions; runs already in flight finish where they started.
+- Depot's wait job reads `commits/<sha>/check-runs`, filtered to the hand-off
+  check name and the GitHub Actions app, for up to 10 minutes. It sends an ETag,
+  so an unchanged answer is a 304 and costs no rate limit.
+- Only a check run that started after the event's `updated_at` counts. A `no-ci`
+  draft marked ready keeps its SHA, and with it the earlier skipped hand-off.
+- Any conclusion other than `success`, a 401 or 403, or the deadline means Depot
+  runs nothing. There is no fallback in either direction.
+- Manual dispatches run on the engine that received them. Fork PRs never run on
+  Depot, whatever the hand-off says.
 
 ## What the Depot workflow exposes
 
-The `sample` job outputs `route`, plus `sampled` and `side_effects`, which are
-both true only when the route is `depot`. Every ported side effect gates on
+The wait job (`sample`) outputs `sampled` and `side_effects`, both true only when
+GitHub Actions handed the event off. Every ported side effect gates on
 `needs.sample.outputs.side_effects`, so it runs exactly when Depot runs the tests.
 
-The required `Django Tests Pass` check stays a GitHub Actions job. When a PR is
-routed to Depot, that job relays Depot's gate conclusion instead of running the
-matrix. Branch protection does not change during the rollout.
+The required `Django Tests Pass` check stays a GitHub Actions job. Branch
+protection does not change during the rollout.
 
-Hourly scheduling and `mirror-schema-cache` remain on GitHub Actions for now.
+Hourly scheduling and `mirror-schema-cache` remain on GitHub Actions.

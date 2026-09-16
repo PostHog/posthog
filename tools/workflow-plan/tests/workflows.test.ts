@@ -133,7 +133,7 @@ const EXPECTATIONS: Expectation[] = [
                 'test-selection-verdict',
                 'capture-test-selection',
             ],
-            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure'],
+            skipped: ['handle-snapshots', 'cancel-backend-on-openapi-check-failure', 'hand-off-to-depot'],
         }
     ),
     backend(

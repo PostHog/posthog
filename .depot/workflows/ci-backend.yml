@@ -8,8 +8,8 @@
 # changes without a matching depot bump.
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
-# - The `sample` job routes each event to one engine with .github/scripts/ci_backend_route.py
-#   and exposes `sampled` and `side_effects`, both true only when this engine runs the tests.
+# - The `sample` job waits for GitHub Actions to hand the event off and exposes `sampled`
+#   and `side_effects`, both true only when GitHub Actions handed the tests to this engine.
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
@@ -152,14 +152,10 @@
 name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI: its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). Each event runs on
-# exactly one engine. The `sample` job runs .github/scripts/ci_backend_route.py, which
-# hashes the pull request number against the GitHub repository variable
-# CI_BACKEND_DEPOT_PERCENT (read through the API with the ambient token) and honours the
-# ci-backend-depot / ci-backend-github labels. `changes` (root of the needs graph) only
-# runs when the route is depot, so the whole workflow cascades off otherwise. Master
-# (push) runs only check-migrations to prime the schema cache while the percent is above
-# 0; manual triggers always run here. Change the percent with:
-#   gh variable set CI_BACKEND_DEPOT_PERCENT --repo PostHog/posthog --body <n>   (0 = off)
+# exactly one engine, and GitHub Actions picks it. The `sample` job waits for the
+# `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
+# `changes` (root of the needs graph) only runs when that check succeeded, so the whole
+# workflow cascades off otherwise. Manual triggers always run here.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:
@@ -178,8 +174,8 @@ on:
         # Add the `run-ci-backend` label to force the full matrices on a PR; the
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
-        # or from ready_for_review. Trunk merge-queue PRs are filtered by the
-        # sampling gate because their source PR already supplied a trial run.
+        # or from ready_for_review. Every event, merge-queue PRs included, runs here
+        # only when GitHub Actions hands it off (see the `sample` job).
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -239,48 +235,78 @@ permissions:
     actions: read
     pull-requests: read
 jobs:
-    # Evaluate the opt-in even when sampling is off; otherwise a PR label cannot
-    # enable a proof run. Merge-queue eligibility is separate from the effects gate.
+    # GitHub Actions alone decides which engine runs an event. Every other job here
+    # needs this one, so Depot CI runs nothing GitHub Actions did not hand off, and the
+    # tests and their side effects never run on both engines.
     sample:
         if: >-
-            github.event_name == 'workflow_dispatch'
-            || github.event_name == 'api'
-            || github.event_name != 'pull_request'
+            github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
-        name: '[optional, does not block merge] Sample run'
-        # Side effects follow the route: whichever engine runs the tests also runs
-        # the snapshots, uploads and posters, so nothing is ever done twice.
+        timeout-minutes: 15
+        name: '[optional, does not block merge] Wait for GitHub Actions to hand off backend tests'
+        # Depot scopes the ambient token by this block, and the workflow-level block has no
+        # `checks`, so without it the check-runs read below answers 403.
+        permissions:
+            checks: read
         outputs:
-            sampled: ${{ steps.route.outputs.route == 'depot' }}
-            side_effects: ${{ steps.route.outputs.route == 'depot' }}
-            route: ${{ steps.route.outputs.route }}
+            sampled: ${{ steps.handoff.outputs.handed_off }}
+            side_effects: ${{ steps.handoff.outputs.handed_off }}
         steps:
-            # Take the router from the base revision, never from the pull request head.
-            # This job's answer starts every other job in this workflow, and those jobs
-            # reach Depot's secret store, so a fork that shipped its own router could
-            # route itself in. A PR that edits the router still exercises the edit on
-            # GitHub Actions, and a disagreement between the engines only costs a second
-            # run, never a skipped one.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-                  sparse-checkout: .github/scripts/ci_backend_route.py
-                  sparse-checkout-cone-mode: false
-            - name: Route this event to one engine
-              id: route
+            - name: Wait for the hand-off check from GitHub Actions
+              id: handoff
               env:
-                  PLATFORM: depot
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
                   EVENT: ${{ github.event_name }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  # Forks route to GitHub Actions and never need the variable read.
-                  GITHUB_TOKEN: ${{ github.event.pull_request.head.repo.fork != true && github.token || '' }}
-              run: python3 .github/scripts/ci_backend_route.py
+                  IS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # A no-ci draft marked ready keeps its SHA, so its earlier skipped hand-off
+                  # check is still on the commit. Only a check that started after this event counts.
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+                  # Must match the job name in .github/workflows/ci-backend.yml.
+                  HANDOFF_CHECK: Hand off backend tests to Depot CI
+                  GITHUB_ACTIONS_APP_ID: '15368'
+              run: |
+                  set -uo pipefail
+                  handed_off=false
+                  state=absent
+                  if [ "$EVENT" = workflow_dispatch ] || [ "$EVENT" = api ]; then
+                      echo "::notice::A person started this run on Depot CI, so it runs here."
+                      handed_off=true
+                  elif [ "$IS_FORK" = true ]; then
+                      # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
+                      echo "::notice::Fork pull requests never run on Depot CI."
+                  else
+                      url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$HANDOFF_CHECK" '$n | @uri')&app_id=$GITHUB_ACTIONS_APP_ID"
+                      for attempt in $(seq 1 60); do
+                          # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
+                          code=$(curl -s -o /tmp/handoff-body -w '%{http_code}' --max-time 15 --etag-compare /tmp/handoff-etag --etag-save /tmp/handoff-etag.new \
+                              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
+                          case "$code" in
+                              200)
+                                  mv /tmp/handoff-etag.new /tmp/handoff-etag
+                                  state=$(jq -r --arg since "$EVENT_AT" '[.check_runs[] | select((.started_at // "") >= $since)] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  ;;
+                              304) ;;
+                              401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
+                              *) echo "::warning::check-runs API returned $code" ;;
+                          esac
+                          case "$state" in
+                              success) handed_off=true; break ;;
+                              absent|queued|in_progress|pending|waiting|requested) ;;
+                              *) break ;;
+                          esac
+                          [ "$attempt" -lt 60 ] && sleep 10
+                      done
+                      if [ "$handed_off" = true ]; then
+                          echo "::notice::GitHub Actions handed the backend tests to Depot CI."
+                      else
+                          echo "::notice::GitHub Actions kept the backend tests (hand-off check: $state). Depot CI runs nothing."
+                      fi
+                  fi
+                  echo "handed_off=$handed_off" >> "$GITHUB_OUTPUT"
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
@@ -2844,7 +2870,7 @@ jobs:
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
-                  check_required_result "Sampling gate" "${{ needs.sample.result }}"
+                  check_required_result "Hand-off wait" "${{ needs.sample.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
