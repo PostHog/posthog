@@ -1,18 +1,24 @@
 from types import ModuleType
 
+from django.http import HttpRequest, HttpResponse
 from django.test import SimpleTestCase
-from django.urls import path, resolve, reverse
+from django.urls import path, re_path, resolve, reverse
 
 from parameterized import parameterized
 
 import posthog.urls
 from posthog.api import api_not_found
 from posthog.product_urls import ProductRootRoutes, ProductRouteError
+from posthog.utils import opt_slash_path
+
+
+def _view(request: HttpRequest) -> HttpResponse:
+    return HttpResponse()
 
 
 def _routes_module(product: str, *routes: str) -> ModuleType:
     module = ModuleType(f"products.{product}.backend.routes")
-    module.urlpatterns = [path(route, lambda request: None) for route in routes]  # type: ignore[attr-defined]
+    module.urlpatterns = [path(route, _view) for route in routes]  # type: ignore[attr-defined]
     return module
 
 
@@ -48,6 +54,30 @@ class TestProductRootRoutes(SimpleTestCase):
             f"Product 'stamphog' declares root URL pattern {route!r}, which must start with "
             "'api/stamphog/' or 'webhooks/stamphog/'"
         )
+
+    @parameterized.expand(
+        [
+            ("bare regex", "webhooks/stamphog/github"),
+            ("regex ending in a group", "webhooks/stamphog/github/?"),
+        ]
+    )
+    def test_rejects_an_unanchored_regex_route(self, _name: str, regex: str) -> None:
+        module = ModuleType("products.stamphog.backend.routes")
+        module.urlpatterns = [re_path(regex, _view)]  # type: ignore[attr-defined]
+
+        with self.assertRaises(ProductRouteError) as caught:
+            ProductRootRoutes.from_module(module)
+
+        assert str(caught.exception) == (
+            f"Product 'stamphog' declares root URL pattern {regex!r} as an unanchored regex, "
+            "which matches anywhere in the path. Start it with '^'"
+        )
+
+    def test_accepts_the_anchored_regex_opt_slash_path_builds(self) -> None:
+        module = ModuleType("products.stamphog.backend.routes")
+        module.urlpatterns = [opt_slash_path("webhooks/stamphog/github", _view)]  # type: ignore[attr-defined]
+
+        assert len(ProductRootRoutes.from_module(module)) == 1
 
 
 class TestProductRootRouteSlot(SimpleTestCase):

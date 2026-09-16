@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from types import ModuleType
 
 from django.urls import URLPattern, URLResolver
+from django.urls.resolvers import RegexPattern
 
 from posthog.products import load_product_modules
 
@@ -38,6 +39,17 @@ class ProductRootRoutes:
         """
         return str(pattern.pattern).removeprefix("^")
 
+    @staticmethod
+    def _is_unanchored_regex(pattern: URLPattern | URLResolver) -> bool:
+        """Whether Django will look for this pattern anywhere in the path.
+
+        A `RegexPattern` that does not end in `$` is matched with `re.search`, so a regex without
+        a leading `^` also matches a path that merely contains it. Its text would still start
+        with the product's prefix, which is why the prefix check alone cannot catch this.
+        `path()` builds a `RoutePattern`, which Django anchors itself.
+        """
+        return isinstance(pattern.pattern, RegexPattern) and not str(pattern.pattern).startswith("^")
+
     @classmethod
     def from_module(cls, routes_module: ModuleType) -> list[URLPattern | URLResolver]:
         """The root patterns one product's routes module declares, checked against the rule.
@@ -51,6 +63,11 @@ class ProductRootRoutes:
         allowed = tuple(template.format(product=product) for template in cls.PREFIX_TEMPLATES)
 
         for pattern in patterns:
+            if cls._is_unanchored_regex(pattern):
+                raise ProductRouteError(
+                    f"Product {product!r} declares root URL pattern {str(pattern.pattern)!r} as an "
+                    f"unanchored regex, which matches anywhere in the path. Start it with '^'"
+                )
             route = cls._route_of(pattern)
             if not route.startswith(allowed):
                 allowed_list = " or ".join(repr(prefix) for prefix in allowed)
