@@ -1206,9 +1206,10 @@ describe('sourceWizardLogic', () => {
     // Supabase tables carry arbitrary user columns, so the wizard only trusts update-tracking
     // columns as default cursors; anything else falls back to full refresh instead of a cursor
     // that never advances (see resolveUpdateTrackedIncrementalField).
-    describe('Supabase incremental defaults', () => {
+    describe('incremental sync defaults', () => {
         const supabaseSource = buildSourceConfig({ name: 'Supabase' })
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
+        const zendeskSource = buildSourceConfig({ name: 'Zendesk' })
 
         const apiSchema = (
             table: string,
@@ -1297,6 +1298,36 @@ describe('sourceWizardLogic', () => {
             try {
                 expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
                 expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('syncs a connector-declared cursor incrementally even when its name reads as nothing', async () => {
+            // Zendesk tickets advance `generated_timestamp`, an integer that the name guess
+            // cannot resolve, so without the connector's declaration this table re-imports in full.
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('tickets', {
+                    incremental_fields: [
+                        {
+                            field: 'generated_timestamp',
+                            field_type: 'integer',
+                            label: 'generated_timestamp',
+                            type: 'integer',
+                        },
+                    ],
+                    incremental_field: 'generated_timestamp',
+                    declared_incremental_field: 'generated_timestamp',
+                    declared_incremental_field_type: 'integer',
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(zendeskSource)
+
+            try {
+                expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
+                expect(logic.values.databaseSchema[0].incremental_field).toBe('generated_timestamp')
+                expect(logic.values.databaseSchema[0].incremental_field_type).toBe('integer')
             } finally {
                 unmount()
             }

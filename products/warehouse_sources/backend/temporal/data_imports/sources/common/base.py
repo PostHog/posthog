@@ -30,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceInputs,
@@ -188,6 +191,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
+    # Whether this source's `incremental_fields` name a cursor the connector's author picked. SQL
+    # sources list the user's own table columns instead, where no candidate is known to advance.
+    declares_incremental_field: bool = True
+
     def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
         """How far back a first sync of one schema reaches, or None for no bound.
 
@@ -195,6 +202,16 @@ class _BaseSource(ABC, Generic[ConfigType]):
         rollup of the same data, where the hourly table holds 24 rows for every daily row.
         """
         return self.history_lookback
+
+    def declared_incremental_field_for_schema(self, schema: SourceSchema) -> IncrementalField | None:
+        """The cursor this connector declares for one schema, or None when the caller must choose.
+
+        A client that picks a sync method without asking the user reads this instead of inferring
+        one from column names, where inferring wrongly costs a full re-import on every run.
+        """
+        if not self.declares_incremental_field or not schema.incremental_fields:
+            return None
+        return rank_incremental_fields(schema.incremental_fields)[0]
 
     @property
     @abstractmethod

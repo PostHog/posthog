@@ -59,6 +59,10 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     supports_column_selection: bool = True
     supports_row_filters: bool = True
 
+    # Candidates here are the user's own table columns, so none of them is known to advance when
+    # a row is updated. Picking one on the user's behalf can freeze a sync at its first import.
+    declares_incremental_field: bool = False
+
     @property
     @abstractmethod
     def get_implementation(self) -> SQLSourceImplementation[ConfigType, Any, Any]:

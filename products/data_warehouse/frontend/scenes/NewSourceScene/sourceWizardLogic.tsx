@@ -361,6 +361,28 @@ export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[])
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
 
+/** The cursor a newly discovered table syncs on, or undefined to fall back to a full refresh.
+ *
+ * A connector's declared cursor wins over the guess above, because it is right even when its name
+ * resembles no timestamp, and a wrong guess re-imports the whole table on every run.
+ */
+export const chooseIncrementalField = (
+    schema: ExternalDataSourceSyncSchema,
+    connectorName: string
+): { field: string; field_type: string } | undefined => {
+    const guessed =
+        connectorName === 'Supabase'
+            ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+            : resolveIncrementalField(schema.incremental_fields)
+    if (guessed) {
+        return { field: guessed.field, field_type: guessed.field_type }
+    }
+    if (schema.declared_incremental_field && schema.declared_incremental_field_type) {
+        return { field: schema.declared_incremental_field, field_type: schema.declared_incremental_field_type }
+    }
+    return undefined
+}
+
 // Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
 // rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
 // (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
@@ -2340,10 +2362,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField =
-                                values.selectedConnector.name === 'Supabase'
-                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
-                                    : resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField = chooseIncrementalField(schema, values.selectedConnector.name)
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field
