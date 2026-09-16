@@ -901,19 +901,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "Enable hot_standby on the replica and restart it, or point this source at the primary "
                 "database, then re-enable the sync."
             ),
-            # Postgres refuses to scan an unlogged table on a hot standby: SQLSTATE 0A000
-            # "cannot access temporary or unlogged relations during recovery". Unlogged tables
-            # aren't WAL-logged, so a physical replica never receives their data — this is
-            # permanent for as long as the table stays unlogged and the connection stays pointed
-            # at a standby, unlike "the database system is starting up" above (kept retryable
-            # there because it comes from a server not yet accepting connections at all, a
-            # condition that clears on its own). Match the stable Postgres message verbatim; it
-            # names no volatile detail.
+            # Postgres refuses to scan a temporary or unlogged relation on a hot standby:
+            # SQLSTATE 0A000 "cannot access temporary or unlogged relations during recovery".
+            # Neither relation type is WAL-logged, so a physical replica never receives their
+            # data — this is permanent for as long as the relation stays temporary/unlogged and
+            # the connection stays pointed at a standby, unlike "the database system is starting
+            # up" above (kept retryable there because it comes from a server not yet accepting
+            # connections at all, a condition that clears on its own). Match the stable Postgres
+            # message verbatim; it names no volatile detail.
             "cannot access temporary or unlogged relations during recovery": (
-                "This table is unlogged, and PostgreSQL doesn't replicate unlogged tables to read "
-                'replicas ("cannot access temporary or unlogged relations during recovery"). Point '
-                "this source at the primary database, or change the table to a regular (logged) "
-                "table, then re-enable the sync."
+                "This relation is temporary or unlogged, and PostgreSQL doesn't replicate temporary "
+                'or unlogged relations to read replicas ("cannot access temporary or unlogged '
+                'relations during recovery"). Point this source at the primary database. If this is '
+                "an unlogged table, change it to a regular (logged) table, then re-enable the sync."
             ),
             # SQLSTATE 57P03 with the message "database <name> is not currently accepting connections":
             # the server is up (it answered with a FATAL) but the target database has datallowconn
