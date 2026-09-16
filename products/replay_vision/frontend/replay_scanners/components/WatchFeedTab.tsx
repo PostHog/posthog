@@ -172,8 +172,8 @@ export function WatchFeedTab(): JSX.Element {
                                 </>
                             ) : (
                                 <span>
-                                    Nothing worth watching in this window yet. Observations appear here as your
-                                    scanners run.
+                                    Nothing worth watching in this window yet. Observations appear here as your scanners
+                                    run.
                                 </span>
                             )}
                         </div>
