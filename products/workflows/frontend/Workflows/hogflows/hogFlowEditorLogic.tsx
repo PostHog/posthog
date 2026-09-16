@@ -901,7 +901,8 @@ export interface hogFlowEditorLogicActions {
                                   }[]
                                 | undefined
                             filters: any
-                            window_minutes: number | null
+                            window?: string | undefined
+                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -1758,7 +1759,8 @@ export interface hogFlowEditorLogicActions {
                                   }[]
                                 | undefined
                             filters: any
-                            window_minutes: number | null
+                            window?: string | undefined
+                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
