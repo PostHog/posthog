@@ -4,8 +4,10 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -72,6 +74,11 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Created the ${objectNoun}`,
+                nameOrLinkToHogFunction(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
@@ -83,6 +90,11 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Deleted the ${objectNoun}`,
+                logItem.detail.name || 'Untitled hog function'
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
@@ -95,6 +107,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
 
         return {
+            summary: activityLogSummary(logItem, `Restored the ${objectNoun}`, functionName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> restored the {objectNoun}: {functionName}
@@ -111,6 +124,11 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
     }
     if (logItem.activity in draftActivities) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `${draftActivities[logItem.activity]} the ${objectNoun}`,
+                nameOrLinkToHogFunction(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> {draftActivities[logItem.activity]} the {objectNoun}:{' '}
@@ -259,6 +277,13 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList
+                    listParts={changes.length ? changes.map((change) => change.inlist) : [`Updated the ${objectNoun}`]}
+                />,
+                functionName
+            ),
             description:
                 changes.length == 1 ? (
                     <>

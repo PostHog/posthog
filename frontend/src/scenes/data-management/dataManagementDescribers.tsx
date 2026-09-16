@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -23,6 +24,8 @@ const dataManagementActionsMapping: Record<
 > = {
     description: (change) => {
         return {
+            summary: [change?.after ? 'Changed the description' : 'Cleared the description'],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
             description: [
                 <>
                     changed description to <strong>"{change?.after as string}"</strong>
@@ -59,6 +62,11 @@ const dataManagementActionsMapping: Record<
     verified: (change, logItem) => {
         const verified = detectBoolean(change?.after)
         return {
+            summary: [
+                <>
+                    Marked as {verified ? 'verified' : 'unverified'} {verified && <IconVerifiedEvent />}
+                </>,
+            ],
             description: [
                 <>
                     marked {nameAndLink(logItem)} as <strong>{verified ? 'verified' : 'unverified'}</strong>{' '}
@@ -100,6 +108,8 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
 
     if (logItem.activity == 'changed') {
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let changeSuffix: Description = (
             <>
                 on <DescribeType logItem={logItem} /> {nameAndLink(logItem)}
@@ -117,7 +127,9 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
                 continue // // unexpected log from backend is indescribable
             }
 
-            const { description, suffix } = processedChange
+            const { description, suffix, summary, preview: changePreview } = processedChange
+            summaryChanges = summaryChanges.concat(summary ?? description ?? [])
+            preview = changePreview ?? preview
             if (description) {
                 changes = changes.concat(description)
             }
@@ -129,6 +141,14 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryChanges} />,
+                    <>
+                        <DescribeType logItem={logItem} />: {nameAndLink(logItem)}
+                    </>,
+                    preview
+                ),
                 description: (
                     <SentenceList
                         listParts={changes}
@@ -142,6 +162,13 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Deleted the <DescribeType logItem={logItem} />
+                </>,
+                nameAndLink(logItem)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted <DescribeType logItem={logItem} />{' '}

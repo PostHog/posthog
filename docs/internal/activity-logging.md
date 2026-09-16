@@ -11,17 +11,22 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
-Dashboard activity rows show the actor, optional client tag, and time above a short action summary and the linked dashboard.
+Activity rows show the actor, optional client tag, and time above the action summary and its target.
+Long action summaries collapse to two lines.
 Description changes include a two-line preview of the new value in normal text.
-The expand control on the right reveals the complete preview and agent intent, along with the existing detail tabs.
+The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
 Diff compares the recorded values, and Raw shows the activity payload.
 Product-specific detail tabs remain the initial view when supplied by a describer.
 The copy-link control beside expand appears on hover or keyboard focus.
 
-Describers can supply an optional `summary` with `actor`, `action`, `target`, and `preview` fields alongside their existing `description`.
+Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
+Use `activityLogSummary` for the usual actor, or pass a specialized actor such as a workflow link or an anonymous user.
+The optional plain-text `preview` holds long values such as descriptions; keep them out of the action headline.
+Field mappings can supply separate summary clauses and a preview while preserving their notification wording.
 The row uses that structure without parsing a JSX sentence.
 The complete `description` remains available to notifications and other activity consumers.
-Describers without a summary keep their original sentence, including any specialized actor attribution.
+A describer can still return `description: null` to hide an event.
+The row retains sentence rendering for legacy items constructed without a summary.
 Agent intent and task links remain optional and retain their existing attribution rules.
 
 ## How a change becomes an activity row

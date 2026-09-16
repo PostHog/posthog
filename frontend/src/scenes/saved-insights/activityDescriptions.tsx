@@ -12,6 +12,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -145,6 +146,8 @@ const insightActionsMapping: Record<
     description: function onDescription(change, _, asNotification) {
         return {
             description: describeDescriptionChange(change, asNotification, 'insight'),
+            summary: [change?.after ? 'Changed the description' : 'Cleared the description'],
+            preview: typeof change?.after === 'string' ? change.after : undefined,
         }
     },
     favorited: function onFavorited(change, logItem, asNotification) {
@@ -200,7 +203,28 @@ const insightActionsMapping: Record<
             />
         ) : null
 
-        return { description: [addedSentence, removedSentence], suffix: <></> }
+        return {
+            description: [addedSentence, removedSentence],
+            summary: [
+                addedDashboards.length ? (
+                    <SentenceList
+                        prefix="Added to"
+                        listParts={addedDashboards.map((dashboard) => (
+                            <Fragment key={dashboard.id}>{linkToDashboard(dashboard)}</Fragment>
+                        ))}
+                    />
+                ) : null,
+                removedDashboards.length ? (
+                    <SentenceList
+                        prefix="Removed from"
+                        listParts={removedDashboards.map((dashboard) => (
+                            <Fragment key={dashboard.id}>{linkToDashboard(dashboard)}</Fragment>
+                        ))}
+                    />
+                ) : null,
+            ],
+            suffix: <></>,
+        }
     },
     alerts: () => null,
     // fields that are excluded on the backend
@@ -256,6 +280,11 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the insight',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the insight:{' '}
@@ -267,6 +296,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the insight', logItem.detail.name || 'Insight'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted {asNotification ? 'your' : 'the'} insight:{' '}
@@ -278,6 +308,13 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'exported for opengraph image') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Exported a preview image for the shared link',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+                undefined,
+                <strong>PostHog</strong>
+            ),
             description: (
                 <>
                     <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}{' '}
@@ -289,6 +326,11 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'sharing enabled') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Enabled sharing',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> shared {asNotification ? 'your' : 'the'} insight:{' '}
@@ -300,6 +342,11 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'sharing disabled') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Deleted the shared link',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
@@ -311,6 +358,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let extendedDescription: JSX.Element | undefined
         let changeSuffix: Description = (
             <>
@@ -332,7 +381,15 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                     continue // unexpected log from backend is indescribable
                 }
 
-                const { description, extendedDescription: _extendedDescription, suffix } = processedChange
+                const {
+                    description,
+                    extendedDescription: _extendedDescription,
+                    suffix,
+                    summary,
+                    preview: changePreview,
+                } = processedChange
+                summaryChanges = summaryChanges.concat(summary ?? description ?? [])
+                preview = changePreview ?? preview
                 if (description) {
                     changes = changes.concat(description)
                 }
@@ -350,6 +407,12 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryChanges} />,
+                    nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+                    preview
+                ),
                 description: (
                     <SentenceList
                         listParts={changes}
@@ -369,6 +432,11 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Exported as ${exportType}`,
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> exported{' '}
@@ -384,6 +452,13 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         const passwordNote = afterData?.password_note || 'unknown password'
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Authenticated to the shared insight',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+                `From ${clientIp} using password ${passwordNote}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> successfully authenticated to shared insight{' '}
@@ -399,6 +474,13 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         const clientIp = afterData?.client_ip || 'unknown IP'
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Failed to authenticate to the shared insight',
+                nameOrLinkToInsight(logItem.detail.short_id, logItem.detail.name),
+                `From ${clientIp}`,
+                <strong>Anonymous user</strong>
+            ),
             description: (
                 <>
                     <strong>Anonymous user</strong> failed to authenticate to shared insight{' '}

@@ -81,11 +81,9 @@ export type ChangeMapping = {
     suffix?: string | JSX.Element | null // to override the default suffix
 }
 export type HumanizedChange = {
-    description: Description | null
-    summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription
     expandedView?: ExpandedView
-}
+} & ({ description: Exclude<Description, null>; summary: ActivityLogSummary } | { description: null; summary?: never })
 
 export type HumanizedActivityLogItem = {
     id?: string
@@ -206,6 +204,16 @@ export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): 
     return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }
 
+export function activityLogSummary(
+    logItem: ActivityLogItem,
+    action: Description,
+    target: Description,
+    preview?: string,
+    actor: JSX.Element = <ActivityLogUserName logItem={logItem} />
+): ActivityLogSummary {
+    return { actor, action, target, preview }
+}
+
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
 
 // Keep in sync with SCOPE_DISPLAY_NAMES in ee/hogai/context/activity_log/context.py
@@ -254,7 +262,11 @@ const SIMPLE_ACTIVITY_VERBS: Record<string, string> = {
     updated: 'updated',
 }
 
-function describeComment(logItem: ActivityLogItem, asNotification: boolean): HumanizedChange {
+function describeComment(
+    logItem: ActivityLogItem,
+    asNotification: boolean,
+    resource: string | JSX.Element
+): HumanizedChange {
     const description =
         logItem.scope === 'Comment' ? (
             <>
@@ -270,6 +282,11 @@ function describeComment(logItem: ActivityLogItem, asNotification: boolean): Hum
 
     return {
         description,
+        summary: activityLogSummary(
+            logItem,
+            logItem.scope === 'Comment' ? 'Replied to a comment' : 'Added a comment',
+            resource
+        ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
                 <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
@@ -288,6 +305,7 @@ export function defaultDescriber(
     const verb = SIMPLE_ACTIVITY_VERBS[logItem.activity]
     if (verb) {
         return {
+            summary: activityLogSummary(logItem, humanizeActivity(verb), resource),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> {verb} <b>{resource}</b>
@@ -298,6 +316,7 @@ export function defaultDescriber(
 
     if (logItem.activity == 'copied_to_project') {
         return {
+            summary: activityLogSummary(logItem, 'Copied to another project', resource),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> copied <b>{resource}</b> to another project
@@ -307,7 +326,7 @@ export function defaultDescriber(
     }
 
     if (logItem.activity == 'commented') {
-        return describeComment(logItem, asNotification)
+        return describeComment(logItem, asNotification, resource)
     }
 
     return { description: null }

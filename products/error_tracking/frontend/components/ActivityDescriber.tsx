@@ -10,6 +10,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
@@ -83,6 +84,22 @@ const errorTrackingIssueActionsMapping: Record<
         const wasUnassigned = !unassignedBefore && unassignedAfter
 
         return {
+            summary: [
+                wasAssigned ? (
+                    <>
+                        Assigned to <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
+                    </>
+                ) : wasUnassigned ? (
+                    <>
+                        Unassigned from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} />
+                    </>
+                ) : (
+                    <>
+                        Changed assignee from <AssigneeRenderer assignee={before as ErrorTrackingIssueAssignee} /> to{' '}
+                        <AssigneeRenderer assignee={after as ErrorTrackingIssueAssignee} />
+                    </>
+                ),
+            ],
             description: [
                 wasAssigned ? (
                     <>
@@ -109,6 +126,11 @@ const errorTrackingIssueActionsMapping: Record<
             return null
         }
         return {
+            summary: [
+                <>
+                    Changed status from {String(before)} to {String(after)}
+                </>,
+            ],
             description: [
                 <>
                     changed status of {nameAndLink(logItem)} from <strong>{String(before)}</strong> to{' '}
@@ -138,6 +160,28 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
         const relatedIssueIds = relatedIssueIdsForLogItem(logItem)
         const count = relatedIssueIds.length
         return {
+            summary: activityLogSummary(
+                logItem,
+                logItem.activity === 'merged' ? (
+                    <>Merged {count === 1 ? 'an issue' : `${count} issues`} into this issue</>
+                ) : (
+                    <>
+                        Split into{' '}
+                        {count > 0 ? (
+                            <SentenceList
+                                listParts={relatedIssueIds.map((issueId, index) => (
+                                    <Link key={issueId} to={urls.errorTrackingIssue(issueId)}>
+                                        {count === 1 ? 'a new issue' : `new issue ${index + 1}`}
+                                    </Link>
+                                ))}
+                            />
+                        ) : (
+                            'new issues'
+                        )}
+                    </>
+                ),
+                nameAndLink(logItem)
+            ),
             description: (
                 <SentenceList
                     listParts={[
@@ -170,6 +214,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
 
     if (logItem.activity == 'updated' || logItem.activity == 'assigned') {
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
 
         for (const change of logItem.detail.changes || []) {
             const field = change.field as keyof ErrorTrackingRelationalIssue
@@ -184,7 +229,8 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
                 continue // unexpected log from backend is indescribable
             }
 
-            const { description } = processedChange
+            const { description, summary } = processedChange
+            summaryChanges = summaryChanges.concat(summary ?? description ?? [])
             if (description) {
                 changes = changes.concat(description)
             }
@@ -192,6 +238,7 @@ export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boo
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(logItem, <SentenceList listParts={summaryChanges} />, nameAndLink(logItem)),
                 description: <SentenceList listParts={changes} prefix={<ActivityLogUserName logItem={logItem} />} />,
             }
         }

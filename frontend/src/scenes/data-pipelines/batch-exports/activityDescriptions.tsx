@@ -3,8 +3,10 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -244,6 +246,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the batch export', exportName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created batch export {exportName}
@@ -255,6 +258,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
     if (logItem.detail?.changes?.some((change) => change.field === 'deleted')) {
         const displayName = logItem.detail.name || '(unnamed export)'
         return {
+            summary: activityLogSummary(logItem, 'Deleted the batch export', displayName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted batch export <strong>{displayName}</strong>
@@ -303,6 +307,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
 
         if (changes.length === 0) {
             return {
+                summary: activityLogSummary(logItem, 'Updated the batch export', exportName),
                 description: (
                     <>
                         <ActivityLogUserName logItem={logItem} /> updated batch export {exportName}
@@ -312,6 +317,11 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                <SentenceList listParts={changes.map((change) => change.inlist)} />,
+                exportName
+            ),
             description:
                 changes.length === 1 ? (
                     <>

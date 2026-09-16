@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +22,11 @@ export function exportedAssetActivityDescriber(logItem: ActivityLogItem, asNotif
         }
 
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Exported as ${formatLabel}`,
+                <Link to={urls.exports()}>{logItem.detail.name || 'Export'}</Link>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> exported {asNotification ? 'your ' : ''}

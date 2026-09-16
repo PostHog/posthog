@@ -2,6 +2,7 @@ import {
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
@@ -78,6 +79,14 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
     if (logItem.activity == 'created') {
         const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the annotation',
+                <>
+                    {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the annotation "
@@ -97,6 +106,7 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
 
         const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
+            summary: activityLogSummary(logItem, 'Deleted the annotation', <>Annotation{contextDesc}</>, displayName),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the annotation: {displayName}
@@ -109,6 +119,14 @@ export function annotationActivityDescriber(logItem: ActivityLogItem, asNotifica
     if (logItem.activity == 'updated') {
         const contextDesc = getContextDescription(logItem?.detail?.context)
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Updated the annotation',
+                <>
+                    {nameOrLinkToAnnotation(logItem?.item_id, logItem?.detail.name)}
+                    {contextDesc}
+                </>
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> updated the annotation:{' '}

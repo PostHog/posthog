@@ -76,7 +76,14 @@ function RowSummary({ logItem, isExpanded }: { logItem: HumanizedActivityLogItem
 
     return (
         <>
-            <div className="ActivityLogRow__summary font-semibold first-letter:uppercase">{logItem.summary.action}</div>
+            <div
+                className={clsx(
+                    'ActivityLogRow__summary font-semibold first-letter:uppercase',
+                    !isExpanded && 'line-clamp-2 focus-within:line-clamp-none'
+                )}
+            >
+                {logItem.summary.action}
+            </div>
             <div className="text-secondary">{logItem.summary.target}</div>
             {logItem.summary.preview && (
                 <div className={clsx('mt-2 text-secondary font-normal', !isExpanded && 'line-clamp-2')}>

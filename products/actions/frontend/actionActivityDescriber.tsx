@@ -5,6 +5,7 @@ import {
     ChangeMapping,
     Description,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
     detectBoolean,
 } from 'lib/components/ActivityLog/humanizeActivity'
@@ -35,6 +36,8 @@ const actionActionsMapping: Record<
         const after = change?.after as string | null
         if (!before && after) {
             return {
+                summary: ['Added the description'],
+                preview: after,
                 description: [
                     <>
                         added description <strong>"{after}"</strong>
@@ -43,6 +46,8 @@ const actionActionsMapping: Record<
             }
         } else if (before && !after) {
             return {
+                summary: ['Removed the description'],
+                preview: before,
                 description: [
                     <>
                         removed description (was <strong>"{before}"</strong>)
@@ -51,6 +56,8 @@ const actionActionsMapping: Record<
             }
         }
         return {
+            summary: ['Changed the description'],
+            preview: after ?? undefined,
             description: [
                 <>
                     changed description from <strong>"{before}"</strong> to <strong>"{after}"</strong>
@@ -164,6 +171,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'created') {
         return {
+            summary: activityLogSummary(logItem, 'Created the action', nameAndLink(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created action {nameAndLink(logItem)}
@@ -174,6 +182,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the action', nameAndLink(logItem)),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted action {nameAndLink(logItem)}
@@ -184,6 +193,8 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity === 'updated') {
         let changes: Description[] = []
+        let summaryChanges: Description[] = []
+        let preview: string | undefined
         let changeSuffix: Description = <>on action {nameAndLink(logItem)}</>
 
         for (const change of logItem.detail.changes || []) {
@@ -197,7 +208,9 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
                 continue
             }
 
-            const { description, suffix } = processedChange
+            const { description, suffix, summary, preview: changePreview } = processedChange
+            summaryChanges = summaryChanges.concat(summary ?? description ?? [])
+            preview = changePreview ?? preview
             if (description) {
                 changes = changes.concat(description)
             }
@@ -209,6 +222,12 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
 
         if (changes.length) {
             return {
+                summary: activityLogSummary(
+                    logItem,
+                    <SentenceList listParts={summaryChanges} />,
+                    nameAndLink(logItem),
+                    preview
+                ),
                 description: (
                     <SentenceList
                         listParts={changes}
