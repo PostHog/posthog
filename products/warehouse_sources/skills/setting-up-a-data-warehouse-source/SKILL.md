@@ -385,9 +385,11 @@ If the user wants near-real-time replication from Postgres:
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user
   authenticates in their browser — the connect page renders the source's full connection form (OAuth and credential
   options alike) and stores the result without creating the source. Don't collect OAuth tokens or database passwords
-  in chat; pass the `credential_id` reference to setup — source creation always happens through setup, not the UI.
-  (An already-connected OAuth integration can also be passed directly via its id key, e.g.
-  `{"hubspot_integration_id": 123}`.)
+  in chat; pass the `credential_id` reference to whichever create path you are on. Both accept it:
+  `data-warehouse-source-setup` for the one-step path, which enables every discovered table, and
+  `external-data-sources-create` for the advanced path, which takes a `schemas` array. Do not reach for setup when
+  the user picked specific tables — it would enable all of them. (An already-connected OAuth integration can also be
+  passed directly via its id key, e.g. `{"hubspot_integration_id": 123}`.)
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
   webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).
