@@ -1842,6 +1842,16 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    def test_median_deterministic_arguments(self):
+        self.assertEqual(
+            self._expr("medianDeterministic(event, cityHash64(event))"),
+            "medianDeterministic(events.event, cityHash64(events.event))",
+        )
+        self.assertEqual(
+            self._expr("medianDeterministicIf(event, cityHash64(event), event is not null)"),
+            "medianDeterministicIf(events.event, cityHash64(events.event), isNotNull(events.event))",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
