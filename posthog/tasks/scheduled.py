@@ -1001,7 +1001,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="15"),
         sync_experiment_approval_policies.s(),
         name="sync experiment approval policies",

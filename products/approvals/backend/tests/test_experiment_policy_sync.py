@@ -70,7 +70,9 @@ class TestSyncExperimentPolicies(BaseTest):
         source.bypass_roles.set([kept_role])
         before_roles_sync = self._mirror("experiment.update", self.team).updated_at
         sync_experiment_policies()
-        assert self._mirror("experiment.update", self.team).updated_at > before_roles_sync
+        after_roles_sync = self._mirror("experiment.update", self.team).updated_at
+        assert before_roles_sync is not None and after_roles_sync is not None
+        assert after_roles_sync > before_roles_sync
 
         source.approver_config = {"quorum": 3, "users": [self.user.id]}
         source.enabled = False
