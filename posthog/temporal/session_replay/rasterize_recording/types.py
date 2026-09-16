@@ -12,15 +12,22 @@ RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 # Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
 # activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
 # as the age at which it reports an export stuck, so the two can't drift and start calling a render
-# that is still legitimately working a failure. A tighter caller timeout silently converts the second
-# render attempt into an untyped WorkflowExecutionTimeout, bypassing error-code-based failure
-# classification downstream.
+# that is still legitimately working a failure. A caller may set a tighter one; the workflow then holds
+# the render's retry chain inside it (see `rasterize_render_retry_budget`) so the shortfall surfaces as
+# a typed activity timeout instead of an untyped WorkflowExecutionTimeout.
 RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
 
 # execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
 # with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
 # start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
 RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
+
+# Held back from the render's schedule_to_close for the finalize and failure-recording activities, which
+# must still run after the render returns. Temporal defaults an unset schedule_to_close to the whole
+# execution_timeout, so without the reserve both deadlines land together and the envelope wins the race:
+# the caller reads an untyped WorkflowExecutionTimeout carrying no rasterizer error code, and the failure
+# classifies as a broken recording instead of a slow render.
+RASTERIZE_POST_RENDER_RESERVE = timedelta(minutes=3)
 
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):

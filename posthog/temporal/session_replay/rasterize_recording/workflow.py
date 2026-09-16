@@ -41,6 +41,7 @@ from .activities import (
     record_rasterization_failure,
 )
 from .types import (
+    RASTERIZE_POST_RENDER_RESERVE,
     RASTERIZE_RENDER_MAX_ATTEMPTS,
     RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
@@ -53,6 +54,10 @@ from .types import (
 # Gates the failure-recording activity added to the except branch. In-flight executions recorded
 # their history without it, so replaying them against an unconditional call fails as non-determinism.
 _RECORD_FAILURE_PATCH = "rasterize-record-failure-2026-08"
+
+# Gates the render's schedule_to_close. In-flight executions scheduled the render without one, so the
+# marker keeps them on their recorded command sequence.
+_RENDER_BUDGET_PATCH = "rasterize-render-budget-2026-09"
 
 
 def _resolve_error_code(exc: BaseException) -> str:
@@ -179,6 +184,22 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         except Exception as exc:
             wf.logger.warning("rasterize.stuck_counter_clear_failed", extra={"error": str(exc)})
 
+    @staticmethod
+    def _render_retry_budget() -> dt.timedelta | None:
+        """Cap the render's retry chain at what is left of this workflow's own execution_timeout.
+
+        A caller can fund fewer render attempts than `RASTERIZE_RENDER_MAX_ATTEMPTS` asks for. The
+        cap turns that shortfall into a typed activity timeout the caller can classify, instead of an
+        untyped execution timeout that kills the run mid-render.
+        """
+        if not wf.patched(_RENDER_BUDGET_PATCH):
+            return None
+        info = wf.info()
+        if info.execution_timeout is None:
+            return None
+        remaining = info.execution_timeout - (wf.now() - info.start_time)
+        return max(remaining - RASTERIZE_POST_RENDER_RESERVE, dt.timedelta(minutes=1))
+
     async def _run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
@@ -206,6 +227,7 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # task-queue attribute, and a mid-flight change only redirects retries.
             task_queue=settings.RASTERIZATION_TASK_QUEUE,
             start_to_close_timeout=RASTERIZE_RENDER_TIMEOUT,
+            schedule_to_close_timeout=self._render_retry_budget(),
             heartbeat_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=RASTERIZE_RENDER_MAX_ATTEMPTS),
         )

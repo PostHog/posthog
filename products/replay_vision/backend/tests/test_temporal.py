@@ -2680,6 +2680,48 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message,timeout_type,through_activity",
+    [
+        # The child's own execution_timeout kills it mid-render, and Temporal reports it directly on the
+        # ChildWorkflowError, carrying no rasterizer error code.
+        ("Child Workflow execution timed out", TimeoutType.START_TO_CLOSE, False),
+        # The render's schedule-to-close cap fires first instead, so the timeout arrives one wrap deeper.
+        ("activity timed out", TimeoutType.SCHEDULE_TO_CLOSE, True),
+    ],
+    ids=["child_execution_timeout", "render_activity_timeout"],
+)
+async def test_apply_scanner_workflow_classifies_a_rasterize_timeout_as_transient(
+    message: str, timeout_type: TimeoutType, through_activity: bool
+) -> None:
+    # A render that ran out of time says nothing about the recording, so rasterization_failed would show the
+    # user a "known issue" retry prompt for a video that was still rendering.
+    new_observation_id = uuid.uuid4()
+    timeout = TemporalTimeoutError(message, type=timeout_type, last_heartbeat_details=[])
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(timeout) if through_activity else timeout),
+    )
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-slow"), mocks)
+
+    assert exc_info.value.kind is FailureKind.INFRA_TRANSIENT
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    assert (
+        mocks.activity_calls[-1][1].error_reason
+        == "infra_transient:rasterizer ran out of time rendering this recording"
+    )
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
@@ -3180,7 +3222,7 @@ async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifie
     assert embed_input.model_output == model_output
 
 
-def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
+def _wrap_in_activity_error(cause: BaseException) -> ActivityError:
     """Build a minimal ActivityError shaped like what Temporal raises into a workflow's `except` block."""
     activity_err = ActivityError.__new__(ActivityError)
     activity_err.__cause__ = cause

@@ -21,6 +21,9 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import BumpStuckCounterInput
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_POST_RENDER_RESERVE,
+    RASTERIZE_RENDER_TIMEOUT,
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
@@ -232,6 +235,81 @@ async def test_failure_recording_stays_behind_its_patch(monkeypatch):
         workflows=[RasterizeRecordingWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ).replay_workflow(pre_patch_history)
+
+
+@pytest.mark.asyncio
+async def test_render_retry_budget_stays_inside_the_callers_envelope():
+    """A caller can fund fewer render attempts than the retry policy asks for.
+
+    Without a schedule_to_close the second attempt is scheduled into a budget that cannot hold it, the
+    envelope kills the workflow mid-render, and the caller reads an untyped execution timeout that
+    carries no rasterizer error code.
+    """
+    from django.conf import settings
+
+    from posthog.temporal.session_replay.rasterize_recording.types import RasterizationActivityInput
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_mocked(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            activity_input=RasterizationActivityInput(
+                session_id="sess-123", team_id=7, s3_bucket="bucket", s3_key_prefix="prefix"
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="rasterize-recording")
+    async def render_mocked(_inputs: dict) -> dict:
+        return RasterizationActivityOutput(
+            s3_uri="s3://bucket/key", video_duration_s=1.0, playback_speed=1.0
+        ).model_dump()
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_noop(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="clear_stuck_counter_activity")
+    async def clear_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with (
+            Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RasterizeRecordingWorkflow],
+                activities=[build_mocked, finalize_noop, clear_noop],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ),
+            Worker(env.client, task_queue=settings.RASTERIZATION_TASK_QUEUE, activities=[render_mocked]),
+        ):
+            handle = await env.client.start_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, product="replay_vision"),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+            await handle.result()
+            history = await handle.fetch_history()
+
+    scheduled = next(
+        event.activity_task_scheduled_event_attributes
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+        and event.activity_task_scheduled_event_attributes.activity_type.name == "rasterize-recording"
+    )
+    # Temporal defaults an unset schedule_to_close to the whole execution timeout, so both deadlines land
+    # together and the envelope wins the race. The reserve is what lets the activity time out first, with a
+    # typed error and room left to record it.
+    budget = scheduled.schedule_to_close_timeout.ToTimedelta()
+    assert budget <= RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT - RASTERIZE_POST_RENDER_RESERVE
+    # The envelope must still fund a retry after a fast first failure, which is what it was sized for.
+    assert budget > RASTERIZE_RENDER_TIMEOUT
 
 
 @pytest.mark.asyncio

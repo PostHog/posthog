@@ -13,7 +13,12 @@ from temporalio.exceptions import (
 )
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    find_temporal_timeout_error,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     BumpStuckCounterInput,
@@ -214,6 +219,13 @@ def _root_cause_message(e: BaseException) -> str:
     cause = unwrap_temporal_cause(e) or e
     msg = getattr(cause, "message", None) or str(cause) or type(cause).__name__
     return truncate_for_temporal_payload(msg, MAX_ERROR_MESSAGE_CHARS)
+
+
+# A render that ran out of time tells us nothing about the recording: the renderer was slow or at capacity,
+# which is the same story as a timeout against any other PostHog dependency (see `_activity_timeout_kind`).
+# One message for every timeout type keeps them in a single error-tracking issue, instead of one per the
+# wording Temporal happens to attach.
+_RENDER_TIMED_OUT_MESSAGE = "rasterizer ran out of time rendering this recording"
 
 
 def _normalized_rasterizer_infra_message(code: str) -> str:
@@ -504,6 +516,12 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception as exc:
                     wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
+            # A timeout anywhere in the chain — the child's execution_timeout, or the render activity's own
+            # start-to-close or schedule-to-close — carries no rasterizer error code, so it would otherwise
+            # fall through to RASTERIZATION_FAILED and tell the user a working recording is a known issue.
+            if find_temporal_timeout_error(e) is not None:
+                wf.logger.warning("replay_vision.rasterizer_timed_out detail=%s", _root_cause_message(e))
+                raise ScannerFailureError(_RENDER_TIMED_OUT_MESSAGE, kind=FailureKind.INFRA_TRANSIENT) from None
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 
