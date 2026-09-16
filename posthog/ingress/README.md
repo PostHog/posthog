@@ -4,7 +4,7 @@ General-purpose controls for the webhooks third parties send _in_ to PostHog.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
 Four lanes:
 
-- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), plus the SNS envelope check.
+- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check, and a bearer JWT checked against the issuer's published signing keys.
 - **`dispatch/`** — the validated consumer registry, per-delivery dedup, the wall-clock budget, consumer isolation, and `bounded_statement_timeout()` for consumers that read the database.
 - **`observability/`** — Prometheus: delivery volume by transport outcome, and one metric set per consumer run.
 - **`views.py`** — the view that composes the other three: one request that is verified _and_ recorded by construction, so no incarnation can skip either.
@@ -40,6 +40,17 @@ A provider whose verification is a local HMAC leaves it at `None`.
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
+
+## Schemes
+
+`verify/schemes.py` holds `HmacSha256` and `SnsSignature`; `verify/jwt.py` holds `BearerJwt`, for a provider that authenticates with a signed token instead of a shared secret.
+Each class docstring carries its own reasoning.
+
+Three duties fall on the incarnation rather than on `BearerJwt`, and none is enforced:
+
+- **Key discovery.** The scheme takes a `jwks_uri_getter`, so a provider that publishes its `jwks_uri` inside an OpenID metadata document fetches that document in the getter.
+- **Caching that discovery.** `verify` calls the getter on every delivery. A getter that fetches and does not cache puts an HTTP round trip on every request, which is what the `PyJWKClient` cache inside the scheme exists to avoid.
+- **Validating a discovered URI.** A `jwks_uri` read out of a remote document is not a value an operator set, so the getter passes it through `is_url_allowed` before returning it, the way `posthog/api/id_jag.py` guards its own discovered JWKS URI. The check belongs next to the fetch, not in the scheme, because only the getter knows whether the URI came from configuration or from a third party.
 
 ## Endpoints
 
