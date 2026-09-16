@@ -28,6 +28,11 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    // Firehose buffers 1-64 MiB per delivery and base64 adds a third, so the Firehose route gets its
+    // own, larger body cap. Decoded size is bounded separately by the endpoint.
+    #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
+    pub firehose_max_request_body_size_bytes: usize,
 }
 
 impl Config {
