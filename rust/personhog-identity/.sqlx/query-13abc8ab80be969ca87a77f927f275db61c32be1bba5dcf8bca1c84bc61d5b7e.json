@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT person_id FROM lifecycle_op_person\n        WHERE op_id = $1 AND mark_active\n        ORDER BY person_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "13abc8ab80be969ca87a77f927f275db61c32be1bba5dcf8bca1c84bc61d5b7e"
+}

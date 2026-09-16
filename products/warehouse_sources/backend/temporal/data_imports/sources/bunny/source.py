@@ -1,20 +1,22 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny import (
     BunnyResumeConfig,
     bunny_source,
     check_access,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import BUNNY_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.bunny.settings import (
+    BUNNY_ENDPOINTS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -42,7 +44,7 @@ class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BUNNY,
+            name=ExternalDataSourceType.BUNNY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bunny.net",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -82,6 +84,10 @@ You can find your account API key under **Account Settings → API** in the [bun
             # per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.bunny.net": "Your bunny.net account API key is invalid or has been revoked. Generate a new key under Account Settings → API, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.bunny.net": "Your bunny.net account API key does not have access to this data. Check the key's permissions, then reconnect.",
+            # The Stream tables authenticate with the per-library key the account key reads off
+            # `/videolibrary`, so their auth failures come back from the Stream host instead.
+            "401 Client Error: Unauthorized for url: https://video.bunnycdn.com": "A bunny.net video library rejected its API key. Regenerate the library's key in the Stream dashboard, then re-run the sync.",
+            "403 Client Error: Forbidden for url: https://video.bunnycdn.com": "A bunny.net video library API key does not have access to this data. Check the library's key permissions, then re-run the sync.",
         }
 
     def get_schemas(
@@ -93,9 +99,11 @@ You can find your account API key under **Account Settings → API** in the [bun
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — bunny.net's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance.
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        # The list endpoints are full refresh only — they expose no server-side timestamp
+        # filter, so there is no incremental cursor to advance. The statistics endpoints do
+        # filter on `dateFrom`, and merge only: appending would re-add a row per run for every
+        # interval the window still covers.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
 
     def validate_credentials(
         self, config: BunnySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
@@ -129,4 +137,7 @@ You can find your account API key under **Account Settings → API** in the [bun
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

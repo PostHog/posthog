@@ -773,6 +773,9 @@ describe('EmailService', () => {
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
+                // A real denial names the cap it hit, which is what makes the limiter-fault case
+                // above distinguishable to the customer reading the run's logs.
+                expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
             it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
@@ -794,6 +797,10 @@ describe('EmailService', () => {
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 5 * 60 * 1000)
                 expect(scheduledMs).toBeLessThan(before + 5 * 60 * 1000 + 5000)
+                // No bucket denied, so the customer must not be told they hit a cap they never hit.
+                const messages = result.logs.map((log) => log.message).join(' ')
+                expect(messages).not.toContain('reached its email sending limit')
+                expect(messages).toContain("Could not check this project's email sending limit")
             })
 
             it('sends when the claim is granted', async () => {

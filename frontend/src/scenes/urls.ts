@@ -166,6 +166,7 @@ export const urls = {
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
@@ -266,6 +267,7 @@ export const urls = {
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
     codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
+    codeLoopLink: (loopId: string): string => `/code/loop/${loopId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
