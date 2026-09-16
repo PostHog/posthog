@@ -50,6 +50,9 @@ export interface savedInsightsTagFilterLogicActions {
             offset: number
         }
     }
+    retryTagResults: () => {
+        value: true
+    }
     setTagPopoverOpen: (open: boolean) => {
         open: boolean
     }
@@ -77,6 +80,7 @@ export const savedInsightsTagFilterLogic = kea<savedInsightsTagFilterLogicType>(
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         loadMoreTagResults: true,
+        retryTagResults: true,
         setTagSearch: (search: string) => ({ search }),
         setTagPopoverOpen: (open: boolean) => ({ open }),
     }),
