@@ -117,9 +117,10 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
 
 
 class SerializedExportProperties(CloningVisitor):
-    def __init__(self, table_alias: str) -> None:
+    def __init__(self, table_alias: str, use_native_schema: bool) -> None:
         super().__init__()
         self.table_alias = table_alias
+        self.use_native_schema = use_native_schema
 
     def visit_field(self, node: ast.Field) -> ast.Field:
         node = super().visit_field(node)
@@ -128,12 +129,18 @@ class SerializedExportProperties(CloningVisitor):
         index = 1 if node.chain[0] == "events" else 0
         if node.chain[index : index + 2] in (["person", "properties"], ["poe", "properties"]):
             node.chain[index : index + 2] = ["person_properties"]
+        if self.use_native_schema and node.chain[index : index + 1] == ["properties"] and len(node.chain) > index + 1:
+            key = node.chain[index + 1]
+            if isinstance(key, str) and key.startswith("$feature/"):
+                node.chain[index + 1 : index + 2] = ["$feature_flags", key.removeprefix("$feature/")]
         return node
 
 
 def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
     assert query.select_from is not None
-    query = SerializedExportProperties(query.select_from.alias or "events").visit(query)
+    query = SerializedExportProperties(query.select_from.alias or "events", context.uses_new_events_schema()).visit(
+        query
+    )
     assert query.select_from is not None
     query.select_from.table = parse_select(
         "SELECT event, team_id, timestamp, distinct_id, uuid, created_at, elements_chain, person_id, "
