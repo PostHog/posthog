@@ -1,11 +1,13 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import {
     ConversionGoalFilter,
@@ -14,15 +16,17 @@ import {
     TrendsQuery,
     DataTableNode,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource } from '~/types'
+import { ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { MarketingAnalyticsTab, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { MarketingAnalyticsTab, MarketingDashboardView, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { marketingAnalyticsTilesLogic } from './marketingAnalyticsTilesLogic'
 
@@ -211,6 +215,50 @@ describe('marketingAnalyticsLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             integrationFilter: { integrationSourceIds: ['source-1'] },
+        })
+    })
+
+    it('carries dashboard view, breakdown and filters in the URL', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        const filters = [
+            {
+                type: PropertyFilterType.Session,
+                key: '$channel_type',
+                operator: PropertyOperator.Exact,
+                value: 'Direct',
+            },
+        ]
+        logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
+        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
+        logic.actions.setDashboardProperties(filters as WebAnalyticsPropertyFilters)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({
+            view: 'engagement',
+            breakdown: 'campaign',
+            filters,
+        })
+    })
+
+    it('takes dashboard state from the URL and falls back when a persisted breakdown is gone', async () => {
+        localStorage.setItem(
+            `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
+            JSON.stringify('retired_dimension')
+        )
+        router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention' })
+
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            dashboardView: MarketingDashboardView.RETENTION,
+            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
         })
     })
 })
