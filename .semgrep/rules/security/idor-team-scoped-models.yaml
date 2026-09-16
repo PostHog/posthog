@@ -314,6 +314,9 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
+                              |ReaperArtefact
+                              |ReaperCluster
+                              |ReaperInventory
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
@@ -721,6 +724,9 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
+                        |ReaperArtefact
+                        |ReaperCluster
+                        |ReaperInventory
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
