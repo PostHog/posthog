@@ -25,9 +25,11 @@ logger = structlog.get_logger(__name__)
 # load to the recording API.
 _BLOCK_CONCURRENCY = 4
 
-# Past this, a recording is one of the outliers that has exhausted rasterizer memory before. Reading its
-# whole blob set again is not worth a side input, so the scan runs without network data instead.
-_MAX_BLOCKS = 250
+# Gate on the listing's compressed bytes the way the rasterizer does
+# (`maxRecordingCompressedBytes` in nodejs/src/session-replay/recording-rasterizer/config.ts), because a
+# block count bounds neither the read nor the memory it needs. Set well below the rasterizer's 512 MiB:
+# this is a side input, so an outlier is worth skipping rather than straining the worker for.
+_MAX_COMPRESSED_BYTES = 64 * 1024 * 1024
 
 
 @activity.defn
@@ -74,14 +76,18 @@ async def _load_payload(team_id: int, session_id: str) -> SessionNetworkPayload:
     blocks = await list_blocks_async(recording)
     if not blocks:
         return SessionNetworkPayload()
-    if len(blocks) > _MAX_BLOCKS:
+
+    compressed_bytes = sum(max(0, block.end_byte - block.start_byte) for block in blocks)
+    if compressed_bytes > _MAX_COMPRESSED_BYTES:
         logger.info(
             "replay_vision.fetch_network.skipped_large_recording",
             session_id=session_id,
             team_id=team_id,
             block_count=len(blocks),
+            compressed_bytes=compressed_bytes,
         )
-        return SessionNetworkPayload()
+        # Partial rather than empty: the scan must not read "nothing failed" from a recording never read.
+        return SessionNetworkPayload(partial=True)
 
     return await _collect(blocks, session_id=session_id, team_id=team_id)
 
