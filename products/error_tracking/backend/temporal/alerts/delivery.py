@@ -188,6 +188,12 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
             # The issue row is gone (merged away or deleted): nothing to alert on.
             return False
 
+    # A redelivered notification (activity retry, duplicate start) needs no claim:
+    # it never contends with the holder for work it already finished.
+    thread.refresh_from_db(fields=["delivered_notification_ids"])
+    if inputs.notification_id in (thread.delivered_notification_ids or []):
+        return False
+
     client = _slack_client(delivery.destination)
     if client is None:
         # A revoked or repointed integration is a configuration gap, not a
