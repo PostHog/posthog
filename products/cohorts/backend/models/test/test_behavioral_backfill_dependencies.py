@@ -330,7 +330,11 @@ class TestBehavioralBackfillDependencies(BaseTest):
             args=[self.team.id, cohort.id, "cohort_edited", kind],
             countdown=300,
         )
-        redis.set.assert_called_once_with(f"cohort_backfill_{kind.value}_pending:{cohort.id}", 1, nx=True, ex=300)
+        # The value is the pending task's trigger kind, which the cohort API reads to show a build
+        # as queued during the countdown, before any run row exists.
+        redis.set.assert_called_once_with(
+            f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300
+        )
 
     @parameterized.expand(
         [
