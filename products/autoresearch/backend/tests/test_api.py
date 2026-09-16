@@ -1,8 +1,9 @@
 import uuid
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -12,12 +13,41 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.dataset.templates import TEMPLATES
+from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.presentation.views.serializers import (
+    VALIDATION_WARNING_CODES,
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
+    ValidationWarningSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+
+MOCK_VALIDATION_OK = ValidationResult(
+    can_proceed=True,
+    requires_acknowledgement=False,
+    estimated_training_rows=500,
+    positive_count=100,
+    negative_count=400,
+    base_rate=0.2,
+    inference_population_size=500,
+    warnings=[],
+)
+
+MOCK_VALIDATION_ERROR = ValidationResult(
+    can_proceed=False,
+    requires_acknowledgement=False,
+    estimated_training_rows=5,
+    positive_count=5,
+    negative_count=0,
+    base_rate=1.0,
+    inference_population_size=5,
+    warnings=[
+        ValidationWarning(code="low_volume", message="Only 5 users found.", severity="error"),
+        ValidationWarning(code="low_positives", message="Only 5 positive examples.", severity="error"),
+    ],
+)
 
 
 class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
@@ -148,6 +178,123 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_validate_pipeline_success(self, _mock: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/validate/",
+            {"target_event": "$signup", "horizon_days": 7},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is True
+        assert data["base_rate"] == pytest.approx(0.2)
+        assert data["warnings"] == []
+        assert _mock.call_args.kwargs["user"] == self.user
+
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_ERROR,
+    )
+    def test_validate_pipeline_with_errors(self, _mock: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/validate/",
+            {"target_event": "$rare_event", "horizon_days": 7},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert len(data["warnings"]) == 2
+        assert data["warnings"][0]["severity"] == "error"
+
+    @parameterized.expand(
+        [
+            ("missing_target", {}),
+            ("list_shaped_target_definition", {"target_event": "$signup", "target_definition": [1]}),
+        ]
+    )
+    def test_validate_rejects(self, _name: str, body: dict):
+        resp = self.client.post(f"{self.base_url}/validate/", body, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, {"kind": "ever_performed_target"}),
+            ("empty", {"inference_population": {}}, {"kind": "ever_performed_target"}),
+            ("given", {"inference_population": {"kind": "person_first_seen_within_days", "days": 14}}, None),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_validate_previews_the_population_creation_would_store(
+        self, _name: str, extra: dict, expected: dict | None, _mock: MagicMock
+    ):
+        body = {"target_event": "$signup", "training_population": {"kind": "ever_performed_target"}, **extra}
+        resp = self.client.post(f"{self.base_url}/validate/", body, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+        expected = expected if expected is not None else extra["inference_population"]
+        assert _mock.call_args.kwargs["inference_population"] == expected
+
+    @parameterized.expand(
+        [
+            ("validate", "validate", {"target_event": "$signup"}),
+            ("resolve_template", "resolve-template", {"template_key": "likely_active_soon"}),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.dataset.templates.resolve_activity_event",
+        return_value=("$pageview", []),
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_query_backed_helpers_need_the_query_scope(
+        self, _name: str, path: str, body: dict, _validate: MagicMock, _resolve: MagicMock
+    ):
+        self.client.logout()
+        read_only = self.create_personal_api_key_with_scopes(["autoresearch:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_only}")
+        assert (
+            self.client.post(f"{self.base_url}/{path}/", body, format="json").status_code == status.HTTP_403_FORBIDDEN
+        )
+        with_query = self.create_personal_api_key_with_scopes(["autoresearch:read", "query:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_query}")
+        assert self.client.post(f"{self.base_url}/{path}/", body, format="json").status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("validate", "validate/", ["autoresearch:read", "query:read"], status.HTTP_200_OK),
+            ("create", "", ["autoresearch:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_action_targets_need_the_action_scope(
+        self, _name: str, path: str, scopes: list[str], ok_status: int, _mock: MagicMock
+    ):
+        action = Action.objects.create(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
+        )
+        body = {"name": "Action Pipeline", "target_definition": {"type": "action", "action_id": action.id}}
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(scopes)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        resp = self.client.post(f"{self.base_url}/{path}", body, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "target_definition"
+        with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
+        assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
+
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
@@ -244,6 +391,84 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ─────────────────────────────────── nested resources ─────────────────────────────────────────
 
+    # ──────────────────────────────────────────── templates ────────────────────────────────────────────
+
+    def test_list_templates_returns_every_template(self):
+        resp = self.client.get(f"{self.base_url}/templates/")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert {t["key"] for t in data} == set(TEMPLATES)
+        for field in (
+            "key",
+            "display_name",
+            "description",
+            "default_horizon_days",
+            "requires_user_event",
+            "requires_activity_resolution",
+            "notes",
+        ):
+            assert field in data[0]
+
+    @patch(
+        "products.autoresearch.backend.dataset.templates.resolve_activity_event",
+        return_value=("$pageview", ["$screen"]),
+    )
+    def test_resolve_template_runs_as_the_request_user(self, resolve_activity: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/resolve-template/",
+            {"template_key": "likely_active_soon"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["target_event"] == "$pageview"
+        assert data["horizon_days"] == 7
+        assert data["activity_event_alternatives"] == ["$screen"]
+        assert data["training_lookback_days"] == 180
+        for field in ("training_population", "inference_population", "output_person_property", "suggested_name"):
+            assert field in data
+        assert resolve_activity.call_args.kwargs["user"] == self.user
+
+    @patch(
+        "products.autoresearch.backend.dataset.templates.resolve_activity_event",
+        return_value=("$pageview", []),
+    )
+    def test_resolve_template_horizon_override(self, _mock: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/resolve-template/",
+            {"template_key": "likely_active_soon", "horizon_days": 30},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["horizon_days"] == 30
+
+    def test_resolve_template_feature_adoption_uses_the_supplied_event(self):
+        resp = self.client.post(
+            f"{self.base_url}/resolve-template/",
+            {"template_key": "feature_adoption", "target_event": "feature_clicked"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["target_event"] == "feature_clicked"
+
+    @parameterized.expand(
+        [
+            ("missing_required_target_event", {"template_key": "feature_adoption"}),
+            ("unknown_template_key", {"template_key": "not_a_real_template"}),
+            ("own_prediction_event", {"template_key": "feature_adoption", "target_event": "autoresearch_prediction"}),
+            ("unsafe_target_event", {"template_key": "repeat_key_behavior", "target_event": "signup`whoami`"}),
+        ]
+    )
+    def test_resolve_template_rejects(self, _name: str, body: dict):
+        resp = self.client.post(f"{self.base_url}/resolve-template/", body, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestValidationWarningSerializer(SimpleTestCase):
+    def test_help_text_names_every_code_the_validator_emits(self) -> None:
+        help_text = str(ValidationWarningSerializer().fields["code"].help_text)
+        assert all(f"'{code}'" in help_text for code in VALIDATION_WARNING_CODES)
+
 
 class TestPipelineCreateSerializerValidation(SimpleTestCase):
     # Field- and target-shape validation runs in memory, so these cases never need a DB.
@@ -282,6 +507,11 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("days_not_int", {"kind": "person_first_seen_within_days", "days": "14"}),
             ("days_out_of_range", {"kind": "performed_event_within_days", "days": 100000}),
             ("missing_event_for_repeat", {"kind": "ever_performed_event"}),
+            ("too_many_filters", {"properties": [{"key": "k", "type": "person", "operator": "is_set"}] * 21}),
+            (
+                "too_many_filter_values",
+                {"properties": [{"key": "k", "type": "person", "operator": "exact", "value": list(range(201))}]},
+            ),
         ]
     )
     def test_uncompilable_population_rejected(self, _name: str, population: Any) -> None:
