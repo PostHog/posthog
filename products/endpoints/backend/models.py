@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, TypeVar
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
@@ -24,11 +24,44 @@ from posthog.schema_enums import ProductKey
 logger = logging.getLogger(__name__)
 
 
+class _ReplacePlaceholdersWithZero(CloningVisitor):
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
+        return ast.Constant(value=0)
+
+
+_ZERO_REPLACER = _ReplacePlaceholdersWithZero()
+
+_T_RowCountQuery = TypeVar("_T_RowCountQuery", ast.SelectQuery, ast.SelectSetQuery)
+
+
+def _zero_row_counts(node: _T_RowCountQuery, new_node: _T_RowCountQuery) -> _T_RowCountQuery:
+    # ClickHouse requires a numeric row count, and query optimizations do arithmetic on these values,
+    # so an empty string dummy fails wherever a placeholder sits inside a LIMIT or an OFFSET.
+    if node.limit is not None:
+        new_node.limit = _ZERO_REPLACER.visit(node.limit)
+    if node.offset is not None:
+        new_node.offset = _ZERO_REPLACER.visit(node.offset)
+    return new_node
+
+
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
-    """Replace all {variables.foo} placeholders with empty string constants."""
+    """Replace all {variables.foo} placeholders with dummy constants: 0 in a row count, otherwise an empty string."""
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
         return ast.Constant(value="")
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        return _zero_row_counts(node, super().visit_select_query(node))
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        return _zero_row_counts(node, super().visit_select_set_query(node))
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
+        new_node = super().visit_limit_by_expr(node)
+        new_node.n = _ZERO_REPLACER.visit(node.n)
+        if node.offset_value is not None:
+            new_node.offset_value = _ZERO_REPLACER.visit(node.offset_value)
+        return new_node
 
 
 _PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
