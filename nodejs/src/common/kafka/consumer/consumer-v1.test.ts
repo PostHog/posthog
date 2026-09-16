@@ -292,6 +292,28 @@ describe('consumer', () => {
             ])
         })
 
+        // The producers are disconnected right after disconnect() returns, so a task that is
+        // still writing then produces onto a closed producer and every write of it fails.
+        it('waits for every background task before disconnecting, even when one fails', async () => {
+            const failing = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], failing.promise)
+            const slow = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], slow.promise)
+
+            const disconnected = jest.fn()
+            const disconnecting = consumer.disconnect().then(disconnected)
+
+            failing.reject(new Error('Producer not connected'))
+            await delay(1)
+            consumeCallback(null, [])
+            await delay(1)
+            expect(disconnected).not.toHaveBeenCalled()
+
+            slow.resolve()
+            await disconnecting
+            expect(disconnected).toHaveBeenCalled()
+        })
+
         it('should not corrupt backgroundTask array when task is not found (index = -1)', async () => {
             // This test verifies proper handling when indexOf returns -1
             // Expected correct behavior:

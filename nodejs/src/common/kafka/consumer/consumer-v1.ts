@@ -756,7 +756,7 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    void backgroundTask.finally(async () => {
+                    const cleanupAfterTask = backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
 
@@ -776,6 +776,8 @@ export class KafkaConsumer {
                             // Task found - capture promises to wait for, then remove the task
                             const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
                             this.backgroundTask.splice(index, 1)
+                            // A rejection here skips the offset store below, which is what an
+                            // earlier failed batch must do.
                             await Promise.all(promisesToWait)
                         }
 
@@ -783,6 +785,10 @@ export class KafkaConsumer {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
                     })
+                    // A failed task must not also surface as an unhandled rejection: the main loop
+                    // below fails the batch on it, and a second trigger tears the process down from
+                    // here instead, while sibling tasks still write.
+                    void cleanupAfterTask.catch(() => {})
 
                     // At first we just add the background work to the queue with metadata
                     this.backgroundTask.push({
@@ -849,11 +855,20 @@ export class KafkaConsumer {
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
-        // Wait for background tasks to complete before disconnecting
+        // Wait for background tasks to complete before disconnecting. `allSettled`, because the
+        // producers are disconnected right after this returns: a task cut short by a sibling's
+        // rejection keeps writing, and every write it still has lands on a closed producer.
         logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
             backgroundTaskCount: this.backgroundTask.length,
         })
-        await Promise.all(this.backgroundTask.map((t) => t.promise))
+        const drained = await Promise.allSettled(this.backgroundTask.map((t) => t.promise))
+        const failedCount = drained.filter((result) => result.status === 'rejected').length
+        if (failedCount > 0) {
+            logger.error('🔁', 'background_tasks_failed_during_disconnect', {
+                failedCount,
+                totalCount: drained.length,
+            })
+        }
 
         logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
 

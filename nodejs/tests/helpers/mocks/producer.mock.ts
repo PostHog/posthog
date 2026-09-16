@@ -17,6 +17,7 @@ jest.mock('~/common/kafka/producer', () => {
         flush: jest.fn((...args) => args[args.length - 1]?.()),
         disconnect: jest.fn((...args) => args[args.length - 1]?.()),
         connect: jest.fn((...args) => args[args.length - 1]?.()),
+        isConnected: jest.fn(() => true),
         on: jest.fn(),
         removeAllListeners: jest.fn(),
         getMetadata: jest.fn((opts: any, cb: any) =>

@@ -13,6 +13,8 @@ import { hostname } from 'os'
 import { Counter, Histogram, Summary } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { raceWithTimeout } from '~/common/utils/timing'
+import { promisifyCallback } from '~/common/utils/utils'
 
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
@@ -63,6 +65,9 @@ export class KafkaProducerWrapper {
 
     /** Emit librdkafka stats every 30s so ProducerStatsTracker can export them as Prom metrics. */
     private static readonly STATS_INTERVAL_MS = 30000
+
+    /** Cap on a single reconnect attempt, so a write cannot wait on the broker forever. */
+    private static readonly RECONNECT_TIMEOUT_MS = 10000
 
     static async create(kafkaClientRack: string | undefined, mode: KafkaConfigTarget = 'PRODUCER') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
@@ -116,6 +121,12 @@ export class KafkaProducerWrapper {
     /** Optional human-readable name (e.g. 'DEFAULT', 'WARPSTREAM') used in metrics labels. */
     public readonly name?: string
 
+    /** Set by `disconnect()`, so a write that races shutdown is not allowed to reconnect. */
+    private closed = false
+
+    /** The reconnect in progress, shared by every write that finds the producer disconnected. */
+    private reconnecting?: Promise<void>
+
     constructor(producer: HighLevelProducer, name?: string) {
         this.producer = producer
         this.name = name
@@ -124,6 +135,53 @@ export class KafkaProducerWrapper {
             const statsTracker = new ProducerStatsTracker(name)
             producer.on('event.stats', (event) => statsTracker.track(event.message))
         }
+    }
+
+    /**
+     * node-rdkafka rejects a write on a disconnected producer with a bare `Producer not
+     * connected`, which carries no retriable flag. Callers read that as a bad message and
+     * quarantine a record that is fine, so reconnect first and report a shutdown as the
+     * dependency outage it is. One reconnect serves every write that is waiting on it.
+     */
+    private async ensureConnected(): Promise<void> {
+        if (this.producer.isConnected()) {
+            return
+        }
+        if (this.closed) {
+            throw new DependencyUnavailableError(
+                'Kafka producer is disconnected',
+                'Kafka',
+                new Error('producer_closed')
+            )
+        }
+        this.reconnecting ??= this.reconnect().finally(() => {
+            this.reconnecting = undefined
+        })
+        await this.reconnecting
+    }
+
+    private async reconnect(): Promise<void> {
+        const producerName = this.name ?? 'unknown'
+        logger.warn('🔌', 'kafka_producer_reconnecting', { producer_name: producerName })
+        kafkaProducerReconnectsCounter.labels({ producer_name: producerName }).inc()
+
+        try {
+            const { timedOut } = await raceWithTimeout(
+                promisifyCallback<Metadata>((cb) => this.producer.connect(undefined, cb)),
+                KafkaProducerWrapper.RECONNECT_TIMEOUT_MS
+            )
+            if (timedOut) {
+                throw new Error('kafka_producer_reconnect_timeout')
+            }
+        } catch (error) {
+            logger.error('🔌', 'kafka_producer_reconnect_failed', {
+                producer_name: producerName,
+                error: String(error),
+            })
+            throw new DependencyUnavailableError('Kafka producer reconnect failed', 'Kafka', error as Error)
+        }
+
+        logger.info('🔌', 'kafka_producer_reconnected', { producer_name: producerName })
     }
 
     async produce({
@@ -145,6 +203,11 @@ export class KafkaProducerWrapper {
             labels.producer_name = this.name
         }
         try {
+            // Checked here as well, so the connected path does not pay for an extra await.
+            if (!this.producer.isConnected()) {
+                await this.ensureConnected()
+            }
+
             const produceTimer = ingestEventKafkaProduceLatency.labels(labels).startTimer()
             const produceLatencyTimer = kafkaProducerProduceLatencySeconds.labels(labels).startTimer()
             kafkaProducerMessagesQueuedCounter.labels(labels).inc()
@@ -187,6 +250,13 @@ export class KafkaProducerWrapper {
             produceTimer()
             produceLatencyTimer()
         } catch (error) {
+            if (error instanceof DependencyUnavailableError) {
+                // A disconnected producer fails every write of the batch. Count them, but leave
+                // the logging to the one reconnect line above — a log per message is the burst.
+                kafkaProducerMessagesFailedCounter.labels({ ...labels, error_code: 'not_connected' }).inc()
+                throw error
+            }
+
             const errorCode = (error as LibrdKafkaError)?.code
             const failureLabels = {
                 ...labels,
@@ -250,6 +320,7 @@ export class KafkaProducerWrapper {
     }
 
     public async disconnect(): Promise<void> {
+        this.closed = true
         logger.info('🔌', 'Disconnecting producer. Flushing...')
         await this.flush()
 
@@ -319,6 +390,12 @@ export const kafkaProducerMessagesFailedCounter = new Counter({
     name: 'kafka_producer_messages_failed_total',
     help: 'Count of write failures by the Kafka producer, by destination topic and librdkafka error code.',
     labelNames: ['topic_name', 'producer_name', 'error_code'],
+})
+
+export const kafkaProducerReconnectsCounter = new Counter({
+    name: 'kafka_producer_reconnects_total',
+    help: 'Count of reconnect attempts made by the Kafka producer after it was found disconnected.',
+    labelNames: ['producer_name'],
 })
 
 export const ingestEventKafkaProduceLatency = new Summary({

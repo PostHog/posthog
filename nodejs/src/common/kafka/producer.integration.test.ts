@@ -79,6 +79,33 @@ describe('KafkaProducerWrapper.checkTopicExists', () => {
     })
 })
 
+describe('KafkaProducerWrapper.produce', () => {
+    const topic = 'producer_reconnect_test'
+
+    beforeAll(async () => {
+        await ensureKafkaTopics([topic])
+    })
+
+    // The writer outlives an unexpected disconnect, and node-rdkafka refuses every write until
+    // the producer is connected again.
+    it('recovers from a disconnected producer', async () => {
+        const producer = await KafkaProducerWrapper.create(undefined)
+        try {
+            const message = { topic, key: Buffer.from('k'), value: Buffer.from('v') }
+            await producer.produce(message)
+
+            const rdKafkaProducer = producer['producer']
+            await new Promise<void>((resolve) => rdKafkaProducer.disconnect(() => resolve()))
+            expect(rdKafkaProducer.isConnected()).toBe(false)
+
+            await expect(producer.produce(message)).resolves.toBeUndefined()
+            expect(rdKafkaProducer.isConnected()).toBe(true)
+        } finally {
+            await producer.disconnect()
+        }
+    })
+})
+
 describe('KafkaProducerWrapper.checkConnection', () => {
     it('succeeds for a reachable broker', async () => {
         const producer = await KafkaProducerWrapper.create(undefined)
