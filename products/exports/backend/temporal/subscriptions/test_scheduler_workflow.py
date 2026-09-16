@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, CancelledError, WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from products.exports.backend.temporal.subscriptions.activities import (
@@ -62,7 +62,7 @@ async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> N
             "insight_id": subscription_id,
             "dashboard_id": None,
             "prompt": None,
-            "_remaining_count": 3,
+            "_cohort_total": 3,
         }
         for subscription_id in range(1, 4)
     ]
@@ -95,6 +95,56 @@ async def test_scheduler_page_fetch_builds_cursor_from_one_query_snapshot() -> N
     assert result.next_cursor == SubscriptionSchedulerCursor(
         next_delivery_date=due_at.isoformat(),
         subscription_id=2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_page_fetch_does_not_recount_after_first_page() -> None:
+    due_at = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+    rows = [
+        {
+            "id": subscription_id,
+            "team_id": 42,
+            "created_by__distinct_id": "user-1",
+            "next_delivery_date": due_at,
+            "insight_id": subscription_id,
+            "dashboard_id": None,
+            "prompt": None,
+        }
+        for subscription_id in range(4, 7)
+    ]
+    queryset = MagicMock()
+    queryset.exclude.return_value = queryset
+    queryset.filter.return_value = queryset
+    queryset.order_by.return_value = queryset
+    queryset.values.return_value = queryset
+    queryset.__getitem__.side_effect = lambda page: rows[page]
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.Subscription.objects.filter",
+            return_value=queryset,
+        ),
+        patch("products.exports.backend.temporal.subscriptions.activities.record_scheduler_fetch"),
+    ):
+        result = await ActivityEnvironment().run(
+            fetch_due_subscriptions_page_activity,
+            FetchDueSubscriptionsPageActivityInputs(
+                due_before="2026-09-11T12:15:00+00:00",
+                page_size=2,
+                cursor=SubscriptionSchedulerCursor(
+                    next_delivery_date=due_at.isoformat(),
+                    subscription_id=3,
+                ),
+            ),
+        )
+
+    assert [subscription.subscription_id for subscription in result.subscriptions] == [4, 5]
+    assert result.total_count is None
+    assert result.remaining_count is None
+    assert result.next_cursor == SubscriptionSchedulerCursor(
+        next_delivery_date=due_at.isoformat(),
+        subscription_id=5,
     )
 
 
@@ -356,6 +406,52 @@ async def test_scheduler_does_not_overlap_an_already_running_subscription() -> N
         completed=True,
         completed_at=completed_at,
     )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_preserves_cancellation_from_child_start() -> None:
+    due_subscription = DueSubscription(
+        subscription_id=123,
+        team_id=42,
+        distinct_id="user-1",
+        next_delivery_date="2026-09-11T12:00:00+00:00",
+        resource_type="insight",
+    )
+    execute_activity = AsyncMock(
+        return_value=FetchDueSubscriptionsPageActivityResult(
+            subscriptions=[due_subscription],
+            next_cursor=None,
+            total_count=1,
+            remaining_count=0,
+        )
+    )
+    start_child = AsyncMock(side_effect=CancelledError("cancelled"))
+    record_progress = MagicMock()
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.start_child_workflow",
+            new=start_child,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.patched",
+            return_value=True,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.workflows.record_scheduler_progress",
+            new=record_progress,
+        ),
+    ):
+        with pytest.raises(CancelledError):
+            await ScheduleAllSubscriptionsWorkflow().run(
+                ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
+            )
+
+    record_progress.assert_not_called()
 
 
 @pytest.mark.asyncio

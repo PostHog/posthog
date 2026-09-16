@@ -8,7 +8,6 @@ from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
 
 # Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
-# Operators can override this through the Schedule action input when backlog conditions change.
 DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN = 500
 DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE = 100
 
@@ -170,8 +169,8 @@ class FetchDueSubscriptionsPageActivityInputs:
 class FetchDueSubscriptionsPageActivityResult:
     subscriptions: list[DueSubscription]
     next_cursor: SubscriptionSchedulerCursor | None
-    total_count: int
-    remaining_count: int
+    total_count: int | None
+    remaining_count: int | None
 
 
 @frozen

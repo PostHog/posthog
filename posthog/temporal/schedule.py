@@ -185,9 +185,6 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             },
             id="schedule-all-subscriptions-schedule",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            # Bounds a stuck page while allowing the full chain to exceed ten minutes:
-            # unlike execution_timeout, run_timeout resets after Continue-As-New.
-            run_timeout=timedelta(minutes=10),
         ),
         spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
         # ALLOW_ALL: if a previous run is still executing, start the new one anyway.

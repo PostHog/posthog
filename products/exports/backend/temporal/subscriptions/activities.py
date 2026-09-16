@@ -313,21 +313,27 @@ async def fetch_due_subscriptions_page_activity(
                 | Q(next_delivery_date=cursor_date, id__gt=inputs.cursor.subscription_id)
             )
 
-        fetched_rows = list(
-            subscriptions_query.annotate(_remaining_count=Window(expression=Count("id")))
-            .order_by("next_delivery_date", "id")
-            .values(
-                "id",
-                "team_id",
-                "created_by__distinct_id",
-                "next_delivery_date",
-                "insight_id",
-                "dashboard_id",
-                "prompt",
-                "_remaining_count",
-            )[: inputs.page_size + 1]
+        value_fields: tuple[str, ...] = (
+            "id",
+            "team_id",
+            "created_by__distinct_id",
+            "next_delivery_date",
+            "insight_id",
+            "dashboard_id",
+            "prompt",
         )
-        remaining_before_page = fetched_rows[0]["_remaining_count"] if fetched_rows else 0
+        if inputs.cursor is None:
+            subscriptions_query = subscriptions_query.annotate(_cohort_total=Window(expression=Count("id")))
+            value_fields = (*value_fields, "_cohort_total")
+
+        fetched_rows = list(
+            subscriptions_query.order_by("next_delivery_date", "id").values(*value_fields)[: inputs.page_size + 1]
+        )
+        cohort_total = (
+            typing.cast(int, fetched_rows[0]["_cohort_total"]) if inputs.cursor is None and fetched_rows else None
+        )
+        if inputs.cursor is None and not fetched_rows:
+            cohort_total = 0
         rows = fetched_rows[: inputs.page_size]
         subscriptions = [
             DueSubscription(
@@ -341,7 +347,7 @@ async def fetch_due_subscriptions_page_activity(
             )
             for sub in rows
         ]
-        remaining_after_page = max(0, remaining_before_page - len(subscriptions))
+        remaining_after_page = max(0, cohort_total - len(subscriptions)) if cohort_total is not None else None
         has_more = len(fetched_rows) > inputs.page_size
         last_row = rows[-1] if rows else None
         next_cursor = (
@@ -356,7 +362,7 @@ async def fetch_due_subscriptions_page_activity(
             FetchDueSubscriptionsPageActivityResult(
                 subscriptions=subscriptions,
                 next_cursor=next_cursor,
-                total_count=remaining_before_page,
+                total_count=cohort_total,
                 remaining_count=remaining_after_page,
             ),
             rows[0]["next_delivery_date"] if rows else None,

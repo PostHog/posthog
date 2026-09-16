@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -284,7 +284,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
         start_results = await asyncio.gather(*start_tasks, return_exceptions=True)
         for sub, result in zip(page.subscriptions, start_results):
-            if isinstance(result, WorkflowAlreadyStartedError):
+            if isinstance(result, BaseException) and is_cancelled_exception(result):
+                raise result
+            elif isinstance(result, WorkflowAlreadyStartedError):
                 already_running_count += 1
                 temporalio.workflow.logger.info(
                     "process_subscription.already_running",
@@ -300,10 +302,12 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 started_count += 1
 
         total_count = inputs.total_count if inputs.total_count is not None else page.total_count
+        if total_count is None:
+            raise ApplicationError("Subscription scheduler lost its first-page total", non_retryable=True)
         processed_count = inputs.processed_count + len(page.subscriptions) - len(failed_ids)
-        remaining_count = page.remaining_count + len(failed_ids)
         page_number = inputs.page_number + 1
         completed = page.next_cursor is None and not failed_ids
+        remaining_count = 0 if completed else max(0, total_count - processed_count)
         completed_at = temporalio.workflow.now() if completed else None
         record_scheduler_progress(
             total_count=total_count,

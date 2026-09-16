@@ -30,7 +30,7 @@ async def test_subscription_schedule_uses_configurable_page_size_without_chain_t
     schedule = create_schedule.await_args.args[2]
     assert schedule.action.args == [{"buffer_minutes": 15, "subscriptions_page_size": 100}]
     assert schedule.action.execution_timeout is None
-    assert schedule.action.run_timeout.total_seconds() == 600
+    assert schedule.action.run_timeout is None
     assert schedule.policy.catchup_window.total_seconds() == 900
 
 

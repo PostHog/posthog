@@ -2469,7 +2469,8 @@ async def test_fetch_due_subscriptions_page_uses_stable_keyset_cursor(team, user
     )
 
     assert [subscription.subscription_id for subscription in second_page.subscriptions] == [subscriptions[2].id]
-    assert second_page.remaining_count == 0
+    assert second_page.total_count is None
+    assert second_page.remaining_count is None
     assert second_page.next_cursor is None
 
 
