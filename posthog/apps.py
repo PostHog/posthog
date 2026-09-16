@@ -239,8 +239,8 @@ class PostHogConfig(AppConfig):
                 self._ensure_loaded()
                 return super().get(key, default)
 
-        # Don't use lazy loading in tests and migrations
-        if not settings.TEST and "migrate" not in sys.argv and "test" not in sys.argv:
+        # Don't use lazy loading in migrations
+        if "migrate" not in sys.argv and "test" not in sys.argv:
             # Wrap the existing _registry rather than overwriting it. With
             # `SimpleAdminConfig` the dict is normally empty here (Django's
             # autodiscover is deferred to inside `register_all_admin()`), but
@@ -248,12 +248,6 @@ class PostHogConfig(AppConfig):
             # `PostHogConfig.ready()` runs. The dict-copy constructor preserves
             # any such entries and only adds lazy-load semantics on top.
             admin.site._registry = LazyAdminRegistry(admin.site._registry)
-        elif settings.TEST:
-            # Django 5.x freezes the app_list URL regex at resolution time;
-            # late @admin.register calls add to _registry but miss the regex.
-            from posthog.admin import register_all_admin
-
-            register_all_admin()
 
         # Install the OAuth sidebar regrouping override eagerly. It must wrap
         # `get_app_list` before the first admin request — if it were installed
