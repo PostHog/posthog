@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import json
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any, ClassVar
@@ -17,6 +19,17 @@ from products.alerts.backend.facade.contracts import (
 )
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
+
+# A custom body and custom headers become a HogFunction input the delivery worker reads on
+# every send, so one destination must not carry an unbounded payload.
+MAX_WEBHOOK_BODY_CHARACTERS = 10_000
+MAX_WEBHOOK_HEADERS = 20
+MAX_WEBHOOK_HEADER_VALUE_LENGTH = 1_000
+
+# RFC 9110 token characters. A name outside this set, or a value with a control character
+# in it, can split one header into two at the transport.
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$")
+_CONTROL_CHARACTERS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 _HOG_FUNCTION_NAME_MAX_LEN = 400
 
@@ -197,9 +210,9 @@ class WebhookDestination(_WebhookUrlDestination):
         slack_context_elements: tuple[str, ...],
     ) -> dict[str, Any]:
         return {
-            "body": {"value": event_kind_spec.webhook_body},
+            "body": {"value": data.get("webhook_body") or event_kind_spec.webhook_body},
             "url": {"value": data["webhook_url"]},
-            "headers": {"value": WEBHOOK_HEADERS},
+            "headers": {"value": {**WEBHOOK_HEADERS, **data.get("webhook_headers", {})}},
         }
 
 
@@ -266,6 +279,40 @@ def _redact_url(value: str) -> str:
     return f"{scheme}://{authority}"
 
 
+def _validate_webhook_overrides(data: AlertDestinationData) -> None:
+    """Check the optional body and headers a webhook destination may carry."""
+    body = data.get("webhook_body")
+    if body is not None:
+        if not isinstance(body, dict) or not body:
+            raise AlertDestinationValidationError(
+                "webhook_body must be a JSON object with at least one key.", field="webhook_body"
+            )
+        if len(json.dumps(body)) > MAX_WEBHOOK_BODY_CHARACTERS:
+            raise AlertDestinationValidationError(
+                f"webhook_body must be at most {MAX_WEBHOOK_BODY_CHARACTERS} characters.", field="webhook_body"
+            )
+
+    headers = data.get("webhook_headers")
+    if headers is None:
+        return
+    if len(headers) > MAX_WEBHOOK_HEADERS:
+        raise AlertDestinationValidationError(
+            f"A destination takes at most {MAX_WEBHOOK_HEADERS} headers.", field="webhook_headers"
+        )
+    for name, value in headers.items():
+        if not _HEADER_NAME_RE.match(name):
+            raise AlertDestinationValidationError(f"'{name}' is not a valid header name.", field="webhook_headers")
+        if len(value) > MAX_WEBHOOK_HEADER_VALUE_LENGTH:
+            raise AlertDestinationValidationError(
+                f"Header '{name}' must be at most {MAX_WEBHOOK_HEADER_VALUE_LENGTH} characters.",
+                field="webhook_headers",
+            )
+        if _CONTROL_CHARACTERS_RE.search(value):
+            raise AlertDestinationValidationError(
+                f"Header '{name}' must not contain control characters.", field="webhook_headers"
+            )
+
+
 def validate_destination_data(
     data: AlertDestinationData,
     *,
@@ -288,6 +335,16 @@ def validate_destination_data(
     if missing_fields:
         formatted_fields = " and ".join(missing_fields)
         raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
+
+    if destination_type == DestinationType.WEBHOOK:
+        _validate_webhook_overrides(data)
+    else:
+        for field in ("webhook_body", "webhook_headers"):
+            if data.get(field):
+                raise AlertDestinationValidationError(
+                    f"{destination_type.label} destinations send a fixed payload, so they take no {field}.",
+                    field=field,
+                )
 
 
 def build_alert_destination_config(

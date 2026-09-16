@@ -45,6 +45,8 @@ class AlertDestinationData(TypedDict):
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
+    webhook_body: NotRequired[dict[str, Any]]
+    webhook_headers: NotRequired[dict[str, str]]
 
 
 class AlertDestinationValidationError(Exception):

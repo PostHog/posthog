@@ -9,7 +9,11 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationValidationError,
     DestinationType,
 )
-from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
+from products.alerts.backend.facade.destinations import (
+    DEFAULT_WEBHOOK_HEADERS,
+    build_alert_destination_config,
+    validate_destination_data,
+)
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
@@ -103,3 +107,66 @@ class TestRenderedDestinationContent(SimpleTestCase):
         assert "*" not in text.replace("**", "")
         # Its paragraphs need exactly one blank line between them; a stacked one renders as a gap.
         assert "\n\n\n" not in text
+
+
+WEBHOOK_DATA = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+
+
+class TestWebhookOverrides(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_body", {"webhook_body": {}}, "webhook_body"),
+            ("body_is_not_an_object", {"webhook_body": ["firing"]}, "webhook_body"),
+            ("body_too_long", {"webhook_body": {"summary": "x" * 10_001}}, "webhook_body"),
+            ("too_many_headers", {"webhook_headers": {f"X-H-{i}": "1" for i in range(21)}}, "webhook_headers"),
+            ("header_name_with_a_space", {"webhook_headers": {"X Routing Key": "abc"}}, "webhook_headers"),
+            ("header_value_splits_the_request", {"webhook_headers": {"X-Key": "a\r\nX-Other: b"}}, "webhook_headers"),
+            ("header_value_too_long", {"webhook_headers": {"X-Key": "x" * 1_001}}, "webhook_headers"),
+        ]
+    )
+    def test_rejects_an_unusable_override(self, _name: str, override: dict[str, Any], expected_field: str) -> None:
+        data = cast(AlertDestinationData, {**WEBHOOK_DATA, **override})
+
+        with self.assertRaises(AlertDestinationValidationError) as error:
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
+
+        assert error.exception.field == expected_field
+
+    @parameterized.expand([("webhook_body", {"text": "hi"}), ("webhook_headers", {"X-Key": "abc"})])
+    def test_rejects_an_override_on_a_destination_that_sends_a_fixed_payload(self, field: str, value: Any) -> None:
+        data = cast(AlertDestinationData, {**TEAMS_DATA, field: value})
+
+        with self.assertRaises(AlertDestinationValidationError) as error:
+            validate_destination_data(data, allowed_destination_types=LOGS_DESTINATION_TYPES)
+
+        assert error.exception.field == field
+
+    @parameterized.expand([(kind,) for kind in EVENT_KINDS])
+    def test_a_webhook_without_overrides_keeps_the_posthog_payload(self, kind: EventKind) -> None:
+        inputs = destination_inputs(kind, WEBHOOK_DATA)
+
+        assert inputs["body"]["value"] == EVENT_KIND_CONFIG[kind].webhook_body
+        assert inputs["headers"]["value"] == DEFAULT_WEBHOOK_HEADERS
+
+    def test_a_custom_body_and_headers_replace_the_payload_and_extend_the_headers(self) -> None:
+        data = cast(
+            AlertDestinationData,
+            {
+                **WEBHOOK_DATA,
+                "webhook_body": {
+                    "routing_key": "R123",
+                    "event_action": "trigger",
+                    "payload": {"summary": "{event.properties.alert_name}", "severity": "critical"},
+                },
+                "webhook_headers": {"X-Routing-Key": "R123", "Content-Type": "application/vnd.pagerduty+json"},
+            },
+        )
+
+        inputs = destination_inputs("firing", data)
+
+        assert inputs["body"]["value"] == data["webhook_body"]
+        assert inputs["headers"]["value"] == {
+            "Content-Type": "application/vnd.pagerduty+json",
+            "X-PostHog-Webhook-Version": "1",
+            "X-Routing-Key": "R123",
+        }
