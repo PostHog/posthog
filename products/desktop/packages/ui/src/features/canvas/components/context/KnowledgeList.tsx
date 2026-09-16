@@ -5,6 +5,7 @@ import {
   FileTextIcon,
   LinkIcon,
   PlusIcon,
+  UploadSimpleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
@@ -18,19 +19,28 @@ import {
   isSpaceFile,
 } from "@posthog/core/canvas/contextFiles";
 import { parseContextSourceInput } from "@posthog/core/canvas/contextSources";
-import { Button, cn, Text } from "@posthog/quill";
+import {
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Text,
+} from "@posthog/quill";
 import {
   type ContextSources,
   useContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
 import { useWatchedObjectPreview } from "@posthog/ui/features/canvas/hooks/useWatchedObjectPreview";
 import { useContextWikiPageMutation } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
-import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import { AddContextDialog } from "./AddContextDialog";
+import { AddContextDialog, type AddContextMode } from "./AddContextDialog";
 import { KIND_ICONS } from "./kindIcons";
+import { SourceLogo } from "./SourceLogo";
 import { SpaceFileDialog } from "./SpaceFileDialog";
 import { connectLabel, unconnectedWarning } from "./sourceStatus";
 
@@ -64,7 +74,7 @@ export function KnowledgeList({
   onObjectsChange,
   isSaving,
 }: KnowledgeListProps) {
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<AddContextMode | null>(null);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const sources = useContextSources();
   const { mutateAsync: writePage } = useContextWikiPageMutation();
@@ -90,15 +100,39 @@ export function KnowledgeList({
         <Text size="xs" weight="medium" variant="muted">
           Business knowledge
         </Text>
-        <Button
-          variant="link-muted"
-          size="xs"
-          disabled={isSaving}
-          onClick={() => setAdding(true)}
-        >
-          <PlusIcon size={12} />
-          Add context…
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="link-muted" size="xs" disabled={isSaving}>
+                <PlusIcon size={12} />
+                Add context
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" sideOffset={4} className="min-w-56">
+            <DropdownMenuItem onClick={() => setAdding("link")}>
+              <LinkIcon size={14} />
+              Link…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!filesFolder}
+              onClick={() => setAdding("markdown")}
+            >
+              <FileMdIcon size={14} />
+              Markdown file…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!filesFolder}
+              onClick={() => setAdding("upload")}
+            >
+              <UploadSimpleIcon size={14} />
+              Upload a file…
+            </DropdownMenuItem>
+            {!filesFolder ? (
+              <DropdownMenuLabel>Files need the context wiki</DropdownMenuLabel>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <ul className="flex flex-col divide-y divide-border border-border border-y">
@@ -160,6 +194,7 @@ export function KnowledgeList({
 
       {adding ? (
         <AddContextDialog
+          mode={adding}
           channelName={channelName}
           sources={sources}
           filesFolder={filesFolder}
@@ -167,7 +202,7 @@ export function KnowledgeList({
           onAddLink={(link) => onLinksChange([...links, link])}
           onAddObject={(object) => onObjectsChange([...objects, object])}
           onAddFile={addFile}
-          onClose={() => setAdding(false)}
+          onClose={() => setAdding(null)}
         />
       ) : null}
 
@@ -218,7 +253,7 @@ function LinkRow({
     <KnowledgeRow
       icon={
         parsed ? (
-          <ServerIcon iconDomain={parsed.source.iconDomain} size={15} />
+          <SourceLogo source={parsed.source} size={15} />
         ) : external ? (
           <LinkIcon size={15} />
         ) : (

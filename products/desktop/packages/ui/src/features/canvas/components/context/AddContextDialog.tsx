@@ -1,6 +1,5 @@
 import {
   CheckCircleIcon,
-  FileMdIcon,
   FileTextIcon,
   LinkIcon,
   UploadSimpleIcon,
@@ -21,7 +20,10 @@ import {
   UPLOAD_ACCEPT,
   UPLOAD_MAX_BYTES,
 } from "@posthog/core/canvas/contextFiles";
-import { parseContextSourceInput } from "@posthog/core/canvas/contextSources";
+import {
+  type ContextSource,
+  parseContextSourceInput,
+} from "@posthog/core/canvas/contextSources";
 import {
   Button,
   cn,
@@ -34,23 +36,33 @@ import {
   DialogTitle,
   Input,
   Text,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@posthog/quill";
 import type {
   ContextSourceState,
   ContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
-import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
-import { settingsToggleItemClassName } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useId, useMemo, useRef, useState } from "react";
 import { KIND_ICONS } from "./kindIcons";
+import { SourceLogo } from "./SourceLogo";
 import { connectLabel, unconnectedWarning } from "./sourceStatus";
 
-type Mode = "markdown" | "link" | "upload";
+export type AddContextMode = "markdown" | "link" | "upload";
+
+const TITLES: Record<AddContextMode, string> = {
+  link: "Add a link",
+  markdown: "New Markdown file",
+  upload: "Upload a file",
+};
+
+const SUBMIT_LABELS: Record<AddContextMode, string> = {
+  link: "Add link",
+  markdown: "Create and edit",
+  upload: "Add file",
+};
 
 interface AddContextDialogProps {
+  mode: AddContextMode;
   channelName: string;
   sources: ContextSources;
   /** Where this space's Markdown files go; null when the context wiki is not available. */
@@ -64,11 +76,13 @@ interface AddContextDialogProps {
 }
 
 /**
- * Three ways to add a piece of context, one at a time: write a Markdown file,
- * paste a link, or upload a text file. A link says what it is as soon as it
- * is pasted, so a person sees whether agents can read it before adding it.
+ * One way to add a piece of context, chosen before the dialog opens: paste a
+ * link, name a Markdown file, or upload a text file. A link says what it is
+ * as soon as it is pasted, so a person sees whether agents can read it before
+ * adding it.
  */
 export function AddContextDialog({
+  mode,
   channelName,
   sources,
   filesFolder,
@@ -78,7 +92,6 @@ export function AddContextDialog({
   onAddFile,
   onClose,
 }: AddContextDialogProps) {
-  const [mode, setMode] = useState<Mode>("link");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -144,74 +157,16 @@ export function AddContextDialog({
     }
   };
 
-  const switchMode = (next: Mode) => {
-    setMode(next);
-    setError(null);
-  };
-
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="w-[560px] max-w-[92vw]">
         <DialogHeader>
-          <DialogTitle>Add context</DialogTitle>
+          <DialogTitle>{TITLES[mode]}</DialogTitle>
           <DialogDescription>
             Agents working in {channelName} read everything here.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody viewportClassName="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <ToggleGroup
-              value={[mode]}
-              onValueChange={(next: string[]) => {
-                const picked = next[0];
-                if (
-                  picked === "markdown" ||
-                  picked === "link" ||
-                  picked === "upload"
-                )
-                  switchMode(picked);
-              }}
-              aria-label="What to add"
-              className="gap-1"
-            >
-              <ToggleGroupItem
-                value="markdown"
-                size="sm"
-                variant="outline"
-                disabled={!filesFolder}
-                className={settingsToggleItemClassName}
-              >
-                <FileMdIcon size={14} />
-                Markdown
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="link"
-                size="sm"
-                variant="outline"
-                className={settingsToggleItemClassName}
-              >
-                <LinkIcon size={14} />
-                Link
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="upload"
-                size="sm"
-                variant="outline"
-                disabled={!filesFolder}
-                className={settingsToggleItemClassName}
-              >
-                <UploadSimpleIcon size={14} />
-                Upload
-              </ToggleGroupItem>
-            </ToggleGroup>
-            {!filesFolder ? (
-              <Text size="xxs" variant="muted">
-                Markdown files and uploads need the context wiki. Links work
-                without it.
-              </Text>
-            ) : null}
-          </div>
-
+        <DialogBody>
           {mode === "link" ? (
             <form
               className="flex flex-col gap-3"
@@ -317,11 +272,7 @@ export function AddContextDialog({
               disabled={!canSubmit}
               loading={busy}
             >
-              {mode === "link"
-                ? "Add link"
-                : mode === "markdown"
-                  ? "Create and edit"
-                  : "Add file"}
+              {SUBMIT_LABELS[mode]}
             </Button>
           </div>
         </DialogFooter>
@@ -334,6 +285,7 @@ type DetectedLink =
   | { kind: "object"; object: ContextObject; title: string }
   | {
       kind: "source";
+      source: ContextSource;
       target: string;
       title: string;
       label: string;
@@ -365,6 +317,7 @@ function detectLink(
   if (item) {
     return {
       kind: "source",
+      source: item.source,
       target: item.item.target,
       title: item.item.title,
       label: item.item.label,
@@ -442,8 +395,8 @@ function Detection({
     if (!state) {
       return (
         <DetectionCard
-          icon={<LinkIcon size={16} />}
-          title={detected.label}
+          icon={<SourceLogo source={detected.source} />}
+          title={`${detected.source.name} · ${detected.label}`}
           meta="No server for this source is available here, so it is saved as a link."
           status="none"
         />
@@ -452,7 +405,7 @@ function Detection({
     const connected = state.status === "connected";
     return (
       <DetectionCard
-        icon={<ServerIcon iconDomain={state.source.iconDomain} size={16} />}
+        icon={<SourceLogo source={state.source} />}
         title={`${state.source.name} · ${detected.label}`}
         meta={
           connected

@@ -3,7 +3,7 @@ import { iconDomainFromServerUrl } from "@posthog/core/mcp-servers/iconDomain";
 import { useServerIcon } from "@posthog/ui/features/mcp-servers/hooks/useServerIcon";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { Flex } from "@radix-ui/themes";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 interface ServerIconProps {
   /** The template's brand domain (`icon_domain`). Falls back to deriving one from serverUrl. */
@@ -12,6 +12,8 @@ interface ServerIconProps {
   serverUrl?: string | null;
   size?: number;
   className?: string;
+  /** Shown when the proxy has no icon for the domain; defaults to a plug glyph. */
+  fallback?: ReactNode;
 }
 
 /**
@@ -24,6 +26,7 @@ export function ServerIcon({
   serverUrl,
   size = 32,
   className,
+  fallback,
 }: ServerIconProps) {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const domain = iconDomain || iconDomainFromServerUrl(serverUrl);
@@ -52,7 +55,9 @@ export function ServerIcon({
           onError={() => setFailedIconKey(iconKey)}
         />
       ) : (
-        <Plugs size={Math.round(size * 0.55)} className="text-gray-11" />
+        (fallback ?? (
+          <Plugs size={Math.round(size * 0.55)} className="text-gray-11" />
+        ))
       )}
     </Flex>
   );
