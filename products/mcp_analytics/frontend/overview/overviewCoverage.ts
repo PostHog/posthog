@@ -89,7 +89,7 @@ function clientItem(harnessRows: readonly MCPHarnessBreakdownItem[]): CoverageIt
         badge: isOk ? 'OK' : 'Fix',
         title: isOk
             ? `Clients resolved for ${formatPct(100 - unresolvedPct)}`
-            : `${formatPct(unresolvedPct)} of clients unresolved`,
+            : `${formatPct(unresolvedPct)} of calls from an unresolved client`,
         detail: isOk
             ? 'Resolved from the client name and the user agent.'
             : 'Those calls show as Other. Pass the client name through from your dispatcher.',
@@ -121,7 +121,7 @@ function missingCapabilityItem(hasMissingReports: boolean): CoverageItem {
         title: 'Missing capability reporting',
         detail: hasMissingReports
             ? 'Agents are telling you which tools they wish you had.'
-            : 'No reports in this range. Enable reportMissing so agents can tell you what is missing.',
+            : 'No reports in this range. If reportMissing is off, enable it so agents can tell you what is missing.',
         link: hasMissingReports
             ? { to: urls.mcpAnalyticsMissingCapabilities(), label: 'Read the reports' }
             : { to: DOCS_MISSING_CAPABILITY, label: 'How to set it up' },

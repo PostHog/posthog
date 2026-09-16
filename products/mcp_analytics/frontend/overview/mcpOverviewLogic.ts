@@ -48,7 +48,10 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
  */
 const DEFAULT_CALLER_KIND: MCPCallerKind = 'people'
 
-const FAILURE_GROUP_LIMIT = 5
+// Fetch more groups than the card shows: the missing-tools count reads every group whose
+// message is an unknown-tool rejection, and those are rarely in the top five.
+const FAILURE_GROUP_FETCH_LIMIT = 50
+const FAILURE_GROUP_DISPLAY_LIMIT = 5
 
 const MISSING_REPORT_LIMIT = 5
 
@@ -103,6 +106,7 @@ export interface mcpOverviewLogicValues {
     suggestions: OverviewSuggestion[]
     summary: MCPOverviewSummary | null
     summaryLoading: boolean
+    topFailureGroups: MCPFailureGroup[]
     unknownToolSessions: number
 }
 
@@ -114,6 +118,19 @@ export interface mcpOverviewLogicActions {
     ) => {
         prompt: string
         source: string
+    }
+    hydrateFilters: (filters: {
+        callerKind: MCPCallerKind
+        dateFilter: DateFilter
+        filterTestAccountsOverride: boolean | null
+        propertyFilters: AnyPropertyFilter[]
+    }) => {
+        filters: {
+            callerKind: MCPCallerKind
+            dateFilter: DateFilter
+            filterTestAccountsOverride: boolean | null
+            propertyFilters: AnyPropertyFilter[]
+        }
     }
     loadFailureGroups: (_: void) => void
     loadFailureGroupsFailure: (
@@ -252,6 +269,7 @@ export interface mcpOverviewLogicMeta {
             modelRows: MCPModelBreakdownItem[],
             missingReports: MCPMissingCapabilitiesItem[]
         ) => CoverageItem[]
+        topFailureGroups: (failureGroups: MCPFailureGroup[]) => MCPFailureGroup[]
         unknownToolSessions: (failureGroups: MCPFailureGroup[]) => number
         reloading: (
             summaryLoading: boolean,
@@ -275,6 +293,13 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
         values: [teamLogic, ['currentTeam', 'currentProjectId']],
     })),
     actions({
+        // One action for a URL hydration, so a deep link with several params reloads once.
+        hydrateFilters: (filters: {
+            dateFilter: DateFilter
+            filterTestAccountsOverride: boolean | null
+            propertyFilters: AnyPropertyFilter[]
+            callerKind: MCPCallerKind
+        }) => ({ filters }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setPropertyFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
@@ -288,6 +313,7 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
             DEFAULT_DATE_FILTER,
             {
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+                hydrateFilters: (_, { filters }): DateFilter => filters.dateFilter,
             },
         ],
         // null until the user toggles — the effective value falls back to the team's
@@ -296,18 +322,21 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
             null as boolean | null,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }): boolean | null => filterTestAccounts,
+                hydrateFilters: (_, { filters }): boolean | null => filters.filterTestAccountsOverride,
             },
         ],
         propertyFilters: [
             [] as AnyPropertyFilter[],
             {
                 setPropertyFilters: (_, { properties }): AnyPropertyFilter[] => properties,
+                hydrateFilters: (_, { filters }): AnyPropertyFilter[] => filters.propertyFilters,
             },
         ],
         callerKind: [
             DEFAULT_CALLER_KIND as MCPCallerKind,
             {
                 setCallerKind: (_, { callerKind }): MCPCallerKind => callerKind,
+                hydrateFilters: (_, { filters }): MCPCallerKind => filters.callerKind,
             },
         ],
         askInput: [
@@ -347,7 +376,7 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
                         properties,
                         filterTestAccounts,
                         callerKind: values.callerKind,
-                        limit: FAILURE_GROUP_LIMIT,
+                        limit: FAILURE_GROUP_FETCH_LIMIT,
                     })) as { results?: MCPFailureGroup[] }
                     breakpoint()
                     return response?.results ?? []
@@ -411,8 +440,11 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
                         return null
                     }
                     try {
+                        // Same window as every other card, so the themes describe the calls on screen.
                         const response = await mcpAnalyticsSessionsIntentDigest(String(values.currentProjectId), {
                             caller_kind: values.callerKind,
+                            date_from: values.dateFilter.dateFrom,
+                            date_to: values.dateFilter.dateTo,
                         })
                         breakpoint()
                         return {
@@ -487,8 +519,14 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
             ): CoverageItem[] =>
                 buildCoverageItems({ summary, harnessRows, modelRows, hasMissingReports: missingReports.length > 0 }),
         ],
+        topFailureGroups: [
+            (s) => [s.failureGroups],
+            (failureGroups: MCPFailureGroup[]): MCPFailureGroup[] =>
+                failureGroups.slice(0, FAILURE_GROUP_DISPLAY_LIMIT),
+        ],
         // The server records that it rejected an unknown tool, not the name that was asked for,
-        // so reach is all this section can report.
+        // so reach is all this section can report. Groups are distinct by message, so a session
+        // that hit two of them counts twice; the number reads as an upper bound.
         unknownToolSessions: [
             (s) => [s.failureGroups],
             (failureGroups: MCPFailureGroup[]): number =>
@@ -511,6 +549,7 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
         setFilterTestAccounts: () => actions.reloadAll(),
         setPropertyFilters: () => actions.reloadAll(),
         setCallerKind: () => actions.reloadAll(),
+        hydrateFilters: () => actions.reloadAll(),
         reloadAll: () => {
             actions.loadSummary()
             actions.loadFailureGroups()
@@ -583,20 +622,15 @@ export const mcpOverviewLogic = kea<mcpOverviewLogicType>([
             const filterChanged = filterOverride !== values.filterTestAccountsOverride
             const propertiesChanged = JSON.stringify(properties) !== JSON.stringify(values.propertyFilters)
             const callerKindChanged = callerKind !== values.callerKind
-            if (dateChanged) {
-                actions.setDateFilter(dateFrom, dateTo)
-            }
-            if (filterChanged) {
-                actions.setFilterTestAccounts(filterOverride)
-            }
-            if (propertiesChanged) {
-                actions.setPropertyFilters(properties)
-            }
-            if (callerKindChanged) {
-                actions.setCallerKind(callerKind)
-            }
-            // URL already matches state (e.g. default filters) and afterMount deferred — load once.
-            if (!dateChanged && !filterChanged && !propertiesChanged && !callerKindChanged && !cache.hasLoaded) {
+            if (dateChanged || filterChanged || propertiesChanged || callerKindChanged) {
+                actions.hydrateFilters({
+                    dateFilter: { dateFrom, dateTo },
+                    filterTestAccountsOverride: filterOverride,
+                    propertyFilters: properties,
+                    callerKind,
+                })
+            } else if (!cache.hasLoaded) {
+                // URL already matches state (e.g. default filters) and afterMount deferred — load once.
                 actions.reloadAll()
             }
             cache.hasLoaded = true

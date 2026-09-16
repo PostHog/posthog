@@ -138,6 +138,19 @@ describe('mcpOverviewLogic', () => {
         expect(summaryCallerKinds).toEqual(['people', 'automations'])
     })
 
+    it('hydrates several URL params with one reload', async () => {
+        mockResultsByKind({})
+        router.actions.push(urls.mcpAnalyticsOverview(), { date_from: '-30d', caller_kind: 'all' })
+        await mountAndLoad()
+
+        expect(logic.values.dateFilter.dateFrom).toBe('-30d')
+        expect(logic.values.callerKind).toBe('all')
+        const summaryLoads = mockApi.query.mock.calls.filter(
+            ([node]) => (node as { kind: NodeKind }).kind === NodeKind.MCPOverviewSummaryQuery
+        )
+        expect(summaryLoads).toHaveLength(1)
+    })
+
     it('drops caller_kind from the URL once it returns to the default', async () => {
         mockResultsByKind({})
         await mountAndLoad()

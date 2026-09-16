@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@posthog/quill-primitives'
 
 import { Link } from 'lib/lemon-ui/Link/Link'
@@ -18,11 +19,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function UnknownToolsSection(): JSX.Element {
-    const { unknownToolSessions } = useValues(mcpOverviewLogic)
+    const { unknownToolSessions, failureGroupsLoading, failureGroups } = useValues(mcpOverviewLogic)
 
     return (
         <Section title="Tools that do not exist">
-            {unknownToolSessions === 0 ? (
+            {failureGroupsLoading && failureGroups.length === 0 ? (
+                <LemonSkeleton className="h-4 w-3/4" />
+            ) : unknownToolSessions === 0 ? (
                 <span className="text-sm text-muted">No agent asked for a tool you do not have.</span>
             ) : (
                 <>
@@ -43,12 +46,14 @@ function UnknownToolsSection(): JSX.Element {
 }
 
 function ReportedSection(): JSX.Element {
-    const { missingReports, rangeLabel } = useValues(mcpOverviewLogic)
+    const { missingReports, missingReportsLoading, rangeLabel } = useValues(mcpOverviewLogic)
     const newest = missingReports[0]
 
     return (
         <Section title="Reported through get_more_tools">
-            {!newest ? (
+            {missingReportsLoading && !newest ? (
+                <LemonSkeleton className="h-4 w-3/4" />
+            ) : !newest ? (
                 <span className="text-sm text-muted">No reports in {rangeLabel.toLowerCase()}.</span>
             ) : (
                 <>

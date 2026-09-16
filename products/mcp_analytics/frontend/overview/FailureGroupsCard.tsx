@@ -51,7 +51,7 @@ function AgentNextCell({ group }: { group: MCPFailureGroup }): JSX.Element {
 }
 
 function FailureRows(): JSX.Element {
-    const { failureGroups, failureGroupsLoading } = useValues(mcpOverviewLogic)
+    const { topFailureGroups: failureGroups, failureGroupsLoading } = useValues(mcpOverviewLogic)
 
     if (failureGroupsLoading && failureGroups.length === 0) {
         return (
@@ -106,9 +106,9 @@ function FailureRows(): JSX.Element {
 
 /** Failures ranked by how many sessions ran into them, not by how often they fire. */
 export function FailureGroupsCard(): JSX.Element {
-    const { failureGroups } = useValues(mcpOverviewLogic)
+    const { topFailureGroups } = useValues(mcpOverviewLogic)
     const { askPostHogAI } = useActions(mcpOverviewLogic)
-    const topGroup = failureGroups[0]
+    const topGroup = topFailureGroups[0]
 
     return (
         <Card size="sm" className="gap-0">
