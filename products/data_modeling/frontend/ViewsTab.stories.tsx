@@ -16,7 +16,7 @@ const meta: Meta<typeof ViewsTab> = {
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/warehouse_saved_queries/': {
+                    '/api/projects/:team_id/warehouse_saved_queries/': {
                         count: 1,
                         results: [
                             {
