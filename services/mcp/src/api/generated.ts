@@ -1293,6 +1293,8 @@ export namespace Schemas {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
       convertToProjectTimezone?: boolean | null;
+      /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+      cookielessTrafficIsRegular?: boolean | null;
       customBotDefinitions?: CustomBotRule[] | null;
       customChannelTypeRules?: CustomChannelRule[] | null;
       dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[] | null;
@@ -3921,9 +3923,19 @@ export namespace Schemas {
       Smooth: 'smooth',
     } as const;
 
+    export type SeriesColorMode = typeof SeriesColorMode[keyof typeof SeriesColorMode];
+
+
+    export const SeriesColorMode = {
+      Palette: 'palette',
+      Opacity: 'opacity',
+    } as const;
+
     export interface ChartStyle {
       /** Line interpolation: straight segments or a smoothed curve through the points. */
       curve?: Curve | null;
+      /** How series are told apart: one color per series, or one color at stepped opacities. */
+      seriesColorMode?: SeriesColorMode | null;
     }
 
     export type DetailedResultsAggregationType = typeof DetailedResultsAggregationType[keyof typeof DetailedResultsAggregationType];
@@ -4596,6 +4608,8 @@ export namespace Schemas {
       returningEntity?: RetentionEntity | null;
       /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
       selectedInterval?: number | null;
+      /** Draw the mean across cohorts as one line on the retention graph. */
+      showMeanLine?: boolean | null;
       showTrendLines?: boolean | null;
       targetEntity?: RetentionEntity | null;
       /** The time window mode to use for retention calculations */
@@ -17499,8 +17513,8 @@ export namespace Schemas {
          * @maxLength 200
          */
       key: string;
-      /** The stored JSON value. */
-      value: unknown;
+      /** The stored JSON value. Omitted from a key inventory. */
+      value?: unknown;
       /** When the entry was last written. */
       updated_at: string;
     }
@@ -17511,6 +17525,13 @@ export namespace Schemas {
     export interface CanvasStateResponse {
       /** The canvas's shared entries plus the caller's own user-scoped entries. */
       entries: CanvasStateEntry[];
+      /**
+         * Next entry offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further entries remain for this selection. */
+      complete: boolean;
     }
 
     /**
@@ -17529,6 +17550,31 @@ export namespace Schemas {
       key: string;
       /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
       value: unknown;
+    }
+
+    export interface CanvasStateValueResponse {
+      /** Scope of this value.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /** Key of this value. */
+      key: string;
+      /** A chunk of JSON text. Join all chunks in order, then parse the complete JSON. */
+      value_json: string;
+      /** Content revision. Pass it on subsequent reads; a changed value returns 409. */
+      revision: string;
+      /** Character offset of this chunk. */
+      offset: number;
+      /** Character length of the complete JSON text. */
+      total_length: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
+      complete: boolean;
     }
 
     /**
@@ -17727,6 +17773,63 @@ export namespace Schemas {
          * @nullable
          */
       max_selections?: number | null;
+    }
+
+    export interface CdcEnableResponse {
+      /** Whether CDC was enabled on the source. */
+      success: boolean;
+      /** Whether the extraction and cleanup schedules could be created. False means CDC is enabled but scheduling failed; the schedule self-heals on the first CDC schema toggle. */
+      schedules_ready: boolean;
+    }
+
+    export interface CdcPrerequisitesResponse {
+      /** Whether the source satisfies every CDC prerequisite. */
+      valid: boolean;
+      /** Unmet prerequisites, empty when valid is true. */
+      errors: string[];
+    }
+
+    /**
+     * * `posthog` - posthog
+     * * `self_managed` - self_managed
+     */
+    export type ManagementModeEnum = typeof ManagementModeEnum[keyof typeof ManagementModeEnum];
+
+
+    export const ManagementModeEnum = {
+      Posthog: 'posthog',
+      SelfManaged: 'self_managed',
+    } as const;
+
+    export interface CdcStatus {
+      /** Whether CDC is enabled on this source. */
+      enabled: boolean;
+      /** Who owns the slot and publication: PostHog or the customer.
+       *
+       * * `posthog` - posthog
+       * * `self_managed` - self_managed */
+      management_mode?: ManagementModeEnum;
+      /** Replication slot PostHog consumes from. Empty when unset. */
+      slot_name?: string;
+      /** Publication PostHog reads changes from. Empty when unset. */
+      publication_name?: string;
+      /** Lag in MB above which the UI warns. */
+      lag_warning_threshold_mb?: number;
+      /** Lag in MB above which the UI alerts. */
+      lag_critical_threshold_mb?: number;
+      /** True when a non-retryable failure paused the extraction schedule; the UI then offers Resume instead of Repair. Degrades to false when the schedule lookup fails. */
+      schedule_paused?: boolean;
+      /** Whether the replication slot exists on the source, when the source was reachable. */
+      slot_exists?: boolean;
+      /** Whether the publication exists on the source, when the source was reachable. */
+      publication_exists?: boolean;
+      /**
+         * Current slot lag in bytes, when the source was reachable.
+         * @nullable
+         */
+      lag_bytes?: number | null;
+      /** Tables in the publication, when the source was reachable and a publication exists. */
+      published_tables?: string[];
     }
 
     /**
@@ -19662,6 +19765,7 @@ export namespace Schemas {
 
     /**
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa
      */
@@ -19670,6 +19774,7 @@ export namespace Schemas {
 
     export const ConfigScopeEnum = {
       Saml: 'saml',
+      Oidc: 'oidc',
       Scim: 'scim',
       Xaa: 'xaa',
     } as const;
@@ -21167,6 +21272,23 @@ export namespace Schemas {
       files?: CreateVersionFromSourceInputFiles;
       /** Extra binary files to ship next to app.py, keyed by project-relative path (for example 'data/events.parquet'), each as standard base64 text. */
       assets?: CreateVersionFromSourceInputAssets;
+    }
+
+    export interface CreateWebhookResponse {
+      /** Whether the webhook was created and registered with the source. */
+      success: boolean;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /**
+         * Why creation failed, when success is false.
+         * @nullable
+         */
+      error: string | null;
+      /** Inputs the external service needs before delivery works. Submit via update_webhook_inputs. */
+      pending_inputs: string[];
     }
 
     /**
@@ -23764,7 +23886,6 @@ export namespace Schemas {
     /**
      * * `tiered` - tiered
      * * `managed_viewset` - managed_viewset
-     * * `legacy` - legacy
      * * `no_node` - no_node
      */
     export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
@@ -23773,7 +23894,6 @@ export namespace Schemas {
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
       ManagedViewset: 'managed_viewset',
-      Legacy: 'legacy',
       NoNode: 'no_node',
     } as const;
 
@@ -23854,11 +23974,10 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
        * * `managed_viewset` - managed_viewset
-       * * `legacy` - legacy
        * * `no_node` - no_node */
       frequency_mode: FrequencyModeEnum;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
@@ -25848,6 +25967,7 @@ export namespace Schemas {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -27193,6 +27313,7 @@ export namespace Schemas {
       Substack: 'Substack',
       ElectricityMaps: 'ElectricityMaps',
       Amplemarket: 'Amplemarket',
+      Quo: 'Quo',
     } as const;
 
     /**
@@ -28551,7 +28672,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28889,6 +29011,18 @@ export namespace Schemas {
       status?: string;
       /** duckgres org identifier (the PostHog organization id) */
       org?: string;
+    }
+
+    export interface DeleteWebhookResponse {
+      /** Whether the webhook delivery function was deleted. */
+      success: boolean;
+      /** Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed. */
+      external_deleted: boolean;
+      /**
+         * Why the external deletion failed, when external_deleted is false.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
@@ -30760,7 +30894,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -31318,6 +31453,15 @@ export namespace Schemas {
       files: DreamFileDiff[];
     }
 
+    export interface UnpublishedDreamRun {
+      /** Task URL in its project for the unpublished dream outcome and logs. */
+      task_url: string;
+      /** The terminal task-run state, such as completed, failed, or cancelled. */
+      run_status: string;
+      /** When the unpublished dream task was created. */
+      started_at: string;
+    }
+
     /**
      * Response shape for the wiki's dream run listing.
      */
@@ -31326,6 +31470,8 @@ export namespace Schemas {
       head_sha: string;
       /** The organization's active dreaming task, or null when no dream is running. */
       active_run: ActiveDreamRun | null;
+      /** The latest finished dream when no update was published after it started, or null otherwise. */
+      unpublished_run: UnpublishedDreamRun | null;
       /** Every landed dream run, newest first. */
       dreams: DreamRun[];
     }
@@ -32318,7 +32464,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
       open_cleanup_pr?: boolean;
       /**
          * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -38128,6 +38274,73 @@ export namespace Schemas {
     }
 
     /**
+     * * `full_refresh` - full_refresh
+     * * `incremental` - incremental
+     * * `append` - append
+     * * `webhook` - webhook
+     * * `cdc` - cdc
+     * * `xmin` - xmin
+     */
+    export type ExternalDataSchemaSyncTypeEnum = typeof ExternalDataSchemaSyncTypeEnum[keyof typeof ExternalDataSchemaSyncTypeEnum];
+
+
+    export const ExternalDataSchemaSyncTypeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+      Append: 'append',
+      Webhook: 'webhook',
+      Cdc: 'cdc',
+      Xmin: 'xmin',
+    } as const;
+
+    export interface SimpleExternalDataSchema {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      label?: string | null;
+      should_sync?: boolean;
+      /** @nullable */
+      last_synced_at?: string | null;
+      sync_type?: ExternalDataSchemaSyncTypeEnum | BlankEnum | null;
+    }
+
+    export interface ExternalDataJobSerializers {
+      readonly id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      readonly status: string;
+      readonly schema: SimpleExternalDataSchema;
+      /** @nullable */
+      readonly rows_synced: number | null;
+      /**
+         * The latest error that occurred during this run.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** @nullable */
+      readonly workflow_run_id: string | null;
+      /**
+         * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+         * @nullable
+         */
+      readonly cdc_write_mode: string | null;
+      /**
+         * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+         * @nullable
+         */
+      readonly billable: boolean | null;
+      /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
+      readonly destination_ids: readonly string[];
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -38163,26 +38376,6 @@ export namespace Schemas {
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
     } | null;
-
-    /**
-     * * `full_refresh` - full_refresh
-     * * `incremental` - incremental
-     * * `append` - append
-     * * `webhook` - webhook
-     * * `cdc` - cdc
-     * * `xmin` - xmin
-     */
-    export type ExternalDataSchemaSyncTypeEnum = typeof ExternalDataSchemaSyncTypeEnum[keyof typeof ExternalDataSchemaSyncTypeEnum];
-
-
-    export const ExternalDataSchemaSyncTypeEnum = {
-      FullRefresh: 'full_refresh',
-      Incremental: 'incremental',
-      Append: 'append',
-      Webhook: 'webhook',
-      Cdc: 'cdc',
-      Xmin: 'xmin',
-    } as const;
 
     /**
      * * `integer` - integer
@@ -38232,6 +38425,18 @@ export namespace Schemas {
       '24hour': '24hour',
       '7day': '7day',
       '30day': '30day',
+    } as const;
+
+    /**
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key
+     */
+    export type IncrementalSyncBlockedReasonEnum = typeof IncrementalSyncBlockedReasonEnum[keyof typeof IncrementalSyncBlockedReasonEnum];
+
+
+    export const IncrementalSyncBlockedReasonEnum = {
+      MissingPrimaryKey: 'missing_primary_key',
+      DuplicatePrimaryKey: 'duplicate_primary_key',
     } as const;
 
     export interface ExternalDataSourceApiVersionDeprecation {
@@ -38329,6 +38534,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -39803,7 +40013,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -41182,7 +41393,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -41522,7 +41734,7 @@ export namespace Schemas {
          */
       last_called_at?: string | null;
       _create_in_folder?: string;
-      /** Check if this feature flag is used in any team's session recording linked flag setting. */
+      /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
       readonly is_used_in_replay_settings: boolean;
       /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
       readonly is_eligible_for_experiment: boolean;
@@ -44309,6 +44521,19 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface HeatmapScreenshotSettings {
+      /**
+         * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+         * @maxItems 100
+         * @items.maxLength 253
+         */
+      allowed_hostnames: string[];
+      /** Whether this installation permits screenshot cookie delivery to its renderer. */
+      readonly cookie_delivery_enabled: boolean;
+      /** Whether a screenshot bypass secret has been generated. */
+      readonly has_secret: boolean;
+    }
+
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
@@ -46158,6 +46383,20 @@ export namespace Schemas {
       values: MarketingAnalyticsRetentionCell[];
     }
 
+    export interface MarketingAnalyticsRetentionSummaryRow {
+      acquired: number;
+      breakdownValue: string;
+      eligible30d: number;
+      eligible7d: number;
+      /** Median elapsed days to a second session within 30 days, among observed returners. */
+      medianReturnDays: number | null;
+      previous: boolean;
+      returned30d: number;
+      returned7d: number;
+      /** People with an observed second session within 30 days, including incomplete windows. */
+      returners: number;
+    }
+
     export interface MarketingAnalyticsRetentionQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -46179,6 +46418,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -46198,6 +46439,8 @@ export namespace Schemas {
       breakdownBy?: MarketingAnalyticsAttributionBreakdown | null;
       /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
       breakdownLimit?: number | null;
+      /** Include the previous acquisition period in summary mode. Defaults to false. */
+      comparePreviousPeriod?: boolean | null;
       /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
@@ -46218,6 +46461,8 @@ export namespace Schemas {
       response?: MarketingAnalyticsRetentionQueryResponse | null;
       /** Period for both the cohort rows and the return columns. Defaults to week. */
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
+      /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+      summary?: boolean | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -48622,6 +48867,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -48631,6 +48877,22 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state: string;
       /**
@@ -49924,6 +50186,13 @@ export namespace Schemas {
       latest_version: number;
       version_count: number;
       first_version_created_at: string;
+    }
+
+    export interface LLMPromptReferencedConflict {
+      /** What is still referenced and what to do next. */
+      detail: string;
+      /** Names of the prompts whose latest or labeled version holds the reference. */
+      referencing_prompts: string[];
     }
 
     export interface LLMPromptVersionSummary {
@@ -54893,6 +55162,13 @@ export namespace Schemas {
       Endpoint: 'endpoint',
     } as const;
 
+    export interface NodeEndpoint {
+      /** Name of the endpoint this node's materialization backs. */
+      name: string;
+      /** Endpoint version this node's materialization backs. */
+      version: number;
+    }
+
     export interface Node {
       readonly id: string;
       /** @maxLength 2048 */
@@ -54928,6 +55204,8 @@ export namespace Schemas {
       readonly sync_interval: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended: NodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint: NodeEndpoint | null;
     }
 
     export interface NodeResume {
@@ -66807,6 +67085,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -67272,6 +67555,15 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
+    export interface PatchedHeatmapScreenshotSettingsRequest {
+      /**
+         * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+         * @maxItems 100
+         * @items.maxLength 253
+         */
+      allowed_hostnames?: string[];
+    }
+
     export interface PatchedHogFlowActionEmailUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
@@ -67573,6 +67865,7 @@ export namespace Schemas {
       /** Feature configured by this identity provider configuration.
        *
        * * `saml` - Saml
+       * * `oidc` - Oidc
        * * `scim` - Scim
        * * `xaa` - Xaa */
       config_scope?: ConfigScopeEnum | BlankEnum | null;
@@ -67582,6 +67875,22 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml?: boolean;
+      /** Whether OIDC has an issuer, client ID, and client secret. */
+      readonly has_oidc?: boolean;
+      /** Whether an encrypted OIDC client secret is saved. */
+      readonly has_oidc_client_secret?: boolean;
+      /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+      oidc_issuer_url?: string;
+      /**
+         * Client ID of the organization's OIDC application.
+         * @maxLength 512
+         */
+      oidc_client_id?: string;
+      /**
+         * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+         * @maxLength 4096
+         */
+      oidc_client_secret?: string;
       /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
       readonly saml_relay_state?: string;
       /**
@@ -68469,6 +68778,8 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended?: PatchedNodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint?: NodeEndpoint | null;
     }
 
     /**
@@ -69778,6 +70089,11 @@ export namespace Schemas {
       readonly secret_api_token?: string | null;
       /** @nullable */
       readonly secret_api_token_backup?: string | null;
+      /**
+         * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+         * @nullable
+         */
+      readonly heatmaps_screenshot_secret?: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -70588,7 +70904,7 @@ export namespace Schemas {
      */
     export interface PatchedSignalScoutConfigUpdate {
       /**
-         * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
          * @maxLength 200
          */
       display_name?: string;
@@ -74144,6 +74460,11 @@ export namespace Schemas {
       readonly secret_api_token: string | null;
       /** @nullable */
       readonly secret_api_token_backup: string | null;
+      /**
+         * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+         * @nullable
+         */
+      readonly heatmaps_screenshot_secret: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -76695,6 +77016,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -79614,6 +79937,91 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior
+     */
+    export type TemplateKeyEnum = typeof TemplateKeyEnum[keyof typeof TemplateKeyEnum];
+
+
+    export const TemplateKeyEnum = {
+      LikelyActiveSoon: 'likely_active_soon',
+      AtRiskOfInactivity: 'at_risk_of_inactivity',
+      ReturnAfterFirstUse: 'return_after_first_use',
+      FeatureAdoption: 'feature_adoption',
+      RepeatKeyBehavior: 'repeat_key_behavior',
+    } as const;
+
+    export interface ResolveTemplateRequest {
+      /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      template_key: TemplateKeyEnum;
+      /** Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving. */
+      target_event?: string;
+      /**
+         * Override the template's default prediction horizon in days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+    }
+
+    /**
+     * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateInferencePopulation = { [key: string]: unknown };
+
+    export interface ResolvedTemplate {
+      /** The template key that was resolved. Pass it back to re-resolve with a different target_event.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      template_key: TemplateKeyEnum;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts. */
+      description: string;
+      /** Suggested pipeline name. Pass as 'name' to autoresearch-create. */
+      suggested_name: string;
+      /** Resolved target event. Pass as 'target_event' to autoresearch-create. For activity-based templates this is the auto-resolved activity event (or your override). */
+      target_event: string;
+      /**
+         * Activity event found in your event schema, populated only for templates that auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'). Null for templates where you supply target_event directly.
+         * @nullable
+         */
+      resolved_activity_event: string | null;
+      /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
+      activity_event_alternatives: string[];
+      /** Resolved prediction horizon in days. */
+      horizon_days: number;
+      /** Training lookback in days, sized so the horizon leaves room for training examples. Pass as 'training_lookback_days' to autoresearch-create. */
+      training_lookback_days: number;
+      /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
+      training_population: ResolvedTemplateTrainingPopulation;
+      /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
+      inference_population: ResolvedTemplateInferencePopulation;
+      /** Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create. */
+      output_person_property: string;
+      /** Usage notes and guidance for interpreting this resolved config. */
+      notes: string;
+    }
+
+    /**
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected
@@ -81193,10 +81601,15 @@ export namespace Schemas {
      */
     export interface ScannerScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -82235,7 +82648,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+      /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved. */
       open_cleanup_pr?: boolean;
       /**
          * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
@@ -82654,6 +83067,11 @@ export namespace Schemas {
          */
       run_cron_schedule?: string | null;
       /**
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
          * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -82665,10 +83083,15 @@ export namespace Schemas {
      */
     export interface SignalScoutCreate {
       /**
-         * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+         * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+         * @maxLength 200
+         */
+      display_name?: string;
+      /**
+         * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
          * @maxLength 64
          */
-      name: string;
+      name?: string;
       /**
          * Short description of the signal or behavior this scout investigates.
          * @maxLength 1024
@@ -84814,7 +85237,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -86209,7 +86633,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -87586,7 +88011,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -91498,6 +91924,29 @@ export namespace Schemas {
       tracing_session_id_attribute_keys: string[];
     }
 
+    export interface TemplateInfo {
+      /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      key: TemplateKeyEnum;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts and who it is for. */
+      description: string;
+      /** Default prediction horizon in days. Can be overridden when resolving. */
+      default_horizon_days: number;
+      /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+      requires_user_event: boolean;
+      /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+      requires_activity_resolution: boolean;
+      /** Usage guidance and implementation notes. */
+      notes: string;
+    }
+
     /**
      * * `none` - none
      * * `last` - last
@@ -91969,6 +92418,11 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    export interface UpdateWebhookInputsResponse {
+      /** Whether the inputs were saved and pushed to the external service. */
+      success: boolean;
+    }
+
     export interface UploadVersionRequest {
       /** Zip archive containing the Streamlit app sources (max 10 MB). */
       file: string;
@@ -92371,6 +92825,119 @@ export namespace Schemas {
       lookback_days_used: number;
       /** Caveats and guidance about the suggestions */
       notes: string[];
+    }
+
+    /**
+     * Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event.
+     */
+    export type ValidatePipelineRequestTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Population filter for training examples. Use {} for all identified users.
+     */
+    export type ValidatePipelineRequestTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it.
+     */
+    export type ValidatePipelineRequestInferencePopulation = { [key: string]: unknown };
+
+    export interface ValidatePipelineRequest {
+      /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
+      target_event?: string;
+      /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
+      target_definition?: ValidatePipelineRequestTargetDefinition;
+      /**
+         * Predict whether the target event occurs within this many days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Population filter for training examples. Use {} for all identified users. */
+      training_population?: ValidatePipelineRequestTrainingPopulation;
+      /** Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it. */
+      inference_population?: ValidatePipelineRequestInferencePopulation;
+    }
+
+    /**
+     * * `info` - info
+     * * `warning` - warning
+     * * `error` - error
+     */
+    export type ValidationWarningSeverityEnum = typeof ValidationWarningSeverityEnum[keyof typeof ValidationWarningSeverityEnum];
+
+
+    export const ValidationWarningSeverityEnum = {
+      Info: 'info',
+      Warning: 'warning',
+      Error: 'error',
+    } as const;
+
+    export interface ValidationWarning {
+      /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      code: string;
+      /** Human-readable warning description. */
+      message: string;
+      /** Severity level. 'error' means training would fail or the data is too thin for a reliable model; see 'code' for which. 'warning' is worth acknowledging. Creation enforces none of them.
+       *
+       * * `info` - info
+       * * `warning` - warning
+       * * `error` - error */
+      severity: ValidationWarningSeverityEnum;
+    }
+
+    export interface ValidatePipelineResponse {
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+      can_proceed: boolean;
+      /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
+      requires_acknowledgement: boolean;
+      /**
+         * Estimated number of user-level training rows based on the population and lookback window.
+         * @nullable
+         */
+      estimated_training_rows: number | null;
+      /**
+         * Estimated number of positive examples (users who performed the target event).
+         * @nullable
+         */
+      positive_count: number | null;
+      /**
+         * Estimated number of negative examples.
+         * @nullable
+         */
+      negative_count: number | null;
+      /**
+         * Fraction of the training population that performed the target event.
+         * @nullable
+         */
+      base_rate: number | null;
+      /**
+         * Estimated number of users in the inference (daily scoring) population.
+         * @nullable
+         */
+      inference_population_size: number | null;
+      /** List of validation warnings. Check 'severity' and 'code'. */
+      warnings: ValidationWarning[];
+      /**
+         * Why validation did not run, or null when it did. A query error in the definition itself is passed through; any other failure is a generic message and the detail is logged.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
@@ -92951,6 +93518,101 @@ export namespace Schemas {
       achievements_opt_out: boolean;
     }
 
+    export interface WebhookExternalStatus {
+      /** Whether the webhook exists on the external service. */
+      exists: boolean;
+      /**
+         * The webhook URL on the external service.
+         * @nullable
+         */
+      url: string | null;
+      /**
+         * Events the external webhook is subscribed to.
+         * @nullable
+         */
+      enabled_events: string[] | null;
+      /**
+         * Delivery health as the external service reports it (e.g. 'enabled').
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * Description the external service holds for it.
+         * @nullable
+         */
+      description: string | null;
+      /**
+         * When the external webhook was created.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Vendor API version the endpoint delivers at, when pinned.
+         * @nullable
+         */
+      api_version: string | null;
+      /**
+         * Read error the external service returned, if any.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * Delivery health reported by the pipeline: `state` and `tokens` counters.
+     */
+    export type WebhookHogFunctionStatus = { [key: string]: unknown };
+
+    export interface WebhookHogFunction {
+      /** ID of the webhook delivery hog function. */
+      id: string;
+      /** Name of the webhook delivery hog function. */
+      name: string;
+      /** Whether the webhook delivery function is enabled. */
+      enabled: boolean;
+      /** When the webhook delivery function was created (ISO 8601). */
+      created_at: string;
+      /** Delivery health reported by the pipeline: `state` and `tokens` counters. */
+      status: WebhookHogFunctionStatus;
+    }
+
+    /**
+     * Resource name to external schema id, as configured on the webhook function.
+     */
+    export type WebhookInfoResponseSchemaMapping = {[key: string]: string};
+
+    /**
+     * Current webhook function inputs keyed by the source's declared webhook field names.
+     */
+    export type WebhookInfoResponseInputs = {[key: string]: InputsItem};
+
+    export interface WebhookInfoResponse {
+      /** Whether the source type supports webhooks at all. When false, the other fields are absent. */
+      supports_webhooks: boolean;
+      /** Whether a PostHog webhook delivery function exists for this source yet. */
+      exists: boolean;
+      /**
+         * Set when the connection's credentials can never create the webhook, so only manual setup is left. Null means 'not known to be blocked'.
+         * @nullable
+         */
+      auto_creation_blocked_reason: string | null;
+      /** The webhook delivery function, present once the webhook exists. */
+      hog_function: WebhookHogFunction | null;
+      /**
+         * The PostHog endpoint the external service delivers events to.
+         * @nullable
+         */
+      webhook_url: string | null;
+      /** Resource name to external schema id, as configured on the webhook function. */
+      schema_mapping: WebhookInfoResponseSchemaMapping;
+      /** Current webhook function inputs keyed by the source's declared webhook field names. */
+      inputs?: WebhookInfoResponseInputs;
+      /** Live webhook state as the external service reports it, when it could be read. */
+      external_status: WebhookExternalStatus | null;
+      /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
+      missing_events?: string[];
+    }
+
     export interface WebhookUrl {
       /** URL to register in Customer.io so it posts subscription changes to PostHog. */
       url: string;
@@ -93378,6 +94040,17 @@ export namespace Schemas {
       head_sha: string;
       /** When this page was last changed in the wiki history. */
       updated_at: string;
+      /** Character offset of this chunk. */
+      offset: number;
+      /** Character length of the complete page. */
+      total_length: number;
+      /**
+         * Next character offset, or null when complete.
+         * @nullable
+         */
+      next_offset: number | null;
+      /** True when no further chunks remain. Do not write a page until all chunks are read. */
+      complete: boolean;
     }
 
     /**
@@ -96539,7 +97212,25 @@ export namespace Schemas {
 
     export type ContextLayerPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -98085,7 +98776,37 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
-     * Only return entries in this scope.
+     * Only read this exact key.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key?: string;
+    /**
+     * Only read entries whose key starts with this prefix.
+     * @maxLength 200
+     */
+    key_prefix?: string;
+    /**
+     * True returns a key inventory without stored values.
+     */
+    keys_only?: boolean;
+    /**
+     * Maximum entries per page. Omit for the full state. Prefer an inventory and state/value for large values.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only read this scope.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
      */
     scope?: CanvasesStateRetrieveScope;
     };
@@ -98094,8 +98815,50 @@ export namespace Schemas {
 
 
     export const CanvasesStateRetrieveScope = {
-      Shared: 'shared',
       User: 'user',
+      Shared: 'shared',
+    } as const;
+
+    export type CanvasesStateValueRetrieveParams = {
+    /**
+     * Exact key to read.
+     * @minLength 1
+     * @maxLength 200
+     */
+    key: string;
+    /**
+     * Maximum JSON characters in this response.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Revision from the first chunk. Required when offset is greater than zero.
+     * @minLength 1
+     * @maxLength 64
+     */
+    revision?: string;
+    /**
+     * Scope of the value to read.
+     *
+     * * `user` - user
+     * * `shared` - shared
+     * @minLength 1
+     */
+    scope: CanvasesStateValueRetrieveScope;
+    };
+
+    export type CanvasesStateValueRetrieveScope = typeof CanvasesStateValueRetrieveScope[keyof typeof CanvasesStateValueRetrieveScope];
+
+
+    export const CanvasesStateValueRetrieveScope = {
+      User: 'user',
+      Shared: 'shared',
     } as const;
 
     export type CanvasesVersionsRetrieveParams = {
@@ -98320,7 +99083,25 @@ export namespace Schemas {
 
     export type ContextLayerAgentPagesRetrieveParams = {
     /**
+     * Head from the first chunk. Required for continuation. A changed head returns 409.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Maximum characters to read. Omit for the full page.
+     * @minimum 1
+     * @maximum 12000
+     */
+    limit?: number;
+    /**
+     * Character offset from next_offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Repo-relative Markdown path of the page to read.
+     * @minLength 1
      */
     path: string;
     };
@@ -101057,6 +101838,25 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string;
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string;
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[];
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
@@ -101064,11 +101864,6 @@ export namespace Schemas {
 
     export type ExternalDataSourcesResumeCdcCreate200 = {
       success?: boolean;
-    };
-
-    export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-      valid?: boolean;
-      errors?: string[];
     };
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {
@@ -103999,7 +104794,31 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * Only return runs with this status. Use failed to read errors even when canvas state is unavailable.
+     *
+     * * `not_started` - Not Started
+     * * `queued` - Queued
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     * @minLength 1
+     */
+    status?: LoopsRunsRetrieveStatus;
     };
+
+    export type LoopsRunsRetrieveStatus = typeof LoopsRunsRetrieveStatus[keyof typeof LoopsRunsRetrieveStatus];
+
+
+    export const LoopsRunsRetrieveStatus = {
+      NotStarted: 'not_started',
+      Queued: 'queued',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
 
     export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
 
@@ -105746,6 +106565,11 @@ export namespace Schemas {
     };
 
     export type SignalsScoutConfigListParams = {
+    /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1

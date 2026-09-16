@@ -210,7 +210,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                             <div className="text-[13px] text-default">{agent.intent}</div>
                         </div>
                     )}
-                    {agent && (
+                    {agent?.taskId && (
                         <div>
                             <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
                                 Agent task

@@ -14,6 +14,11 @@ import type {
     AutoresearchPipelineCreateApi,
     PaginatedAutoresearchPipelineListApi,
     PatchedAutoresearchPipelineCreateApi,
+    ResolveTemplateRequestApi,
+    ResolvedTemplateApi,
+    TemplateInfoApi,
+    ValidatePipelineRequestApi,
+    ValidatePipelineResponseApi,
 } from './api.schemas'
 
 export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchListParams) => {
@@ -161,5 +166,65 @@ export const autoresearchDestroy = async (projectId: string, id: string, options
     return apiMutator<void>(getAutoresearchDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAutoresearchResolveTemplateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/resolve-template/`
+}
+
+/**
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
+ */
+export const autoresearchResolveTemplateCreate = async (
+    projectId: string,
+    resolveTemplateRequestApi: ResolveTemplateRequestApi,
+    options?: RequestInit
+): Promise<ResolvedTemplateApi> => {
+    return apiMutator<ResolvedTemplateApi>(getAutoresearchResolveTemplateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveTemplateRequestApi),
+    })
+}
+
+export const getAutoresearchTemplatesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/templates/`
+}
+
+/**
+ * Return all built-in autoresearch prediction templates. Each entry describes what the template predicts, its default horizon and prediction mode, and whether it requires you to supply a target_event. After choosing a template, call autoresearch-resolve-template-create to get a fully resolved pipeline config ready to pass to autoresearch-create.
+ * @summary List available templates
+ */
+export const autoresearchTemplatesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TemplateInfoApi[]> => {
+    return apiMutator<TemplateInfoApi[]>(getAutoresearchTemplatesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchValidateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/validate/`
+}
+
+/**
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * @summary Validate a pipeline definition
+ */
+export const autoresearchValidateCreate = async (
+    projectId: string,
+    validatePipelineRequestApi?: ValidatePipelineRequestApi,
+    options?: RequestInit
+): Promise<ValidatePipelineResponseApi> => {
+    return apiMutator<ValidatePipelineResponseApi>(getAutoresearchValidateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(validatePipelineRequestApi),
     })
 }

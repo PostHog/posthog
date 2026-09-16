@@ -28,7 +28,7 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
             <span className="text-xs text-secondary">{queryScanStatLine(summary)}</span>
             {showFindings && (
                 <LemonBanner type="warning">
-                    <QueryScanFindingList findings={findings} />
+                    <QueryScanFindingList findings={findings} dropBulletIfSingle />
                     {onFixWithAI && assistantPrompt && (
                         <LemonButton
                             className="mt-2"

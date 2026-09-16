@@ -236,6 +236,7 @@ export const DomainScopeEnumApi = {
 
 /**
  * * `saml` - Saml
+ * * `oidc` - Oidc
  * * `scim` - Scim
  * * `xaa` - Xaa
  */
@@ -243,6 +244,7 @@ export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof Config
 
 export const ConfigScopeEnumApi = {
     Saml: 'saml',
+    Oidc: 'oidc',
     Scim: 'scim',
     Xaa: 'xaa',
 } as const
@@ -262,6 +264,7 @@ export interface IdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -271,6 +274,22 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state: string
     /**
@@ -346,6 +365,7 @@ export interface PatchedIdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -355,6 +375,22 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc?: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret?: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state?: string
     /**
@@ -2613,6 +2649,11 @@ export interface ProjectBackwardCompatApi {
     readonly secret_api_token: string | null
     /** @nullable */
     readonly secret_api_token_backup: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -3470,6 +3511,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly secret_api_token?: string | null
     /** @nullable */
     readonly secret_api_token_backup?: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.

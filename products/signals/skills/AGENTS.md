@@ -88,6 +88,12 @@ It is how a canonical scout claims a product surface: AI observability's self-dr
 Tags are seeded at creation only — a person who removes one keeps it removed — so adding the key to a scout teams already run leaves their existing configs untagged until someone tags them through the config API.
 They sit outside the canonical content hash, since they belong to the config rather than the skill row.
 
+Frontmatter also carries the required-in-practice **`scout-display-name`** — the label the scout ships under, seeded onto `SignalScoutConfig.display_name` and shown wherever a person identifies the scout.
+Every canonical scout states one, because the fallback sentence-cases the slug and gets acronyms wrong: `signals-scout-apm` reads as "Apm" and `signals-scout-mcp-tool-calls` as "Mcp tool calls".
+Give a new scout a label rather than adding a capitalization fix downstream.
+Unlike tags, it is reconciled onto rows seeded earlier, but only where the column is still blank, so a scout a team renamed keeps the name they gave it.
+It sits outside the canonical content hash for the same reason tags do.
+
 Frontmatter also carries the optional **`scout-role`** value, which is `specialist` unless a scout says otherwise.
 A scout that watches the self-driving system rather than a product surface declares `scout-role: operational`, and the harness stops treating its quiet as waste: the config seeds enabled and exempt from the inactivity sweep, skips the launch allowlist and the per-team enabled-scout cap, and cannot be deleted through the config API.
 Unlike tags, the role is reconciled onto rows seeded earlier on every coordinator tick, because a silenced operational scout is the failure the role exists to prevent — though a pause a person made is still left standing, and `withheld_skills` still gates the scout.
