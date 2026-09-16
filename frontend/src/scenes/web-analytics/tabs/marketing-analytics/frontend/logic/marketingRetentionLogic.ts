@@ -42,7 +42,6 @@ export interface marketingRetentionLogicValues {
     optionsOpen: boolean
     query: MarketingAnalyticsRetentionQuery
     retentionInterval: MarketingAnalyticsRetentionInterval
-    showCohorts: boolean
     totalIntervals: number
 }
 
@@ -76,9 +75,6 @@ export interface marketingRetentionLogicActions {
     setRetentionInterval: (retentionInterval: MarketingAnalyticsRetentionInterval) => {
         retentionInterval: MarketingAnalyticsRetentionInterval
     }
-    setShowCohorts: (showCohorts: boolean) => {
-        showCohorts: boolean
-    }
     setTotalIntervals: (totalIntervals: number) => {
         totalIntervals: number
     }
@@ -99,7 +95,6 @@ export interface marketingRetentionLogicMeta {
                 dateTo: string | null
                 interval: IntervalType
             },
-            showCohorts: boolean,
             comparePreviousPeriod: boolean
         ) => MarketingAnalyticsRetentionQuery
     }
@@ -116,7 +111,6 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
     path(['scenes', 'webAnalytics', 'marketingRetentionLogic']),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setShowCohorts: (showCohorts: boolean) => ({ showCohorts }),
         setComparePreviousPeriod: (comparePreviousPeriod: boolean) => ({ comparePreviousPeriod }),
         setBreakdownBy: (breakdownBy: MarketingAnalyticsAttributionBreakdown) => ({ breakdownBy }),
         setRetentionInterval: (retentionInterval: MarketingAnalyticsRetentionInterval) => ({ retentionInterval }),
@@ -137,7 +131,6 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                 }),
             },
         ],
-        showCohorts: [false, { setShowCohorts: (_, { showCohorts }) => showCohorts }],
         comparePreviousPeriod: [
             true,
             { setComparePreviousPeriod: (_, { comparePreviousPeriod }) => comparePreviousPeriod },
@@ -170,7 +163,6 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                 s.excludeUnattributed,
                 s.onlyNewUsers,
                 s.dateFilter,
-                s.showCohorts,
                 s.comparePreviousPeriod,
             ],
             (
@@ -181,12 +173,11 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                 excludeUnattributed: boolean,
                 onlyNewUsers: boolean,
                 dateFilter: DateFilter,
-                showCohorts: boolean,
                 comparePreviousPeriod: boolean
             ): MarketingAnalyticsRetentionQuery => ({
                 kind: NodeKind.MarketingAnalyticsRetentionQuery,
-                summary: !showCohorts,
-                comparePreviousPeriod: !showCohorts && comparePreviousPeriod,
+                summary: true,
+                comparePreviousPeriod,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 breakdownBy,
                 retentionInterval,

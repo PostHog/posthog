@@ -39,7 +39,6 @@ export function RetentionTab(): JSX.Element {
         excludeUnattributed,
         onlyNewUsers,
         optionsOpen,
-        showCohorts,
         comparePreviousPeriod,
         query,
     } = useValues(marketingRetentionLogic)
@@ -54,6 +53,7 @@ export function RetentionTab(): JSX.Element {
         setOptionsOpen,
         setComparePreviousPeriod,
     } = useActions(marketingRetentionLogic)
+    const showCohorts = false
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
             <div>
