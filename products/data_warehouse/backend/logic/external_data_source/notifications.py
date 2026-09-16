@@ -26,6 +26,14 @@ MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 # the first day past this age and stamps a fresh time, spacing reminders evenly.
 RENOTIFY_STILL_FAILING_AFTER = dt.timedelta(days=7)
 
+# A schema the user switched off is not a failure to chase: it will not run again, and nobody
+# asked it to. Its last status stays Failed for the syncs UI, so the digest cannot read status
+# alone. `auto_disabled_at` marks the other way syncing stops, where PostHog halted the schema
+# after an error that retrying would not fix; that one still needs the email, because only the
+# user can repair the source and turn syncing back on. CDC breakage halts a schema without
+# flipping `should_sync`, so it stays in the digest either way.
+SCHEMA_STOPPED_BY_USER = Q(should_sync=False, auto_disabled_at__isnull=True)
+
 
 def get_team_ids_with_recent_sync_failures(
     lookback: dt.timedelta = dt.timedelta(hours=26),
@@ -41,6 +49,8 @@ def get_team_ids_with_recent_sync_failures(
     - Schemas that stay failed but produce no newer failed run — a paused schema
       never syncs again. Their last email is older than `renotify_after`, so they
       get a reminder instead of silence.
+
+    Schemas the user switched off are left out entirely, per `SCHEMA_STOPPED_BY_USER`.
 
     The lookback exceeds the 24h digest day on purpose: a failure just after the
     10:00 UTC rollover, blocked because that digest day's email already went out,
@@ -61,6 +71,7 @@ def get_team_ids_with_recent_sync_failures(
     return list(
         ExternalDataSchema.objects.exclude(deleted=True)
         .exclude(source__deleted=True)
+        .exclude(SCHEMA_STOPPED_BY_USER)
         .filter(status=ExternalDataSchemaStatus.FAILED)
         .filter(Exists(unnotified_failed_job) | Q(last_error_notified_at__lt=renotify_cutoff))
         .values_list("team_id", flat=True)
@@ -77,10 +88,11 @@ def notify_external_data_sync_failures(
     notification, or has stayed failed for longer than `renotify_after` since its last
     email. The last case reminds the team about a paused schema, which never runs again
     and so produces no newer failed run to re-trigger the digest on its own. Schemas of a
-    deleted source are excluded entirely. Runs inside the digest Celery task; exceptions
-    are swallowed so a notification problem never crash-loops the task. Throttling to one
-    email per team per digest day happens in the email layer via the MessagingRecord
-    campaign key, so scheduling this for every failed job is safe.
+    deleted source, and schemas the user switched off (see `SCHEMA_STOPPED_BY_USER`), are
+    excluded entirely. Runs inside the digest Celery task; exceptions are swallowed so a
+    notification problem never crash-loops the task. Throttling to one email per team per
+    digest day happens in the email layer via the MessagingRecord campaign key, so
+    scheduling this for every failed job is safe.
     """
     try:
         renotify_cutoff = dt.datetime.now(dt.UTC) - renotify_after
@@ -92,6 +104,7 @@ def notify_external_data_sync_failures(
         failing_schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .exclude(source__deleted=True)
+            .exclude(SCHEMA_STOPPED_BY_USER)
             .filter(team_id=team_id, status=ExternalDataSchemaStatus.FAILED)
             .filter(
                 Q(last_error_notified_at__isnull=True)

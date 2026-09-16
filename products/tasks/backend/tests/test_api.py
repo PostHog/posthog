@@ -228,7 +228,7 @@ class BaseTaskAPITest(TestCase):
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name in {"tasks", "pi-harness"}:
+            if flag_name in {"tasks", "pi-harness", "tasks-mcp-agent-run-start"}:
                 return enabled
             return False
 
@@ -1532,6 +1532,328 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["repository"], "posthog/posthog")
         self.assertEqual(data["repositories"], ["posthog/posthog"])
         self.assertEqual(data["runtime"], Task.Runtime.ACP)
+        self.assertIsNone(data["latest_run"])
+
+    @parameterized.expand([False, True])
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_task_can_start_first_run(self, null_hints, mock_workflow, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Delegated task",
+                "description": "Complete the delegated work",
+                "repository": "posthog/posthog",
+                "branch": "existing-branch",
+                "start_run": True,
+                **(
+                    dict.fromkeys(
+                        [
+                            "runtime_adapter",
+                            "model",
+                            "reasoning_effort",
+                            "sandbox_environment_id",
+                            "custom_image_id",
+                            "initial_permission_mode",
+                            "pending_user_message",
+                        ]
+                    )
+                    if null_hints
+                    else {}
+                ),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        run = task.runs.get()
+        self.assertEqual(response.json()["latest_run"]["id"], str(run.id))
+        self.assertEqual(run.branch, "existing-branch")
+        self.assertEqual(run.state["mode"], "background")
+        self.assertEqual(run.state["run_source"], "agent")
+        self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], "read_only")
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch(
+        "products.tasks.backend.temporal.client.execute_task_processing_workflow",
+        side_effect=RuntimeError("workflow unavailable"),
+    )
+    def test_create_task_returns_run_error_when_first_run_cannot_start(self, _mock_workflow, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Delegated task", "description": "Complete the delegated work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["run_error"], "Failed to start task workflow.")
+        self.assertTrue(Task.objects.filter(id=response.json()["id"]).exists())
+        self.assertIsNotNone(response.json()["latest_run"])
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_task_returns_run_error_when_temporal_marks_run_failed(self, mock_workflow, _mock_internal_team):
+        internal_error = 'Failed client connect: tonic::transport::Error(ConnectError("tcp", 127.0.0.1:7233))'
+
+        def fail_run(**kwargs):
+            TaskRun.objects.filter(id=kwargs["run_id"]).update(
+                status=TaskRun.Status.FAILED, error_message=internal_error
+            )
+
+        mock_workflow.side_effect = fail_run
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Delegated task", "description": "Complete the delegated work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["run_error"], "Failed to start task workflow.")
+        self.assertNotIn("127.0.0.1", response.json()["run_error"])
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.run_task", side_effect=RuntimeError("failed"))
+    def test_create_task_returns_created_task_when_run_creation_raises(self, _mock_run_task, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Delegated task", "description": "Complete the delegated work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["run_error"], "Failed to create task run.")
+        self.assertEqual(Task.objects.filter(title="Delegated task").count(), 1)
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    def test_create_task_validates_first_run_payload(self, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Invalid model", "model": "claude-sonnet-5", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(description="Invalid model").exists())
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Invalid branch", "branch": "", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(description="Invalid branch").exists())
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_task_accepts_blank_first_run_message(self, _mock_workflow, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Blank message", "pending_user_message": "   ", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNotNone(response.json()["latest_run"])
+
+    @parameterized.expand(
+        [
+            (combined_create, read_target)
+            for combined_create in (True, False)
+            for read_target in (
+                "products.tasks.backend.facade.api._task_run_log_url",
+                "products.tasks.backend.models.TaskRun.refresh_from_db",
+            )
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_response_preserves_run_when_response_hydration_fails(
+        self, combined_create, read_target, mock_workflow, _mock_internal_team
+    ):
+        task = None if combined_create else self.create_task()
+        url = "/api/projects/@current/tasks/" if task is None else f"/api/projects/@current/tasks/{task.id}/run/"
+        payload = {"description": "Hydration failure", "start_run": True} if combined_create else {}
+        with patch(read_target, side_effect=RuntimeError("read unavailable")):
+            response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED if combined_create else status.HTTP_200_OK)
+        run = Task.objects.get(id=response.json()["id"]).runs.get()
+        self.assertEqual(response.json()["latest_run"]["id"], str(run.id))
+        self.assertNotIn("run_error", response.json())
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_interactive_desktop_oauth_can_start_agent_runs(self, _mock_workflow, _mock_internal_team):
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Desktop task", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"run_source": "agent"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_create_task_cannot_start_first_run_outside_internal_team(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Delegated task", "description": "Complete the delegated work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Task.objects.filter(title="Delegated task").exists())
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    def test_create_task_cannot_start_first_run_when_flag_is_disabled(self, _mock_internal_team):
+        self.set_tasks_feature_flag(False)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Disabled run", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Task.objects.filter(description="Disabled run").exists())
+        self.mock_feature_flag.assert_any_call(
+            "tasks-mcp-agent-run-start",
+            self.user.distinct_id,
+            groups={"organization": str(self.organization.id), "project": str(self.team.uuid)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @parameterized.expand(
+        [
+            (payload, forwarded)
+            for payload in ({}, {"run_source": "manual"}, {"run_source": "agent"})
+            for forwarded in (False, True)
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    def test_sandbox_oauth_cannot_start_agent_runs(self, run_payload, forwarded, _mock_internal_team):
+        parent = self.create_task()
+        if forwarded:
+            client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+            client.defaults["HTTP_X_POSTHOG_SANDBOX_ORIGIN"] = "1"
+        else:
+            client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+        task_count = Task.objects.count()
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Child task", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Task.objects.count(), task_count)
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{parent.id}/run/",
+            run_payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(parent.runs.exists())
+
+    @parameterized.expand(
+        [(origin, forwarded) for origin in ("user_created", "posthog_ai") for forwarded in (False, True)]
+    )
+    @patch("products.tasks.backend.facade.api._activate_warm_run")
+    def test_sandbox_oauth_cannot_activate_warm_run(self, origin_product, forwarded, mock_activate):
+        parent = self.create_task()
+        if forwarded:
+            client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+            client.defaults["HTTP_X_POSTHOG_SANDBOX_ORIGIN"] = "1"
+        else:
+            client = self._sandbox_oauth_client(parent.id, internal_scope=True)
+        task_count = Task.objects.count()
+
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Child task", "branch": "main", "origin_product": origin_product},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Task.objects.count(), task_count)
+        mock_activate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (action, forwarded)
+            for action in ("warm", "warm_resume", "resume_in_cloud", "start", "bootstrap")
+            for forwarded in (False, True)
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_oauth_cannot_start_indirect_cloud_runs(self, action, forwarded, mock_workflow):
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        if forwarded:
+            client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+            client.defaults["HTTP_X_POSTHOG_SANDBOX_ORIGIN"] = "1"
+        else:
+            client = self._sandbox_oauth_client(task.id, internal_scope=True)
+        paths = {
+            "warm": "/api/projects/@current/tasks/warm/",
+            "warm_resume": f"/api/projects/@current/tasks/{task.id}/warm/",
+            "resume_in_cloud": f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/",
+            "start": f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/",
+            "bootstrap": f"/api/projects/@current/tasks/{task.id}/runs/",
+        }
+
+        payload = {"resume_from_run_id": str(run.id)} if action == "warm_resume" else {}
+        if action == "bootstrap":
+            payload = {"environment": "cloud"}
+        response = client.post(paths[action], payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(task.runs.count(), 1)
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand([False, True])
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_signal_report_run_rejected_before_creation(
+        self, restricted_token, mock_workflow, _mock_internal_team
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV, scope="task:write") if restricted_token else self.client
+        task_count = Task.objects.count()
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "description": "Implement the report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "start_run": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "start_run")
+        self.assertEqual(Task.objects.count(), task_count)
+        mock_workflow.assert_not_called()
+
+    def test_run_endpoint_rejects_malformed_task_id(self):
+        response = self.client.post("/api/projects/@current/tasks/not-a-uuid/run/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.facade.api._find_idling_warm_run")
     def test_create_task_with_multiple_repositories(self, mock_find_warm_run):
@@ -2346,6 +2668,19 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
+    def test_implementation_creation_respects_an_external_claim(self):
+        from products.signals.backend.models import SignalReport, SignalReportAssignment
+
+        report = SignalReport.objects.create(team=self.team)
+        assignment = SignalReportAssignment.all_teams.create(
+            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+        )
+        response = self._post_signal_report_task(report.id, "implementation")
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.actor_agent, "test-agent")
+        self.assertFalse(Task.objects.filter(title="Report task").exists())
+
     @parameterized.expand(
         [
             # Another task took the slot this one released, so rerunning would make two live
@@ -2758,10 +3093,14 @@ class TestTaskAPI(BaseTaskAPITest):
             ("manual", {"run_source": "manual"}, "full"),
             # signal_report implementation runs log their work as report artefacts (task:write tools).
             ("signal_report", {"run_source": "signal_report"}, "full"),
+            ("agent", {"run_source": "agent"}, "read_only"),
         ]
     )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_resolves_mcp_scope_from_run_source(self, _name, payload, expected_scope, mock_workflow):
+    def test_run_endpoint_resolves_mcp_scope_from_run_source(
+        self, _name, payload, expected_scope, mock_workflow, _mock_internal_team
+    ):
         task = self.create_task()
 
         response = self.client.post(
@@ -2772,6 +3111,244 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], expected_scope)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_agent_source_outside_internal_team(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"run_source": "agent"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand([({},), ({"run_source": "manual"},)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch(
+        "products.tasks.backend.facade.api.get_task_run_detail", side_effect=AssertionError("Run details not needed")
+    )
+    def test_run_endpoint_gates_inherited_agent_source(self, payload, _mock_detail, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={"run_source": "agent"}
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {**payload, "resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(task.runs.count(), 1)
+        mock_workflow.assert_not_called()
+
+    @patch(
+        "products.tasks.backend.temporal.client.execute_task_processing_workflow",
+        side_effect=RuntimeError("unavailable"),
+    )
+    def test_run_endpoint_returns_dispatch_error(self, _mock_workflow):
+        task = self.create_task()
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["run_error"], "Failed to start task workflow.")
+        self.assertIsNotNone(response.json()["latest_run"])
+
+    @parameterized.expand([({"pr_base_branch": "main"},), ({"pr_base_branch": None},), ({},)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_different_resume_branch(self, base_state, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, state=base_state
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id), "branch": "other"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(task.runs.count(), 1)
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("head_branch", {"head_branch": "posthog/work"}, None),
+            ("head_branches", {"head_branches": [{"repository": "posthog/posthog", "branch": "posthog/work"}]}, None),
+            ("reported_run_branch", {}, "posthog/work"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_resume_branch_the_previous_run_worked_on(
+        self, _name, output, stored_branch, mock_workflow
+    ):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch=stored_branch,
+            output=output,
+            state={"pr_base_branch": "main"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id), "branch": "posthog/work"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(run.state["pr_base_branch"], "main")
+        self.assertEqual(run.branch, "main")
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand([({"pr_base_branch": None}, "release"), ({"pr_base_branch": None}, None), ({}, "release")])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_resume_ignores_mutable_run_branch(self, base_state, stored_branch, mock_workflow):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch=stored_branch,
+            state={"branch": "release", **base_state},
+        )
+        payload = {"resume_from_run_id": str(previous_run.id)}
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("run_error", response.json())
+        run = task.runs.exclude(id=previous_run.id).get()
+        self.assertIsNone(run.branch)
+        self.assertIsNone(run.state["pr_base_branch"])
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("merge", {"state": {"run_source": "manual", "pr_base_branch": "other"}}, True),
+            ("remove", {"state_remove_keys": ["run_source", "pr_base_branch"]}, True),
+            ("append", {"state_append": {"run_source": ["manual"], "pr_base_branch": ["other"]}}, True),
+            ("empty_list", {"state": []}, False),
+            ("default_branch", {"branch": "other", "state": {"branch": "other"}}, True),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_sandbox_cannot_change_resume_source_or_branch(
+        self, _name, payload, valid, mock_workflow, _mock_internal, _mock_publish
+    ):
+        task = self.create_task()
+        base_branch = None if _name == "default_branch" else "release"
+        start_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"run_source": "agent", **({"branch": base_branch} if base_branch is not None else {})},
+            format="json",
+        )
+        self.assertEqual(start_response.status_code, status.HTTP_200_OK)
+        run = task.runs.get()
+        self.assertEqual(run.state["pr_base_branch"], base_branch)
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=["status"])
+        client = self._sandbox_oauth_client(task.id, internal_scope=True)
+        response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK if valid else status.HTTP_400_BAD_REQUEST)
+        if not valid:
+            with self.assertRaisesRegex(ValueError, "Run state must be an object"):
+                tasks_facade.update_task_run(
+                    run.id, task.id, self.team.id, validated_data=payload, caller_is_agent=True
+                )
+        run.refresh_from_db()
+        self.assertEqual(run.state["run_source"], "agent")
+        self.assertEqual(run.state["pr_base_branch"], base_branch)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/", {"resume_from_run_id": str(run.id)}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resumed_run = task.runs.exclude(id=run.id).get()
+        self.assertEqual(resumed_run.state["run_source"], "agent")
+        self.assertEqual(resumed_run.state["pr_base_branch"], base_branch)
+        self.assertEqual(resumed_run.branch, base_branch)
+        self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], "read_only")
+
+    @parameterized.expand(
+        [
+            ({"pending_user_artifact_ids": ["00000000-0000-4000-8000-000000000001"]},),
+            ({"runtime": "pi", "initial_permission_mode": "default"},),
+            ({"runtime": "pi", "runtime_adapter": "claude", "model": "claude-sonnet-4-6"},),
+            ({"sandbox_environment_id": "00000000-0000-4000-8000-000000000001"},),
+            ({"custom_image_id": "00000000-0000-4000-8000-000000000001"},),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    def test_start_run_create_rejects_invalid_inputs_before_creation(self, payload, _mock_internal_team):
+        task_count = Task.objects.count()
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Do work", "start_run": True, **payload},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Task.objects.count(), task_count)
+
+    @parameterized.expand(
+        [
+            (resource, restriction)
+            for resource in ("custom_image", "sandbox_environment")
+            for restriction in ("private", "other_team", "allowed")
+        ]
+        + [("custom_image", "not_ready")]
+    )
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_start_run_create_checks_resource_access_before_creation(
+        self, resource, restriction, mock_workflow, _mock_internal_team
+    ):
+        resource_team = (
+            Team.objects.create(organization=self.organization) if restriction == "other_team" else self.team
+        )
+        resource_model = SandboxCustomImage if resource == "custom_image" else SandboxEnvironment
+        resource_fields = {"team": resource_team, "name": "Run resource", "private": restriction == "private"}
+        if resource == "custom_image":
+            resource_fields["status"] = (
+                SandboxCustomImage.Status.DRAFT if restriction == "not_ready" else SandboxCustomImage.Status.READY
+            )
+            resource_fields["modal_image_name"] = "posthog-test-image:latest"
+        with team_scope(resource_team.id):
+            run_resource = resource_model.objects.create(**resource_fields)
+        task_count = Task.objects.count()
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"description": "Resource check", "start_run": True, f"{resource}_id": str(run_resource.id)},
+            format="json",
+        )
+
+        allowed = restriction == "allowed"
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED if allowed else status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Task.objects.count(), task_count + int(allowed))
+        if allowed:
+            mock_workflow.assert_called_once()
+        else:
+            mock_workflow.assert_not_called()
+
+    def test_bootstrap_run_rejects_agent_source(self):
+        task = self.create_task()
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud", "run_source": "agent"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(task.runs.exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
@@ -3370,7 +3947,10 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
+    @patch(
+        "products.tasks.backend.facade.api.get_task_run_detail", side_effect=AssertionError("Run details not needed")
+    )
+    def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, _mock_detail, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
         task_run.artifacts = [
@@ -5149,6 +5729,10 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertFalse(response.json()["internal"])
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
     SUMMARY_FIELDS = {
@@ -5225,6 +5809,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": valid_run.status,
                 "environment": valid_run.environment,
                 "mode": "background",
+                "pr_url": None,
+                "pr_state": None,
             },
         )
 
@@ -5261,11 +5847,80 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": run.status,
                 "environment": run.environment,
                 "mode": expected_mode,
+                "pr_url": None,
+                "pr_state": None,
             }
             if run
             else None
         )
         self.assertEqual(payload["latest_run"], expected_run)
+
+    @parameterized.expand(
+        [
+            ("no_pr", {}, None, None),
+            ("null_output", None, None, None),
+            ("invalid_pr_url", {"pr_url": {"unexpected": "value"}}, None, None),
+            ("pr_without_state", {"pr_url": _PR_URL}, _PR_URL, "unknown"),
+            ("invalid_pr_state", {"pr_url": _PR_URL, "pr_state": "unexpected"}, _PR_URL, "unknown"),
+            ("open_pr", {"pr_url": _PR_URL, "pr_state": "open"}, _PR_URL, "open"),
+            ("merged_by_state", {"pr_url": _PR_URL, "pr_state": "merged"}, _PR_URL, "merged"),
+            ("merged_by_webhook_flag", {"pr_url": _PR_URL, "pr_state": "open", "pr_merged": True}, _PR_URL, "merged"),
+        ]
+    )
+    def test_summaries_latest_run_pull_request(self, _name, output, expected_pr_url, expected_pr_state):
+        task = self.create_task("Task")
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            output=output,
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(payload["latest_run"]["pr_url"], expected_pr_url)
+        self.assertEqual(payload["latest_run"]["pr_state"], expected_pr_state)
+
+    def test_summaries_refresh_latest_pr_in_one_query(self):
+        tasks = [self.create_task(f"Task {index}") for index in range(3)]
+        task_updated_at = tasks[0].updated_at
+        for task in tasks:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": _PR_URL, "pr_state": "open"},
+            )
+        latest_pr_url = "https://github.com/example/project/pull/2"
+        latest_run = TaskRun.objects.create(
+            team=self.team,
+            task=tasks[0],
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": latest_pr_url, "pr_state": "open", "pr_merged": False},
+        )
+        for pr_state, pr_merged, expected_state in [
+            ("open", False, "open"),
+            ("closed", False, "closed"),
+            ("open", True, "merged"),
+        ]:
+            with self.subTest(pr_state=pr_state, pr_merged=pr_merged):
+                TaskRun.update_output_atomic(latest_run.id, updates={"pr_state": pr_state, "pr_merged": pr_merged})
+                with self.assertNumQueries(1):
+                    summaries = tasks_facade.get_task_summaries(
+                        self.team.id, self.user.id, ids=[task.id for task in tasks]
+                    )
+                self.assertEqual(len(summaries), len(tasks))
+                summary = next(summary for summary in summaries if summary.id == tasks[0].id)
+                assert summary.latest_run is not None
+                self.assertEqual(str(summary.latest_run.id), str(latest_run.id))
+                self.assertEqual(summary.latest_run.pr_url, latest_pr_url)
+                self.assertEqual(summary.latest_run.pr_state, expected_state)
+                tasks[0].refresh_from_db()
+                self.assertEqual(tasks[0].updated_at, task_updated_at)
+                self.assertEqual(summary.updated_at, task_updated_at)
 
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
@@ -5300,10 +5955,6 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
     def test_summaries_rejects_invalid_payload(self, _name, ids_factory):
         response = self.post_summaries(ids_factory())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
-_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -5613,6 +6264,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
         pending_external_followups = [
             {
                 "message": "server queued message",
@@ -5631,6 +6283,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "github_credential_source": "caller_token",
+                "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
@@ -5690,6 +6343,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {
                     "github_credential_source": "server_integration",
+                    "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
@@ -5801,6 +6455,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
+        assert run.state["systemPrompt"] == system_prompt
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -5808,6 +6463,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
                     "github_credential_source",
@@ -5884,6 +6540,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert "scratch" not in run.state  # non-protected key removed
+        assert run.state["systemPrompt"] == system_prompt
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state_append": {"systemPrompt": "Caller-controlled instructions", "scratch": "ok"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scratch"] == ["ok"]
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -5906,27 +6573,51 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
+    @parameterized.expand(
+        [
+            (None, False, False, status.HTTP_200_OK),
+            ("manual", False, False, status.HTTP_200_OK),
+            ("agent", True, True, status.HTTP_200_OK),
+            ("agent", False, True, status.HTTP_403_FORBIDDEN),
+            ("agent", True, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.pi_cloud_runtime_enabled", return_value=True)
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
-    def test_resume_in_cloud_starts_pi_task(self, mock_reset_stream, mock_resume, _mock_pi_enabled):
+    def test_resume_in_cloud_checks_agent_run_access(
+        self, run_source, flag_enabled, internal_team, expected_status, mock_reset_stream, mock_resume, _mock_pi_enabled
+    ):
+        self.mock_feature_flag.side_effect = lambda flag, *_args, **_kwargs: (
+            flag in {"tasks", "pi-harness"} or (flag == "tasks-mcp-agent-run-start" and flag_enabled)
+        )
         task = self.create_task(runtime=Task.Runtime.PI)
+        run_state = {"pr_authorship_mode": "bot"}
+        if run_source is not None:
+            run_state["run_source"] = run_source
         run = TaskRun.objects.create(
             task=task,
             team=self.team,
             environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
-            state={"pr_authorship_mode": "bot"},
+            state=run_state,
         )
 
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+        with patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=internal_team):
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, expected_status)
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
-        mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
-        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(run.status, TaskRun.Status.QUEUED)
+            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
+            mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+        else:
+            self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+            self.assertEqual(run.state, run_state)
+            mock_reset_stream.assert_not_called()
+            mock_resume.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_local_run(self, mock_resume):
@@ -6729,6 +7420,28 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         mock_heartbeat.assert_called_once_with(agent_active=True)
+
+    @parameterized.expand(
+        [
+            ("append_log", TaskRun.Status.IN_PROGRESS, {"entries": [{"type": "info", "message": "hello"}]}),
+            ("clear_conversation", TaskRun.Status.COMPLETED, None),
+        ]
+    )
+    @patch("products.tasks.backend.models.TaskRun.heartbeat_workflow")
+    @patch("products.tasks.backend.storage.get_client")
+    def test_log_write_refused_while_lock_contended(self, action, run_status, body, mock_get_client, mock_heartbeat):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status)
+        mock_get_client.return_value.lock.return_value.acquire.return_value = False
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{action}/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response["Retry-After"], "2")
+        self.assertEqual(response.json(), {"error": "Log append busy"})
+        mock_heartbeat.assert_not_called()
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
@@ -9460,7 +10173,9 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
         self.assertEqual(events[-1]["event"], "stream-end")
 
-    def _make_thin_tail_run_with_backlog(self) -> tuple[Task, TaskRun]:
+    def _make_thin_tail_run_with_backlog(
+        self, tail_event_ids: list[str] | None = None, tail_method: str = "_posthog/live"
+    ) -> tuple[Task, TaskRun]:
         task = self.create_task()
         run = TaskRun.objects.create(
             task=task,
@@ -9485,14 +10200,27 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         ]
         object_storage.write(run.log_url, "\n".join(json.dumps(entry) for entry in backlog).encode("utf-8"))
 
-        async def _write() -> None:
-            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
-            for event in [
+        if tail_event_ids is None:
+            tail = [
                 {"type": "notification", "event_id": "boot1-1", "notification": {"method": "chunk"}},
                 {"type": "notification", "event_id": "boot1-3", "notification": {"method": "_posthog/console"}},
                 {"type": "notification", "event_id": "boot1-4", "notification": {"method": "_posthog/live"}},
                 {"type": "notification", "notification": {"method": "_posthog/unstamped"}},
-            ]:
+            ]
+        else:
+            notification: dict = (
+                {"method": "session/update", "params": {"update": {"sessionUpdate": tail_method}}}
+                if tail_method.startswith("agent_")
+                else {"method": tail_method}
+            )
+            tail = [
+                {"type": "notification", "event_id": event_id, "notification": notification}
+                for event_id in tail_event_ids
+            ]
+
+        async def _write() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            for event in tail:
                 await redis_stream.write_event(event)
             await redis_stream.mark_complete()
 
@@ -9554,6 +10282,26 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
             ["boot1-4", None],
         )
         self.assertEqual(events[-1]["event"], "stream-end")
+
+    @parameterized.expand(
+        [
+            ("overlap", ["boot1-3", "boot1-6"], "_posthog/live", False),
+            ("in_flight_chunks", ["boot1-6", "boot1-7"], "agent_message_chunk", False),
+            ("trimmed_unlogged", ["boot1-6", "boot1-7"], "_posthog/live", True),
+        ]
+    )
+    def test_stream_thin_tail_backlog_gap_counted_only_when_log_lags_trim(
+        self, _name: str, tail_event_ids: list[str], method: str, expect_gap: bool
+    ):
+        task, run = self._make_thin_tail_run_with_backlog(tail_event_ids=tail_event_ids, tail_method=method)
+
+        with patch.object(views_api, "observe_stream_backlog_gap") as observe_gap:
+            response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
+            events = self._collect_sse_events(response)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(events[-1]["event"], "stream-end")
+        self.assertEqual(observe_gap.call_count, 1 if expect_gap else 0)
 
     def test_stream_thin_tail_out_of_range_log_cursor_replays_in_full(self):
         task, run = self._make_thin_tail_run_with_backlog()
@@ -13075,6 +13823,99 @@ class TestCloudUsageGate(BaseTaskAPITest):
             status=status_value,
         )
 
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    def test_start_run_report_discussion_rejects_unsupported_origin(self, _mock_internal_team):
+        from products.signals.backend.models import SignalReport
+
+        self._desktop_access_enabled = False
+        report = SignalReport.objects.create(team=self.team)
+        integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Blocked discussion",
+                "description": "Discuss the report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+                "start_run": True,
+                "github_integration": integration.id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertFalse(Task.objects.filter(title="Blocked discussion").exists())
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_start_run_create_without_code_access_creates_no_task(self, mock_gate, _mock_internal_team):
+        self.set_tasks_feature_flag(False)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Blocked task", "description": "Run work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Task.objects.filter(title="Blocked task").exists())
+        mock_gate.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_start_run_signal_implementation_rejects_unsupported_origin(self, mock_gate, _mock_internal_team):
+        from products.signals.backend.models import SignalReport
+
+        self.set_tasks_feature_flag(False)
+        report = SignalReport.objects.create(team=self.team)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Blocked task",
+                "description": "Run work",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "start_run": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(title="Blocked task").exists())
+        mock_gate.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_start_run_create_over_limit_creates_no_task(self, mock_gate, _mock_internal_team):
+        mock_gate.return_value = self.OVER_LIMIT
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Blocked task", "description": "Run work", "start_run": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertFalse(Task.objects.filter(title="Blocked task").exists())
+
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.facade.api.pi_cloud_runtime_enabled", return_value=False)
+    def test_start_run_create_with_disabled_pi_runtime_creates_no_task(self, _mock_pi_enabled, _mock_internal_team):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Blocked Pi task",
+                "description": "Run work",
+                "runtime": Task.Runtime.PI,
+                "start_run": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Task.objects.filter(title="Blocked Pi task").exists())
+
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     def test_warm_without_code_access_returns_403_before_provisioning(self, _mock_warm_enabled, mock_warm):
@@ -13203,39 +14044,23 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_gate.assert_not_called()
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
-    def test_task_bound_internal_run_bypasses_access_for_its_own_task(self, _mock_gate, mock_workflow):
-        self.set_tasks_feature_flag(False)
-        task = self.create_task()
-        client = self._sandbox_oauth_client(task.id, internal_scope=True)
-
-        response = client.post(
-            f"/api/projects/@current/tasks/{task.id}/run/",
-            {"mode": "background"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(TaskRun.objects.filter(task=task).exists())
-        mock_workflow.assert_called_once()
-
+    @parameterized.expand([True, False])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_task_bound_internal_run_cannot_bypass_access_for_another_task(self, mock_gate, mock_workflow):
+    def test_task_bound_internal_run_cannot_start_cloud_run(self, same_task, mock_gate, mock_workflow):
         self.set_tasks_feature_flag(False)
         bound_task = self.create_task()
-        other_task = self.create_task()
+        target_task = bound_task if same_task else self.create_task()
         client = self._sandbox_oauth_client(bound_task.id, internal_scope=True)
 
         response = client.post(
-            f"/api/projects/@current/tasks/{other_task.id}/run/",
+            f"/api/projects/@current/tasks/{target_task.id}/run/",
             {"mode": "background"},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(TaskRun.objects.filter(task=other_task).exists())
+        self.assertFalse(TaskRun.objects.filter(task=target_task).exists())
         mock_gate.assert_not_called()
         mock_workflow.assert_not_called()
 

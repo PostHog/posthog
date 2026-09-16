@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
@@ -74,7 +75,13 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
-from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.ai_training.backend.facade.api import privacy_enabled
+from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
+from products.approvals.backend.tasks import (
+    expire_old_change_requests,
+    sync_experiment_approval_policies,
+    validate_pending_change_requests,
+)
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
@@ -125,7 +132,11 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
-from products.visual_review.backend.facade.tasks import sweep_visual_review_retention
+from products.visual_review.backend.facade.tasks import (
+    send_visual_review_debt_digests,
+    sweep_visual_review_artifacts,
+    sweep_visual_review_runs,
+)
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
@@ -136,6 +147,7 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
+from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -245,6 +257,8 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    if privacy_enabled():
+        sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:
@@ -444,6 +458,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         poll_ses_account_reputation.s(),
         name="poll SES account reputation",
         expires_seconds=10 * 60,
+    )
+
+    # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="35"),
+        sweep_workflow_email_deliverability.s(),
+        name="sweep workflow email deliverability",
+        expires_seconds=30 * 60,
     )
 
     # Flags cache sync - hourly
@@ -820,19 +845,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="mark stale pulse briefs failed",
     )
 
-    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_crontab,
-            clickhouse_clear_removed_data.s(),
-            name="clickhouse clear removed data",
-        )
+    # Self-hosted only; cloud runs clickhouse_deletion_sweep_job instead.
+    if celery_sweeps_enabled():
+        if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
+            sender.add_periodic_task(
+                clear_clickhouse_crontab,
+                clickhouse_clear_removed_data.s(),
+                name="clickhouse clear removed data",
+            )
 
-    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
-        sender.add_periodic_task(
-            clear_clickhouse_deleted_person_crontab,
-            clear_clickhouse_deleted_person.s(),
-            name="clickhouse clear deleted person data",
-        )
+        if clear_clickhouse_deleted_person_crontab := get_crontab(
+            settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON
+        ):
+            sender.add_periodic_task(
+                clear_clickhouse_deleted_person_crontab,
+                clear_clickhouse_deleted_person.s(),
+                name="clickhouse clear deleted person data",
+            )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
@@ -975,6 +1004,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="expire old change requests",
     )
 
+    # TODO(experiment-approval-policies): temporary. See products/approvals/backend/experiment_policy_sync.py.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="15"),
+        sync_experiment_approval_policies.s(),
+        name="sync experiment approval policies",
+    )
+
     # Deactivate endpoint materializations that haven't been used in 30+ days
     sender.add_periodic_task(
         crontab(hour="5", minute="0"),
@@ -1061,8 +1098,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="2", minute="23"),
-        sweep_visual_review_retention.s(),
-        name="sweep visual review retention",
+        sweep_visual_review_runs.s(),
+        name="sweep visual review runs",
+    )
+
+    # An hour after the run sweep, which frees most of the artifacts this sweep deletes.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="23"),
+        sweep_visual_review_artifacts.s(),
+        name="sweep visual review artifacts",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(day_of_week="mon", hour="7", minute="30"),
+        send_visual_review_debt_digests.s(),
+        name="send visual review debt digests",
+        expires_seconds=60 * 60,
     )
 
     sender.add_periodic_task(

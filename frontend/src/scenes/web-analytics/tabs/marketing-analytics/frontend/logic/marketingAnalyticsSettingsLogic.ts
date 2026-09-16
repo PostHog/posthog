@@ -286,6 +286,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: [
             null as MarketingAnalyticsConfig | null,
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateConversionGoals: (state: MarketingAnalyticsConfig | null, { conversionGoals }) => {
                     if (!state) {
                         return { ...createEmptyConfig(), conversion_goals: conversionGoals }
@@ -404,6 +408,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         savedMarketingAnalyticsConfig: [
             values.currentTeam?.marketing_analytics_config || createEmptyConfig(),
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateCurrentTeam: (_, { marketing_analytics_config }) => {
                     return marketing_analytics_config || createEmptyConfig()
                 },

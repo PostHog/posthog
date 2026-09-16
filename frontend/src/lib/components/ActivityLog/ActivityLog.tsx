@@ -14,6 +14,7 @@ import {
     ActivityLogLogicProps,
     activityLogLogic,
 } from 'lib/components/ActivityLog/activityLogLogic'
+import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -78,7 +79,7 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+export type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed?.detail.changes
@@ -143,7 +144,7 @@ export const ActivityLogRow = ({
     highlighted?: boolean
 }): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
     const rowRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -204,6 +205,7 @@ export const ActivityLogRow = ({
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
+                    <AgentAttribution logItem={logItem} />
                     <div className="text-secondary flex items-center gap-1.5">
                         <TZLabel time={logItem.created_at} />
                         {logItem.client && (
@@ -237,6 +239,13 @@ export const ActivityLogRow = ({
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as ActivityLogTabs)}
                         tabs={[
+                            logItem.expandedView
+                                ? {
+                                      key: 'details',
+                                      label: logItem.expandedView.label,
+                                      content: logItem.expandedView.content,
+                                  }
+                                : false,
                             logItem.extendedDescription
                                 ? {
                                       key: 'extended description',

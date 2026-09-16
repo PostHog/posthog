@@ -1,7 +1,7 @@
 import json
 from typing import ClassVar
 
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -428,7 +428,10 @@ class TestHandleGithubEventForLoops(TestCase):
         )
         payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
 
-        with freeze_time("2026-01-02 03:04:05"), patch(f"{LOOP_GITHUB_EVENTS_MODULE}._EVENT_THROTTLE_LIMIT", 2):
+        with (
+            time_machine.travel("2026-01-02 03:04:05", tick=False),
+            patch(f"{LOOP_GITHUB_EVENTS_MODULE}._EVENT_THROTTLE_LIMIT", 2),
+        ):
             for i in range(4):
                 handle_github_event_for_loops("push", payload, delivery_id=f"del-flood-{i}")
 

@@ -53,7 +53,6 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
-    ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
     EndpointQueryNode,
@@ -66,6 +65,7 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -82,7 +82,9 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
+    DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -92,6 +94,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -161,6 +164,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    OIDC = 'oidc',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
@@ -265,7 +269,7 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
@@ -273,6 +277,7 @@ export interface AuthBackends {
     gitlab?: boolean
     github?: boolean
     saml?: boolean
+    oidc?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -799,6 +804,7 @@ export interface ConversationsSettings {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
     pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
@@ -826,14 +832,6 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /**
-     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
-     * data retention entitlement, so support cannot change it outside the enterprise plan.
-     * See https://github.com/PostHog/posthog/issues/17031
-     */
-    event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
-    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -907,6 +905,9 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+    // Null uses the product default.
+    workflow_task_rate_limit_per_day?: number | null
+    workflow_task_team_rate_limit_per_day?: number | null
 }
 
 export interface FeatureFlagPolicyConfig {
@@ -2656,6 +2657,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    query_scan?: QueryScanSummary
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -5097,6 +5099,7 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    tags?: string[]
     /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
      * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
     version?: number | null
@@ -5220,6 +5223,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
+    /** The project the URL asked for, as an id or a token, when the server refused to switch to it. */
+    project_access_denied?: string | null
     livestream_host?: string
     oauth_application?: OAuthApplicationPublicMetadata
     /** Server-resolved MCP scopes for OAuth consent when the client omits `scope`. */
@@ -5586,6 +5591,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'gitlab',
+    'helpscout',
     'meta-ads',
     'instagram',
     'clickup',
@@ -6143,6 +6149,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
@@ -6164,9 +6171,12 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    REPLAY_SCANNER = 'ReplayScanner',
+    VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
@@ -6184,6 +6194,7 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_QUALITY_CHECK = 'DataQualityCheck',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
@@ -6283,9 +6294,11 @@ export interface DataModelingNode {
     upstream_count: number
     downstream_count: number
     user_tag?: string
-    last_run_at?: string
+    last_run_at?: string | null
     last_run_status?: DataModelingJobStatus
+    last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    suspended?: NodeApiSuspended
 }
 
 export interface DataModelingEdge {
@@ -6303,16 +6316,6 @@ export interface DataModelingEdge {
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
-
-export interface DataModelingDAG {
-    id: string
-    name: string
-    description: string
-    sync_frequency: DataModelingSyncInterval | null
-    node_count: number
-    created_at: string
-    updated_at: string
-}
 
 export interface DataWarehouseSavedQuery {
     /** UUID */
@@ -6337,9 +6340,9 @@ export interface DataWarehouseSavedQuery {
     is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
-    upstream_dependency_count?: number
-    downstream_dependency_count?: number
+    created_by?: UserBasicType | null
     created_at?: string
+    updated_at?: DataWarehouseSavedQueryApi['updated_at']
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean
@@ -6437,7 +6440,7 @@ export interface ExternalDataSourceRevenueAnalyticsConfig {
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6469,7 +6472,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
@@ -6693,7 +6696,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean

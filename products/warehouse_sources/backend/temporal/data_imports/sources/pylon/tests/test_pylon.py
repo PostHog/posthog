@@ -3,7 +3,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -259,7 +259,7 @@ class TestFanOutEndpoint:
 
 
 class TestWindowedIssues:
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_first_sync_walks_lookback_in_30_day_windows(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([{"id": "i", "created_at": "2026-01-01T00:00:00Z"}]))
@@ -288,7 +288,7 @@ class TestWindowedIssues:
         for earlier, later in zip(windows, windows[1:]):
             assert earlier["end_time"] == later["start_time"]
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_incremental_starts_from_watermark(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([{"id": "i", "created_at": "2026-06-10T00:00:00Z"}]))
@@ -314,7 +314,7 @@ class TestWindowedIssues:
         assert windows[0]["start_time"] == ["2026-06-01T00:00:00Z"]
         assert windows[0]["end_time"] == ["2026-06-23T00:00:00Z"]
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_future_watermark_is_a_no_op(self) -> None:
         manager = _no_resume_manager()
         fetch = MagicMock(return_value=_page([]))
@@ -335,7 +335,7 @@ class TestWindowedIssues:
 
         assert fetch.call_count == 0
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_resumes_from_saved_window(self) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = True

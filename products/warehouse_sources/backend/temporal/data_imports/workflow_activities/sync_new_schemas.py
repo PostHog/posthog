@@ -19,6 +19,9 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -95,6 +98,12 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
                 return
             error_msg = str(e)
+            # PostHog's own egress proxy throttled or refused the connection. Raise rather than
+            # skip so Temporal still retries this discovery run, and classify here rather than per
+            # source so every connector gets the same treatment.
+            if is_transient_egress_proxy_error(error_msg):
+                logger.warning(f"Transient egress-proxy error during schema discovery: {error_msg}")
+                raise NonReportableError(error_msg) from e
             # Cross-source non-retryable errors (an unresolvable/private database host, bad SSH
             # tunnel auth, a widened column type) are raised from shared connection/pipeline code,
             # not any one source, so they never make it into a source's own get_non_retryable_errors.
@@ -117,6 +126,21 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
+
+        try:
+            server_metadata = new_source.get_server_metadata(config, inputs.team_id)
+            if isinstance(server_metadata, dict) and server_metadata:
+                # `source` was read before schema discovery, which is a network call of its own, so
+                # the merge re-reads the row under a lock rather than trusting that snapshot.
+                source.merge_connection_metadata(server_metadata)
+        except Exception:
+            # Recording the version is incidental to schema discovery, and both steps here can fail
+            # on their own: the probe opens a connection to the customer's server, and the merge
+            # waits on a row lock that the backfill command can hold. Neither says anything about
+            # the schemas already discovered above, so a pass that otherwise succeeded stays
+            # successful. A real connection fault still reaches the user through the per-schema sync
+            # path, which has its own reporting.
+            logger.warning("Could not record source server metadata", exc_info=True)
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

@@ -1,18 +1,25 @@
+import re
 import time
 import socket
 import ipaddress
 import dataclasses
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
 
+from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
-from posthog.psycopg_helpers import prefer_routable_addresses
+from posthog.psycopg_helpers import (
+    is_resolvable_hostname,
+    is_temporary_resolution_failure,
+    prefer_routable_addresses,
+    resolve_psycopg_hostaddr_with_timeout,
+)
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
@@ -29,6 +36,41 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
+_MALFORMED_HOST_ERROR = (
+    "Enter a single hostname or IP address for the host, without a port, path, comma, space or trailing dot."
+)
+_NON_ASCII_HOST_ERROR = (
+    "This host has characters outside ASCII. Enter its punycode form instead, the spelling that starts with xn--."
+)
+
+# The sync registry and the schema-refresh map match this prefix; the rest of the message carries
+# the volatile host details.
+DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
+SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR = "SSH tunnel host not allowed"
+TEMPORARY_HOST_RESOLUTION_PREFIX = "Temporary failure resolving the host"
+# Stored as the job's error once every retry of a connect was spent on the pin's own lookup failing.
+HOST_RESOLUTION_EXHAUSTED_MESSAGE = (
+    "PostHog could not resolve your database host: the DNS lookup timed out or the resolver asked "
+    "to try again on every attempt. Check that the host name is correct and that its DNS records "
+    "are answering. This sync is still enabled and will run again on its next schedule."
+)
+DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
+    "PostHog rejected this source's database host because it either couldn't be resolved, or "
+    "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+    "from the public internet, then re-enable the sync."
+)
+
+
+class TemporaryHostResolutionError(NonReportableError):
+    """The resolver failed while the policy looked a host up, without answering about the name.
+
+    Not a policy decision, so no non-retryable registry matches its message and the CDC classifier
+    leaves it unknown: the work fails and is retried. `NonReportableError` keeps every retry of a
+    resolver outage out of error tracking, on the activities that do not classify it themselves.
+    """
+
+    def __init__(self, host: str) -> None:
+        super().__init__(f"{TEMPORARY_HOST_RESOLUTION_PREFIX} '{host}'. Try again in a moment.")
 
 
 class HostNotAllowedError(NonReportableError):
@@ -62,14 +104,19 @@ def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class HostResolution:
-    """The outcome of `resolve_safe_host`.
+    """The outcome of `resolve_safe_host` or `check_resolved_addresses`.
 
     `connect_host` is None exactly when the host was rejected, in which case `error` carries
     the user-facing reason.
+
+    `addresses` holds every address the caller may dial, in resolver order. When the check ran,
+    each one passed it. When the check was skipped, they are whatever the caller resolved, which
+    is nothing for `resolve_safe_host` because it does not look the host up in that case.
     """
 
     connect_host: str | None
     error: str | None
+    addresses: tuple[str, ...] = ()
 
 
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
@@ -78,7 +125,10 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     Callers that go on to open the connection themselves should use `resolve_safe_host` and
     connect to the address it returns, so that the address checked is the address used.
     """
-    resolution = resolve_safe_host(host, team_id)
+    try:
+        resolution = resolve_safe_host(host, team_id)
+    except TemporaryHostResolutionError as e:
+        return False, str(e)
     return resolution.connect_host is not None, resolution.error
 
 
@@ -101,81 +151,200 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     with a public address for this check and a private one for the connect, which defeats the
     check entirely. When the check is skipped there is no resolution to pin, so the hostname
     comes back unchanged.
+
+    A client that cannot dial a bare address, because it needs the name for SNI or dials several
+    addresses in turn, resolves the host itself and passes the answer to
+    `check_resolved_addresses` instead, so the set it validates is the set it dials.
     """
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        _log_host_check(host, team_id, "block", "malformed_host", guard_error)
+        return HostResolution(connect_host=None, error=guard_error)
 
-    def _log(decision: str, stage: str, reason: str | None, resolved_ips: list[str] | None = None) -> None:
-        if decision == "block":
-            log_fn = logger.warning  # SSRF attempt — always logged
-        elif stage in ("not_cloud", "e2e"):
-            log_fn = logger.debug  # never fires on cloud / spammy on self-hosted
-        else:
-            log_fn = logger.info
-
-        log_fn(
-            "data_imports.host_check",
-            host=host,
-            team_id=team_id,
-            decision=decision,
-            stage=stage,
-            reason=reason,
-            resolved_ips=resolved_ips,
-        )
-
-    def _allow_unpinned(stage: str) -> HostResolution:
-        _log("allow", stage, None)
+    exempt_stage = _host_check_exemption(host, team_id)
+    if exempt_stage is not None:
+        _log_host_check(host, team_id, "allow", exempt_stage, None)
         return HostResolution(connect_host=host, error=None)
 
-    def _block(stage: str, error: str, resolved_ips: list[str] | None = None) -> HostResolution:
-        _log("block", stage, error, resolved_ips)
-        return HostResolution(connect_host=None, error=error)
-
-    if not is_cloud():
-        return _allow_unpinned("not_cloud")
-
-    region = get_instance_region()
-    if region == "E2E":
-        return _allow_unpinned("e2e")
-
-    if team_id is not None and is_team_allowlisted_for_internal_hosts(team_id):
-        return _allow_unpinned("team_allowlist")
-
-    normalized = host.lower().strip().rstrip(".")
-
-    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
-    if normalized.endswith(".postwh.com"):
-        return _allow_unpinned("postwh_managed")
+    normalized = _normalize_host(host)
 
     if normalized in {"localhost"}:
-        return _block("localhost", _INTERNAL_IP_ERROR)
+        _log_host_check(host, team_id, "block", "localhost", _INTERNAL_IP_ERROR)
+        return HostResolution(connect_host=None, error=_INTERNAL_IP_ERROR)
 
     try:
         if not _is_safe_public_ip(host):
-            return _block("literal_ip", _INTERNAL_IP_ERROR)
+            _log_host_check(host, team_id, "block", "literal_ip", _INTERNAL_IP_ERROR)
+            return HostResolution(connect_host=None, error=_INTERNAL_IP_ERROR)
     except ValueError:
         pass
 
-    dns_failure_error = (
-        f"Couldn't resolve the host '{host}'. Check that it's spelled correctly and reachable from the public internet."
-    )
     try:
-        addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
+        addrinfo = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
-    except (socket.gaierror, UnicodeError):
+    except socket.gaierror as e:
+        # A resolver blip is not a verdict on the host; refusing it would disable the schema.
+        if is_temporary_resolution_failure(e):
+            raise TemporaryHostResolutionError(host) from e
+        resolved_ips = []
+    except UnicodeError:
         # getaddrinfo IDNA-encodes the host, so a malformed hostname (e.g. a DNS label over 63
         # bytes) raises UnicodeError ("label too long") instead of gaierror. Either way the host
         # can't be resolved — return the actionable message rather than crashing.
-        _log("block", "dns_failure", _DNS_FAILURE_ERROR)
-        return HostResolution(connect_host=None, error=dns_failure_error)
+        resolved_ips = []
+
+    return _check_resolved_ips(host, team_id, resolved_ips)
+
+
+def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int | None) -> HostResolution:
+    """Apply the `resolve_safe_host` policy to addresses the caller resolved itself.
+
+    For a client that looks `host` up on its own and dials that answer. `resolve_safe_host`
+    resolves and pins in one step, which a client cannot use when it needs the hostname for SNI
+    or wants to try several addresses in turn. Validating the client's own answer here keeps the
+    guarantee: the set it validates is the set it dials, so a record that answers public on one
+    lookup and private on the next has no second lookup to slip past.
+
+    The same exemptions as `resolve_safe_host` apply, and `addresses` is returned whole so an
+    exempt caller still dials what it resolved. An empty `addresses` is a failed lookup and is
+    refused, because letting the connection library resolve again would reopen the gap.
+    """
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        _log_host_check(host, team_id, "block", "malformed_host", guard_error)
+        return HostResolution(connect_host=None, error=guard_error)
+
+    exempt_stage = _host_check_exemption(host, team_id)
+    if exempt_stage is not None:
+        _log_host_check(host, team_id, "allow", exempt_stage, None)
+        return HostResolution(connect_host=host, error=None, addresses=tuple(addresses))
+
+    return _check_resolved_ips(host, team_id, list(addresses))
+
+
+_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
+
+
+def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+    """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
+    dials exactly those addresses.
+
+    The hostname is repeated once per address because libpq pairs `host` and `hostaddr`
+    positionally: the name keeps carrying SNI, which Neon and the Supabase pooler need, and every
+    validated address stays in libpq's failover list. A failed lookup is refused rather than left
+    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out,
+    or that the resolver answers with "try again", raises `psycopg.OperationalError` so it stays
+    retryable; only a name that does not exist is refused.
+
+    An IP literal (the SSH tunnel's loopback bind), a Unix socket path, or an empty host has no
+    lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
+    lookup is skipped there, as in `_get_sslmode`.
+    """
+    if host_lookup_is_skipped():
+        return {"host": host}
+
+    if is_cloud() and (guard_error := _single_host_error(host)) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {guard_error}")
+
+    if not is_resolvable_hostname(host):
+        return {"host": host}
+
+    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout, raise_on_temporary_failure=True) or []
+    resolution = check_resolved_addresses(host, addresses, team_id)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
+    if not resolution.addresses:
+        # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
+        # pin, so libpq resolves the name itself as it did before.
+        return {"host": host}
+
+    return {
+        "host": ",".join([host] * len(resolution.addresses)),
+        "hostaddr": ",".join(resolution.addresses),
+    }
+
+
+def host_lookup_is_skipped() -> bool:
+    """Dev and test connect to local or fake hosts, so the pins skip the lookup there, as `_get_sslmode` does."""
+    return bool(settings.TEST or settings.DEBUG or settings.E2E_TESTING)
+
+
+def _normalize_host(host: str) -> str:
+    return host.lower().strip().rstrip(".")
+
+
+_HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
+
+
+def _is_single_host(host: str) -> bool:
+    """Whether `host` names one endpoint: an IP literal, or one hostname with no separators.
+
+    libpq reads a comma as a host list and a leading slash as a socket directory, so an
+    exemption granted on the whole string would let the driver dial a part of it the policy
+    never looked at.
+    """
+    normalized = _normalize_host(host)
+    try:
+        parsed = ipaddress.ip_address(normalized.strip("[]"))
+    except ValueError:
+        pass
+    else:
+        # A scope id ("fe80::1%eth0") selects an interface and is not part of the address. CPython
+        # keeps whatever follows the "%" verbatim, commas and spaces included, so a host list can
+        # ride through here and be split by the driver.
+        return parsed.version != 6 or parsed.scope_id is None
+    return 0 < len(normalized) <= 253 and all(_HOST_LABEL.match(label) for label in normalized.split("."))
+
+
+def _single_host_error(host: str) -> str | None:
+    """Why `host` is not one endpoint the drivers can dial as written, or None when it is.
+
+    The drivers dial `host` as stored, so the string validated has to be that string. A name with
+    characters outside ASCII is refused rather than converted, because the drivers hand the host to
+    the resolver as raw bytes. Anything `strip()` or `rstrip(".")` would remove is refused too,
+    because the resolver would then answer for a different name than the one dialed.
+    """
+    if not host.isascii():
+        return _NON_ASCII_HOST_ERROR
+    if host != host.strip() or host.endswith(".") or not _is_single_host(host):
+        return _MALFORMED_HOST_ERROR
+    return None
+
+
+def _host_check_exemption(host: str, team_id: int | None) -> str | None:
+    """Return the stage name that exempts this host from the check, or None when it applies."""
+    if not is_cloud():
+        return "not_cloud"
+
+    if get_instance_region() == "E2E":
+        return "e2e"
+
+    if team_id is not None and is_team_allowlisted_for_internal_hosts(team_id):
+        return "team_allowlist"
+
+    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe. A suffix test is
+    # enough only because callers refuse anything that is not one hostname before asking.
+    if _normalize_host(host).endswith(".postwh.com"):
+        return "postwh_managed"
+
+    return None
+
+
+def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str]) -> HostResolution:
+    if not resolved_ips:
+        _log_host_check(host, team_id, "block", "dns_failure", _DNS_FAILURE_ERROR)
+        return HostResolution(
+            connect_host=None,
+            error=(
+                f"Couldn't resolve the host '{host}'. "
+                "Check that it's spelled correctly and reachable from the public internet."
+            ),
+        )
 
     for resolved_ip in resolved_ips:
         if not _is_safe_public_ip(resolved_ip):
-            return _block("resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
+            _log_host_check(host, team_id, "block", "resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
+            return HostResolution(connect_host=None, error=_INTERNAL_IP_ERROR)
 
-    if not resolved_ips:
-        _log("block", "dns_failure", _DNS_FAILURE_ERROR)
-        return HostResolution(connect_host=None, error=dns_failure_error)
-
-    _log("allow", "resolved_ip", None, resolved_ips)
+    _log_host_check(host, team_id, "allow", "resolved_ip", None, resolved_ips)
     # getaddrinfo returns addresses in the order the resolver prefers, which is the order a
     # connect would try them in. Pinning the first one gives up that fallback: if it is down,
     # nothing tries the next. Every address in the list passed the check above, so this costs
@@ -184,7 +353,34 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     # That order is IPv6-first for a dual-stack host (RFC 6724), so on an IPv4-only worker the
     # pinned address is one nothing can route to and the connection can never succeed. Order by
     # what this host can actually reach before pinning.
-    return HostResolution(connect_host=prefer_routable_addresses(resolved_ips)[0], error=None)
+    routable = prefer_routable_addresses(resolved_ips)
+    return HostResolution(connect_host=routable[0], error=None, addresses=tuple(routable))
+
+
+def _log_host_check(
+    host: str,
+    team_id: int | None,
+    decision: str,
+    stage: str,
+    reason: str | None,
+    resolved_ips: list[str] | None = None,
+) -> None:
+    if decision == "block":
+        log_fn = logger.warning  # SSRF attempt — always logged
+    elif stage in ("not_cloud", "e2e"):
+        log_fn = logger.debug  # never fires on cloud / spammy on self-hosted
+    else:
+        log_fn = logger.info
+
+    log_fn(
+        "data_imports.host_check",
+        host=host,
+        team_id=team_id,
+        decision=decision,
+        stage=stage,
+        reason=reason,
+        resolved_ips=resolved_ips,
+    )
 
 
 def log_connection_open(
@@ -278,7 +474,7 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     """
     resolution = resolve_safe_host(ssh_config.host, team_id)
     if resolution.connect_host is None:
-        raise HostNotAllowedError(f"SSH tunnel host not allowed: {resolution.error}")
+        raise HostNotAllowedError(f"{SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
     return resolution.connect_host
 
 
@@ -291,28 +487,28 @@ def _check_direct_host(config, team_id: int | None) -> None:
     re-checked on any later scheduled run. A direct database connection is a raw socket, so the
     HTTP egress proxy is not in its path either.
 
-    Unlike `_pinned_ssh_host` this checks without pinning, so a host that answers public here and
-    private on the connect is still reachable: this closes the standing exposure, not the
-    resolve-to-connect race. Pinning belongs in the clients, and for Postgres it costs nothing —
-    `_connect_to_postgres` already builds libpq's `host`/`hostaddr` pair, so the name still
-    carries SNI and every validated address stays in the failover list. What stops it living here
-    is that the address alone is not the decision: `resolve_safe_host` also exempts self-hosted
-    instances, the internal-analytics teams, and PostHog-managed hosts. Re-checking with the bare
-    predicate at the connect would refuse all three, so the policy has to travel with the
-    addresses before the pin can move.
+    Unlike `_pinned_ssh_host` this checks without pinning, because the `(host, port)` this
+    layer yields has to stay the hostname: the clients need it for SNI and for multi-address
+    failover. So on its own this closes the standing exposure, not the resolve-to-connect race.
+    The Postgres and Redshift clients close that race themselves: `pinned_host_kwargs` in
+    this module resolves the host once, validates that answer with `check_resolved_addresses`,
+    and dials exactly those addresses through libpq's `host`/`hostaddr` pair. The MySQL client
+    resolves the host itself, validates the answer with `check_resolved_addresses`, and dials
+    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client hands the
+    hostname to its driver, whose single `server` argument is both the dial target and the
+    login server name, so for MSSQL this check is the only one.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a
-    team yet (`open_ssh_tunnel(config)` in the Redshift, MySQL and MSSQL clients).
+    team yet.
 
-    The resolve inside `resolve_safe_host` is unbounded, and for Postgres it now runs ahead of the
-    bounded `_resolve_hostaddr_with_timeout`. A stalled resolver therefore hangs the activity until
-    Temporal's `start_to_close_timeout` rather than failing fast and retryably — the failure that
-    bounded lookup exists to prevent. Bounding this one is the follow-up.
+    The resolve inside `resolve_safe_host` is unbounded. A stalled resolver therefore hangs the
+    activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
+    Bounding this one is the follow-up.
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise HostNotAllowedError(f"Database host not allowed: {resolution.error}")
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
 
 
 @contextmanager

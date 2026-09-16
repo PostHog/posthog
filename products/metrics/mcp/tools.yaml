@@ -53,11 +53,17 @@ tools:
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
+    metrics-names-retrieve:
+        operation: metrics_names_retrieve
+        enabled: false
     metrics-overview-retrieve:
         operation: metrics_overview_retrieve
         enabled: false
     metrics-samples-create:
         operation: metrics_samples_create
+        enabled: false
+    metrics-values-create:
+        operation: metrics_values_create
         enabled: false
     query-metrics:
         operation: metrics_query_create

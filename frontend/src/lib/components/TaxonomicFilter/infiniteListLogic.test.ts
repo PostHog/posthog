@@ -101,6 +101,75 @@ describe('infiniteListLogic', () => {
         return logicWithProps
     }
 
+    it.each([
+        { state: 'initial request pending', initialCompleted: false, previousSearchPending: false, clear: false },
+        { state: 'initial request completed', initialCompleted: true, previousSearchPending: false, clear: false },
+        { state: 'previous search pending', initialCompleted: true, previousSearchPending: true, clear: false },
+        { state: 'clearing during initial load', initialCompleted: false, previousSearchPending: false, clear: true },
+    ])('debounces each query change with $state', async ({ initialCompleted, previousSearchPending, clear }) => {
+        const searches: string[] = []
+        let completeInitial!: () => void
+        const initialResponse = new Promise<void>((resolve) => {
+            completeInitial = resolve
+        })
+        let completePreviousSearch!: () => void
+        const previousSearchResponse = new Promise<void>((resolve) => {
+            completePreviousSearch = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    searches.push(search)
+                    if (!search) {
+                        await initialResponse
+                    }
+                    if (search === 'prior') {
+                        await previousSearchResponse
+                    }
+                    return [200, { results: [{ name: search || 'initial_event' }], count: 1 }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const searchLogic = logicWith({})
+        try {
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([''])
+            if (initialCompleted) {
+                completeInitial()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(searchLogic.values.remoteItems.first).toBeFalsy()
+            }
+            if (previousSearchPending) {
+                searchLogic.actions.setSearchQuery('prior')
+                await jest.advanceTimersByTimeAsync(500)
+                expect(searches).toEqual(['', 'prior'])
+            }
+            const beforeTyping = [...searches]
+            const queries = clear ? ['e', 'em', 'e', ''] : ['e', 'em', 'ema', 'emai', 'email']
+            const finalQuery = queries[queries.length - 1]
+            for (const query of queries) {
+                searchLogic.actions.setSearchQuery(query)
+                await jest.advanceTimersByTimeAsync(100)
+            }
+            expect(searchLogic.values.searchQuery).toBe(finalQuery)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(399)
+            expect(searches).toEqual(beforeTyping)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(searches).toEqual([...beforeTyping, finalQuery])
+            completeInitial()
+            completePreviousSearch()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(searchLogic.values.remoteItems.searchQuery).toBe(finalQuery)
+        } finally {
+            completeInitial()
+            completePreviousSearch()
+            jest.useRealTimers()
+        }
+    })
+
     describe('index', () => {
         it('defaults to 0 when whether the first item should be selected is not specified', async () => {
             await expectLogic(logicWith({})).toMatchValues({
@@ -460,6 +529,49 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('unmounting clears the shared api cache', () => {
+        it('does not keep serving a cached response after the list unmounts', async () => {
+            let requestCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'cached_event') {
+                            requestCount += 1
+                        }
+                        return [200, { results: [{ ...mockEventDefinitions[0], name: 'cached_event' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const firstLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cacheList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            firstLogic.mount()
+            await expectLogic(firstLogic, () => {
+                firstLogic.actions.setSearchQuery('cached_event')
+            }).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(requestCount).toBe(1)
+
+            firstLogic.unmount()
+
+            const secondLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cacheList2',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            secondLogic.mount()
+            await expectLogic(secondLogic, () => {
+                secondLogic.actions.setSearchQuery('cached_event')
+            }).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(requestCount).toBe(2)
+        })
+    })
+
     describe('switching tabs reconciles a stale remote list', () => {
         let staleLogic: ReturnType<typeof infiniteListLogic.build>
         let surveyRequestCount: number
@@ -583,6 +695,82 @@ describe('infiniteListLogic', () => {
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
+            })
+        })
+
+        it('captures a fetch failure on the initial empty-query load too', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const failingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'failingEmptyList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            failingLogic.mount()
+            // `showErrorState` is not asserted: with an empty query the picker can fall back to a
+            // recent or pinned row, so a failed fetch does not always show as an error in the UI.
+            await expectLogic(failingLogic)
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: '',
+            })
+        })
+
+        it('captures a fetch failure from a list that feeds the open "All" tab', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            // The shape of every property filter picker: an aggregate "All" tab in front of the
+            // groups it aggregates. No list is the active tab when the picker opens.
+            const groupTypes = [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.SuggestedFilters,
+            ]
+            const filterLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'allTabFailure',
+                taxonomicGroupTypes: groupTypes,
+            })
+            filterLogic.mount()
+            let eventsList!: ReturnType<typeof infiniteListLogic.build>
+            for (const groupType of groupTypes) {
+                const listLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'allTabFailure',
+                    listGroupType: groupType,
+                    taxonomicGroupTypes: groupTypes,
+                    showNumericalPropsOnly: false,
+                })
+                listLogic.mount()
+                if (groupType === TaxonomicFilterGroupType.Events) {
+                    eventsList = listLogic
+                }
+            }
+            expect(filterLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            await expectLogic(eventsList)
+                .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+
+            const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
+            expect(failedCalls).toHaveLength(1)
+            expect(failedCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.Events,
+                searchQuery: '',
             })
         })
 

@@ -113,7 +113,7 @@ class TestRenderSkillMd:
             # install_community_skill refuses a blank body as having no instructions, so publishing
             # one merges a listing that nobody can ever install.
             ("blank body", "n", "d", "  \n  "),
-            # Longer than the Agent Skills spec allows, so validate_for_export refuses the skill once
+            # Longer than the Agent Skills spec allows, so compute_spec_problems refuses the skill once
             # someone installs it from the catalog.
             ("description over the spec cap", "n", "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "b"),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.

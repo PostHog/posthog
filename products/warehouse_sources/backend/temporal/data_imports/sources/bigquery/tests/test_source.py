@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from dateutil import parser
@@ -291,7 +291,7 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     )
 
     with (
-        freeze_time("2025-01-01T12:00:00.000Z"),
+        time_machine.travel("2025-01-01T12:00:00.000Z", tick=False),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
         ) as mock_delete_all,
@@ -750,6 +750,26 @@ def test_non_retryable_errors_match_egress_denied_token_uri_endpoint(observed_er
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Egress-denied token_uri endpoint error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # No permission to open a Storage Read API session on the project the read bills to.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.readsessions.create' permission for 'projects/example-project'",
+        # Same gRPC wording, different missing permission and resource.
+        "PermissionDenied: 403 request failed: the user does not have "
+        "'bigquery.tables.getData' permission for table 'example-project:example_dataset.example_table'",
+    ],
+)
+def test_bigquery_storage_read_denial_is_non_retryable_with_guidance(observed_error):
+    """The Storage Read API denies access in gRPC wording rather than BigQuery's "Access Denied:"
+    prefix, so it has to match a key of its own or it retries forever with no guidance."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Storage Read API permission denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] for key in matching)
 
 
 @pytest.mark.parametrize(
@@ -1288,7 +1308,7 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
     )
 
     with (
-        freeze_time("2025-01-01T12:00:00.000Z"),
+        time_machine.travel("2025-01-01T12:00:00.000Z", tick=False),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
         ) as mock_delete_all,

@@ -30,6 +30,25 @@ describe("suggestionMetaLine", () => {
   ])("reads back %s", (_name, config, expected) => {
     expect(suggestionMetaLine(config)).toBe(expected);
   });
+
+  it.each([
+    [
+      "a clock time",
+      {
+        run_cron_schedule: "0 9 * * *",
+        run_interval_minutes: null,
+        emit: true,
+      },
+      "Runs daily at 09:00 (PST) · sends what it finds to Self-driving",
+    ],
+    [
+      "a rolling interval",
+      { run_cron_schedule: null, run_interval_minutes: 180, emit: true },
+      "Runs every 3h · sends what it finds to Self-driving",
+    ],
+  ])("names the project timezone beside %s", (_name, config, expected) => {
+    expect(suggestionMetaLine(config, "PST")).toBe(expected);
+  });
 });
 
 describe("suggestionBrief", () => {

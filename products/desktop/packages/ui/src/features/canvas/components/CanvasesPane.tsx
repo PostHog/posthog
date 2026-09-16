@@ -1,4 +1,3 @@
-import { BlueprintIcon } from "@phosphor-icons/react";
 import {
   type CanvasListService,
   type CanvasListSettings,
@@ -7,40 +6,19 @@ import {
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import { CANVAS_LIST_SERVICE } from "@posthog/core/canvas/identifiers";
 import { useService } from "@posthog/di/react";
-import {
-  Autocomplete,
-  AutocompleteItem,
-  AutocompleteList,
-  cn,
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  MenuLabel,
-} from "@posthog/quill";
-import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { CanvasFilterMenu } from "@posthog/ui/features/canvas/components/CanvasFilterMenu";
 import { buildCanvasSpaceOptions } from "@posthog/ui/features/canvas/components/canvasSpaceOptions";
-import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import {
-  Fragment,
-  type ReactElement,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { CanvasList } from "./CanvasList";
 
 export function CanvasesPane({
   className,
@@ -105,7 +83,6 @@ export function CanvasesPane({
       settings,
     ],
   );
-  const optionValues = viewModel.canvases.map((canvas) => canvas.id);
   const changeSettings = (nextSettings: CanvasListSettings): void => {
     const update = canvasListService.updateSettings({
       canvases: dashboards,
@@ -132,101 +109,24 @@ export function CanvasesPane({
     void navigate({ to: "/canvases", search: { canvas: canvas.id } });
   };
   return (
-    <Autocomplete<string>
-      inline
-      open
-      value={query}
-      items={optionValues}
-      filter={null}
-      onValueChange={(value, eventDetails) => {
-        if (
-          eventDetails.reason === "input-change" &&
-          typeof value === "string"
-        ) {
-          setQuery(value);
-        }
-      }}
-    >
-      <div className={cn("flex min-h-0 flex-col", className)}>
-        <SidebarSearchHeader
-          title="Canvases"
-          query={query}
-          placeholder="Search canvases…"
-          searchLabel="Search canvases"
-          onClear={() => setQuery("")}
-          actions={
-            <CanvasFilterMenu
-              spaceOptions={spaceOptions}
-              creatorOptions={viewModel.creatorOptions}
-              createdByDisabled={viewModel.personalSpaceSelected}
-              settings={viewModel.settings}
-              onChange={changeSettings}
-            />
-          }
+    <CanvasList
+      viewModel={viewModel}
+      lastViewedAtByCanvasId={lastViewedAtByCanvasId}
+      selectedId={selectedId}
+      query={query}
+      setQuery={setQuery}
+      open={open}
+      isLoading={isLoading}
+      className={className}
+      actions={
+        <CanvasFilterMenu
+          spaceOptions={spaceOptions}
+          creatorOptions={viewModel.creatorOptions}
+          createdByDisabled={viewModel.personalSpaceSelected}
+          settings={viewModel.settings}
+          onChange={changeSettings}
         />
-        <AutocompleteList className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto">
-          {isLoading ? (
-            <LoadingState className="py-10" />
-          ) : viewModel.canvases.length === 0 ? (
-            <Empty className="border-0 py-8">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <BlueprintIcon />
-                </EmptyMedia>
-                <EmptyTitle>No canvases match</EmptyTitle>
-                <EmptyDescription>
-                  Try another search or filter.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex flex-col gap-px">
-              {viewModel.sections.map((section) => (
-                <Fragment key={section.key}>
-                  {section.label ? (
-                    <MenuLabel>{section.label}</MenuLabel>
-                  ) : null}
-                  {section.canvases.map((canvas) => {
-                    const lastViewedAt = lastViewedAtByCanvasId[canvas.id];
-                    const lastViewedLabel = lastViewedAt
-                      ? `Last viewed ${formatRelativeAge(lastViewedAt)}`
-                      : "Not viewed yet";
-                    const lastViewedTitle = lastViewedAt
-                      ? `Last viewed ${formatAbsoluteDateTime(lastViewedAt)}`
-                      : lastViewedLabel;
-
-                    return (
-                      <AutocompleteItem
-                        key={canvas.id}
-                        value={canvas.id}
-                        nativeButton
-                        className={cn(
-                          "h-auto w-full items-start py-1.5 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
-                          canvas.id === selectedId && "bg-fill-selected",
-                        )}
-                        onClick={() => open(canvas)}
-                      >
-                        {iconForTemplate(canvas.templateId, { size: 14 })}
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px]">
-                            {canvas.name}
-                          </span>
-                          <span
-                            className="block truncate text-muted-foreground text-xxs"
-                            title={lastViewedTitle}
-                          >
-                            {canvas.createdBy ?? "Unknown"} · {lastViewedLabel}
-                          </span>
-                        </span>
-                      </AutocompleteItem>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </div>
-          )}
-        </AutocompleteList>
-      </div>
-    </Autocomplete>
+      }
+    />
   );
 }

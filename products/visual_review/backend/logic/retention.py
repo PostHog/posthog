@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from itertools import batched
 from typing import TypeVar
@@ -10,17 +12,19 @@ from uuid import UUID
 
 from django.db import connections, transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 
-from ..db import WRITER_DB
+from ..db import READER_DB, WRITER_DB
 from ..facade.enums import RunStatus
 from ..models import Artifact, Repo, Run, RunSnapshot
-from ..storage import ArtifactStorage
-from . import artifact_store, run_queries
+from ..storage import ArtifactStorage, StoryIndexStorage
+from . import artifact_store, run_queries, story_index
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +52,7 @@ ARTIFACT_ORPHAN_GRACE_DAYS = 7
 
 ARTIFACT_SWEEP_BATCH = 500
 
-# Caps per invocation. The task runs daily and catches up over several days, so
+# Caps per invocation. The tasks run daily and catch up over several days, so
 # a large backlog does not have to clear in one night.
 MAX_RUNS_PER_SWEEP = 10_000
 MAX_ARTIFACTS_PER_SWEEP = 20_000
@@ -56,7 +60,13 @@ MAX_ARTIFACTS_PER_SWEEP = 20_000
 # The caps above bound rows, not wall clock. Deletes over the backlog are slow
 # enough that the first sweeps would run for hours, so an invocation also stops
 # when its deadline passes.
-SWEEP_TIME_BUDGET_SECONDS = 30 * 60
+#
+# A deploy stops a busy worker and kills it when its grace period ends, which is
+# about 20 minutes in production. A task that always ends inside that period
+# cannot be killed by a deploy, whenever the deploy starts. The budget stays
+# below it with room for the one query or batch that can start just before the
+# deadline.
+SWEEP_TIME_BUDGET_SECONDS = 15 * 60
 
 # Repos do not record their real default branch, so a run with no PR number is
 # read as default-branch history and the rule fails toward keeping it.
@@ -95,14 +105,13 @@ RETURNING a.id, a.storage_path
 
 
 @frozen
-class ArtifactSweepResult:
-    deleted: int
-    objects_leaked: int
+class RunSweepResult:
+    runs_deleted: int
+    story_indexes_deleted: int
 
 
 @frozen
-class RetentionSweepResult:
-    runs_deleted: int
+class ArtifactSweepResult:
     artifacts_deleted: int
     objects_leaked: int
 
@@ -110,13 +119,15 @@ class RetentionSweepResult:
 class RetentionSweep:
     """Applies the retention policy to one repo."""
 
-    def __init__(self, repo: Repo, now: datetime, deadline: float) -> None:
+    def __init__(self, repo: Repo, deadline: float | None = None, now: datetime | None = None) -> None:
         self.repo = repo
         # ProductTeamModel.save() writes the canonical team_id, so the stored
         # value needs no second resolution.
         self.team_id = repo.team_id
-        self.now = now
-        self.deadline = deadline
+        self.now = now or timezone.now()
+        self.deadline = deadline if deadline is not None else time.monotonic() + SWEEP_TIME_BUDGET_SECONDS
+        # Hashes of the story-to-file maps named by runs this sweep deleted.
+        self.released_story_index_hashes: set[str] = set()
 
     def _out_of_time(self) -> bool:
         return time.monotonic() >= self.deadline
@@ -183,6 +194,11 @@ class RetentionSweep:
 
     def _delete_runs(self, run_ids: list[UUID]) -> int:
         deleted = 0
+        hash_by_run_id = dict(
+            self._runs()
+            .filter(id__in=run_ids, metadata__has_key=story_index.METADATA_KEY)
+            .values_list("id", KeyTextTransform(story_index.METADATA_KEY, "metadata"))
+        )
         # One run per DELETE, in the order given (oldest first). Django applies
         # SET_NULL to the runs that point at a deleted run before it deletes
         # anything, so a batch that holds two links of one supersession chain
@@ -200,7 +216,10 @@ class RetentionSweep:
             with transaction.atomic(using=WRITER_DB):
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
-            deleted += per_model.get(Run._meta.label, 0)
+            run_deleted = per_model.get(Run._meta.label, 0)
+            deleted += run_deleted
+            if run_deleted and run_id in hash_by_run_id:
+                self.released_story_index_hashes.add(hash_by_run_id[run_id])
         return deleted
 
     def delete_expired_runs(self) -> int:
@@ -251,7 +270,7 @@ class RetentionSweep:
         # The candidate query is the most expensive read of the sweep, so it
         # runs only when there is time left to act on its result.
         if self._out_of_time():
-            return ArtifactSweepResult(deleted=0, objects_leaked=0)
+            return ArtifactSweepResult(artifacts_deleted=0, objects_leaked=0)
 
         storage = ArtifactStorage(str(self.repo.id))
         candidates = self._unreferenced_artifact_ids(MAX_ARTIFACTS_PER_SWEEP)
@@ -273,7 +292,37 @@ class RetentionSweep:
                 team_id=self.team_id,
                 objects_leaked=objects_leaked,
             )
-        return ArtifactSweepResult(deleted=deleted, objects_leaked=objects_leaked)
+        return ArtifactSweepResult(artifacts_deleted=deleted, objects_leaked=objects_leaked)
+
+    def delete_released_story_indexes(self) -> int:
+        """Delete the story-to-file maps that no remaining run names, among those the deleted runs named.
+
+        A map is stored once per distinct content and no row tracks it, so this is the only thing that
+        removes one. Only the maps of runs this sweep deleted are candidates, so nothing lists storage.
+        """
+        if not self.released_story_index_hashes or self._out_of_time():
+            return 0
+
+        still_named = set(
+            self._runs()
+            .annotate(story_index_hash=KeyTextTransform(story_index.METADATA_KEY, "metadata"))
+            .filter(story_index_hash__in=self.released_story_index_hashes)
+            .values_list("story_index_hash", flat=True)
+        )
+        unnamed = sorted(self.released_story_index_hashes - still_named)
+        if not unnamed:
+            return 0
+
+        failed_paths = StoryIndexStorage(str(self.repo.id)).delete_hashes(unnamed)
+        deleted = len(unnamed) - len(failed_paths)
+        logger.info(
+            "visual_review.retention_story_indexes_deleted",
+            repo_id=str(self.repo.id),
+            team_id=self.team_id,
+            deleted=deleted,
+            failed=len(failed_paths),
+        )
+        return deleted
 
 
 def rotate_for_day(items: list[T], day: date) -> list[T]:
@@ -290,18 +339,64 @@ def rotate_for_day(items: list[T], day: date) -> list[T]:
     return items[offset:] + items[:offset]
 
 
-def sweep_repo(repo: Repo, now: datetime | None = None, deadline: float | None = None) -> RetentionSweepResult:
-    sweep = RetentionSweep(
-        repo,
-        now or timezone.now(),
-        deadline if deadline is not None else time.monotonic() + SWEEP_TIME_BUDGET_SECONDS,
-    )
-    # Runs go first, because the snapshot rows they take with them are what
-    # holds most artifacts in use.
+def sweep_repo_runs(repo: Repo, deadline: float | None = None, now: datetime | None = None) -> RunSweepResult:
+    sweep = RetentionSweep(repo, deadline, now)
     runs_deleted = sweep.delete_expired_runs()
-    artifacts = sweep.delete_orphaned_artifacts()
-    return RetentionSweepResult(
-        runs_deleted=runs_deleted,
-        artifacts_deleted=artifacts.deleted,
-        objects_leaked=artifacts.objects_leaked,
-    )
+    # Right after the runs, because only this sweep knows which maps the deleted runs named.
+    story_indexes_deleted = sweep.delete_released_story_indexes()
+    return RunSweepResult(runs_deleted=runs_deleted, story_indexes_deleted=story_indexes_deleted)
+
+
+def sweep_repo_artifacts(repo: Repo, deadline: float | None = None, now: datetime | None = None) -> ArtifactSweepResult:
+    """Delete the artifacts nothing references any more.
+
+    This pass is a task of its own with its own budget, so a backlog of runs
+    cannot use up the time it needs.
+    """
+    return RetentionSweep(repo, deadline, now).delete_orphaned_artifacts()
+
+
+def sweep_every_repo(
+    sweep_name: str, sweep_repo: Callable[[Repo, float], RunSweepResult | ArtifactSweepResult]
+) -> None:
+    """Run one sweep over every repo, inside one shared time budget.
+
+    One repo's failure must not stop the rest, so each repo is swept on its
+    own and the next daily run retries whatever failed.
+    """
+    deadline = time.monotonic() + SWEEP_TIME_BUDGET_SECONDS
+    # A handful of rows, materialized so the sweep does not hold a reader cursor
+    # open for its whole run.
+    # nosemgrep: idor-lookup-without-team — cross-team retention sweep, no user input
+    repos = list(Repo.objects.unscoped().using(READER_DB).order_by("created_at"))
+    repos = rotate_for_day(repos, date.today())
+    for swept, repo in enumerate(repos):
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "visual_review.retention_sweep_budget_exhausted",
+                sweep=sweep_name,
+                repos_swept=swept,
+                repos_total=len(repos),
+            )
+            break
+        started = time.monotonic()
+        try:
+            result = sweep_repo(repo, deadline)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(
+                "visual_review.retention_sweep_failed",
+                sweep=sweep_name,
+                repo_id=str(repo.id),
+                team_id=repo.team_id,
+            )
+            continue
+
+        logger.info(
+            "visual_review.retention_sweep_completed",
+            sweep=sweep_name,
+            repo_id=str(repo.id),
+            team_id=repo.team_id,
+            duration_seconds=round(time.monotonic() - started, 1),
+            **asdict(result),
+        )
