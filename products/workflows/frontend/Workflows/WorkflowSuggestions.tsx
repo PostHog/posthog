@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
@@ -16,6 +16,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimisationLoading,
         optimisationUnreadable,
     } = useValues(workflowProposalsLogic({ id }))
+    const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
 
@@ -36,12 +37,21 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
 
     if (!optimisationEnabled) {
         return (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 items-start">
                 <h3 className="mb-0">Suggestions are off for this workflow</h3>
                 <p className="mb-0 text-secondary">
-                    Turn on "Suggest improvements" in the workflow menu to have PostHog read how this workflow performs
-                    and suggest changes. Only the workflows you turn on are read.
+                    Turn on "Suggest improvements" to have PostHog read how this workflow performs and suggest changes.
+                    Only the workflows you turn on are read, and nothing changes until you approve a suggestion and
+                    publish it.
                 </p>
+                <LemonSwitch
+                    bordered
+                    label="Suggest improvements"
+                    checked={optimisationEnabled}
+                    disabled={optimisationLoading}
+                    onChange={(checked) => setOptimisationEnabled(checked)}
+                    data-attr="workflow-suggestions-enable"
+                />
             </div>
         )
     }
