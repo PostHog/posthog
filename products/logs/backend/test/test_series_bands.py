@@ -47,6 +47,7 @@ def _detection(*, pooling: bool, level: bool) -> series_bands.DetectionConfig:
     )
 
 
+@patch.object(series_bands, "VALIDATED_BASELINE_WEEKS_FOR_BAND", 2)
 class TestSeriesBands(ClickhouseTestMixin, BaseTest):
     def _insert(self, rows: list[tuple]) -> None:
         sync_execute(
@@ -425,14 +426,18 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         assert settled.lower is not None and settled.upper is not None
         assert settled.lower < 600 < settled.upper < 1000
 
-    def test_band_ready_at_is_when_the_gate_opens(self):
+    @parameterized.expand([(2,), (4,)])
+    def test_band_ready_at_is_when_the_gate_opens(self, validated_weeks: int):
         earliest = WINDOW_START - dt.timedelta(weeks=1)
 
-        _, ready_at = _band_gate(WINDOW_START, WINDOW_END, earliest)
+        with patch.object(series_bands, "VALIDATED_BASELINE_WEEKS_FOR_BAND", validated_weeks):
+            _, ready, ready_at = _band_gate(WINDOW_START, WINDOW_END, earliest)
 
-        assert ready_at is not None
-        window = WINDOW_END - WINDOW_START
-        assert _band_gate(ready_at - window, ready_at, earliest)[1] is None
+            assert ready is False
+            assert ready_at == earliest + dt.timedelta(weeks=validated_weeks) + (WINDOW_END - WINDOW_START)
+            window = WINDOW_END - WINDOW_START
+            assert _band_gate(ready_at - window - dt.timedelta(hours=1), ready_at, earliest)[1] is False
+            assert _band_gate(ready_at - window, ready_at, earliest)[1:] == (True, None)
 
     def test_missing_baseline_week_counts_as_a_zero_sample(self):
         service = "svc-gappy"
@@ -491,6 +496,29 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
 
 
 NOW_FIXED = dt.datetime(2026, 6, 17, 15, 30, tzinfo=UTC)
+
+
+class TestBandReadinessWithoutValidatedPolicy(SimpleTestCase):
+    @parameterized.expand([(weeks, grain) for weeks in (0, 1, 2, 3, 5) for grain in (15, 60)])
+    def test_observed_volume_has_no_band_or_readiness_promise(self, weeks: int, grain: int) -> None:
+        history_start = WINDOW_START - dt.timedelta(weeks=weeks)
+        rows = series_bands._SeriesRows(
+            lifetime_start=history_start,
+            slots=[series_bands._SlotRow(target_time=WINDOW_START, observed=100, baseline=[])],
+        )
+        key = series_bands._SeriesKey(namespace="ns", environment="prod", severity="info")
+
+        result = series_bands._build_series(key, rows, WINDOW_START, WINDOW_END, grain, series_bands.DETECTION)
+
+        assert result.baseline_weeks == weeks
+        assert result.history_start == history_start
+        assert result.band_ready_at is None
+        assert result.total_count == 100
+        assert result.buckets[0].observed == 100
+        assert all(
+            bucket.lower is None and bucket.upper is None and bucket.verdict is None for bucket in result.buckets
+        )
+        assert _band_gate(WINDOW_START, WINDOW_END, history_start) == (weeks, False, None)
 
 
 class TestResolveWindow(SimpleTestCase):

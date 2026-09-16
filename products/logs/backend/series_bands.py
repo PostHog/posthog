@@ -52,8 +52,7 @@ VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhou
 # learning, not rejected here.
 MAX_WINDOW_START_AGE_DAYS = VOLUME_BUCKETS_TTL_DAYS - MAX_WINDOW_DAYS
 BASELINE_WEEKS = 5
-# Below this many full prior weeks the band rests on too little history to draw.
-MIN_BASELINE_WEEKS_FOR_BAND = 2
+VALIDATED_BASELINE_WEEKS_FOR_BAND: int | None = None
 SECONDS_PER_DAY = 24 * 3600
 SECONDS_PER_WEEK = 7 * SECONDS_PER_DAY
 
@@ -352,8 +351,8 @@ def _weeks_between(later_ts: int, lifetime_ts: int) -> int:
 
 def _band_gate(
     window_start: dt.datetime, window_end: dt.datetime, lifetime_start: dt.datetime
-) -> tuple[int, dt.datetime | None]:
-    """Baseline depth at the window start, and when a shallow series gains its band.
+) -> tuple[int, bool, dt.datetime | None]:
+    """Baseline depth, readiness, and the next readiness date under a validated policy.
 
     The gate reads sustained history before window_start, so a live window must
     travel a whole window length past the lifetime threshold before a band is
@@ -361,10 +360,12 @@ def _band_gate(
     counts to.
     """
     baseline_weeks = _baseline_weeks_available(window_start, lifetime_start)
-    if baseline_weeks >= MIN_BASELINE_WEEKS_FOR_BAND:
-        return baseline_weeks, None
-    threshold = lifetime_start + dt.timedelta(weeks=MIN_BASELINE_WEEKS_FOR_BAND)
-    return baseline_weeks, threshold + (window_end - window_start)
+    if VALIDATED_BASELINE_WEEKS_FOR_BAND is None:
+        return baseline_weeks, False, None
+    if baseline_weeks >= VALIDATED_BASELINE_WEEKS_FOR_BAND:
+        return baseline_weeks, True, None
+    threshold = lifetime_start + dt.timedelta(weeks=VALIDATED_BASELINE_WEEKS_FOR_BAND)
+    return baseline_weeks, False, threshold + (window_end - window_start)
 
 
 class _FoldedHistory:
@@ -462,8 +463,8 @@ def _build_series(
 ) -> BandSeries:
     history = _FoldedHistory(series_rows, window_start, window_end, interval_minutes, detection)
     lifetime_start = series_rows.lifetime_start
-    baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
-    banded = band_ready_at is None and include_bands
+    baseline_weeks, band_ready, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
+    banded = band_ready and include_bands
 
     grain = interval_minutes / BUCKET_MINUTES
     band_model = NegativeBinomialBandModel(

@@ -7,7 +7,9 @@ Recorded on September 16, 2026, with the matched-moment negative-binomial fit an
 > [!WARNING]
 > The short-history chart remains a rollout blocker.
 > Passing the regression tests does not mean that six or nine pooled hourly samples support the configured false-flag budget.
-> Keep the change in draft until the product chooses an honest learning state or a separately validated short-history model.
+> Chart bands and markers are disabled while no validated history policy exists.
+> Observed counts remain available, with no promised readiness date.
+> Re-enabling bands requires a validated policy or a separately validated short-history model.
 
 The negative-binomial model produces 6.733 false-positive buckets per series per day in the seeded scenario, compared with 64.023 for Poisson.
 Its tier A and B info precision is 0.614 and 0.782; their window recall is 1.000 and 0.743.
