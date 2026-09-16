@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -655,3 +656,41 @@ class TestForwardToSecondaryRegion(SimpleTestCase):
         self.assertEqual(sent & HOST_IDENTIFYING_HEADERS, set())
         self.assertIn("x-forwarded-for", sent)
         self.assertIn(SECONDARY_REGION_DOMAIN, kwargs["url"])
+
+    def test_a_multipart_request_read_as_a_form_is_rebuilt_from_its_fields_and_files(self) -> None:
+        multipart = RequestFactory().post(
+            "/webhooks/mailgun/",
+            data={
+                "token": "delivery-token",
+                "recipient": "team-abc@example.com",
+                "attachment-1": SimpleUploadedFile("note.txt", b"attached", content_type="text/plain"),
+            },
+        )
+        # A form provider verifies through request.POST, which leaves no raw body to replay.
+        self.assertEqual(multipart.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(multipart, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertIn(("token", "delivery-token"), kwargs["data"])
+        self.assertIn(("recipient", "team-abc@example.com"), kwargs["data"])
+        self.assertEqual(kwargs["files"], [("attachment-1", ("note.txt", b"attached", "text/plain"))])
+        # The rebuilt body gets a fresh boundary, so the old Content-Type must not travel with it.
+        self.assertNotIn("content-type", {key.lower() for key in kwargs["headers"]})
+
+    def test_a_urlencoded_form_read_still_replays_its_raw_bytes(self) -> None:
+        body = b"token=delivery-token&recipient=team-abc%40example.com"
+        urlencoded = RequestFactory().post(
+            "/webhooks/mailgun/", data=body, content_type="application/x-www-form-urlencoded"
+        )
+        self.assertEqual(urlencoded.POST["token"], "delivery-token")
+
+        with patch("posthog.ingress.dispatch.forward.requests.request") as request:
+            request.return_value = Mock(ok=True, status_code=202)
+            forward_to_secondary_region(urlencoded, provider="mailgun", app="inbound")
+
+        kwargs = request.call_args.kwargs
+        self.assertEqual(kwargs["data"], body)
+        self.assertNotIn("files", kwargs)

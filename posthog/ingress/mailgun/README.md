@@ -53,8 +53,8 @@ The cap bounds what a consumer iterates, not what the request costs: the form pa
 The whole body is parsed before the signature is checked, because the signature lives in the form.
 An unsigned caller therefore buys a full multipart parse for its 403, which is a reason to set `throttle_class` on the provider when an endpoint mounts it.
 
-Regional forwarding does not work for this provider yet.
-`forward_to_secondary_region` replays `request.body`, and a multipart read leaves no raw bytes to replay, so the forward lane has to rebuild the form before a region-split consumer can declare `ownership`.
+A forwarded delivery crosses as a rebuilt form rather than as the raw bytes, because the form read leaves none.
+[Regional forwarding](../README.md#regional-forwarding) carries the rule, and a region-split consumer declares `ownership` as it would on any other provider.
 
 Mailgun's event webhooks (delivered, failed, opened) are a different payload shape, with the event name in the form.
 They would be a third app, added when a product needs one.
