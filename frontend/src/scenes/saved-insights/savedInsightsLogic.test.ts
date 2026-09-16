@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -29,6 +29,7 @@ jest.spyOn(api, 'create')
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.SavedInsights]: blankScene }
+const savedInsightsFiltersPersistenceKey = `${MOCK_DEFAULT_USER.id}__${MOCK_TEAM_ID}__saved_insights_filters__.scenes.saved-insights.savedInsightsLogic.rawFilters`
 
 const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
     ({
@@ -60,6 +61,7 @@ describe('savedInsightsLogic', () => {
     let logic: ReturnType<typeof savedInsightsLogic.build>
 
     beforeEach(() => {
+        localStorage.removeItem(savedInsightsFiltersPersistenceKey)
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/': ({ request }) => {
@@ -187,22 +189,28 @@ describe('savedInsightsLogic', () => {
             .toMatchValues(router, { searchParams: { search: 'hoi' } })
     })
 
-    it('keeps persisted filters when the page is opened without URL filters', async () => {
-        logic.actions.setSavedInsightsFilters({ createdBy: [1], tags: ['marketing'] })
+    it('restores persisted filters with page 1 unless URL filters override them', async () => {
+        logic.actions.setSavedInsightsFilters({ createdBy: [1], tags: ['marketing'], page: 2 })
         await expectLogic(logic)
             .toDispatchActions(['loadInsightsSuccess'])
-            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'], page: 2 }) })
 
-        router.actions.push(urls.savedInsights())
+        logic.unmount()
+        initKeaTests()
+        sceneLogic({ scenes }).mount()
+        router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
+        logic = savedInsightsLogic({ tabId: '1' })
+        logic.mount()
         await expectLogic(logic)
-            .toDispatchActions(['loadInsightsSuccess'])
-            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+            .toDispatchActions(['setSavedInsightsFilters', 'loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'], page: 1 }) })
 
-        // Page-only navigation should also preserve non-page filters
-        router.actions.push(urls.savedInsights(), { page: '2' })
+        router.actions.push(router.values.location.pathname, { search: 'from-url' })
         await expectLogic(logic)
             .toDispatchActions(['loadInsightsSuccess'])
-            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+            .toMatchValues({
+                filters: partial({ search: 'from-url', createdBy: 'All users', tags: undefined, page: 1 }),
+            })
     })
 
     it('makes a direct ID query if searching for a number', async () => {

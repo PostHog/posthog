@@ -811,7 +811,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
             const hasFilterParams = Object.keys(cleanFilters({})).some((key) => key !== 'page' && key in searchParams)
             if (!hasFilterParams && values.rawFilters !== null) {
-                actions.loadInsights(false)
+                actions.setSavedInsightsFilters({ ...values.rawFilters, page: 1 }, false)
                 return
             }
 
