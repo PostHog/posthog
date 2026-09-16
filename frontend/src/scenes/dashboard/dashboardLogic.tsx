@@ -356,7 +356,7 @@ export interface dashboardLogicValues {
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
-    deferredInsightRenames: QueryBasedInsightModel<Node<Record<string, any>>>[]
+    deferredInsightRenames: QueryBasedInsightModel[]
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
     effectiveLastRefresh: Dayjs | null
