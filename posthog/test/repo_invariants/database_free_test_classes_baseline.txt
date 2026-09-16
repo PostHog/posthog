@@ -329,7 +329,6 @@ products/exports/backend/tasks/test/test_export_utils.py::TestSiteURLReachabilit
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestCleanupStaleFlagDefinitionsExpiryTrackingTask
 products/feature_flags/backend/test/test_flag_definitions_cache_tasks.py::TestRefreshExpiringFlagDefinitionsCacheEntries
 products/feature_flags/backend/test/test_flags_cache.py::TestExtractCohortIdsFromFlagFilters
-products/feature_flags/backend/test/test_local_evaluation.py::TestExtractCohortIdsFromFilters
 products/growth/backend/temporal/signup_enrichment/tests/test_harmonic_status_poll.py::TestReportStatusPollRunActivity
 products/legal_documents/backend/tests/test_admin.py::TestLegalDocumentInlineRegistration
 products/logs/backend/test/test_logs_url_params.py::TestBuildLogsUrlParams
