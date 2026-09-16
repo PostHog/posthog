@@ -584,6 +584,42 @@ class TestContextLayerAPI(APIBaseTest):
             )
             assert outside_channel.status_code == 403, (path, outside_channel.content)
 
+    def test_new_spaces_may_share_a_heading_with_another_space(self, _flag) -> None:
+        self._enable()
+        heading = "# Customer support"
+        for name in ("growth", "support"):
+            with team_scope(self.team.id):
+                channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name=name, star=False)
+                assert channel is not None
+            task = apps.get_model("tasks", "Task").objects.create(
+                team=self.team,
+                created_by=self.user,
+                title=f"Build the {name} context",
+                channel_id=channel.id,
+            )
+            token = self._bearer(
+                "task:read task:write internal_run:read context_layer_internal:write",
+                scoped_teams=[self.team.id],
+                sandbox_task_id=task.id,
+            )
+            self.client.logout()
+            proposed = self.client.get(
+                f"{self.agent_url}/channel-pages/{channel.id}/",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert proposed.status_code == 200, proposed.content
+
+            created = self.client.put(
+                f"{self.agent_url}/pages/",
+                {
+                    "path": proposed.json()["path"],
+                    "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: {name} context.\nstatus: active\n---\n\n{heading}\n",
+                },
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+            assert created.status_code == 200, created.content
+
     @parameterized.expand(["org/product.md", "areas/product.md", "decisions/2026-09-01-product.md"])
     def test_task_proposes_shared_content_for_human_review(self, _flag: MagicMock, path: str) -> None:
         with team_scope(self.team.id):
