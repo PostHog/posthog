@@ -1652,6 +1652,29 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "cannot access temporary or unlogged relations during recovery",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "FeatureNotSupported: cannot access temporary or unlogged relations during recovery",
+        ],
+    )
+    def test_unlogged_table_on_read_replica_is_non_retryable(self, source, error_msg):
+        # An unlogged table is never replicated to a standby, so every retry re-hits the same
+        # SQLSTATE 0A000 wall — must not keep retrying.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unlogged-table-on-standby error should be non-retryable: {error_msg}"
+
+    def test_unlogged_table_on_read_replica_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "cannot access temporary or unlogged relations during recovery"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unlogged-table-on-standby error should surface an actionable message"
+        assert "unlogged" in friendly[0]
+
 
 class TestPostgresSourceRetryableErrors:
     @pytest.fixture
@@ -9004,6 +9027,26 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_pooler_login_cooldown_error_is_not_captured(self):
+        # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's
+        # duckgres bridge) can surface a transient PgBouncer server_login_retry cooldown wrapped in
+        # an unrelated exception class (observed as SyntaxErrorOrAccessRuleViolation), so this must
+        # be caught by message rather than type. It self-heals: degrade quietly like the other
+        # expected shapes here instead of flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.SyntaxErrorOrAccessRuleViolation(
+                'Unable to connect to Postgres at "host=... dbname=...": connection to server at '
+                '"..." failed: FATAL:  server login has been failing, cached error: connect failed '
+                "(server_login_retry)"
+            )
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
     def test_failed_sql_transaction_is_not_captured(self):
         # This lookup shares a connection with earlier best-effort metadata queries (PK + index
