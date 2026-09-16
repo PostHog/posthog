@@ -37,19 +37,20 @@ class TestHmacSha256(SimpleTestCase):
             encoding=encoding,  # type: ignore[arg-type]
         )
 
+        verification = scheme.verify(body=BODY, headers={"X-Signature": prefix + encoded})
+        self.assertEqual(verification.outcome, VerificationOutcome.VERIFIED)
+        # An HMAC over the raw body proves the sender holds the secret and nothing else, so it
+        # hands `deliveries` nothing to cross-check the body against.
+        self.assertEqual(verification.facts, {})
         self.assertEqual(
-            scheme.verify(body=BODY, headers={"X-Signature": prefix + encoded}),
-            VerificationOutcome.VERIFIED,
-        )
-        self.assertEqual(
-            scheme.verify(body=BODY, headers={"X-Signature": encoded}),
+            scheme.verify(body=BODY, headers={"X-Signature": encoded}).outcome,
             VerificationOutcome.VERIFIED if prefix == "" else VerificationOutcome.INVALID,
         )
 
     def test_header_lookup_is_case_insensitive(self) -> None:
         scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Hub-Signature-256", prefix="sha256=")
         self.assertEqual(
-            scheme.verify(body=BODY, headers={"x-hub-signature-256": "sha256=" + _digest().hex()}),
+            scheme.verify(body=BODY, headers={"x-hub-signature-256": "sha256=" + _digest().hex()}).outcome,
             VerificationOutcome.VERIFIED,
         )
 
@@ -65,12 +66,12 @@ class TestHmacSha256(SimpleTestCase):
         self, _name: str, headers: dict[str, str], expected: VerificationOutcome
     ) -> None:
         scheme = HmacSha256(secret_getter=lambda: SECRET, signature_header="X-Signature", prefix="sha256=")
-        self.assertEqual(scheme.verify(body=BODY, headers=headers), expected)
+        self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, expected)
 
     def test_missing_secret_is_not_configured_rather_than_invalid(self) -> None:
         scheme = HmacSha256(secret_getter=lambda: None, signature_header="X-Signature")
         self.assertEqual(
-            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}),
+            scheme.verify(body=BODY, headers={"X-Signature": _digest().hex()}).outcome,
             VerificationOutcome.NOT_CONFIGURED,
         )
 
@@ -89,10 +90,10 @@ class TestHmacSha256(SimpleTestCase):
             "X-Slack-Request-Timestamp": timestamp,
         }
 
-        self.assertEqual(scheme.verify(body=BODY, headers=headers), VerificationOutcome.VERIFIED)
+        self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, VerificationOutcome.VERIFIED)
         # The same signature over the body alone must not pass, or the replay window is decorative.
         self.assertEqual(
-            scheme.verify(body=BODY, headers={**headers, "X-Slack-Signature": "v0=" + _digest().hex()}),
+            scheme.verify(body=BODY, headers={**headers, "X-Slack-Signature": "v0=" + _digest().hex()}).outcome,
             VerificationOutcome.INVALID,
         )
 
@@ -116,7 +117,7 @@ class TestHmacSha256(SimpleTestCase):
         signed = b"v0:" + timestamp.encode() + b":" + BODY
         headers = {"X-Signature": _digest(signed).hex(), "X-Timestamp": timestamp}
 
-        self.assertEqual(scheme.verify(body=BODY, headers=headers), VerificationOutcome.INVALID)
+        self.assertEqual(scheme.verify(body=BODY, headers=headers).outcome, VerificationOutcome.INVALID)
 
     def test_signature_pattern_rejects_before_the_digest_runs(self) -> None:
         scheme = HmacSha256(
@@ -126,7 +127,7 @@ class TestHmacSha256(SimpleTestCase):
         )
         with patch("hmac.digest") as digest:
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Vapi-Signature": "NOT-A-HEX-DIGEST"}),
+                scheme.verify(body=BODY, headers={"X-Vapi-Signature": "NOT-A-HEX-DIGEST"}).outcome,
                 VerificationOutcome.INVALID,
             )
         digest.assert_not_called()
@@ -159,14 +160,16 @@ class TestSnsSignature(SimpleTestCase):
         self, _name: str, topic_arn: str, verified: bool, expected: str
     ) -> None:
         body = f'{{"TopicArn": "{topic_arn}", "MessageId": "m1"}}'.encode()
-        self.assertEqual(self._scheme(verified=verified).verify(body=body, headers={}), VerificationOutcome(expected))
+        self.assertEqual(
+            self._scheme(verified=verified).verify(body=body, headers={}).outcome, VerificationOutcome(expected)
+        )
 
     def test_empty_allowlist_is_not_configured(self) -> None:
         body = b'{"TopicArn": "arn:aws:sns:eu-west-1:1:ses-events"}'
         self.assertEqual(
-            self._scheme(allowed=frozenset()).verify(body=body, headers={}),
+            self._scheme(allowed=frozenset()).verify(body=body, headers={}).outcome,
             VerificationOutcome.NOT_CONFIGURED,
         )
 
     def test_unparseable_body_is_invalid_rather_than_raising(self) -> None:
-        self.assertEqual(self._scheme().verify(body=b"not json", headers={}), VerificationOutcome.INVALID)
+        self.assertEqual(self._scheme().verify(body=b"not json", headers={}).outcome, VerificationOutcome.INVALID)
