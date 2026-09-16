@@ -113,6 +113,11 @@ _MAX_GOAL_MATCHED_EVENTS = 30
 _MIN_GOAL_TERM_CHARS = 4
 # Only the first terms are looked up, so a long goal stays one bounded query.
 _MAX_GOAL_TERMS = 8
+# Double-quoted phrases in a goal, straight or curly. A quoted phrase is the user dictating an
+# exact event name, so it is looked up as-is instead of going through the term heuristics.
+_QUOTED_PHRASE_RE = re.compile(r'["“]([^"“”]{2,255})["”]')
+# Only the first quoted phrases are looked up, mirroring the goal-term bound.
+_MAX_QUOTED_PHRASES = 8
 # Surveys whose names match the goal, shown with their IDs so a filter can name one exactly.
 _MAX_MATCHED_SURVEYS = 10
 # The events that carry a survey's identity, and the property holding it. A filter on one survey is
@@ -537,6 +542,9 @@ def draft_scanner_from_goal(
     may flow out through this endpoint's response (the model can echo them into the draft).
     """
     taxonomy = _product_taxonomy(team)
+    # The taxonomy is a recency sample, so an event the goal quotes verbatim can be missing from
+    # it; on a large product it usually is. Quoted names lead, so the model sees them first.
+    events = list(dict.fromkeys([*_quoted_goal_events(team, goal), *taxonomy.events]))
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context
@@ -544,14 +552,14 @@ def draft_scanner_from_goal(
     )
     user_content = _build_user_content(
         goal,
-        taxonomy.events,
+        events,
         taxonomy.screens,
         scanners=_existing_scanners(team, user_access_control),
         business_context=_business_context(team, user) if include_business_context else "",
         company=company,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
-    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events, team_id=team.id)
+    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=events, team_id=team.id)
 
 
 def _hit_output_cap(response: GenerateContentResponse) -> bool:
@@ -639,6 +647,60 @@ def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str
     return list(dict.fromkeys(v for raw in proposed if (v := raw.strip()) in allowed_set))[:cap]
 
 
+def _event_names_by_lower(team_id: int, candidates: Sequence[str]) -> dict[str, str]:
+    """Map of lowercased candidate to the team's canonical event name, for candidates that are
+    real, still-firing, non-internal events. Empty on lookup failure, which costs the match, not
+    the draft."""
+    if not candidates:
+        return {}
+    matches = Q()
+    for name in candidates:
+        matches |= Q(name__iexact=name)
+    try:
+        found = (
+            EventDefinition.objects.filter(team_id=team_id, last_seen_at__isnull=False)
+            .exclude(name__startswith="$")
+            .filter(matches)
+            .values_list("name", flat=True)
+        )
+        return {name.lower(): name for name in found}
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.event_lookup_failed", team_id=team_id, exc_info=True)
+        return {}
+
+
+def _grounded_events(proposed: list[str], allowed: Sequence[str], cap: int, team_id: int | None) -> list[str]:
+    """The proposed event filters worth keeping: verbatim members of the briefing list, plus
+    proposals that are real events on the team by exact (case-insensitive) name.
+
+    The briefing's events list is a sample, not the catalogue, so a goal can name a real event the
+    sample missed and the model copies it faithfully. List membership alone would drop it and
+    silently widen the scan. The definition lookup keeps `_grounded`'s anti-hallucination property,
+    because an invented name matches no definition and still drops. Kept names come back in the
+    team's canonical casing, which is what the recordings query has to match."""
+    allowed_set = set(allowed)
+    cleaned = list(dict.fromkeys(v for raw in proposed if (v := raw.strip())))
+    unknown = [v for v in cleaned if v not in allowed_set]
+    canonical = _event_names_by_lower(team_id, unknown) if unknown and team_id is not None else {}
+    kept = (
+        v if v in allowed_set else canonical[v.lower()] for v in cleaned if v in allowed_set or v.lower() in canonical
+    )
+    return list(dict.fromkeys(kept))[:cap]
+
+
+def _quoted_goal_events(team: Team, goal: str) -> list[str]:
+    """The team's events whose names the goal quotes verbatim, in canonical casing.
+
+    A quoted phrase is the user dictating an exact event, not a keyword to search with: it must
+    reach the briefing even when the term lookup's stopwords, length cutoffs, or result caps would
+    miss it. Exact (case-insensitive) match only, because a substring match here would reintroduce
+    the crowding the direct lookup exists to bypass."""
+    phrases = [s for p in _QUOTED_PHRASE_RE.findall(goal) if (s := p.strip())]
+    phrases = list(dict.fromkeys(phrases))[:_MAX_QUOTED_PHRASES]
+    lookup = _event_names_by_lower(team.id, phrases)
+    return [lookup[p.lower()] for p in phrases if p.lower() in lookup]
+
+
 def _screen_can_ground(screen: str) -> bool:
     return len(screen.strip().replace("/", "")) >= _MIN_SCREEN_FILTER_CHARS
 
@@ -713,9 +775,12 @@ def _finalize(
     screens = _grounded(
         [s for s in parsed.filter_screens if _screen_can_ground(s)], allowed_screens, _MAX_FILTER_SCREENS
     )
-    events = _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS)
+    events = _grounded_events(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS, team_id)
     dropped_screens = {s for s in (v.strip() for v in parsed.filter_screens) if s} - set(screens)
-    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e} - set(events)
+    # Compare case-insensitively: a kept event may carry the team's canonical casing rather than
+    # the model's, and that is a kept filter, not a dropped one.
+    kept_events_lower = {e.lower() for e in events}
+    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e and e.lower() not in kept_events_lower}
     if dropped_screens or dropped_events:
         # Every dropped value silently broadens the scan (worst case to every session, the most
         # expensive outcome) while the rationale may still describe a narrow one, so the drop
@@ -1084,14 +1149,19 @@ def _goal_terms(goal: str) -> list[str]:
 
 
 def _events_for_goal(team: Team, goal: str) -> list[str]:
-    """Custom event names to show the model: a baseline sample, widened by the goal's own words.
+    """Custom event names to show the model: names the goal quotes verbatim, then a baseline
+    sample widened by the goal's own words.
 
     The baseline alone cannot cover a large product. Ranking does not rescue it either, because the
     event a goal needs is often rare: "survey sent" is the 591st busiest event on a product with
     2,332 of them, so it sits outside any baseline worth putting in a prompt, while its name matches
     the word "survey" immediately.
 
-    Matching only widens what the model can see. The model still chooses, and `_grounded` still
+    Quoted names get their own direct lookup because the term heuristics can miss them: their words
+    can be too short or too common to be terms, and the matched-events cap can crowd them out when
+    a broad term matches much of the catalogue.
+
+    Matching only widens what the model can see. The model still chooses, and grounding still
     drops anything it invents, so a term that matches the wrong events costs prompt space rather
     than correctness.
     """
@@ -1102,9 +1172,10 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
     except Exception:
         logger.warning("replay_vision.scanner_draft.baseline_events_failed", team_id=team.id, exc_info=True)
 
+    quoted = _quoted_goal_events(team, goal)
     terms = _goal_terms(goal)
     if not terms:
-        return baseline
+        return list(dict.fromkeys([*quoted, *baseline]))
 
     matched: list[str] = []
     try:
@@ -1120,8 +1191,9 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
         # A failed lookup costs the goal-matched events, not the draft.
         logger.warning("replay_vision.scanner_draft.goal_events_failed", team_id=team.id, exc_info=True)
 
-    # Matched first: they are the ones the goal actually points at, and the briefing is read in order.
-    return list(dict.fromkeys([*matched, *baseline]))
+    # Quoted then matched first: they are the ones the goal actually points at, and the briefing is
+    # read in order.
+    return list(dict.fromkeys([*quoted, *matched, *baseline]))
 
 
 def _scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject) -> bool:
@@ -1452,13 +1524,16 @@ def _grounded_event_properties(
     are allowed through.
     """
     allowed_values = {s.survey_id for s in allowed_surveys}
-    kept = set(kept_events)
+    # Keyed case-insensitively because grounding can rewrite a kept event to the team's canonical
+    # casing; the property filter must ride on that exact spelling to land on its event's entry.
+    kept = {e.lower(): e for e in kept_events}
     out: list[_LlmEventPropertyFilter] = []
     for prop in proposed:
         event, name, value = prop.event.strip(), prop.property.strip(), prop.value.strip()
-        if event not in kept or name != _SURVEY_ID_PROPERTY or value not in allowed_values:
+        canonical_event = kept.get(event.lower())
+        if canonical_event is None or name != _SURVEY_ID_PROPERTY or value not in allowed_values:
             continue
-        out.append(_LlmEventPropertyFilter(event=event, property=name, value=value))
+        out.append(_LlmEventPropertyFilter(event=canonical_event, property=name, value=value))
         if len(out) >= _MAX_FILTER_EVENT_PROPERTIES:
             break
     return out
@@ -1506,9 +1581,11 @@ def _finalize_v2(
     # or a well-behaved model's page fails the verbatim check and the scanner widens to everything.
     proposed_pages = [s for p in parsed.filter_pages if (s := _strip_page_count(p))]
     # Verbatim membership in the lists the model was shown: a page or event the product never emits
-    # would silently match zero sessions, so a hallucinated one must not survive.
+    # would silently match zero sessions, so a hallucinated one must not survive. Events also accept
+    # a definition-lookup match, because the briefing's events list is a sample and the goal can
+    # name a real event the sample missed.
     pages = _grounded(proposed_pages, allowed_pages, _MAX_FILTER_PAGES)
-    events = _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS)
+    events = _grounded_events(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS, team_id)
 
     # Always exclude internal and test users: a scanner defaults to real-user sessions unless the
     # creator says otherwise (the recordings step can toggle it back on). No-op for a team that has
@@ -1539,7 +1616,10 @@ def _finalize_v2(
     query["filter_test_accounts"] = True
 
     dropped_pages = set(proposed_pages) - set(pages)
-    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e} - set(events)
+    # Compare case-insensitively: a kept event may carry the team's canonical casing rather than
+    # the model's, and that is a kept filter, not a dropped one.
+    kept_events_lower = {e.lower() for e in events}
+    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e and e.lower() not in kept_events_lower}
     # A page can ground yet drop to None in `_page_filter_value` (a too-short prefix) with nothing
     # formally dropped, so the query still widens to everything. Fire the warning whenever the model
     # wanted a filter but none survived, not only when a value was dropped.
