@@ -8,6 +8,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql import query_stats
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -16,7 +17,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
-from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan, run_query_scan_inline
+from posthog.query_scan.job import Execution, InlineOutcome, QueryScanJob, run_query_scan, run_query_scan_inline
 from posthog.query_scan.stub import stub_in_subqueries
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -185,6 +186,8 @@ class TestQueryScanJob(BaseTest):
 
 
 def _explain_unbounded(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
+    # The real client records every query into the open scope.
+    query_stats.record(rows_read=1, duration_ms=1.0)
     if "system.parts" in query:
         return _ROW_AVERAGES
     return [[_plan("plan_no_date_bound")]]
@@ -214,10 +217,16 @@ class TestQueryScanInline(BaseTest):
         return stored.analysis if stored is not None else None
 
     def test_stores_the_analysis_before_the_deadline(self) -> None:
-        with mock.patch("posthog.query_scan.job.sync_execute", side_effect=_explain_unbounded):
-            stored_in_time = run_query_scan_inline(self._job(deadline_ms=10_000))
+        with (
+            mock.patch("posthog.query_scan.job.sync_execute", side_effect=_explain_unbounded),
+            query_stats.query_stats_scope() as run_stats,
+        ):
+            outcome = run_query_scan_inline(self._job(deadline_ms=10_000))
 
-        assert stored_in_time is True
+        assert outcome == InlineOutcome.STORED
+        # The EXPLAINs run on the run's behalf, but they are not its reads, so the run's totals
+        # and its `query executed` event must not count them.
+        assert run_stats.query_count == 0
         analysis = self._stored_analysis()
         assert analysis is not None
         assert [str(finding.kind) for finding in analysis.findings] == ["no_start_date"]
@@ -238,8 +247,8 @@ class TestQueryScanInline(BaseTest):
             return _explain_unbounded(query, arguments, *args, **kwargs)
 
         with mock.patch("posthog.query_scan.job.sync_execute", side_effect=explain_once_released):
-            stored_in_time = run_query_scan_inline(self._job(deadline_ms=20))
-            assert stored_in_time is False
+            outcome = run_query_scan_inline(self._job(deadline_ms=20))
+            assert outcome == InlineOutcome.PENDING
             assert self._stored_analysis() is None
             release.set()
             assert reported.wait(timeout=10)
@@ -247,6 +256,21 @@ class TestQueryScanInline(BaseTest):
         assert self._stored_analysis() is not None
         properties = self.capture.call_args.kwargs["properties"]
         assert (properties["inline"], properties["deadline_hit"]) == (True, True)
+
+    def test_declines_once_the_process_runs_its_share(self) -> None:
+        # Slow API runs across many teams would otherwise each start threads that a deadline hit
+        # leaves running, so past the cap the run is declined and the trigger enqueues it.
+        taken = threading.BoundedSemaphore(1)
+        taken.acquire()
+        with (
+            mock.patch("posthog.query_scan.job._inline_slots", taken),
+            mock.patch("posthog.query_scan.job.sync_execute", side_effect=_explain_unbounded) as execute,
+        ):
+            outcome = run_query_scan_inline(self._job(deadline_ms=10_000))
+
+        assert outcome == InlineOutcome.DECLINED
+        execute.assert_not_called()
+        assert self._stored_analysis() is None
 
 
 class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):

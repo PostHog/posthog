@@ -29,6 +29,7 @@ from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_
 from posthog.clickhouse.workload import Workload
 from posthog.models.team.team import Team
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.job import InlineOutcome
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
@@ -179,7 +180,9 @@ class TestQueryScanTrigger(SimpleTestCase):
         # on the cluster its query went to, with the slot claimed the same way.
         tag_queries(**tags)
 
-        with mock.patch("posthog.query_scan.trigger.run_query_scan_inline", return_value=True) as inline:
+        with mock.patch(
+            "posthog.query_scan.trigger.run_query_scan_inline", return_value=InlineOutcome.STORED
+        ) as inline:
             result = self._trigger(stats=_stats(executions=[_execution(workload=Workload.ONLINE)]))
 
         assert result is None
@@ -195,6 +198,15 @@ class TestQueryScanTrigger(SimpleTestCase):
         key, payload = self.redis.set.call_args.args
         assert key == slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
         assert json.loads(payload) == {"pending": True}
+
+    def test_a_declined_inline_run_goes_to_the_worker(self) -> None:
+        _tag_as_api_key(self)
+
+        with mock.patch("posthog.query_scan.trigger.run_query_scan_inline", return_value=InlineOutcome.DECLINED):
+            result = self._trigger()
+
+        assert result is None
+        assert self.delay.call_count == 1
 
     def test_an_inline_failure_frees_the_slot_and_keeps_the_result(self) -> None:
         # The person already waited for the query, so the analysis must not take it down, and

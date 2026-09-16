@@ -7,9 +7,11 @@ independent ones together.
 
 from __future__ import annotations
 
+import threading
 import contextvars
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from enum import StrEnum
 from time import perf_counter
 from typing import Any, TypeVar, get_args
 
@@ -17,6 +19,8 @@ import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.schema import QueryScanAnalysis, QueryScanWarning
+
+from posthog.hogql import query_stats
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -49,6 +53,11 @@ TABLE_AVERAGES_MAX_SECONDS = 5
 # The trigger ships five executions with five subqueries at most, so one job plans seventeen
 # queries at the outside. The cap keeps it from opening that many connections at once.
 MAX_EXPLAIN_WORKERS = 8
+# Analyses run in this process for callers that wait. One that passes its deadline runs on
+# behind its response and still counts, so a burst of slow API runs across teams cannot pile
+# up threads and connections here; past the cap the trigger enqueues the run instead.
+MAX_INLINE_ANALYSES = 4
+_inline_slots = threading.BoundedSemaphore(MAX_INLINE_ANALYSES)
 
 # The two events tables and the three persons tables the persons gate compares in rows.
 _ROW_AVERAGE_TABLES = (
@@ -124,31 +133,59 @@ def run_query_scan(job: QueryScanJob) -> None:
         capture_exception(error, {"team_id": job.team.pk, "cache_key": job.cache_key, "context": "query_scan_job"})
 
 
-def run_query_scan_inline(job: QueryScanJob) -> bool:
-    """Analyze ``job`` while its caller waits, for up to ``job.inline_deadline_ms``. True when the
-    analysis was stored in time.
+class InlineOutcome(StrEnum):
+    """What an analysis run before the response did: stored in time, still running past the
+    deadline, or declined because this process already runs as many as it may."""
+
+    STORED = "stored"
+    PENDING = "pending"
+    DECLINED = "declined"
+
+
+def run_query_scan_inline(job: QueryScanJob) -> InlineOutcome:
+    """Analyze ``job`` while its caller waits, for up to ``job.inline_deadline_ms``.
 
     Past the deadline the thread runs on and stores the analysis, so the response goes out with the
     slot pending and the next read of the slot serves the findings. Nothing is enqueued again, which
     would plan the same run twice.
     """
+    if not _inline_slots.acquire(blocking=False):
+        return InlineOutcome.DECLINED
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="query_scan_inline")
-    future = _submit_in_context(pool, run_query_scan, job)
-    # The request returns while the analysis finishes; the thread ends on its own.
-    pool.shutdown(wait=False)
+    try:
+        future = _submit_in_context(pool, _run_and_free_the_slot, job)
+    except BaseException:
+        _inline_slots.release()
+        raise
+    finally:
+        # The request returns while the analysis finishes; the thread ends on its own.
+        pool.shutdown(wait=False)
     try:
         future.result(timeout=(job.inline_deadline_ms or 0) / 1000)
     except TimeoutError:
-        return False
-    return True
+        return InlineOutcome.PENDING
+    return InlineOutcome.STORED
+
+
+def _run_and_free_the_slot(job: QueryScanJob) -> None:
+    try:
+        run_query_scan(job)
+    finally:
+        _inline_slots.release()
 
 
 def _submit_in_context(pool: ThreadPoolExecutor, fn: Callable[..., T], *args: Any) -> Future[T]:
     """Run ``fn`` on the pool under a copy of the caller's context, so the query tags reach the
-    thread. A new thread starts with an empty context, and one Context object cannot be entered by
-    two threads at once, so each task gets its own copy."""
+    thread, and outside the caller's query-stats scope, so the EXPLAINs do not count as the run's
+    own reads. A new thread starts with an empty context, and one Context object cannot be entered
+    by two threads at once, so each task gets its own copy."""
     context = contextvars.copy_context()
-    return pool.submit(lambda: context.run(fn, *args))
+
+    def run_detached() -> T:
+        with query_stats.detached():
+            return fn(*args)
+
+    return pool.submit(lambda: context.run(run_detached))
 
 
 class _Planner:

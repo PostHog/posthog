@@ -110,6 +110,7 @@ from posthog.query_cache.failures import (
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
 from posthog.query_cache.storage import entry_redis_key
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.job import InlineOutcome
 from posthog.query_scan.slot import set_done
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
@@ -384,9 +385,14 @@ class TestQueryRunner(BaseTest):
             return TheTestBasicQueryResponse(results=[])
 
         stored: dict[str, str] = {}
+
+        def store(key: str, value: str, ex: int | None = None, nx: bool = False) -> bool:
+            stored[key] = value
+            return True
+
         redis_client = mock.Mock()
         redis_client.get.side_effect = lambda key: stored.get(key)
-        redis_client.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value) or True
+        redis_client.set.side_effect = store
         redis_client.incr.return_value = 1
 
         def analyze_before_the_response(job):
@@ -396,7 +402,7 @@ class TestQueryRunner(BaseTest):
                 thresholds=_QUERY_SCAN_FLAG_SHOW.thresholds_fingerprint,
                 analysis=QueryScanAnalysis(findings=[]),
             )
-            return True
+            return InlineOutcome.STORED
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (

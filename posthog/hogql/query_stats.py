@@ -110,6 +110,17 @@ def use(stats: QueryStats | None) -> Iterator[None]:
         _accumulator.reset(token)
 
 
+@contextlib.contextmanager
+def detached() -> Iterator[None]:
+    """Record nothing into the open scope inside this block, for work done on a run's behalf that is
+    not part of the run, such as the scan's EXPLAINs."""
+    token = _accumulator.set(None)
+    try:
+        yield
+    finally:
+        _accumulator.reset(token)
+
+
 def record(*, rows_read: int, duration_ms: float, workload: Workload | None = None) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
     _last_rows_read.set(rows_read)

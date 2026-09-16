@@ -30,7 +30,7 @@ from posthog.models.user import User
 from posthog.query_scan.event_filter import classify_event_filter
 from posthog.query_scan.findings import SQL_QUERY_KIND
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
-from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan_inline
+from posthog.query_scan.job import Execution, InlineOutcome, QueryScanJob, run_query_scan_inline
 from posthog.query_scan.slot import (
     claim_enqueue_budget,
     clear as clear_slot,
@@ -196,12 +196,13 @@ def maybe_trigger_query_scan(
             **run,
         )
         try:
-            run_query_scan_inline(job)
+            outcome = run_query_scan_inline(job)
         except Exception:
             logger.warning("query_scan_inline_failed", team_id=team_id, exc_info=True)
             clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
             return "inline_failed"
-        return None
+        if outcome != InlineOutcome.DECLINED:
+            return None
 
     # A module-level import would close the runner, trigger, task, job, runner cycle.
     from posthog.tasks.query_scan import analyze_query_scan  # noqa: PLC0415
