@@ -1779,6 +1779,14 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and max_wait_duration and not is_duration(max_wait_duration):
                 raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
 
+        if is_conditional_branch:
+            # A branch that matches no condition re-parks on this optional delay, which
+            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent means
+            # "do not re-park", so only a value that actually reaches the parser needs the format.
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if strict and delay_duration and not is_duration(delay_duration):
+                raise serializers.ValidationError({"config": duration_error("delay_duration")})
+
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
 

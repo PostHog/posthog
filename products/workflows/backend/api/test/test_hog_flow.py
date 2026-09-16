@@ -862,6 +862,63 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
 
+    def _make_conditional_branch_flow(self, config: dict) -> dict:
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1] = {
+            "id": "c1",
+            "name": "c1",
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [{"filters": {"properties": [{"key": "email", "value": "a@example.com"}]}}],
+                **config,
+            },
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_unit", "5"),
+            ("unsupported_unit", "10x"),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
+            ("unicode_digits", "\u0665d"),
+        ]
+    )
+    def test_hog_flow_conditional_branch_validation_rejects_malformed_delay_duration(self, _name, delay_duration):
+        # A branch that matches nothing re-parks on delay_duration through the same parser as a delay
+        # step, so a value only that parser rejects has to be rejected at write time too
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_conditional_branch_flow({"delay_duration": delay_duration}),
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "delay_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("seconds", {"delay_duration": "30s"}),
+            ("fractional_days", {"delay_duration": "1.5d"}),
+            # The re-park is optional, and every branch the editor writes omits it, so a branch with
+            # no delay must keep saving
+            ("absent", {}),
+            ("null", {"delay_duration": None}),
+            ("empty_string", {"delay_duration": ""}),
+        ]
+    )
+    def test_hog_flow_conditional_branch_validation_accepts_canonical_delay_duration(self, _name, config):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_conditional_branch_flow(config)
+        )
+        assert response.status_code == 201, response.json()
+
     @parameterized.expand(
         [
             ("bare_string", "greeting", {"key": "greeting"}),
