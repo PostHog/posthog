@@ -90,7 +90,7 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
     feature_flags: {
         label: 'Feature flags',
         description: 'Feature flags that may be ready for cleanup',
-        healthyDescription: 'No stale flags',
+        healthyDescription: 'No flags to clean up',
         icon: <IconToggle className="size-5" />,
         showInSummary: true,
     },
