@@ -70,12 +70,14 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_messagesuppression"
         indexes = [
             # Partial index for the Suppression list UI query:
-            # WHERE team_id = ? AND suppressed = true AND deleted = false ORDER BY updated_at DESC
+            # WHERE team_id = ? AND suppressed = true AND deleted = false
+            # ORDER BY updated_at DESC, id DESC
             # Small (only actively-suppressed rows) and sorted the way we read, so it also serves
-            # the paginator COUNT without a full team scan.
+            # the paginator COUNT without a full team scan. `id` is part of the sort, so it is in
+            # the index too, otherwise the plan needs a sort step on top of the scan.
             models.Index(
-                fields=["team", "-updated_at"],
-                name="pmsg_supp_active_by_updated",
+                fields=["team", "-updated_at", "-id"],
+                name="pmsg_supp_active_by_upd_id",
                 condition=Q(suppressed=True, deleted=False),
             ),
         ]

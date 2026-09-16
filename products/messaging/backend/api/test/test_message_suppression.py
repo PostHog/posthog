@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -134,3 +137,35 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
         ), (
             "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
+
+
+# `updated_at` is not unique, and bounce handling rewrites rows while a user pages, so a sort on
+# `updated_at` alone lets a tied row move between pages. The user then sees it twice, or never sees
+# it. The assertion is on the SQL because a test that pages through tied rows and compares the union
+# against the full set passes either way: on a small table Postgres returns the tied rows in the
+# same order for both pages.
+class TestSuppressionListPagination(APIBaseTest):
+    def test_list_query_breaks_updated_at_ties_on_id(self) -> None:
+        for index in range(3):
+            MessageSuppression.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                identifier=f"user{index}@example.com",
+                source=SuppressionSource.BOUNCE,
+                suppressed=True,
+            )
+        MessageSuppression.objects.for_team(self.team.id).update(updated_at=timezone.now())
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/")
+
+        assert response.status_code == 200, response.json()
+
+        list_queries = [
+            query["sql"]
+            for query in captured.captured_queries
+            if '"posthog_messagesuppression"' in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        assert list_queries
+
+        order_by = list_queries[-1].rsplit("ORDER BY", 1)[1].split("LIMIT")[0].strip()
+        assert order_by.endswith('"id" DESC'), order_by
