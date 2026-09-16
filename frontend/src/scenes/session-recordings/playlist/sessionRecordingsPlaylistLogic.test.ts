@@ -1781,36 +1781,88 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.filters.experiment_exposure).toEqual(laterExposure)
         })
 
-        // A caller that writes every change back into its `filters` prop resets to replay's defaults.
-        // The keys that scope the list to its population have to survive that all the same.
-        it.each<[string, () => void]>([
-            ['a reset', () => logic.actions.resetFilters()],
-            ['an invalid filter value', () => logic.actions.setFilters({ duration: 'nope' } as any)],
-        ])('keeps the caller-owned keys through %s when the caller does not opt in', async (_name, act) => {
-            const experimentExposure = { experiment_id: 2, variant: 'control' }
-            const scopedProps = {
-                logicKey: 'caller_owned_keys_kept',
-                updateSearchParams: false,
-                filters: {
-                    date_from: '-7d',
-                    duration: DEFAULT_RECORDING_FILTERS.duration,
-                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
-                    experiment_exposure: experimentExposure,
-                    session_ids: ['a-session'],
-                },
+        // An invalid value falls back to the same baseline a reset returns to, so the fallback must
+        // keep the caller's scope too. Otherwise one bad value unscopes the list.
+        it('keeps an opted-in caller scope when a filter value is invalid', async () => {
+            const callerFilters = {
+                date_from: '-7d',
+                duration: DEFAULT_RECORDING_FILTERS.duration,
+                filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                experiment_exposure: { experiment_id: 2, variant: 'control' },
             }
 
-            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'caller_scope_kept_on_invalid',
+                updateSearchParams: false,
+                resetToCallerFilters: true,
+                filters: callerFilters,
+            })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
 
-            await expectLogic(logic, act).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ duration: 'nope' } as any)
+            }).toFinishAllListeners()
 
-            expect(logic.values.filters).toEqual({
-                ...getDefaultFilters(),
-                experiment_exposure: experimentExposure,
-                session_ids: ['a-session'],
-            })
+            expect(logic.values.filters).toEqual(expect.objectContaining(callerFilters))
+        })
+
+        // A notebook passes its filters in and writes every change back into them
+        // (NotebookNodePlaylist), so the prop carries the viewer's own edits. A reset has to clear
+        // those edits: the badge counts them, and no other control puts them back.
+        it('clears a viewer filter on a reset when the caller writes its filters back', async () => {
+            const baseProps = {
+                logicKey: 'caller_writes_filters_back',
+                updateSearchParams: false,
+                filters: {
+                    date_from: DEFAULT_RECORDING_FILTERS.date_from,
+                    date_to: null,
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: DEFAULT_RECORDING_FILTERS.filter_group,
+                },
+            }
+
+            logic = sessionRecordingsPlaylistLogic(baseProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            // the viewer picks recordings in the filter bar, and the caller stores what it is handed
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ session_ids: ['a-session'] })
+            }).toFinishAllListeners()
+            sessionRecordingsPlaylistLogic({ ...baseProps, filters: logic.values.filters })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.totalFiltersCount).toEqual(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.session_ids).toBeUndefined()
+            expect(logic.values.totalFiltersCount).toEqual(0)
+        })
+
+        // A saved filter set, and the Max apply path, can carry an empty duration. Every list has to
+        // count that, caller-scoped or not, because a reset restores the floor.
+        it('counts an emptied duration floor on a list that no caller scopes', async () => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'no_caller_duration', updateSearchParams: false })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+            expect(logic.values.totalFiltersCount).toEqual(0)
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ duration: [] })
+            }).toFinishAllListeners()
+
+            expect(logic.values.totalFiltersCount).toEqual(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.duration).toEqual(DEFAULT_RECORDING_FILTERS.duration)
+            expect(logic.values.totalFiltersCount).toEqual(0)
         })
 
         // On the tab the badge used to count the experiment's own range, watch card and metric
@@ -1861,9 +1913,9 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.totalFiltersCount).toEqual(1)
         })
 
-        // A caller's own filter can be removed from the filter bar, and a saved filter can arrive
-        // without a duration. Both widen the list, so the count has to notice, or the reset that
-        // puts them back stays disabled.
+        // Every control in the filter bar can move a caller's own filter: remove a metric filter,
+        // clear the duration floor, flip the test-account setting. Each one widens or narrows the
+        // list, so the count has to notice, or the reset that puts it back stays disabled.
         it.each<[string, Partial<RecordingUniversalFilters>]>([
             [
                 'a filter it scoped with',
@@ -1875,11 +1927,13 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
             ],
             ['the duration floor', { duration: [] }],
-        ])('counts %s once the viewer removes it, and a reset puts it back', async (_name, removal) => {
+            ['the test-account setting', { filter_test_accounts: false }],
+        ])('counts a change to %s, and a reset puts it back', async (_name, change) => {
             const callerFilters = {
                 date_from: '2024-03-01',
                 date_to: null,
                 duration: DEFAULT_RECORDING_FILTERS.duration,
+                filter_test_accounts: true,
                 filter_group: {
                     type: FilterLogicalOperator.And,
                     values: [
@@ -1892,7 +1946,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 experiment_exposure: { experiment_id: 1 },
             }
             const scopedProps = {
-                logicKey: 'caller_baseline_removed',
+                logicKey: 'caller_baseline_changed',
                 updateSearchParams: false,
                 resetToCallerFilters: true,
                 filters: callerFilters,
@@ -1904,7 +1958,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.totalFiltersCount).toEqual(0)
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters(removal)
+                logic.actions.setFilters(change)
             }).toFinishAllListeners()
 
             expect(logic.values.totalFiltersCount).toEqual(1)
