@@ -101,7 +101,8 @@ One tick is one `alerts-product-orchestrate` execution. It takes an `Orchestrate
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-product-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the evaluation queue.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
-Each dispatcher has a 30-second execution timeout and one attempt.
+Each dispatcher has one attempt and an execution timeout of 30 seconds, or the time left before the tick's hard stop minus one second, whichever is shorter.
+The hard stop is the run's own execution timeout when it has one, and the budget plus five seconds otherwise. Both deadlines travel in the input across continued runs.
 
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
@@ -112,12 +113,14 @@ Members are not passed to evaluation yet: evaluation keeps the probe path until 
 
 After every page the orchestrator records a `TickPage` (page, run ID, dispatched, remaining).
 When nothing remains it returns `OrchestrateResult(remaining=0, deadline_reached=False)`.
-When work remains and the deadline has passed it returns cleanly with the remaining count and `deadline_reached=True`; the next minute's tick discovers that work again.
+Before each page after the first, it checks the deadline. When work remains and the deadline has passed, or fewer than two seconds remain before the hard stop, it returns cleanly with the remaining count and `deadline_reached=True`; the next minute's tick discovers that work again.
+A tick always runs its first page: the deadline is a stop rule, not an admission rule.
 A tick that exits with remaining work is a load signal. A tick that hits the schedule's 50-second execution timeout is a breakage signal: a clean exit never times out.
 The orchestrator calls `continue_as_new` only when Temporal reports `is_continue_as_new_suggested()`. The continued run receives the cutoff, deadline, demand and pages in its input and does not rerun discovery.
 The schedule's execution timeout spans continued runs, so a rollover cannot extend the tick.
 
-If the tick times out mid-page, Temporal terminates that page's dispatcher after the tick closes. Already started evaluations and their delivery children are abandoned and complete on their own.
+A dispatcher that overruns times out before the tick's hard stop, and the tick fails with that child error rather than being terminated mid-page. Evaluations already started by earlier dispatchers, and their delivery children, are abandoned and complete on their own.
+If the tick is terminated or times out anyway, Temporal terminates its in-flight dispatchers after the tick closes.
 The previous `workflow.patched` gate around discovery is gone: the loop cannot run without discovery, and dev histories live under a minute.
 
 ## Synthetic demand discovery

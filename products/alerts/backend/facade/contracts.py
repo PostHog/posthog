@@ -58,10 +58,11 @@ class TickPage:
 
 @frozen
 class OrchestrateInputs:
-    """Empty on the first run. A continued run carries the tick's cutoff, deadline, demand and pages."""
+    """Empty on the first run. A continued run carries the tick's cutoff, deadlines, demand and pages."""
 
     cutoff: str | None = None
-    deadline: str | None = None
+    deadline: str | None = None  # stop starting pages after this
+    hard_deadline: str | None = None  # the execution timeout lands here; no page may run past it
     page: int = 0
     demand: dict[SourceKind, list[str]] | None = None
     pages: list[TickPage] | None = None

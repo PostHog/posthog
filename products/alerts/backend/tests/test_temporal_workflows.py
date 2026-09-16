@@ -468,7 +468,11 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
         else []
     )
     info = MagicMock(
-        workflow_start_time=actual_start, typed_search_attributes=attributes, workflow_id="tick", run_id="run"
+        workflow_start_time=actual_start,
+        typed_search_attributes=attributes,
+        workflow_id="tick",
+        run_id="run",
+        execution_timeout=None,
     )
     with (
         patch.object(workflow, "info", return_value=info),

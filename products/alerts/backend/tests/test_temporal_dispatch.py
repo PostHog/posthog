@@ -4,7 +4,7 @@
 - discovery runs once per tick chain, never in a continued run
 - the tick awaits dispatcher reports and never an evaluation child
 - the tick exits cleanly with remaining work once its dispatch budget is spent
-- a timed-out tick terminates its dispatcher; a started evaluation survives
+- a dispatcher that overruns times out before the tick's hard stop; a started evaluation survives
 - a continued run carries the demand and skips discovery
 
 The paging rules use a test dispatcher registered under the real dispatcher's name. It takes one ID
@@ -25,7 +25,7 @@ import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType, ParentClosePolicy
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
-from temporalio.exceptions import TimeoutError
+from temporalio.exceptions import ChildWorkflowError, TimeoutError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
@@ -277,16 +277,20 @@ async def test_continued_run_carries_demand_and_skips_discovery(environment: Wor
     continued = first.events[-1].workflow_execution_continued_as_new_event_attributes
     carried = await client.data_converter.decode(continued.input.payloads, [OrchestrateInputs])
     assert carried[0].demand == {SourceKind.LOGS: ["l2"]}
-    assert carried[0].page == 1 and carried[0].cutoff is not None and carried[0].deadline is not None
+    assert carried[0].page == 1 and carried[0].cutoff is not None
+    assert carried[0].deadline is not None and carried[0].hard_deadline is not None
 
     second = await client.get_workflow_handle(tick_id, run_id=run_ids[1]).fetch_history()
     assert events_of(second, EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED) == []
     assert len(events_of(second, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED)) == 1
 
 
-async def test_timed_out_tick_terminates_dispatcher_but_started_evaluation_survives(
+async def test_overrunning_dispatcher_times_out_before_the_tick_hard_stop(
     local_environment: WorkflowEnvironment,
 ) -> None:
+    """The tick has a 3 s execution timeout, so each page gets at most 2 s. Page 1 blocks. Its dispatcher
+    times out first, the tick fails with that child error instead of being terminated mid-page, and
+    the evaluation page 0 started keeps running."""
     client = local_environment.client
     tick_id = f"tick-{uuid.uuid4()}"
     page_one_started = asyncio.Event()
@@ -312,27 +316,25 @@ async def test_timed_out_tick_terminates_dispatcher_but_started_evaluation_survi
         await asyncio.wait_for(page_one_started.wait(), timeout=20)
         with pytest.raises(WorkflowFailureError) as failure:
             await handle.result()
-        assert isinstance(failure.value.cause, TimeoutError)
-
-        # The server cascades TERMINATE to children after the parent closes, not in the same step.
-        for _ in range(50):
-            if (await client.get_workflow_handle(f"{tick_id}-logs-p1").describe()).status != (
-                WorkflowExecutionStatus.RUNNING
-            ):
-                break
-            await asyncio.sleep(0.1)
         release.set()  # let the blocked activity return so the worker can shut down
+        assert isinstance(failure.value.cause, ChildWorkflowError)
+        assert isinstance(failure.value.cause.cause, TimeoutError)
 
+        tick_status = (await handle.describe()).status
         statuses = {
             name: (await client.get_workflow_handle(f"{tick_id}-{name}").describe()).status
             for name in ("logs-p0", "logs-p1", "logs-p0-eval")
         }
+        page_one = await client.get_workflow_handle(f"{tick_id}-logs-p1").describe()
         evaluation_history = await client.get_workflow_handle(f"{tick_id}-logs-p0-eval").fetch_history()
         delivery_id = events_of(evaluation_history, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED)[
             0
         ].child_workflow_execution_started_event_attributes.workflow_execution.workflow_id
         delivery_status = (await client.get_workflow_handle(delivery_id).describe()).status
+    assert tick_status == WorkflowExecutionStatus.FAILED  # its own child error, not the execution timeout
     assert statuses["logs-p0"] == WorkflowExecutionStatus.COMPLETED
-    assert statuses["logs-p1"] == WorkflowExecutionStatus.TERMINATED
+    assert statuses["logs-p1"] == WorkflowExecutionStatus.TIMED_OUT
+    assert page_one.start_time is not None and page_one.close_time is not None
+    assert page_one.close_time - page_one.start_time < dt.timedelta(seconds=3)
     assert statuses["logs-p0-eval"] == WorkflowExecutionStatus.COMPLETED
     assert delivery_status == WorkflowExecutionStatus.RUNNING  # abandoned grandchild, no delivery worker here
