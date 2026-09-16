@@ -138,7 +138,27 @@ describe('computeVideoTimestamps', () => {
             )
 
             expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 6 })
-            expect(result[1]).toMatchObject({ recording_ts_from_s: 6, recording_ts_to_s: 6 })
+            // The file ran out before the second stretch, so the map says nothing about it. Putting
+            // it on the last frame would claim that frame shows a stretch the render never reached.
+            expect(result[1]).toMatchObject({ ts_from_s: 10, ts_to_s: 20 })
+            expect(result[1].recording_ts_from_s).toBeUndefined()
+            expect(result[1].recording_ts_to_s).toBeUndefined()
+        })
+
+        it('does not place a cut the render never reached', () => {
+            const result = computeVideoTimestamps(
+                [
+                    { ts_from_s: 0, ts_to_s: 10, active: true },
+                    { ts_from_s: 10, ts_to_s: 12, active: false },
+                    { ts_from_s: 12, ts_to_s: 20, active: true },
+                ],
+                [{ index: 0, video_s: 0 }],
+                6
+            )
+
+            expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 6 })
+            expect(result[1].recording_ts_from_s).toBeUndefined()
+            expect(result[2].recording_ts_from_s).toBeUndefined()
         })
 
         it('falls back to segment math for a segment capture never reported', () => {

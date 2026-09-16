@@ -12,6 +12,8 @@ import { InactivityPeriod, SegmentVideoStart } from './types'
  * that costs a frame cannot push the rest of the map out of step with the
  * file. Segment math only fills the gaps between those measurements.
  * `videoDurationS` is the length of the file, which the map has to end on.
+ * A period the file ran out before keeps no video position at all, because
+ * the render it names never reached it.
  */
 export function computeVideoTimestamps(
     periods: InactivityPeriod[],
@@ -27,24 +29,32 @@ export function computeVideoTimestamps(
     let tail = -1
     const results: InactivityPeriod[] = periods.map((period, index) => {
         videoTime = measured.get(index) ?? videoTime
-        const recordingTsFromS = Math.min(videoTime, end)
+        const start = videoTime
         if (period.active) {
             videoTime += period.ts_to_s != null ? period.ts_to_s - period.ts_from_s : 0
-            if (videoDurationS != null && recordingTsFromS < end) {
-                tail = index
-            }
         }
-        return { ...period, recording_ts_from_s: recordingTsFromS, recording_ts_to_s: Math.min(videoTime, end) }
+        if (start > end) {
+            // A render that stopped early leaves no frame here. Both consumers read a period with
+            // no video position as one this render does not cover, which is what happened.
+            return { ...period }
+        }
+        if (period.active && videoDurationS != null && start < end) {
+            tail = index
+        }
+        return { ...period, recording_ts_from_s: start, recording_ts_to_s: Math.min(videoTime, end) }
     })
 
     const nextActive: number[] = []
     for (let i = results.length - 1, seen = -1; i >= 0; i--) {
-        seen = results[i].active ? i : seen
+        seen = results[i].active && results[i].recording_ts_from_s != null ? i : seen
         nextActive[i] = seen
     }
 
     let lastActiveEnd: number | null = null
     for (let i = 0; i < results.length; i++) {
+        if (results[i].recording_ts_from_s == null) {
+            continue
+        }
         const after = nextActive[i + 1] ?? -1
         const resumesAt = after === -1 ? null : results[after].recording_ts_from_s!
         if (results[i].active) {
