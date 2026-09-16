@@ -118,16 +118,18 @@ function AlertCard({ alert }: { alert: ErrorTrackingAlertApi }): JSX.Element {
                 <Fact label="when">{triggersLabel(alert.triggers)}</Fact>
                 <Fact label="if">{filterLabels.length > 0 ? filterLabels.join(', ') : 'Every matching issue'}</Fact>
                 <Fact label="to">
-                    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         {alert.destinations.map((destination) => (
+                            // Inline text, not a flex box: a flex box takes its baseline from the icon,
+                            // which drops the "to" label below the other labels.
                             <span
                                 key={destination.id}
                                 className={cn(
-                                    'inline-flex items-center gap-1',
+                                    'whitespace-nowrap',
                                     destination.consecutive_failures > 0 && 'text-danger'
                                 )}
                             >
-                                <IconSlack className="w-3.5 h-3.5 shrink-0" />
+                                <IconSlack className="inline-block w-3.5 h-3.5 align-[-0.125em] mr-1" />
                                 {destination.config.channel_name || destination.config.channel}
                             </span>
                         ))}
