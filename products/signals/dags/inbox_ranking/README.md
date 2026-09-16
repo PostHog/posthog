@@ -87,15 +87,15 @@ s3://<bucket>/<prefix>/
 
 ### Outcome heads
 
-| Head | Cohort at the horizon | Horizon (days) |
-| --- | --- | --- |
-| `open` | Impressed reports | 3 |
-| `action` | Impressed reports | 7 |
-| `dismiss_wrong` | Impressed reports | 14 |
-| `pr_created` | Every report | 7 |
-| `pr_merged` | Every report | 14 |
-| `discuss` | Impressed reports | 7 |
-| `refund` | Every report | 14 |
+| Head            | Cohort at the horizon | Horizon (days) |
+| --------------- | --------------------- | -------------- |
+| `open`          | Impressed reports     | 3              |
+| `action`        | Impressed reports     | 7              |
+| `dismiss_wrong` | Impressed reports     | 14             |
+| `pr_created`    | Every report          | 7              |
+| `pr_merged`     | Every report          | 14             |
+| `discuss`       | Impressed reports     | 7              |
+| `refund`        | Every report          | 14             |
 
 Every training series resets on the first partition after deploy.
 Before and after holdout numbers are not comparable because the example population changes.
