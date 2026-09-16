@@ -25,6 +25,16 @@ type OrgEntitlementFields = {
     available_product_features?: Array<{ key: string }> | null
 }
 
+/**
+ * Whether a resolved project id can safely become a path segment. Anything else
+ * builds `/api/projects/<junk>/`, and because the id is cached for the session,
+ * every later project-scoped call 404s too. Rejecting it turns that dead end
+ * into `MissingProjectContextError`, which tells the agent how to pick a project.
+ */
+function isUsableProjectId(projectId: number | string): boolean {
+    return /^\d+$/.test(String(projectId)) && Number(projectId) > 0
+}
+
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
@@ -176,7 +186,7 @@ export class StateManager {
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
-                return { organizationId, projectId: Number(projectsResult.data[0]!) }
+                return { organizationId, projectId: projectsResult.data[0]!.id }
             }
             if (!projectsResult.success) {
                 // A 404 here means the API key/OAuth token points at an org the
@@ -233,7 +243,7 @@ export class StateManager {
             await this._cache.set('orgId', organizationId)
         }
 
-        if (projectId !== undefined) {
+        if (projectId !== undefined && isUsableProjectId(projectId)) {
             await this._cache.set('projectId', projectId.toString())
         }
 
@@ -281,9 +291,9 @@ export class StateManager {
     async getProjectId(): Promise<string> {
         const projectId = await this._cache.get('projectId')
 
-        if (!projectId) {
+        if (!projectId || !isUsableProjectId(projectId)) {
             const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
-            if (resolved === undefined) {
+            if (resolved === undefined || !isUsableProjectId(resolved)) {
                 throw new MissingProjectContextError({ organizationId })
             }
             return resolved.toString()

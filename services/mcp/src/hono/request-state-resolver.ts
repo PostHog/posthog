@@ -118,6 +118,22 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
     return pinned.organizationId ? ['switch-organization'] : []
 }
 
+/** Server-minted scope that marks an OAuth token as one of PostHog's built-in agents. */
+const BUILT_IN_AGENT_SCOPE = 'mcp_builtin_agent:read'
+
+/** MCP Store tools backed by the member-facing installation API, which Django guards with `DenyMCPBuiltInAgentOAuth`. */
+const MCP_STORE_MEMBER_TOOL_NAMES = ['mcp-connections-list', 'mcp-connection-tools-list'] as const
+
+/**
+ * Which tools to hide from a built-in agent's token. These 403 on every call —
+ * the agent reaches connected servers through its explicit gateway grants, which
+ * the sandbox mounts as tools of their own. The authorization rule is unchanged;
+ * the invitation to break it is what goes away.
+ */
+export function builtInAgentToolsToExclude(apiKeyScopes: string[]): string[] {
+    return apiKeyScopes.includes(BUILT_IN_AGENT_SCOPE) ? [...MCP_STORE_MEMBER_TOOL_NAMES] : []
+}
+
 // ─── Resolver ───
 
 // Task origins whose sandbox mounts every shared gateway server as its own MCP server
@@ -227,6 +243,7 @@ export class RequestStateResolver {
             ...switchToolsToExclude({ organizationId }),
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
+            ...builtInAgentToolsToExclude(apiKeyScopes),
         ]
 
         const filterOptions = {
