@@ -56,6 +56,18 @@ describe('sessionRecordingSavedFiltersLogic', () => {
         expect(savedFiltersRequestCount).toBe(1)
     })
 
+    it('loads saved filters once when a navigation menu opens', async () => {
+        logic.mount()
+
+        logic.actions.loadSavedFiltersIfNeeded()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+
+        logic.actions.loadSavedFiltersIfNeeded()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(savedFiltersRequestCount).toBe(1)
+    })
+
     it('loads saved filters when the filters panel was expanded before the logic mounted', async () => {
         playlistFiltersLogic.mount()
         playlistFiltersLogic.actions.setIsFiltersExpanded(true)

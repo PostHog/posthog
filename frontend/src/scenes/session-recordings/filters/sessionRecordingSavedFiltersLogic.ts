@@ -89,6 +89,9 @@ export interface sessionRecordingSavedFiltersLogicActions {
         error: string
         errorObject?: any
     }
+    loadSavedFiltersIfNeeded: () => {
+        value: true
+    }
     loadSavedFiltersSuccess: (
         savedFilters: SavedSessionRecordingPlaylistsResult,
         payload?: {
@@ -182,6 +185,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
             filters,
         }),
+        loadSavedFiltersIfNeeded: true,
         loadSavedFilters: true,
         updatePlaylist: (
             shortId: SessionRecordingPlaylistType['short_id'],
@@ -281,7 +285,12 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
     })),
     listeners(({ actions, values }) => ({
         setIsFiltersExpanded: ({ isFiltersExpanded }) => {
-            if (isFiltersExpanded && !values.hasLoadedSavedFilters && !values.savedFiltersLoading) {
+            if (isFiltersExpanded) {
+                actions.loadSavedFiltersIfNeeded()
+            }
+        },
+        loadSavedFiltersIfNeeded: () => {
+            if (!values.hasLoadedSavedFilters && !values.savedFiltersLoading) {
                 actions.loadSavedFilters()
             }
         },
@@ -339,8 +348,8 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         ],
     })),
     afterMount(({ actions, values }) => {
-        if (values.isFiltersExpanded && !values.hasLoadedSavedFilters && !values.savedFiltersLoading) {
-            actions.loadSavedFilters()
+        if (values.isFiltersExpanded) {
+            actions.loadSavedFiltersIfNeeded()
         }
         actions.checkForSavedFilterRedirect()
     }),
