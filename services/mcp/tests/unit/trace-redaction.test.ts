@@ -35,6 +35,41 @@ describe('trace redaction', () => {
         expect(properties.$ai_input).toBe('summarize this')
     })
 
+    it.each([
+        [
+            '$ai_request_url',
+            'https://api.example.com/v1/chat?api_key=invented-key-value',
+            'https://api.example.com/v1/chat [userinfo and query stripped]',
+        ],
+        [
+            '$ai_base_url',
+            'https://user:invented-key-value@api.example.com/v1/',
+            'https://api.example.com/v1/ [userinfo and query stripped]',
+        ],
+        ['$ai_base_url', 'https://api.example.com/v1/', 'https://api.example.com/v1/'],
+    ])('keeps the endpoint of %s and drops the credential a caller put in it', (key, sent, expected) => {
+        const { results } = redactTraceResults([traceWithProperties({ [key]: sent })]) as any
+
+        expect(JSON.stringify(results)).not.toContain('invented-key-value')
+        expect(results[0].events[0].properties[key]).toBe(expected)
+    })
+
+    it.each(['not a url', 42])('withholds an unparseable url property rather than guessing: %s', (sent) => {
+        const { results } = redactTraceResults([traceWithProperties({ $ai_request_url: sent })]) as any
+        const properties = results[0].events[0].properties
+
+        expect(properties).not.toHaveProperty('$ai_request_url')
+        expect(properties._redactedKeys).toContain('$ai_request_url')
+    })
+
+    it('lists the withheld names before the retained values, which the compactor drops first', () => {
+        const { results } = redactTraceResults([
+            traceWithProperties({ $ai_input: 'summarize this', api_key: 'invented-key-value' }),
+        ]) as any
+
+        expect(Object.keys(results[0].events[0].properties)[0]).toBe('_redactedKeys')
+    })
+
     it.each(['$session_id', '$lib', '$lib_version'])('keeps %s, which an agent needs to act on a trace', (key) => {
         const { results } = redactTraceResults([traceWithProperties({ [key]: 'kept' })]) as any
 

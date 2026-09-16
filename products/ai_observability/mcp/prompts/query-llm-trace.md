@@ -37,6 +37,10 @@ A bag that has something withheld lists those names under `_redactedKeys`, with 
 
 `$ai_debug_data` is a copy of the raw pre-conversion event bag, so its members go through the same filter.
 
+`$ai_request_url` and `$ai_base_url` come back as the endpoint only, without userinfo, query string, or fragment, because a provider that authenticates by query parameter puts the key there. A value that is not a parseable URL is withheld.
+
+The `$ai_*` namespace is not reserved at capture, so a custom `$ai_*` property you send is returned as you sent it. Do not put a secret in one.
+
 These tools never return a withheld value, whichever `detail` you ask for. The property still works as a filter here, and its value is unchanged in PostHog — open the trace there if a diagnosis depends on it.
 
 # Event types and their properties

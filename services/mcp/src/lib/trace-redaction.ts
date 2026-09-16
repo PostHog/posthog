@@ -20,6 +20,11 @@ const ALLOWED_KEYS = new Set(['$session_id', '$lib', '$lib_version'])
 // prefix wave the whole snapshot through.
 const NESTED_PROPERTY_BAGS = new Set(['$ai_debug_data'])
 
+// Documented properties whose value is a URL the caller supplies verbatim. Nothing
+// on the ingest path strips it, and a provider that authenticates by query
+// parameter puts the key inside it, so keep only the endpoint that was called.
+const URL_PROPERTIES = new Set(['$ai_request_url', '$ai_base_url'])
+
 const REDACTION_REASON =
     'Each `_redactedKeys` list names properties this response withholds, because they can carry authentication state, credentials, request headers, user identity, permissions, location, or budget context.'
 const REDACTION_NOTE =
@@ -33,6 +38,22 @@ function isAllowed(key: string): boolean {
     return key.startsWith(ALLOWED_KEY_PREFIX) || ALLOWED_KEYS.has(key)
 }
 
+/** Strip userinfo, query, and fragment. Returns undefined for anything unparseable. */
+function endpointOnly(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined
+    }
+    let url: URL
+    try {
+        url = new URL(value)
+    } catch {
+        return undefined
+    }
+    const endpoint = `${url.origin}${url.pathname}`
+    const carriedSecrets = url.username || url.password || url.search || url.hash
+    return carriedSecrets ? `${endpoint} [userinfo and query stripped]` : endpoint
+}
+
 interface RedactionState {
     withheldAny: boolean
 }
@@ -41,21 +62,36 @@ function redactProperties(properties: unknown, state: RedactionState): unknown {
     if (!isRecord(properties)) {
         return properties
     }
+    // `__proto__` fails `isAllowed`, so no assignment below reaches the inherited setter.
     const kept: Record<string, unknown> = {}
     const withheld: string[] = []
     for (const [key, value] of Object.entries(properties)) {
-        if (isAllowed(key)) {
-            // `__proto__` fails `isAllowed`, so this cannot reach the inherited setter.
-            kept[key] = NESTED_PROPERTY_BAGS.has(key) ? redactProperties(value, state) : value
-        } else {
+        if (!isAllowed(key)) {
             withheld.push(key)
+            continue
         }
+        if (NESTED_PROPERTY_BAGS.has(key)) {
+            kept[key] = redactProperties(value, state)
+            continue
+        }
+        if (URL_PROPERTIES.has(key)) {
+            const endpoint = endpointOnly(value)
+            if (endpoint === undefined) {
+                withheld.push(key)
+                continue
+            }
+            kept[key] = endpoint
+            continue
+        }
+        kept[key] = value
     }
-    if (withheld.length > 0) {
-        kept._redactedKeys = withheld
-        state.withheldAny = true
+    if (withheld.length === 0) {
+        return kept
     }
-    return kept
+    state.withheldAny = true
+    // First, not last: the compactor fills a bag in insertion order and stops when
+    // the budget runs out, so a trailing `_redactedKeys` can be the entry it drops.
+    return { _redactedKeys: withheld, ...kept }
 }
 
 function redactBag(owner: Record<string, unknown>, state: RedactionState): Record<string, unknown> {
