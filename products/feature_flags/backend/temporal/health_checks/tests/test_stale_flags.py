@@ -467,8 +467,8 @@ class TestStaleFlagsDetect(BaseTest):
 
         results = self._detect()
 
-        included = any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
-        assert included is expected_included
+        matching = [result for result in results.get(self.team.id, []) if result.payload["flag_id"] == flag.id]
+        assert len(matching) == (1 if expected_included else 0)
 
     # (name, flag_kwargs, expected payload subset)
     @parameterized.expand(

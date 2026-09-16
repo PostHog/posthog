@@ -154,20 +154,24 @@ class StaleFeatureFlagsCheck(HealthCheck):
         overlap_ids = {flag.id for flag in stale_candidates if flag.last_called_at is None}
         # The prefilter reads configuration only and returns a superset, so the policy that makes
         # one of those flags a cleanup candidate is applied here, and the checker settles each
-        # remaining row. A flag younger than the threshold has not had its chance yet, and one
-        # that went cold is already a `filter_stale_flags` row. Call recency is spelled as a
-        # positive filter because `exclude(last_called_at__lt=...)` on a nullable column drops the
-        # rows with no call data, which have to stay in.
-        full_rollout_candidates = [
-            flag
-            for flag in filter_effectively_full_rollout_flags(reportable_flags)
+        # remaining row. A flag created after the cutoff is too new for a constant configuration to
+        # mean the rollout is finished, and one that went cold is already a `filter_stale_flags`
+        # row. Call recency is spelled as a positive filter because
+        # `exclude(last_called_at__lt=...)` on a nullable column drops the rows with no call data,
+        # which have to stay in.
+        full_rollout_query = (
+            filter_effectively_full_rollout_flags(reportable_flags)
             .filter(
                 Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
                 created_at__lt=stale_threshold,
             )
             .exclude(pk__in=overlap_ids)
+        )
+        full_rollout_candidates = [
+            flag
+            for flag in full_rollout_query
             if not _serves_more_than_one_result(flag)
-            and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
+            and FeatureFlagStatusChecker(feature_flag=flag).is_flag_fully_rolled_out(flag)[0]
         ]
         candidates = stale_candidates + full_rollout_candidates
         if not candidates:

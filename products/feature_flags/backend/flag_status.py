@@ -94,6 +94,17 @@ _ELEM_HAS_NO_TARGETING = (
     "OR jsonb_typeof(elem->'properties') = 'null'"
     ")"
 )
+# Every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out` needs a release condition at
+# an explicit 100% with no targeting, so both predicates below test for one. Keep it in one place,
+# because a change to how the two read that shape has to reach the stale filter and the rollout
+# prefilter together or they classify the same flag differently.
+_HAS_UNTARGETED_FULL_ROLLOUT_GROUP = f"""
+    EXISTS (
+        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
+        WHERE elem->>'rollout_percentage' = '100'
+        AND {_ELEM_HAS_NO_TARGETING}
+    )
+"""
 
 
 def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
@@ -112,9 +123,9 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
 
-    Pass `stale_threshold` to hold one detection run to one cutoff, the same way
-    `filter_effectively_full_rollout_flags` takes it. Without it the function reads the clock
-    itself, which is what the `active=STALE` filter wants.
+    Pass `stale_threshold` to hold one detection run to one cutoff, so the caller can compare
+    its other queries against the same instant. Without it the function reads the clock itself,
+    which is what the `active=STALE` filter wants.
 
     The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
     branch when the two querysets are OR-combined below. Applied to the combined query, it
@@ -147,11 +158,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
             f"""
             (
                 (
-                    EXISTS (
-                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND {_ELEM_HAS_NO_TARGETING}
-                    )
+                    {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                     AND (posthog_featureflag.filters->>'multivariate' IS NULL
                         OR posthog_featureflag.filters->'multivariate' = '{{}}'::jsonb
                         OR jsonb_array_length({_VARIANTS_ARRAY}) = 0)
@@ -162,11 +169,7 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
                         SELECT 1 FROM jsonb_array_elements({_VARIANTS_ARRAY}) AS variant
                         WHERE variant->>'rollout_percentage' = '100'
                     )
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
-                        WHERE elem->>'rollout_percentage' = '100'
-                        AND {_ELEM_HAS_NO_TARGETING}
-                    )
+                    AND {_HAS_UNTARGETED_FULL_ROLLOUT_GROUP}
                 )
                 OR
                 (
@@ -217,17 +220,7 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
     `.filter()` chained onto the result ANDs cleanly and keeps the raw text at the top level.
     """
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-    return queryset.extra(
-        where=[
-            f"""
-            EXISTS (
-                SELECT 1 FROM jsonb_array_elements({_GROUPS_ARRAY}) AS elem
-                WHERE elem->>'rollout_percentage' = '100'
-                AND {_ELEM_HAS_NO_TARGETING}
-            )
-            """
-        ]
-    )
+    return queryset.extra(where=[_HAS_UNTARGETED_FULL_ROLLOUT_GROUP])
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
