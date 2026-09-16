@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconCopy, IconPencil, IconTrash } from '@posthog/icons'
 import {
@@ -42,6 +43,23 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
     const { currentProjectId } = useValues(teamLogic)
+    const [deleteCheckMetricId, setDeleteCheckMetricId] = useState<number | null>(null)
+
+    const handleDelete = async (sharedMetricId: number): Promise<void> => {
+        if (deleteCheckMetricId !== null) {
+            return
+        }
+        setDeleteCheckMetricId(sharedMetricId)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId,
+                onDelete: () => deleteSharedMetric(sharedMetricId),
+            })
+        } finally {
+            setDeleteCheckMetricId(null)
+        }
+    }
 
     const startCount = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
     const endCount = page * PAGE_SIZE < count ? page * PAGE_SIZE : count
@@ -138,13 +156,8 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                                     size="small"
                                     icon={<IconTrash />}
                                     status="danger"
-                                    onClick={() => {
-                                        void openDeleteSharedMetricDialog({
-                                            projectId: currentProjectId,
-                                            sharedMetricId: sharedMetric.id,
-                                            onDelete: () => deleteSharedMetric(sharedMetric.id),
-                                        })
-                                    }}
+                                    loading={deleteCheckMetricId === sharedMetric.id}
+                                    onClick={() => void handleDelete(sharedMetric.id)}
                                 >
                                     Delete
                                 </LemonButton>

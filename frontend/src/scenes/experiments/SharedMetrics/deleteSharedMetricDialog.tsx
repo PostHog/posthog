@@ -1,4 +1,4 @@
-import { LemonDialog, Link } from '@posthog/lemon-ui'
+import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -6,31 +6,29 @@ import { experimentSavedMetricsRetrieve } from 'products/experiments/frontend/ge
 import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
 /**
- * Deleting a shared metric cascades: it disappears from every experiment using it. The list
- * endpoint returns `linked_experiments` empty, so callers without the loaded metric leave
- * `linkedExperiments` undefined and the dialog fetches them before opening.
+ * Deleting a shared metric cascades: it disappears from every experiment using it. Linkage is
+ * always fetched fresh here, because list responses carry it empty and a detail page's copy can
+ * predate an experiment launched after the page loaded. A failed fetch blocks the dialog: an
+ * unwarned delete is worse than a retry.
  */
 export async function openDeleteSharedMetricDialog({
     projectId,
     sharedMetricId,
-    linkedExperiments,
     onDelete,
 }: {
     projectId: number | string
     sharedMetricId: number
-    linkedExperiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
     onDelete: () => void
 }): Promise<void> {
-    let experiments = linkedExperiments
-    if (experiments === undefined) {
-        try {
-            const response = await experimentSavedMetricsRetrieve(String(projectId), sharedMetricId)
-            experiments = response.linked_experiments
-        } catch {
-            experiments = []
-        }
+    let experiments: readonly ExperimentSavedMetricLinkedExperimentApi[]
+    try {
+        const response = await experimentSavedMetricsRetrieve(String(projectId), sharedMetricId)
+        experiments = response.linked_experiments || []
+    } catch {
+        lemonToast.error('Could not check which experiments use this metric. Try again.')
+        return
     }
-    const runningExperiments = (experiments || []).filter((experiment) => experiment.is_running)
+    const runningExperiments = experiments.filter((experiment) => experiment.is_running)
 
     LemonDialog.open({
         title: 'Delete this metric?',

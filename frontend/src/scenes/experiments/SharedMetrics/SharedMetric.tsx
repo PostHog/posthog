@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
@@ -96,19 +97,24 @@ export function SharedMetric(): JSX.Element {
 
     const { currentTeam, currentProjectId } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+    const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
 
-    const handleDelete = (): void => {
-        if (!sharedMetric.id) {
+    const handleDelete = async (): Promise<void> => {
+        if (!sharedMetric.id || deleteCheckLoading) {
             return
         }
-        void openDeleteSharedMetricDialog({
-            projectId: currentProjectId,
-            sharedMetricId: sharedMetric.id,
-            linkedExperiments: sharedMetric.linked_experiments,
-            onDelete: deleteSharedMetric,
-        })
+        setDeleteCheckLoading(true)
+        try {
+            await openDeleteSharedMetricDialog({
+                projectId: currentProjectId,
+                sharedMetricId: sharedMetric.id,
+                onDelete: deleteSharedMetric,
+            })
+        } finally {
+            setDeleteCheckLoading(false)
+        }
     }
 
     const handleSave = (): void => {
@@ -196,8 +202,8 @@ export function SharedMetric(): JSX.Element {
                                 <SceneMenuBarItem
                                     variant="destructive"
                                     opensFloatingUi
-                                    disabled={!!disabledReason}
-                                    onClick={handleDelete}
+                                    disabled={!!disabledReason || deleteCheckLoading}
+                                    onClick={() => void handleDelete()}
                                     data-attr="shared-metric-menubar-delete"
                                 >
                                     <IconTrash />
@@ -233,7 +239,12 @@ export function SharedMetric(): JSX.Element {
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={sharedMetric.user_access_level}
                         >
-                            <ButtonPrimitive variant="danger" menuItem onClick={handleDelete}>
+                            <ButtonPrimitive
+                                variant="danger"
+                                menuItem
+                                disabled={deleteCheckLoading}
+                                onClick={() => void handleDelete()}
+                            >
                                 <IconTrash /> Delete
                             </ButtonPrimitive>
                         </AccessControlAction>
@@ -278,7 +289,8 @@ export function SharedMetric(): JSX.Element {
                                             icon={<IconTrash />}
                                             status="danger"
                                             data-attr="shared-metric-delete"
-                                            onClick={handleDelete}
+                                            loading={deleteCheckLoading}
+                                            onClick={() => void handleDelete()}
                                         >
                                             Delete
                                         </LemonButton>
