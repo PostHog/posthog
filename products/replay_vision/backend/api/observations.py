@@ -72,6 +72,7 @@ from products.replay_vision.backend.search import (
     MAX_SEARCH_LIMIT,
     ObservationSearchFilters,
     ObservationSearchResult,
+    is_transient_embedding_error,
     parse_date_bound,
     query_vector_for,
     search_observations,
@@ -1387,9 +1388,11 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             )
         try:
             query_vector = query_vector_for(self.team, validated["q"])
-        except (requests.ConnectionError, requests.Timeout):
-            # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
-            # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(

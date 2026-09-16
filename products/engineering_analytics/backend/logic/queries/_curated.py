@@ -241,12 +241,13 @@ class CuratedGitHubSource:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
 
-    def issue_events_source(self) -> str | None:
+    def issue_events_source(self, *, created_floor: bool = False) -> str | None:
         """Curated PR draft/ready transitions ``SELECT`` subquery, or None when the optional
-        issue-events table isn't synced."""
+        issue-events table isn't synced. ``created_floor`` adds the raw-string scan floor — callers
+        must register {event_created_floor} (see run_started_floor_constant)."""
         if not self._tables.issue_events:
             return None
-        return f"({issue_events.build_query(self._tables.issue_events)})"
+        return f"({issue_events.build_query(self._tables.issue_events, created_floor=created_floor)})"
 
     def reviews_source(self) -> str | None:
         """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table

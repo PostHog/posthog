@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
 
@@ -36,18 +37,36 @@ type Result struct {
 
 type tableBinding struct {
 	name  string
-	table catalog.Table
+	table *catalog.PreparedTable
+	cte   *cteBinding
+}
+
+type cteBinding struct {
+	name       string
+	query      *clickhouse.SelectQuery
+	scope      *queryScope
+	budget     *projectionBudget
+	fields     []catalog.Entry
+	fieldsDone bool
+	resolving  bool
+}
+
+type projectionBudget struct {
+	remaining int
+	exceeded  bool
 }
 
 type queryScope struct {
 	query    *clickhouse.SelectQuery
 	parent   *queryScope
 	bindings map[string]tableBinding
+	ctes     []*cteBinding
+	cteRoot  bool
 }
 
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
 
-func Validate(schema *catalog.Catalog, query string) Result {
+func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	started := time.Now()
 	if err := querylimits.Validate(query); err != nil {
 		return result([]Diagnostic{{Code: "query_limit", Message: err.Error(), Start: 0, End: len(query)}}, nil, started)
@@ -60,22 +79,26 @@ func Validate(schema *catalog.Catalog, query string) Result {
 		}}, nil, started)
 	}
 
-	tablesByName := make(map[string]catalog.Table, len(schema.Tables))
-	for name, table := range schema.Tables {
-		tablesByName[strings.ToLower(name)] = table
-	}
-
 	var diagnostics []Diagnostic
 	var referencedTableNames []string
 	seenTableNames := map[string]bool{}
+	budget := projectionBudget{remaining: querylimits.MaxCTEProjectedFields}
 	for _, statement := range statements {
-		scopes := queryScopes(statement)
+		scopes := queryScopes(statement, &budget)
 		ignoredIdents := map[*clickhouse.Ident]bool{}
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
 			case *clickhouse.TableExpr:
 				name, alias, start, end, ok := tableReference(typed)
 				if !ok {
+					return true
+				}
+				scope := innermostScope(scopes, start, end)
+				if scope == nil {
+					return true
+				}
+				if cte := resolveCTE(scope, name, start); cte != nil {
+					addBinding(scope, name, alias, tableBinding{name: cte.name, cte: cte})
 					return true
 				}
 				if original, exists := originalTableNames[strings.ToLower(name)]; exists {
@@ -86,28 +109,25 @@ func Validate(schema *catalog.Catalog, query string) Result {
 					referencedTableNames = append(referencedTableNames, name)
 					seenTableNames[lowerName] = true
 				}
-				table, exists := tablesByName[strings.ToLower(name)]
+				table, exists := schema.Table(name)
 				if !exists {
 					if len(diagnostics) < querylimits.MaxDiagnostics {
 						diagnostics = append(diagnostics, Diagnostic{
 							Code: "unknown_table", Message: fmt.Sprintf("Unknown table %q", name), Start: start, End: end,
-							Suggestions: closest(name, tableNames(schema), 5),
+							Suggestions: closest(name, schema.Tables().Entries(), 5),
 						})
 					}
 					return true
 				}
 				binding := tableBinding{name: name, table: table}
-				scope := innermostScope(scopes, start, end)
-				if scope == nil {
-					return true
-				}
-				scope.bindings[strings.ToLower(name)] = binding
-				if alias != "" {
-					scope.bindings[strings.ToLower(alias)] = binding
-				}
+				addBinding(scope, name, alias, binding)
 			case *clickhouse.TableIdentifier:
 				ignoredIdents[typed.Database] = true
 				ignoredIdents[typed.Table] = true
+			case *clickhouse.CTEStmt:
+				if ident, ok := typed.Expr.(*clickhouse.Ident); ok {
+					ignoredIdents[ident] = true
+				}
 			case *clickhouse.FunctionExpr:
 				ignoredIdents[typed.Name] = true
 			case *clickhouse.IntervalExpr:
@@ -126,10 +146,19 @@ func Validate(schema *catalog.Catalog, query string) Result {
 		seen := map[string]bool{}
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
-			case *clickhouse.Path:
-				for _, field := range typed.Fields {
-					ignoredIdents[field] = true
+			case *clickhouse.NestedIdentifier:
+				if typed.DotIdent == nil {
+					return true
 				}
+				ignoredIdents[typed.DotIdent] = true
+				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
+				if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+					ignoredIdents[typed.Ident] = true
+					if typed.DotIdent.Name != "*" {
+						validateField(&diagnostics, seen, binding, typed.DotIdent, &budget)
+					}
+				}
+			case *clickhouse.Path:
 				if len(typed.Fields) < 2 {
 					return true
 				}
@@ -146,32 +175,53 @@ func Validate(schema *catalog.Catalog, query string) Result {
 					bindingNames[name] = binding.name
 				}
 				if namespace, ok := propertyresolver.Resolve(parts, bindingNames); ok {
-					validateProperty(&diagnostics, seen, schema.Properties[namespace], typed.Fields[len(typed.Fields)-1])
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
+					validateProperty(&diagnostics, seen, schema.Properties(namespace), typed.Fields[len(typed.Fields)-1])
 					return true
 				}
 				if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
-					validateField(&diagnostics, seen, binding.table, typed.Fields[1])
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
+					validateField(&diagnostics, seen, binding, typed.Fields[1], &budget)
+				} else {
+					for _, field := range typed.Fields[1:] {
+						ignoredIdents[field] = true
+					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] {
+				if ignoredIdents[typed] || typed.Name == "*" {
 					return true
 				}
 				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
 				if len(bindings) > 0 {
-					validateUnqualifiedField(&diagnostics, seen, bindings, typed)
+					validateUnqualifiedField(&diagnostics, seen, bindings, typed, &budget)
 				}
 			}
 			return true
+		})
+		if budget.exceeded {
+			break
+		}
+	}
+	if budget.exceeded && len(diagnostics) < querylimits.MaxDiagnostics {
+		diagnostics = append(diagnostics, Diagnostic{
+			Code: "query_limit", Message: querylimits.ErrCTEProjectionTooLarge.Error(), Start: 0, End: len(query),
 		})
 	}
 	return result(diagnostics, referencedTableNames, started)
 }
 
-func queryScopes(statement clickhouse.Expr) []*queryScope {
+func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {
 	var scopes []*queryScope
+	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
 	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 		if query, ok := node.(*clickhouse.SelectQuery); ok {
-			scopes = append(scopes, &queryScope{query: query, bindings: map[string]tableBinding{}})
+			scope := &queryScope{query: query, bindings: map[string]tableBinding{}}
+			scopes = append(scopes, scope)
+			byQuery[query] = scope
 		}
 		return true
 	})
@@ -185,7 +235,49 @@ func queryScopes(statement clickhouse.Expr) []*queryScope {
 			}
 		}
 	}
+	for _, scope := range scopes {
+		if scope.query.With == nil {
+			continue
+		}
+		for _, statement := range scope.query.With.CTEs {
+			name, nameOK := statement.Expr.(*clickhouse.Ident)
+			query, queryOK := statement.Alias.(*clickhouse.SelectQuery)
+			if !nameOK || !queryOK {
+				continue
+			}
+			cte := &cteBinding{name: name.Name, query: query, scope: byQuery[query], budget: budget}
+			if cte.scope != nil {
+				cte.scope.cteRoot = true
+			}
+			scope.ctes = append(scope.ctes, cte)
+		}
+	}
 	return scopes
+}
+
+func addBinding(scope *queryScope, name, alias string, binding tableBinding) {
+	scope.bindings[strings.ToLower(name)] = binding
+	if alias != "" {
+		scope.bindings[strings.ToLower(alias)] = binding
+	}
+}
+
+func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
+	for current := scope; current != nil; current = current.parent {
+		limit := len(current.ctes)
+		for index, cte := range current.ctes {
+			if contains(cte.query, position, position) {
+				limit = index
+				break
+			}
+		}
+		for index := limit - 1; index >= 0; index-- {
+			if strings.EqualFold(current.ctes[index].name, name) {
+				return current.ctes[index]
+			}
+		}
+	}
+	return nil
 }
 
 func innermostScope(scopes []*queryScope, start, end int) *queryScope {
@@ -214,31 +306,28 @@ func visibleBindings(scope *queryScope) map[string]tableBinding {
 				bindings[name] = binding
 			}
 		}
+		if current.cteRoot {
+			break
+		}
 	}
 	return bindings
 }
 
-func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties []catalog.Property, ident *clickhouse.Ident) {
+func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties *catalog.Index, ident *clickhouse.Ident) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics {
 		return
 	}
-	for _, property := range properties {
-		if strings.EqualFold(property.Name, ident.Name) {
-			return
-		}
+	if _, ok := properties.Exact(ident.Name); ok {
+		return
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
 	if seen[key] {
 		return
 	}
 	seen[key] = true
-	names := make([]string, len(properties))
-	for index, property := range properties {
-		names[index] = property.Name
-	}
 	*diagnostics = append(*diagnostics, Diagnostic{
 		Code: "unknown_property", Message: fmt.Sprintf("Unknown property %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
-		Suggestions: closest(ident.Name, names, 5),
+		Suggestions: closest(ident.Name, properties.Entries(), 5),
 	})
 }
 
@@ -281,11 +370,14 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	return name, alias, int(identifier.Pos()), int(identifier.End()), true
 }
 
-func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table catalog.Table, ident *clickhouse.Ident) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding tableBinding, ident *clickhouse.Ident, budget *projectionBudget) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || budget.exceeded {
 		return
 	}
-	if hasField(table, ident.Name) {
+	if _, ok := bindingField(binding, ident.Name); ok {
+		return
+	}
+	if budget.exceeded {
 		return
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
@@ -295,24 +387,30 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, table catalo
 	seen[key] = true
 	*diagnostics = append(*diagnostics, Diagnostic{
 		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
-		Suggestions: closest(ident.Name, fieldNames(table), 5),
+		Suggestions: closest(ident.Name, bindingFields(binding), 5),
 	})
 }
 
-func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings map[string]tableBinding, ident *clickhouse.Ident) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings map[string]tableBinding, ident *clickhouse.Ident, budget *projectionBudget) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || budget.exceeded {
 		return
 	}
-	uniqueTables := map[string]catalog.Table{}
+	uniqueTables := map[string]tableBinding{}
 	for _, binding := range bindings {
-		uniqueTables[binding.name] = binding.table
-		if hasField(binding.table, ident.Name) {
+		uniqueTables[binding.name] = binding
+		if _, ok := bindingField(binding, ident.Name); ok {
+			return
+		}
+		if budget.exceeded {
 			return
 		}
 	}
-	candidates := make([]string, 0)
-	for _, table := range uniqueTables {
-		candidates = append(candidates, fieldNames(table)...)
+	candidates := make([]catalog.Entry, 0)
+	for _, binding := range uniqueTables {
+		candidates = append(candidates, bindingFields(binding)...)
+		if budget.exceeded {
+			return
+		}
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
 	if seen[key] {
@@ -325,93 +423,299 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 	})
 }
 
-func hasField(table catalog.Table, name string) bool {
-	for fieldName := range table.Fields {
-		if strings.EqualFold(fieldName, name) {
-			return true
+func bindingField(binding tableBinding, name string) (catalog.Entry, bool) {
+	if binding.table != nil {
+		return binding.table.Fields.Exact(name)
+	}
+	for _, field := range bindingFields(binding) {
+		if strings.EqualFold(field.Name, name) {
+			return field, true
 		}
 	}
-	return false
+	return catalog.Entry{}, false
 }
 
-func tableNames(schema *catalog.Catalog) []string {
-	names := make([]string, 0, len(schema.Tables))
-	for name := range schema.Tables {
-		names = append(names, name)
+func bindingFields(binding tableBinding) []catalog.Entry {
+	if binding.table != nil {
+		return binding.table.Fields.Entries()
 	}
-	return names
-}
-
-func fieldNames(table catalog.Table) []string {
-	names := make([]string, 0, len(table.Fields))
-	for name := range table.Fields {
-		names = append(names, name)
+	if binding.cte == nil {
+		return nil
 	}
-	return names
+	return binding.cte.projectedFields()
 }
 
-func closest(input string, candidates []string, limit int) []Suggestion {
+func (c *cteBinding) projectedFields() []catalog.Entry {
+	if c.fieldsDone || c.resolving || c.scope == nil || c.budget.exceeded {
+		return c.fields
+	}
+	c.resolving = true
+	for _, item := range c.query.SelectItems {
+		if item.Alias != nil {
+			c.appendField(catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
+			if c.budget.exceeded {
+				break
+			}
+			continue
+		}
+		switch expr := item.Expr.(type) {
+		case *clickhouse.Ident:
+			if expr.Name == "*" {
+				c.appendWildcardFields(c.scope, "")
+			} else {
+				c.appendField(catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)})
+			}
+		case *clickhouse.Path:
+			if len(expr.Fields) > 0 {
+				c.appendField(catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)})
+			}
+		case *clickhouse.NestedIdentifier:
+			if expr.DotIdent != nil && expr.DotIdent.Name == "*" {
+				c.appendWildcardFields(c.scope, expr.Ident.Name)
+			} else if expr.DotIdent != nil {
+				c.appendField(catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)})
+			} else {
+				c.appendField(catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)})
+			}
+		default:
+			c.appendField(catalog.Entry{Name: item.Expr.String()})
+		}
+		if c.budget.exceeded {
+			break
+		}
+	}
+	c.resolving = false
+	c.fieldsDone = true
+	return c.fields
+}
+
+func (c *cteBinding) appendField(field catalog.Entry) {
+	if c.budget.take(1) == 1 {
+		c.fields = append(c.fields, field)
+	}
+}
+
+func (c *cteBinding) appendFields(fields []catalog.Entry) {
+	count := c.budget.take(len(fields))
+	c.fields = append(c.fields, fields[:count]...)
+}
+
+func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
+	bindings := visibleBindings(scope)
+	if qualifier != "" {
+		c.appendFields(bindingFields(bindings[strings.ToLower(qualifier)]))
+		return
+	}
+	seen := map[string]bool{}
+	for _, binding := range bindings {
+		if seen[binding.name] {
+			continue
+		}
+		seen[binding.name] = true
+		c.appendFields(bindingFields(binding))
+		if c.budget.exceeded {
+			return
+		}
+	}
+}
+
+func (b *projectionBudget) take(count int) int {
+	if count <= b.remaining {
+		b.remaining -= count
+		return count
+	}
+	taken := b.remaining
+	b.remaining = 0
+	b.exceeded = true
+	return taken
+}
+
+func projectedType(scope *queryScope, expr clickhouse.Expr) string {
+	bindings := visibleBindings(scope)
+	switch typed := expr.(type) {
+	case *clickhouse.Ident:
+		for _, binding := range bindings {
+			if field, ok := bindingField(binding, typed.Name); ok {
+				return field.Type
+			}
+		}
+	case *clickhouse.Path:
+		if len(typed.Fields) >= 2 {
+			if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
+				if field, exists := bindingField(binding, typed.Fields[1].Name); exists {
+					return field.Type
+				}
+			}
+		}
+	case *clickhouse.NestedIdentifier:
+		if typed.DotIdent != nil {
+			if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
+				if field, exists := bindingField(binding, typed.DotIdent.Name); exists {
+					return field.Type
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func closest(input string, candidates []catalog.Entry, limit int) []Suggestion {
 	if len(input) > querylimits.MaxSuggestionInputBytes {
 		return nil
 	}
 	lowerInput := strings.ToLower(input)
-	leftRunes := []rune(lowerInput)
-	threshold := min(4, max(2, len(leftRunes)/3))
-	unique := map[string]Suggestion{}
+	leftLength := utf8.RuneCountInString(lowerInput)
+	threshold := min(4, max(2, leftLength/3))
+	best := make([]Suggestion, 0, limit)
+	workspace := levenshteinWorkspace{}
 	for _, candidate := range candidates {
-		if len(candidate) > querylimits.MaxSuggestionInputBytes {
+		if len(candidate.Name) > querylimits.MaxSuggestionInputBytes {
 			continue
 		}
-		lowerCandidate := strings.ToLower(candidate)
-		rightRunes := []rune(lowerCandidate)
-		lengthDifference := max(len(leftRunes), len(rightRunes)) - min(len(leftRunes), len(rightRunes))
+		lowerCandidate := strings.ToLower(candidate.Name)
+		rightLength := utf8.RuneCountInString(lowerCandidate)
+		lengthDifference := max(leftLength, rightLength) - min(leftLength, rightLength)
 		prefix := strings.HasPrefix(lowerCandidate, lowerInput)
 		if lengthDifference > threshold && !prefix {
 			continue
 		}
 		distance := lengthDifference
 		if !prefix {
-			distance = levenshtein(leftRunes, rightRunes)
+			distance = workspace.distance(lowerInput, lowerCandidate, threshold)
 		}
 		if distance > threshold {
 			continue
 		}
-		key := lowerCandidate
-		if existing, ok := unique[key]; !ok || distance < existing.Distance {
-			unique[key] = Suggestion{Label: candidate, Distance: distance}
+		suggestion := Suggestion{Label: candidate.Name, Distance: distance}
+		duplicate := false
+		for _, existing := range best {
+			if strings.EqualFold(existing.Label, suggestion.Label) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		if len(best) < limit {
+			best = append(best, suggestion)
+			sortSuggestions(best)
+		} else if suggestionLess(suggestion, best[len(best)-1]) {
+			best[len(best)-1] = suggestion
+			sortSuggestions(best)
 		}
 	}
-	result := make([]Suggestion, 0, len(unique))
-	for _, suggestion := range unique {
-		result = append(result, suggestion)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Distance != result[j].Distance {
-			return result[i].Distance < result[j].Distance
-		}
-		return result[i].Label < result[j].Label
-	})
-	return result[:min(limit, len(result))]
+	return best
 }
 
-func levenshtein(leftRunes, rightRunes []rune) int {
-	previous := make([]int, len(rightRunes)+1)
-	current := make([]int, len(rightRunes)+1)
-	for index := range previous {
-		previous[index] = index
+func sortSuggestions(suggestions []Suggestion) {
+	sort.Slice(suggestions, func(left, right int) bool {
+		return suggestionLess(suggestions[left], suggestions[right])
+	})
+}
+
+func suggestionLess(left, right Suggestion) bool {
+	if left.Distance != right.Distance {
+		return left.Distance < right.Distance
 	}
-	for leftIndex, leftRune := range leftRunes {
-		current[0] = leftIndex + 1
-		for rightIndex, rightRune := range rightRunes {
+	return left.Label < right.Label
+}
+
+type levenshteinWorkspace struct {
+	previous []int
+	current  []int
+}
+
+func (w *levenshteinWorkspace) distance(left, right string, limit int) int {
+	if isASCII(left) && isASCII(right) {
+		for len(left) > 0 && len(right) > 0 && left[0] == right[0] {
+			left = left[1:]
+			right = right[1:]
+		}
+		for len(left) > 0 && len(right) > 0 && left[len(left)-1] == right[len(right)-1] {
+			left = left[:len(left)-1]
+			right = right[:len(right)-1]
+		}
+		return w.distanceASCII(left, right, limit)
+	}
+	leftRunes := []rune(left)
+	rightRunes := []rune(right)
+	for len(leftRunes) > 0 && len(rightRunes) > 0 && leftRunes[0] == rightRunes[0] {
+		leftRunes = leftRunes[1:]
+		rightRunes = rightRunes[1:]
+	}
+	for len(leftRunes) > 0 && len(rightRunes) > 0 && leftRunes[len(leftRunes)-1] == rightRunes[len(rightRunes)-1] {
+		leftRunes = leftRunes[:len(leftRunes)-1]
+		rightRunes = rightRunes[:len(rightRunes)-1]
+	}
+	return w.distanceRunes(leftRunes, rightRunes, limit)
+}
+
+func (w *levenshteinWorkspace) distanceASCII(left, right string, limit int) int {
+	w.resize(len(right) + 1)
+	for index := range len(right) + 1 {
+		w.previous[index] = index
+	}
+	for leftIndex := range len(left) {
+		w.current[0] = leftIndex + 1
+		rowMinimum := w.current[0]
+		for rightIndex := range len(right) {
+			cost := 1
+			if left[leftIndex] == right[rightIndex] {
+				cost = 0
+			}
+			w.current[rightIndex+1] = min(w.current[rightIndex]+1, w.previous[rightIndex+1]+1, w.previous[rightIndex]+cost)
+			rowMinimum = min(rowMinimum, w.current[rightIndex+1])
+		}
+		if rowMinimum > limit {
+			return limit + 1
+		}
+		w.previous, w.current = w.current, w.previous
+	}
+	return w.previous[len(right)]
+}
+
+func (w *levenshteinWorkspace) distanceRunes(left, right []rune, limit int) int {
+	w.resize(len(right) + 1)
+	for index := range len(right) + 1 {
+		w.previous[index] = index
+	}
+	for leftIndex, leftRune := range left {
+		w.current[0] = leftIndex + 1
+		rowMinimum := w.current[0]
+		for rightIndex, rightRune := range right {
 			cost := 1
 			if leftRune == rightRune {
 				cost = 0
 			}
-			current[rightIndex+1] = min(current[rightIndex]+1, previous[rightIndex+1]+1, previous[rightIndex]+cost)
+			w.current[rightIndex+1] = min(w.current[rightIndex]+1, w.previous[rightIndex+1]+1, w.previous[rightIndex]+cost)
+			rowMinimum = min(rowMinimum, w.current[rightIndex+1])
 		}
-		previous, current = current, previous
+		if rowMinimum > limit {
+			return limit + 1
+		}
+		w.previous, w.current = w.current, w.previous
 	}
-	return previous[len(rightRunes)]
+	return w.previous[len(right)]
+}
+
+func (w *levenshteinWorkspace) resize(size int) {
+	if cap(w.previous) < size {
+		w.previous = make([]int, size)
+		w.current = make([]int, size)
+		return
+	}
+	w.previous = w.previous[:size]
+	w.current = w.current[:size]
+}
+
+func isASCII(value string) bool {
+	for index := range len(value) {
+		if value[index] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 func result(diagnostics []Diagnostic, tableNames []string, started time.Time) Result {
