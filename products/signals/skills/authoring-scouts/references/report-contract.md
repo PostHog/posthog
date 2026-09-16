@@ -264,6 +264,29 @@ Rules of good behavior:
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
 
+### Replacing the report's pull request
+
+A report that autostarted has an open draft PR built from the summary as it read at the time.
+When your rewrite changes what the fix should be, set `supersedes_implementation: true` alongside the `title` / `summary` you are changing.
+That closes the open PR and opens a new one built from your new summary, with the closed one referenced from its description.
+
+Set it only when the fix itself changed: a different root cause, a different file or layer, a materially wider or narrower scope.
+More evidence for the same fix is not a reason — the open PR already implements it, and replacing it throws away review someone may already have done.
+An `append_note` is the right move there instead.
+
+Two things bound it, and the response tells you which one applied:
+
+- It is only honored alongside a rewrite that actually changed the title or summary. Restating the text the report already holds is not a revision, and neither is a note or a reviewer change. `is_content_revision` in the response says whether yours counted.
+- A report earns at most four such replacements. `content_revision_count` is the running total; past four your rewrite still lands, it just stops opening pull requests. `supersedes_implementation` in the response is `true` only when the decision was recorded.
+
+### Re-confirming a report you already filed
+
+Appending a note that says the finding still holds is worth doing, and it is not a revision — it leaves `content_revision_count` alone.
+Free-form `append_note` text always remains in the work log, including recovery details and observations beyond the evidence cap. Set `corroboration_only: true` only for a confirmation with no new information. A report keeps its first four confirmations as separate entries and counts later confirmations; the web and desktop inboxes show the collapsed count.
+The call still succeeds, and `corroboration_collapsed` in the response tells you it happened.
+
+A replacement request that cannot bind verified predecessor PRs, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
+
 ## Finding "the report I made last time"
 
 There is no scout-specific report search — use the **vanilla inbox tools** the scout already has.

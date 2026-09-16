@@ -50,6 +50,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
                 knownTasks={knownTasks}
                 knownSignals={knownSignals}
                 pullRequests={report.pull_requests}
+                collapsedNoteCount={report.collapsed_note_count ?? 0}
             />
         </DetailSection>
     )

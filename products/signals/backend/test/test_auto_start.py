@@ -21,12 +21,15 @@ from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     NO_STEERING,
     NO_SUPERSEDE,
+    ImplementationReportContent,
+    ReportChangedDuringAutostart,
     ReportSteering,
     ReviewerContent,
     SupersedeDecision,
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
+    _has_unimplemented_work,
     _live_skill_owner_identities,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
@@ -37,6 +40,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
@@ -382,7 +386,10 @@ def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected
 
 
 @pytest.mark.django_db
-def test_create_implementation_task_if_absent_is_idempotent(organization, team):
+@pytest.mark.parametrize(
+    "concurrent_change", [None, {"summary": "A newer fix"}, {"run_count": 2}, {"content_revision_count": 1}]
+)
+def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
     # observes the link row must no-op rather than spawn another Task / draft PR. It also asserts
     # the facade is invoked with the SIGNAL_REPORT origin and ai_stage="implementation" so the
@@ -413,6 +420,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "report_id": str(report.id),
         "title": "t",
         "description": "d",
+        "expected_content": ImplementationReportContent.from_report(report),
         "user_id": user.id,
         "repository": "owner/repo",
         "base_branch": None,
@@ -423,6 +431,15 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         assert _create_implementation_task_if_absent(**kwargs) is False
         mock_create.assert_not_called()
         assignment_model.all_teams.filter(report=report).update(actor_kind=None, actor_user=None)
+        if concurrent_change is not None:
+            SignalReport.objects.filter(id=report.id).update(**concurrent_change)
+            with pytest.raises(ReportChangedDuringAutostart):
+                _create_implementation_task_if_absent(**kwargs)
+            mock_create.assert_not_called()
+            report.refresh_from_db()
+            assert report.implemented_at_run_count is None
+            assert report.implemented_at_revision_count is None
+            kwargs["expected_content"] = ImplementationReportContent.from_report(report)
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 
@@ -509,6 +526,7 @@ def test_create_implementation_task_freezes_billing_exemption(
             report_id=str(report.id),
             title="t",
             description="d",
+            expected_content=ImplementationReportContent.from_report(report),
             user_id=user.id,
             repository="owner/repo",
             base_branch=None,
@@ -545,6 +563,7 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
         "report_id": str(report.id),
         "title": "t",
         "description": "d",
+        "expected_content": ImplementationReportContent.from_report(report),
         "user_id": user.id,
         "repository": "owner/repo",
         "base_branch": None,
@@ -564,8 +583,10 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("autostart_enabled", [True, False, None])
-async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled):
+@pytest.mark.parametrize(
+    ("autostart_enabled", "concurrent_edit"), [(True, False), (False, False), (None, False), (True, True)]
+)
+async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabled, concurrent_edit):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
     # team's signals enabler unless the switch is an explicit False (null leaves autostart on); committed
@@ -586,6 +607,16 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
         report = SignalReport.objects.create(
             team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
         )
+        if concurrent_edit:
+            for kind, content in [
+                (
+                    "actionability_judgment",
+                    {"explanation": "Clear fix", "actionability": "immediately_actionable", "already_addressed": False},
+                ),
+                ("priority_judgment", {"explanation": "Affects sessions", "priority": "P2"}),
+                ("repo_selection", {"repository": "owner/repo", "reason": "Selected", "autostart_eligible": True}),
+            ]:
+                SignalReportArtefact.objects.create(team=team, report=report, type=kind, content=json.dumps(content))
         return team, report
 
     team, report = await sync_to_async(_setup)()
@@ -601,9 +632,18 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
         return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
 
     pinned = AgentRuntime(runtime_adapter="codex", model="gpt-5.6-terra", reasoning_effort="medium")
+    runtime_calls = 0
+
+    def resolve_runtime(*_args):
+        nonlocal runtime_calls
+        runtime_calls += 1
+        if concurrent_edit and runtime_calls == 1:
+            SignalReport.objects.filter(id=report.id).update(summary="A newer fix", content_revision_count=1)
+        return pinned
+
     with (
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
-        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=pinned),
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", side_effect=resolve_runtime),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -621,6 +661,11 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(autostart_enabl
         )
 
     assert (mock_create.call_count == 1) is (autostart_enabled is not False)
+
+    if concurrent_edit:
+        assert "A newer fix" in mock_create.call_args.kwargs["description"]
+        await sync_to_async(report.refresh_from_db)()
+        assert report.implemented_at_revision_count == 1
 
 
 @pytest.mark.asyncio
@@ -1132,6 +1177,7 @@ def test_supersede_without_permission_leaves_the_gate_closed(organization, team)
         "report_id": str(report.id),
         "title": "t",
         "description": "d",
+        "expected_content": ImplementationReportContent.from_report(report),
         "user_id": user.id,
         "repository": "owner/repo",
         "base_branch": None,
@@ -1222,3 +1268,37 @@ async def test_only_the_current_passs_implementation_decision_is_read(written_du
 
     passed_decision = mock_autostart.call_args.kwargs["implementation_decision"]
     assert (passed_decision is not None) is written_during_current_pass
+
+
+@pytest.mark.parametrize(
+    ("run_count", "implemented_at_run_count", "revisions", "implemented_at_revision_count", "expected"),
+    [
+        # Pipeline arm, unchanged: research ran again since the PR was built.
+        (2, 1, 0, None, True),
+        (2, 2, 0, None, False),
+        # Scout arm: a rewrite the current PR predates, on a report the pipeline never re-researched.
+        (0, 0, 1, 0, True),
+        (0, 0, 1, 1, False),
+        # A report the scout keeps rewriting stops earning replacements at the cap. Without this a
+        # scout on a daily schedule opens a pull request per run, forever.
+        (0, 0, MAX_SCOUT_CONTENT_REVISIONS, MAX_SCOUT_CONTENT_REVISIONS - 1, True),
+        (0, 0, MAX_SCOUT_CONTENT_REVISIONS + 1, MAX_SCOUT_CONTENT_REVISIONS, False),
+        # Null stamps: a report implemented before either counter existed.
+        (1, None, 0, None, True),
+        (0, None, 1, None, True),
+        (0, None, 0, None, False),
+        (0, None, None, None, False),
+        (2, 1, None, None, True),
+        (2, 2, None, None, False),
+    ],
+)
+def test_has_unimplemented_work(
+    run_count, implemented_at_run_count, revisions, implemented_at_revision_count, expected
+):
+    report = SignalReport(
+        run_count=run_count,
+        implemented_at_run_count=implemented_at_run_count,
+        content_revision_count=revisions,
+        implemented_at_revision_count=implemented_at_revision_count,
+    )
+    assert _has_unimplemented_work(report) is expected

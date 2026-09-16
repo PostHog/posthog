@@ -4,9 +4,10 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -19,7 +20,13 @@ from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalSourceConfig,
+)
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
 from products.signals.backend.scout_harness.tools.report import (
     MAX_EVIDENCE_DESCRIPTION_LENGTH,
@@ -42,12 +49,14 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
 )
 from products.signals.backend.scout_report import ScoutReportSignal
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.temporal.types import SignalData, render_signal_to_text
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+from products.tasks.backend.models import Task, TaskRun
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
@@ -116,6 +125,47 @@ class TestScoutReportAPI(APIBaseTest):
         }
         body.update(overrides)
         return body
+
+    def _seed_implementation(self, report_id: str) -> MagicMock:
+        task = Task.objects.create(
+            team=self.team,
+            signal_report_id=report_id,
+            title="Original fix",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="example/repo",
+            internal=True,
+        )
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status="completed",
+            environment="cloud",
+            state={"ai_stage": "implementation", "self_driving_head_branch": "automated-original"},
+            output={"pr_url": "https://github.com/example/repo/pull/1"},
+        )
+        with transaction.atomic():
+            record_implementation_task(
+                team_id=self.team.id,
+                report_id=report_id,
+                task_id=str(task.id),
+                run_id=str(run.id),
+                automation_branch="automated-original",
+            )
+        github = MagicMock()
+        github.get_pull_request.return_value = {
+            "success": True,
+            "state": "open",
+            "merged": False,
+            "head_sha": "sha-1",
+            "head_branch": "automated-original",
+            "head_repository": "example/repo",
+        }
+        patcher = patch(
+            "products.signals.backend.supersession.GitHubIntegration.first_for_team_repository", return_value=github
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return github
 
     def _affected_users_metric(self, *, value: int = 17) -> dict:
         return {
@@ -597,6 +647,220 @@ class TestScoutReportAPI(APIBaseTest):
             )
         )
         assert "- Source ID: checkout-errors" in rendered
+
+    @parameterized.expand(
+        [
+            ("title_rewrite", {"title": "a different root cause"}, True),
+            ("summary_rewrite", {"summary": "the checkout handler is fine, the queue is not"}, True),
+            # The 13x difference between counting edits and counting rewrites. A scout re-sending the
+            # text the report already holds has not revised anything.
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}, False),
+            ("note_only", {"append_note": "still there"}, False),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}, False),
+            ("charts_only", {"charts": []}, False),
+        ]
+    )
+    def test_only_a_real_rewrite_counts_as_a_content_revision(self, _name, edit, expected) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is expected
+        assert response.json()["content_revision_count"] == (1 if expected else 0)
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == (1 if expected else None)
+
+    @parameterized.expand(
+        [
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+        ]
+    )
+    def test_non_revision_edit_returns_the_stored_running_total(self, _name, edit) -> None:
+        # The count is a running total, not a per-edit sentinel: a note or reviewer change on a report
+        # that has already been rewritten must echo the stored total, not the 0 initializer. The
+        # freshly-emitted case above (count 0) can't tell the two apart, so revise once first.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "the queue, not the handler"},
+                format="json",
+            )
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is False
+        assert response.json()["content_revision_count"] == 1
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == 1
+
+    @parameterized.expand(
+        [
+            # A note says the finding still holds. It is not an argument that the fix changed, so it
+            # must not be a way to close someone's open pull request.
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}),
+        ]
+    )
+    def test_supersede_needs_a_rewrite_behind_it(self, _name, edit) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "supersedes_implementation": True, **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["supersedes_implementation"] is False
+        assert (
+            self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+            is None
+        )
+
+    def test_supersede_records_a_decision_until_the_report_runs_out_of_revisions(self) -> None:
+        # Past the cap the rewrite still has to land: a scout must always be able to correct a
+        # report. Only the pull-request side stops.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        self._seed_implementation(report_id)
+        recorded = []
+        for index in range(MAX_SCOUT_CONTENT_REVISIONS + 1):
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={
+                        "report_id": report_id,
+                        "summary": f"root cause number {index}",
+                        "supersedes_implementation": True,
+                    },
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["is_content_revision"] is True
+            recorded.append((response.json()["supersedes_implementation"], autostart.await_count))
+
+        assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
+        report = SignalReport.objects.get(id=report_id)
+        assert report.content_revision_count == MAX_SCOUT_CONTENT_REVISIONS + 1
+        assert report.summary == f"root cause number {MAX_SCOUT_CONTENT_REVISIONS}"
+        # The decision is latest-wins and auto-start re-reads it from paths a scout never sees, so
+        # the refused rewrite has to leave a `False` standing rather than the last honored `True`.
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None and json.loads(decision.content)["supersede"] is False
+
+    def test_a_rewrite_that_claims_nothing_retracts_the_last_supersede_decision(self) -> None:
+        # Same hazard from the other side: a scout supersedes once, then rewrites again saying
+        # nothing about the fix. A reviewer edit firing auto-start afterwards must not read the old
+        # claim and open a second replacement.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        self._seed_implementation(report_id)
+        for summary, supersede in (("the queue, not the handler", True), ("the queue, with numbers", False)):
+            with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "summary": summary, "supersedes_implementation": supersede},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None and json.loads(decision.content)["supersede"] is False
+
+    @parameterized.expand([("lookup_failed",), ("report_changed",), ("no_predecessor",)])
+    def test_supersede_rejection_preserves_content_for_retry(self, failure: str) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        github = self._seed_implementation(report_id)
+        verified = github.get_pull_request.return_value
+        if failure == "lookup_failed":
+            github.get_pull_request.return_value = {"success": False, "status_code": 502}
+        elif failure == "no_predecessor":
+            github.get_pull_request.return_value = {**verified, "state": "closed"}
+        else:
+
+            def change_during_lookup(*_args):
+                SignalReport.objects.filter(id=report_id).update(content_revision_count=1)
+                return verified
+
+            github.get_pull_request.side_effect = change_during_lookup
+        edit = {"report_id": report_id, "summary": "The queue needs backpressure.", "supersedes_implementation": True}
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            rejected = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=report_id).summary == self._payload()["summary"]
+        assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION) is None
+        autostart.assert_not_awaited()
+        github.get_pull_request.side_effect = None
+        github.get_pull_request.return_value = verified
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            accepted = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+        assert accepted.status_code == status.HTTP_200_OK, accepted.json()
+        assert accepted.json()["supersedes_implementation"] is True
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None
+        content = json.loads(decision.content)
+        assert len(content["targets"]) == 1
+        assert "summary" in content["reason"] and "updated_at" not in content["reason"]
+
+    @parameterized.expand([("note",), ("unchanged",), ("over_cap",)])
+    def test_ineligible_supersede_does_not_query_github(self, shape: str) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        github = self._seed_implementation(report_id)
+        edit = {"append_note": "Still observed"} if shape == "note" else {"summary": self._payload()["summary"]}
+        if shape == "over_cap":
+            SignalReport.objects.filter(id=report_id).update(content_revision_count=MAX_SCOUT_CONTENT_REVISIONS)
+            edit = {"summary": "A new root cause"}
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "supersedes_implementation": True, **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["supersedes_implementation"] is False
+        github.get_pull_request.assert_not_called()
+
+    def test_free_form_note_survives_after_corroboration_cap(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        SignalReport.objects.filter(id=report_id).update(corroboration_count=4)
+        for corroboration_only, note in [(True, "Still observed"), (False, "The deployment fixed the timeout")]:
+            with _safe_judge():
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "append_note": note, "corroboration_only": corroboration_only},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["corroboration_collapsed"] is corroboration_only
+            assert SignalReportArtefact.objects.filter(
+                report_id=report_id, type="note", content__contains=note
+            ).exists() is (not corroboration_only)
+        assert SignalReport.objects.get(id=report_id).corroboration_count == 5
 
     def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
         # The edited tally is set-membership, not a per-edit log: a run editing the same report twice

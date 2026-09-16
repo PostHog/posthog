@@ -31,6 +31,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
 from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
     SignalReportArtefact,
     SignalSourceConfig,
@@ -102,6 +103,29 @@ class SupersedeDecision:
 
 
 NO_SUPERSEDE = SupersedeDecision(allowed=False)
+
+
+@frozen
+class ImplementationReportContent:
+    title: str | None
+    summary: str | None
+    run_count: int
+    last_run_at: datetime | None
+    revision_count: int
+
+    @classmethod
+    def from_report(cls, report: SignalReport) -> ImplementationReportContent:
+        return cls(
+            title=report.title,
+            summary=report.summary,
+            run_count=report.run_count,
+            last_run_at=report.last_run_at,
+            revision_count=report.content_revision_count or 0,
+        )
+
+
+class ReportChangedDuringAutostart(RuntimeError):
+    pass
 
 
 class ReviewerContent(TypedDict):
@@ -430,6 +454,24 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
         logger.exception("Failed to capture signals_autostart_steering_attached", report_id=report_id)
 
 
+def _has_unimplemented_work(report: SignalReport) -> bool:
+    """Whether the report has moved past the version its current implementation PR was built from.
+
+    Two producers can move it, and either one is enough. The pipeline researches again, raising
+    `run_count`; a scout rewrites the report's title or summary, raising `content_revision_count`.
+    Each is compared against its own stamp, which is what bounds replacements to one per pass or
+    per rewrite and stops a single decision opening two pull requests.
+
+    Research is capped by its buckets, so the pipeline arm needs no separate cap. A scout has no
+    such ceiling, so the revision arm carries one: past `MAX_SCOUT_CONTENT_REVISIONS` the rewrite
+    still lands, it just stops buying a new pull request.
+    """
+    if report.run_count > (report.implemented_at_run_count or 0):
+        return True
+    revisions = report.content_revision_count or 0
+    return 0 < revisions <= MAX_SCOUT_CONTENT_REVISIONS and revisions > (report.implemented_at_revision_count or 0)
+
+
 def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | None) -> SupersedeDecision:
     if decision is None or not decision_is_current(report, decision) or not targets_still_eligible(report, decision):
         return NO_SUPERSEDE
@@ -465,6 +507,7 @@ def _create_implementation_task_if_absent(
     report_id: str,
     title: str,
     description: str,
+    expected_content: ImplementationReportContent,
     user_id: int,
     repository: str,
     base_branch: str | None,
@@ -506,6 +549,8 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
+        if ImplementationReportContent.from_report(report) != expected_content:
+            raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         if supersede.allowed:
             if (
@@ -535,14 +580,17 @@ def _create_implementation_task_if_absent(
         )
         if already_implemented and not supersede.allowed:
             return False
-        if already_implemented and report.run_count <= (report.implemented_at_run_count or 0):
+        if already_implemented and not _has_unimplemented_work(report):
             # Re-checked under the lock: the caller resolved the supersede decision outside it, so a
             # racing evaluation that already stamped this pass must not open a second replacement.
             return False
         if supersede.allowed and claim is not None:
             release_claim(claim, ArtefactAttribution.system(), takeover=True)
+        # Both stamps move together. The task about to start is built from the report as it stands
+        # now, so neither a research pass nor a rewrite already folded into it may buy another one.
         report.implemented_at_run_count = report.run_count
-        report.save(update_fields=["implemented_at_run_count"])
+        report.implemented_at_revision_count = report.content_revision_count or 0
+        report.save(update_fields=["implemented_at_run_count", "implemented_at_revision_count"])
         exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
@@ -827,6 +875,7 @@ async def maybe_autostart_implementation_task(
     billing_exempt_reason: str | None = None,
     repository_autostart_eligible: bool = True,
     implementation_decision: ImplementationDecision | None = None,
+    remaining_retries: int = 2,
 ) -> None:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
@@ -880,6 +929,13 @@ async def maybe_autostart_implementation_task(
     report = await SignalReport.objects.filter(id=report_id, team_id=team_id).afirst()
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
+        return
+    expected_content = ImplementationReportContent.from_report(report)
+    if title != expected_content.title or summary != expected_content.summary:
+        if remaining_retries:
+            await maybe_autostart_from_report_artefacts(
+                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1
+            )
         return
     supersede = await database_sync_to_async(_resolve_supersede, thread_sensitive=False)(
         report, implementation_decision
@@ -993,30 +1049,38 @@ async def maybe_autostart_implementation_task(
         team_id, report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
     )
 
-    created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
-        team_id=team_id,
-        report_id=report_id,
-        title=title,
-        description=_build_autostart_task_description(
-            report_id=report_id,
+    try:
+        created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
             team_id=team_id,
-            summary=summary,
+            report_id=report_id,
+            title=title,
+            expected_content=expected_content,
+            description=_build_autostart_task_description(
+                report_id=report_id,
+                team_id=team_id,
+                summary=summary,
+                repository=repository,
+                priority=priority,
+                source_references=source_references,
+                steering=steering,
+                supersede=supersede,
+            ),
+            user_id=task_user.id,
             repository=repository,
-            priority=priority,
-            source_references=source_references,
+            base_branch=base_branch,
+            billing_exempt_reason=billing_exempt_reason,
             steering=steering,
+            # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
+            # report row lock.
+            free_trial_enabled=on_free_trial,
             supersede=supersede,
-        ),
-        user_id=task_user.id,
-        repository=repository,
-        base_branch=base_branch,
-        billing_exempt_reason=billing_exempt_reason,
-        steering=steering,
-        # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
-        # report row lock.
-        free_trial_enabled=on_free_trial,
-        supersede=supersede,
-    )
+        )
+    except ReportChangedDuringAutostart:
+        if remaining_retries:
+            await maybe_autostart_from_report_artefacts(
+                team_id=team_id, report_id=report_id, remaining_retries=remaining_retries - 1
+            )
+        return
     if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
@@ -1086,7 +1150,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
     return reviewers, editor_user_id
 
 
-async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str) -> None:
+async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str, remaining_retries: int = 2) -> None:
     """Re-evaluate auto-start from a report's *current* artefacts.
 
     Called when reviewers change after the report was created (e.g. a human edits them via the
@@ -1170,4 +1234,5 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
         triggering_user_id=editor_user_id,
         repository_autostart_eligible=repo_selection.autostart_eligible,
         implementation_decision=implementation_decision,
+        remaining_retries=remaining_retries,
     )

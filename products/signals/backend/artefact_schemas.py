@@ -618,6 +618,7 @@ class ImplementationDecision(BaseModel):
     targets: list[ImplementationTarget] = Field(default_factory=list)
     research_run_count: int | None = None
     research_started_at: datetime | None = None
+    content_revision_count: int = 0
 
     @field_validator("reason")
     @classmethod

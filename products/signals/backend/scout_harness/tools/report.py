@@ -54,7 +54,12 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
+    SignalReport,
+    SignalScoutRun,
+)
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import organization_report_metrics_enabled
@@ -97,9 +102,13 @@ from products.signals.backend.scout_report import (
     create_scout_report,
     emit_appended_report_evidence,
     find_scout_report_by_idempotency_key,
+    get_content_revision_count,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
+    prepare_scout_supersession,
+    record_content_revision,
+    record_implementation_decision,
     record_report_edit,
     record_scout_run_task_artefact,
     scout_report_exists,
@@ -117,6 +126,7 @@ from products.signals.backend.scout_report.judge import (
     judge_scout_report,
 )
 from products.signals.backend.slack_formatting import strip_chart_references
+from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -257,6 +267,18 @@ class EditReportResult:
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
     report_title: str | None = None
+    # Whether this edit actually rewrote the report's title or summary, and the report's running
+    # total of such rewrites. A note append, a reviewer change, and a restatement of the current text
+    # all leave both untouched — only a real diff to the report's content counts.
+    is_content_revision: bool = False
+    content_revision_count: int = 0
+    # Whether the edit recorded a decision to replace the report's implementation PR. False when the
+    # caller didn't ask, when the edit wasn't a content revision, or when the report is past
+    # `MAX_SCOUT_CONTENT_REVISIONS`.
+    supersedes_implementation: bool = False
+    # True when the appended note only raised the report's corroboration count instead of landing as
+    # its own entry (see `append_report_note`).
+    corroboration_collapsed: bool = False
 
     @property
     def changed(self) -> bool:
@@ -1264,6 +1286,13 @@ def _capture_report_edited(
         "charts_set": result.charts_set,
         "metrics_set": result.metrics_set,
         "suggested_prompts_set": result.suggested_prompts_set,
+        # The iteration counter and its two outcomes. `is_content_revision` is the predicate the cap
+        # counts, so the share of edits that are re-confirmation rather than rewrite is readable
+        # straight off this event.
+        "is_content_revision": result.is_content_revision,
+        "content_revision_count": result.content_revision_count,
+        "supersedes_implementation": result.supersedes_implementation,
+        "corroboration_collapsed": result.corroboration_collapsed,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -1669,6 +1698,8 @@ def _do_edit_report(
     charts: list[ReportChart] | None,
     metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -1683,6 +1714,8 @@ def _do_edit_report(
     reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
     provenance stamped so a picked owner can't become the autostart identity."""
     _assert_edit_gates(team, run, report_id)
+    if corroboration_only and not append_note:
+        raise InvalidScoutReportError("corroboration_only requires append_note")
 
     attribution = _attribution_for(_resolve_task_id(run))
     updated_fields: list[str] = []
@@ -1692,6 +1725,14 @@ def _do_edit_report(
     charts_changed = False
     metrics_changed = False
     prompts_changed = False
+    content_revision_count = 0
+    corroboration_collapsed = False
+    supersede_recorded = False
+    implementation_context = (
+        prepare_scout_supersession(team_id=team.id, report_id=report_id, title=title, summary=summary)
+        if supersedes_implementation
+        else NO_IMPLEMENTATION_CONTEXT
+    )
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
@@ -1721,6 +1762,21 @@ def _do_edit_report(
                 attribution=attribution,
                 reviewed=title is not None and summary is not None,
             )
+            if updated_fields:
+                content_revision_count = record_content_revision(team_id=team.id, report_id=report_id)
+                # A supersede claim rides on the rewrite, never on its own. Appending a note or
+                # re-routing a report says nothing about whether the fix changed, and restating the
+                # text the report already carries says nothing at all.
+                supersede_recorded = supersedes_implementation and content_revision_count <= MAX_SCOUT_CONTENT_REVISIONS
+                record_implementation_decision(
+                    team_id=team.id,
+                    report_id=report_id,
+                    supersede=supersede_recorded,
+                    updated_fields=updated_fields,
+                    attribution=attribution,
+                    author=run.skill_name,
+                    implementation_context=implementation_context,
+                )
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
         # added during that wait must not remain an identity candidate.
@@ -1752,10 +1808,16 @@ def _do_edit_report(
                 author=run.skill_name,
             )
         if append_note is not None:
-            append_report_note(
-                team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
+            appended = append_report_note(
+                team_id=team.id,
+                report_id=report_id,
+                note=append_note,
+                attribution=attribution,
+                author=run.skill_name,
+                corroboration_only=corroboration_only,
             )
             note_appended = True
+            corroboration_collapsed = appended.collapsed
         # Additive, unlike the charts and prompts below: appended observations join the report's
         # existing evidence rail rather than replacing it, which is why the field is named for it.
         if append_evidence:
@@ -1927,11 +1989,17 @@ def _do_edit_report(
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-    # Re-run autostart only when the routing changed: it's idempotent (a report with an
-    # implementation task already started no-ops), but a report that was missing a qualifying
-    # reviewer, or that had no repository to open a PR against, can now open a draft PR. Fired
-    # outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
-    if reviewers_set or repository_set:
+    # `content_revision_count` is the report's running total, the number the scout reasons about the
+    # cap with. A revision above already set it to the report's new total; every other edit shape — a
+    # note, a reviewer change, cleared charts, or a restatement that diffed to nothing — leaves that
+    # total untouched, so read it back rather than echoing the 0 initializer as if the report had never
+    # been revised. `is_content_revision` stays keyed on whether *this* edit rewrote the content.
+    is_content_revision = bool(updated_fields)
+    if not is_content_revision:
+        content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
+    # Routing changes and a new replacement decision each need an autostart evaluation.
+    # Run it after the commit because it spawns a task.
+    if reviewers_set or repository_set or supersede_recorded:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
@@ -1946,6 +2014,9 @@ def _do_edit_report(
             "charts_set": charts_set,
             "metrics_set": metrics_set,
             "suggested_prompts_set": prompts_set,
+            "content_revision_count": content_revision_count,
+            "supersedes_implementation": supersede_recorded,
+            "corroboration_collapsed": corroboration_collapsed,
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -1974,6 +2045,10 @@ def _do_edit_report(
         suggested_prompts_set=prompts_set,
         repository=settled_repository,
         report_title=report_title,
+        is_content_revision=is_content_revision,
+        content_revision_count=content_revision_count,
+        supersedes_implementation=supersede_recorded,
+        corroboration_collapsed=corroboration_collapsed,
     )
     return result
 
@@ -2087,6 +2162,8 @@ async def edit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -2152,6 +2229,8 @@ async def edit_report(
         charts=built_charts,
         metrics=built_metrics,
         suggested_prompts=built_prompts,
+        supersedes_implementation=supersedes_implementation,
+        corroboration_only=corroboration_only,
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
@@ -2186,6 +2265,8 @@ def edit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    supersedes_implementation: bool = False,
+    corroboration_only: bool = False,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(
@@ -2239,6 +2320,8 @@ def edit_report_sync(
         charts=built_charts,
         metrics=built_metrics,
         suggested_prompts=built_prompts,
+        supersedes_implementation=supersedes_implementation,
+        corroboration_only=corroboration_only,
     )
     forward = _capture_report_edited(
         team=team,

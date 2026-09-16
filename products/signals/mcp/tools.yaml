@@ -598,7 +598,11 @@ tools:
             cached fallback. An affected-users metric uses one series with `math: dau`. Consumers derive a `BoldNumber`
             query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal
             buckets; never sum affected-user buckets. NOT idempotent - a retried `append_note` appends a second note.
-            Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
+            Set `supersedes_implementation` alongside a rewrite when the fix itself changed. Verified automated
+            predecessor PRs close only after the replacement completes with verified open PRs. More evidence for the
+            same fix belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only`
+            only for confirmations with no new information; the first four stay as entries and later confirmations
+            raise the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
