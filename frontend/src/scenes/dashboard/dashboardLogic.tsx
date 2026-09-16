@@ -3507,8 +3507,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
         handleDashboardLoadComplete: () => {
             // The load answered with the tiles as they were when it started, so a rename that landed
             // while it was in flight has just been overwritten. Patch those names back on.
-            if (values.deferredInsightRenames.length > 0) {
-                actions.reapplyInsightRenames(values.deferredInsightRenames)
+            const heldRenames = values.deferredInsightRenames
+            if (heldRenames.length > 0) {
+                // A held rename the load brought no tile for has nothing to patch, so it needs the
+                // same reload the non-deferred path does. Re-applying empties the queue, so the
+                // next completion finds nothing held and cannot start another reload.
+                const someTileMissing = heldRenames.some(
+                    (item) => !values.tiles.some((t) => !!t.insight && t.insight.short_id === item.short_id)
+                )
+
+                actions.reapplyInsightRenames(heldRenames)
+
+                if (someTileMissing) {
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+                }
             }
 
             // Shared logic for refreshing dashboard items after load (used by both regular and streaming loads)

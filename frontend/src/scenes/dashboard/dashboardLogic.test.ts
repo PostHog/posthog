@@ -3652,6 +3652,22 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.name).toEqual('renamed mid-load')
         })
 
+        it('reloads when a rename deferred during a load has no tile in the response', async () => {
+            // The loading guard defers the rename before the missing-tile check can reach it, so
+            // the completed load carries no tile to patch and only a reload recovers the name.
+            logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                short_id: 'not_already_on_the_dashboard' as InsightShortId,
+            })
+
+            await expectLogic(logic).toDispatchActions([
+                'loadDashboardSuccess',
+                'reapplyInsightRenames',
+                'loadDashboard',
+            ])
+        })
+
         it('does not reload when an external rename targets a different dashboard only', async () => {
             const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
             await expectLogic(logic, () => {
