@@ -748,7 +748,7 @@ A dispatcher **does not re-detect**; it curates the existing findings, re-confir
 
 - **Watched data:** the inbox (`inbox-reports-list` filtered by the detecting scout or `source_product`), the detecting scout's scratchpad, and the live data that proves the finding still holds.
 - **Discriminator: ready × live × fixable × unclaimed.** Start from reports in `status=ready` only: an earlier status is still in research or waiting on a person, and `unclaimed=true` does not exclude them. Live means the numbers still show it this run; fixable means the fix lands inside a named allowlist of files, surfaces, or change shapes (a tool description, a redirect entry, a schema field), not a design change; unclaimed means the inbox says so (`inbox-reports-list` with `unclaimed=true`, which also excludes a claim held by a person or an implementation task that has not produced a PR yet) and no sibling has armed it; a missing PR alone is not evidence.
-  Pick the highest-value candidate that clears all three and stop.
+  Pick the highest-value candidate that clears all four and stop.
 - **The contract is the deliverable.** A campaign report says what is broken with the evidence, what "fixed" looks like as an **acceptance check** the implementing agent can run (an eval case, a query that must return zero, a redirect that must resolve), where the change goes, and what is out of scope.
   A report that describes a problem produces a PR that describes a problem back.
 - **One at a time is the point.** A dispatcher exists so the software factory is not flooded; record what it armed (`dispatched:<domain>:<report-id>` with the PR outcome once known) and do not arm the next until the previous has landed, been closed, or aged out.
