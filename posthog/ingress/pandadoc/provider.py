@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider
-from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, VerificationOutcome, header_value
+from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme, Verification, VerificationOutcome, header_value
 
 PANDADOC_EVENT_TYPES = frozenset({"document_state_changed"})
 PANDADOC_SIGNATURE_HEADER = "X-PandaDoc-Signature"
@@ -47,11 +47,11 @@ class PandaDocProvider(WebhookProvider):
     def scheme(self) -> SignatureScheme:
         return self._scheme
 
-    def verify(self, request: HttpRequest) -> VerificationOutcome:
+    def verify(self, request: HttpRequest) -> Verification:
         # A deployment that does not run the integration answers 404 before it reads anything off
         # the request, so the route stays indistinguishable from one that was never registered.
         if self._enabled is not None and not self._enabled():
-            return VerificationOutcome.INVALID
+            return Verification(outcome=VerificationOutcome.INVALID)
         # Read through the scheme's own case-insensitive lookup, because Django normalizes a
         # header name to title case and an exact-case match would never find this one.
         # Presence decides, not truthiness: an empty header is a signature that fails, never a
@@ -64,7 +64,7 @@ class PandaDocProvider(WebhookProvider):
             headers={PANDADOC_SIGNATURE_HEADER: request.GET.get("signature", "")},
         )
 
-    def deliveries(self, request: HttpRequest, payload: Any) -> Sequence[WebhookDelivery]:
+    def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         events = payload if isinstance(payload, list) else [payload]
         received_at = timezone.now()
         deliveries: list[WebhookDelivery] = []
