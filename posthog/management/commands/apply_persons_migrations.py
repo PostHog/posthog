@@ -143,6 +143,17 @@ def _apply_without_transaction(cursor, filename: str, sql_content: str) -> None:
     _record_migration(cursor, filename)
 
 
+def _apply_migration(conn, cursor, sql_file: Path) -> None:
+    sql_content = sql_file.read_text()
+    if _runs_outside_transaction(sql_content):
+        _apply_without_transaction(cursor, sql_file.name, sql_content)
+        return
+
+    with conn.transaction():
+        cursor.execute(sql_content)
+        _record_migration(cursor, sql_file.name)
+
+
 def _ensure_database_exists(persons_url: str) -> None:
     """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
@@ -257,14 +268,8 @@ class Command(BaseCommand):
                     applied_count += 1
                     continue
 
-                sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                if _runs_outside_transaction(sql_content):
-                    _apply_without_transaction(cursor, sql_file.name, sql_content)
-                else:
-                    with conn.transaction():
-                        cursor.execute(sql_content)
-                        _record_migration(cursor, sql_file.name)
+                _apply_migration(conn, cursor, sql_file)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"
