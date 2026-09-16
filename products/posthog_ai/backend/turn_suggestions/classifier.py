@@ -7,7 +7,6 @@ when re-asked on a schedule, and drafts the scout prompt in the same call so the
 conversation's context.
 """
 
-import json
 from datetime import date
 from enum import StrEnum
 from typing import Any
@@ -240,12 +239,6 @@ def classify_turn(transcript: TurnTranscript, *, team_id: int, today: date) -> T
         logger.warning("posthog_ai_turn_suggestion_classifier_empty", team_id=team_id)
         return None
     parsed: dict[str, Any] | None = extract_json_object(content)
-    if parsed is None:
-        try:
-            loaded = json.loads(content)
-            parsed = loaded if isinstance(loaded, dict) else None
-        except json.JSONDecodeError:
-            parsed = None
     if parsed is None:
         logger.warning("posthog_ai_turn_suggestion_classifier_unparseable", team_id=team_id)
         return None

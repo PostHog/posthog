@@ -160,10 +160,10 @@ def generate_turn_suggestion(run_id: str) -> TurnSuggestionOutcome:
     turn_index = len(transcript.human_messages) - 1
     if not transcript.assistant_text and not transcript.tool_calls:
         return _skipped("empty_turn")
-    if not _claim_turn(task_run, turn_index):
-        return _skipped("already_classified")
     if not scout_creation_available(team=task_run.team, user=task.created_by):
         return _skipped("scouts_unavailable")
+    if not _claim_turn(task_run, turn_index):
+        return _skipped("already_classified")
 
     verdict = classify_turn(transcript, team_id=task_run.team_id, today=datetime.now(UTC).date())
     if verdict is None:
