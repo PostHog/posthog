@@ -22,8 +22,8 @@ from redis.exceptions import ExecAbortError, NoPermissionError, RedisError
 from posthog.dataclasses import frozen
 
 # RedBeat holds its lock with SET NX PX and refreshes it through a Lua script. Redis checks
-# the commands inside a script against the calling user too, so one EVAL probe covers the
-# whole refresh path that runs on every tick.
+# the commands inside a script against the calling user too, so one run of this script covers
+# the whole refresh path that runs on every tick.
 LOCK_REFRESH_PROBE_SCRIPT = """
     redis.call('get', KEYS[1])
     redis.call('pttl', KEYS[1])
@@ -77,6 +77,14 @@ def _probes(client: Any, statics_key: str, scratch: ScratchKeys, lock_key: str |
         client.execute_command("MULTI")
         client.execute_command("EXEC")
 
+    def refresh_lock() -> None:
+        # RedBeat and redis-py both run the lock scripts through register_script, which sends
+        # EVALSHA and falls back to SCRIPT LOAD when the server's script cache misses. Those are
+        # the commands to probe: an ACL can allow EVAL and refuse either of them, and beat then
+        # dies on its first lock refresh.
+        sha = client.script_load(LOCK_REFRESH_PROBE_SCRIPT)
+        client.evalsha(sha, 1, scratch.lock, _SCRATCH_LOCK_TTL_MS)
+
     probes = [
         Probe(commands=("smembers",), run=lambda: client.smembers(statics_key)),
         Probe(commands=("sadd",), run=lambda: client.sadd(scratch.statics, "preflight")),
@@ -97,10 +105,7 @@ def _probes(client: Any, statics_key: str, scratch: ScratchKeys, lock_key: str |
                 commands=("set",),
                 run=lambda: client.set(scratch.lock, "preflight", nx=True, px=_SCRATCH_LOCK_TTL_MS),
             ),
-            Probe(
-                commands=("eval", "get", "pttl", "pexpire"),
-                run=lambda: client.eval(LOCK_REFRESH_PROBE_SCRIPT, 1, scratch.lock, _SCRATCH_LOCK_TTL_MS),
-            ),
+            Probe(commands=("script|load", "evalsha", "get", "pttl", "pexpire"), run=refresh_lock),
         ]
 
     return probes

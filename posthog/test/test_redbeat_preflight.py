@@ -6,6 +6,7 @@ from posthog.redbeat_preflight import Denial, find_denials, report
 KEY_PREFIX = "redbeat:"
 STATICS_KEY = "redbeat::statics"
 LOCK_KEY = "redbeat::lock"
+LOCK_SCRIPT_COMMANDS = ("script|load", "evalsha", "get", "pttl", "pexpire")
 
 
 class FakeRedis:
@@ -58,8 +59,12 @@ class FakeRedis:
     def set(self, *args: object, **kwargs: object) -> None:
         self.run("set")
 
-    def eval(self, *args: object) -> None:
-        self.run("eval")
+    def script_load(self, *args: object) -> str:
+        self.run("script|load")
+        return "sha"
+
+    def evalsha(self, *args: object) -> None:
+        self.run("evalsha")
 
     def delete(self, *keys: str) -> None:
         self.run("del")
@@ -103,11 +108,11 @@ class TestRedbeatPreflight:
         assert f"ACL SETUSER {expected_user} +smembers ~redbeat:*" in message
 
     def test_a_refused_command_does_not_stop_the_remaining_probes(self):
-        client = FakeRedis(denied={"smembers", "eval"})
+        client = FakeRedis(denied={"smembers", "evalsha"})
 
         denials = find_denials(client, STATICS_KEY, KEY_PREFIX, LOCK_KEY)
 
-        assert [denial.commands for denial in denials] == [("smembers",), ("eval", "get", "pttl", "pexpire")]
+        assert [denial.commands for denial in denials] == [("smembers",), LOCK_SCRIPT_COMMANDS]
 
     @parameterized.expand(
         [
@@ -115,6 +120,8 @@ class TestRedbeatPreflight:
             ({"multi"}, [("multi", "exec")]),
             ({"exec"}, [("multi", "exec")]),
             ({"smembers", "multi"}, [("smembers",), ("multi", "exec")]),
+            ({"evalsha"}, [LOCK_SCRIPT_COMMANDS]),
+            ({"script|load"}, [LOCK_SCRIPT_COMMANDS]),
         ]
     )
     def test_a_refusal_names_only_the_commands_its_own_probe_needs(
@@ -127,7 +134,7 @@ class TestRedbeatPreflight:
         assert [denial.commands for denial in denials] == expected
 
     def test_the_lock_commands_are_not_required_when_the_lock_is_disabled(self):
-        client = FakeRedis(denied={"set", "eval"})
+        client = FakeRedis(denied={"set", "evalsha"})
 
         assert find_denials(client, STATICS_KEY, KEY_PREFIX, None) == []
-        assert "eval" not in client.attempted
+        assert "evalsha" not in client.attempted
