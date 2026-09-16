@@ -1,4 +1,7 @@
-import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
+import {
+  DISMISSAL_REASON_OPTIONS,
+  isDismissalReasonSnooze,
+} from "@posthog/shared";
 import { createElement } from "react";
 import { act, create, type ReactTestInstance } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +53,7 @@ import { DismissReportSheet } from "./DismissReportSheet";
 const REPORT_ID = "report-1";
 const FIRST_REASON = DISMISSAL_REASON_OPTIONS[0];
 
-function renderSheet(visible = true) {
+function renderSheet(visible = true, extraProps: { hasOpenPr?: boolean } = {}) {
   const onClose = vi.fn();
   const onDismissed = vi.fn();
   let renderer: ReturnType<typeof create> | null = null;
@@ -62,6 +65,7 @@ function renderSheet(visible = true) {
         reportTitle: "Report one",
         onClose,
         onDismissed,
+        ...extraProps,
       }),
     );
   });
@@ -90,6 +94,41 @@ function noteInput(renderer: ReturnType<typeof create>): ReactTestInstance {
     (n) =>
       typeof n.props?.onChangeText === "function" &&
       n.props?.multiline === true,
+  );
+}
+
+function findRadioByLabel(
+  renderer: ReturnType<typeof create>,
+  label: string,
+): ReactTestInstance {
+  const matches = renderer.root.findAll(
+    (n) =>
+      n.props?.accessibilityLabel === label &&
+      typeof n.props?.onPress === "function",
+  );
+  if (matches.length === 0) throw new Error(`No radio for ${label}`);
+  return matches[0];
+}
+
+function findGroupByLabel(
+  renderer: ReturnType<typeof create>,
+  label: string,
+): ReactTestInstance {
+  const matches = renderer.root.findAll(
+    (n) =>
+      n.props?.accessibilityLabel === label &&
+      n.props?.accessibilityRole === "radiogroup",
+  );
+  if (matches.length === 0) throw new Error(`No group for ${label}`);
+  return matches[0];
+}
+
+function hasTextNode(
+  renderer: ReturnType<typeof create>,
+  content: string,
+): boolean {
+  return (
+    renderer.root.findAll((n) => n.props?.children === content).length > 0
   );
 }
 
@@ -128,6 +167,109 @@ describe("DismissReportSheet", () => {
     const { renderer } = renderSheet(false);
 
     expect(noteInput(renderer).props.value).toBe("left over");
+  });
+
+  it("groups reasons by outcome and shows the outcome line below the note", () => {
+    const { renderer } = renderSheet(true);
+
+    const pauseGroup = findGroupByLabel(
+      renderer,
+      "Pause until a new matching signal",
+    );
+    const hideGroup = findGroupByLabel(renderer, "Don't surface again");
+
+    const optionValuesIn = (group: ReactTestInstance): string[] => {
+      const seen = new Set<string>();
+      const labels: string[] = [];
+      for (const n of group.findAll(
+        (node) =>
+          node.props?.accessibilityRole === "radio" &&
+          typeof node.props?.accessibilityLabel === "string" &&
+          typeof node.props?.onPress === "function",
+      )) {
+        const label = String(n.props.accessibilityLabel).replace(
+          "Dismissal reason: ",
+          "",
+        );
+        if (seen.has(label)) continue;
+        seen.add(label);
+        labels.push(label);
+      }
+      return labels;
+    };
+
+    const expectedPause = DISMISSAL_REASON_OPTIONS.filter((o) =>
+      isDismissalReasonSnooze(o.value),
+    ).map((o) => o.label);
+    const expectedHide = DISMISSAL_REASON_OPTIONS.filter(
+      (o) => !isDismissalReasonSnooze(o.value),
+    ).map((o) => o.label);
+
+    expect(optionValuesIn(pauseGroup)).toEqual(expectedPause);
+    expect(optionValuesIn(hideGroup)).toEqual(expectedHide);
+
+    pressByLabel(renderer, `Dismissal reason: ${expectedPause[0]}`);
+    expect(
+      findRadioByLabel(renderer, `Dismissal reason: ${expectedPause[0]}`).props
+        .accessibilityState.checked,
+    ).toBe(true);
+    expect(
+      hasTextNode(
+        renderer,
+        "The report comes back if another matching signal arrives.",
+      ),
+    ).toBe(true);
+
+    pressByLabel(renderer, `Dismissal reason: ${expectedHide[0]}`);
+    expect(
+      hasTextNode(renderer, "Matching signals won't surface the report again."),
+    ).toBe(true);
+  });
+
+  it("appends the pull request outcome when the report has an open PR", () => {
+    const { renderer } = renderSheet(true, { hasOpenPr: true });
+    const hideValue = DISMISSAL_REASON_OPTIONS.find(
+      (o) => !isDismissalReasonSnooze(o.value),
+    );
+    if (!hideValue) throw new Error("no hide option");
+
+    pressByLabel(renderer, `Dismissal reason: ${hideValue.label}`);
+
+    expect(
+      hasTextNode(
+        renderer,
+        "Matching signals won't surface the report again. The open pull request will be closed.",
+      ),
+    ).toBe(true);
+  });
+
+  it("selects the other reason when a note is typed with no reason picked", () => {
+    const { renderer } = renderSheet(true);
+
+    act(() => {
+      noteInput(renderer).props.onChangeText("Some detail");
+    });
+
+    const otherOption = findRadioByLabel(
+      renderer,
+      "Dismissal reason: Something else…",
+    );
+    expect(otherOption.props.accessibilityState.checked).toBe(true);
+  });
+
+  it("keeps the picked reason when the user then adds a note", () => {
+    const { renderer } = renderSheet(true);
+
+    pressByLabel(renderer, `Dismissal reason: ${FIRST_REASON.label}`);
+    act(() => {
+      noteInput(renderer).props.onChangeText("extra context");
+    });
+
+    const firstOption = findRadioByLabel(
+      renderer,
+      `Dismissal reason: ${FIRST_REASON.label}`,
+    );
+    expect(firstOption.props.accessibilityState.checked).toBe(true);
   });
 
   it("reopens with the typed reason and note when the write fails", async () => {

@@ -655,6 +655,10 @@ export default function ReportDetailScreen() {
         visible={dismissOpen}
         reportId={report.id}
         reportTitle={report.title?.trim() ? report.title : "Untitled report"}
+        hasOpenPr={
+          Boolean(report.implementation_pr_url) &&
+          report.implementation_pr_merged !== true
+        }
         onClose={() => setDismissOpen(false)}
         onDismissed={handleDismissed}
       />
