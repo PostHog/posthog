@@ -189,13 +189,14 @@ def _commit_explanation(commits: list[object]) -> str:
 
 def _with_reviewer_presentation(reviewer: dict, user: User | None) -> dict:
     commits = reviewer.get("relevant_commits")
-    commit_count = len(commits) if isinstance(commits, list) else 0
+    commit_list: list[object] = commits if isinstance(commits, list) else []
     source_skill = reviewer.get("source_skill")
     reason = reviewer.get("reason")
+    explanation: str | None
 
-    if commit_count:
+    if commit_list:
         source_label = "Code history"
-        explanation = _commit_explanation(commits)
+        explanation = _commit_explanation(commit_list)
     elif isinstance(source_skill, str) and source_skill:
         source_label = f"{_prettify_scout_name(source_skill)} scout"
         explanation = reason if isinstance(reason, str) else None
