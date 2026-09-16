@@ -36,6 +36,9 @@ const breakdownRows = [
     cohortRow('2024-01-01T00:00:00Z', BREAKDOWN_OTHER_STRING_LABEL),
 ]
 
+// Far enough back that no interval is still in progress, so the mean covers every point.
+const COMPLETE_RANGE = { date_to: '2024-01-05' }
+
 const overallRows = [
     {
         date: '2024-01-01T00:00:00Z',
@@ -165,7 +168,10 @@ describe('retentionGraphLogic', () => {
                 null,
             ],
         ])('%s', async (_name, retentionFilter, expected) => {
-            await loadResults({ kind: NodeKind.RetentionQuery, retentionFilter }, overallRows)
+            await loadResults(
+                { kind: NodeKind.RetentionQuery, dateRange: COMPLETE_RANGE, retentionFilter },
+                overallRows
+            )
             expect(logic.values.meanLineData).toEqual(expected)
         })
 
@@ -177,10 +183,20 @@ describe('retentionGraphLogic', () => {
             expect(logic.values.meanLineData).toBeNull()
         })
 
+        it('stops before an in-progress interval rather than plotting its partial average', async () => {
+            await loadResults(
+                { kind: NodeKind.RetentionQuery, retentionFilter: { period: RetentionPeriod.Day, showMeanLine: true } },
+                overallRows
+            )
+
+            expect(logic.values.meanLineData).toEqual([100])
+        })
+
         it('uses meanValues instead of meanPercentages for property-value aggregation', async () => {
             await loadResults(
                 {
                     kind: NodeKind.RetentionQuery,
+                    dateRange: COMPLETE_RANGE,
                     retentionFilter: {
                         period: RetentionPeriod.Day,
                         showMeanLine: true,

@@ -108,7 +108,8 @@ export interface retentionGraphLogicMeta {
             retentionFilter: RetentionFilter | null,
             retentionMeans: Record<string, MeanRetentionValue>,
             shouldShowMeanPerBreakdown: boolean,
-            isPropertyValueAggregation: boolean
+            isPropertyValueAggregation: boolean,
+            incompletenessOffsetFromEnd: number
         ) => number[] | null
         filteredTrendSeries: (
             hasValidBreakdown: boolean,
@@ -323,12 +324,19 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         ],
 
         meanLineData: [
-            (s) => [s.retentionFilter, s.retentionMeans, s.shouldShowMeanPerBreakdown, s.isPropertyValueAggregation],
+            (s) => [
+                s.retentionFilter,
+                s.retentionMeans,
+                s.shouldShowMeanPerBreakdown,
+                s.isPropertyValueAggregation,
+                s.incompletenessOffsetFromEnd,
+            ],
             (
                 retentionFilter: RetentionFilter | null,
                 retentionMeans: Record<string, MeanRetentionValue>,
                 shouldShowMeanPerBreakdown: boolean,
-                isPropertyValueAggregation: boolean
+                isPropertyValueAggregation: boolean,
+                incompletenessOffsetFromEnd: number
             ): number[] | null => {
                 // The overall mean is only keyed when there's no breakdown; the per-breakdown view
                 // already draws a line per breakdown mean.
@@ -343,7 +351,9 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     return null
                 }
                 const data = isPropertyValueAggregation ? overall.meanValues : overall.meanPercentages
-                return data.length > 0 ? data : null
+                // The mean drops in-progress rows, so its tail averages fewer cohorts than the lines it overlays.
+                const complete = incompletenessOffsetFromEnd < 0 ? data.slice(0, incompletenessOffsetFromEnd) : data
+                return complete.length > 0 ? complete : null
             },
         ],
 
