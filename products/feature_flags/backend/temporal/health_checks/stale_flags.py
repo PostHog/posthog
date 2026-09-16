@@ -144,13 +144,14 @@ class StaleFeatureFlagsCheck(HealthCheck):
         stale_threshold = stale_flag_threshold()
 
         stale_candidates = list(filter_stale_flags(reportable_flags, stale_threshold=stale_threshold))
-        stale_ids = {flag.id for flag in stale_candidates}
-        # The two queries overlap on flags with no call data, which the stale filter already
-        # returned, so exclude those ids rather than fetch the rows again and drop them in Python.
+        # Only a never-called stale flag can come back from the rollout query too: a usage-stale
+        # flag's last call predates the cutoff, which fails the call-recency filter below. Excluding
+        # those ids beats fetching the rows again and dropping them in Python, and
         # `hash_keys=["flag_id"]` would otherwise give both rows the same issue identity.
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
+        overlap_ids = {flag.id for flag in stale_candidates if flag.last_called_at is None}
         # The prefilter reads configuration only and returns a superset, so the policy that makes
         # one of those flags a cleanup candidate is applied here, and the checker settles each
         # remaining row. A flag younger than the threshold has not had its chance yet, and one
@@ -164,7 +165,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
                 created_at__lt=stale_threshold,
             )
-            .exclude(pk__in=stale_ids)
+            .exclude(pk__in=overlap_ids)
             if not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
@@ -185,11 +186,6 @@ class StaleFeatureFlagsCheck(HealthCheck):
         if issues:
             # Each issue fires its own alert once dry_run flips, so the flip decision needs the
             # worst single team, which the framework's batch-wide dry-run summary does not show.
-            # The last two numbers differ and both are wanted. The evidence class counts the
-            # alerts that will say the flag is still being called. The candidate count is how far
-            # the new query widened the report, which is larger: a never-called flag whose release
-            # condition omits `properties` reaches the report only through that query, and still
-            # reports under the no-usage-data class.
             issue_counts = [len(team_issues) for team_issues in issues.values()]
             evidence_classes = [
                 result.payload["evidence_class"] for team_issues in issues.values() for result in team_issues
@@ -199,8 +195,8 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 teams_with_issues=len(issues),
                 issue_count=sum(issue_counts),
                 max_issues_per_team=max(issue_counts),
-                effectively_full_rollout_count=evidence_classes.count(EVIDENCE_EFFECTIVELY_FULL_ROLLOUT),
-                full_rollout_candidate_count=len(full_rollout_ids - excluded_ids),
+                effectively_full_rollout_evidence_count=evidence_classes.count(EVIDENCE_EFFECTIVELY_FULL_ROLLOUT),
+                full_rollout_query_issue_count=len(full_rollout_ids - excluded_ids),
             )
         return issues
 
@@ -223,9 +219,11 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     # A holdout is resolved before the release conditions and returns `holdout-<id>` to its share,
     # legacy super groups short-circuit the same way, and `early_exit` returns false on a failed
     # rollout check instead of falling through to a later blanket condition.
-    # `group_cohort_restriction_blocker` in `products/feature_flags/backend/facade/filters.py` and
-    # `is_unconditionally_fully_rolled_out` in `products/feature_flags/backend/persisted_flags.py`
-    # keep the same list for the same reason.
+    # Two siblings encode part of the same evaluation order. `group_cohort_restriction_blocker` in
+    # `products/feature_flags/backend/facade/filters.py` reads `holdout`, `holdout_groups` and
+    # `super_groups`. `is_unconditionally_fully_rolled_out` in
+    # `products/feature_flags/backend/persisted_flags.py` reads `holdout` and `super_groups`.
+    # Neither reads `early_exit`, so the three lists have never been in parity.
     if any(filters.get(key) for key in ("holdout", "holdout_groups", "super_groups", "early_exit")):
         return True
     # These three decide the result from evaluation context the configuration does not carry, so a
