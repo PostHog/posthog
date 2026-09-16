@@ -50,6 +50,7 @@ from posthog.api.team import (
     handle_experiments_config,
     handle_logs_config,
     handle_tracing_config,
+    heatmaps_screenshot_secret_for_reader,
     report_conversations_settings_changes,
     team_event_ingestion_restrictions_view,
     validate_secret_token_generation,
@@ -75,7 +76,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -85,7 +86,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -592,16 +592,16 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text=(
-            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
-            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
-            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
-        )
-    )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
+        help_text=(
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
+        ),
+    )  # Compat with TeamSerializer
     # project_id mirrors TeamSerializer.project_id; for a Project it equals its own id (Project ↔ Team is 1:1)
     project_id = serializers.IntegerField(
         source="id", read_only=True, help_text="ID of the project this environment belongs to."
@@ -709,6 +709,7 @@ class ProjectBackwardCompatSerializer(
             "flags_persistence_default",  # Compat with TeamSerializer
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
+            "heatmaps_screenshot_secret",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
             "business_model",  # Compat with TeamSerializer
             "conversations_enabled",  # Compat with TeamSerializer
@@ -736,8 +737,6 @@ class ProjectBackwardCompatSerializer(
             "default_data_theme",  # Compat with TeamSerializer
             "onboarding_tasks",  # Compat with TeamSerializer
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
-            "event_retention_months",  # Compat with TeamSerializer
-            "events_retention_enforced",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -757,11 +756,11 @@ class ProjectBackwardCompatSerializer(
             "product_intents",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "available_setup_task_ids",
             "project_id",
             "user_access_level",
             "managed_viewsets",
-            "event_retention_months",
         )
 
         team_passthrough_fields = {
@@ -839,7 +838,6 @@ class ProjectBackwardCompatSerializer(
             "customer_analytics_config",
             "workflows_config",
             "feature_flag_policy_config",
-            "event_retention_months",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -885,15 +883,6 @@ class ProjectBackwardCompatSerializer(
             "session_recording_retention_period": {
                 "help_text": (
                     "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan)."
-                )
-            },
-            "event_retention_months": {
-                "help_text": (
-                    "The team's events data retention window in months (plan-derived, synced from billing). When "
-                    "retention enforcement is active for the team, queries do not return events older than this many "
-                    "months. Read-only: this value follows your plan's data retention entitlement, so neither you nor "
-                    "PostHog support can change it unless your organization is on the enterprise plan. Background and "
-                    "discussion: https://github.com/PostHog/posthog/issues/17031"
                 )
             },
             "data_attributes": {
@@ -950,10 +939,6 @@ class ProjectBackwardCompatSerializer(
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
 
-    @extend_schema_field(serializers.BooleanField())
-    def get_events_retention_enforced(self, obj: Project) -> bool:
-        return should_enforce_events_retention(obj.passthrough_team.id)
-
     @staticmethod
     def validate_revenue_analytics_config(value):
         return TeamSerializer.validate_revenue_analytics_config(value)
@@ -988,6 +973,10 @@ class ProjectBackwardCompatSerializer(
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
+        return heatmaps_screenshot_secret_for_reader(project.passthrough_team, self.user_permissions)
 
     @extend_schema_field(
         {
@@ -1692,6 +1681,20 @@ class ProjectViewSet(
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
+    @extend_schema(request=None, responses=ProjectBackwardCompatSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_heatmaps_screenshot_secret_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -1781,8 +1784,7 @@ class ProjectViewSet(
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         project = self.get_object()
 
@@ -1790,10 +1792,10 @@ class ProjectViewSet(
             scope="Team",
             team_id=project.pk,
             item_ids=[str(project.pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     # The following actions mirror TeamViewSet, operating on the project's passthrough Team. They delegate to
     # the shared team_*_view helpers so /api/projects/ and /api/environments/ cannot drift apart.

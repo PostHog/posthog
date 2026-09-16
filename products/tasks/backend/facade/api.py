@@ -3,7 +3,7 @@ import time
 import hashlib
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -37,7 +37,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
@@ -46,6 +46,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -70,6 +71,7 @@ from products.tasks.backend.constants import (
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -92,7 +94,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
-from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -127,6 +129,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import (
     merge_pr_output,
+    read_head_branches,
     read_pr_urls as read_pr_urls,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
@@ -187,7 +190,10 @@ __all__ = [
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
+    "is_public_sandbox_repo",
+    "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
     "compute_repository_readiness",
@@ -237,6 +243,8 @@ __all__ = [
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
+    "get_task_run_source",
+    "get_task_run_claude_model_access",
     "get_task_run_sandbox_connection",
     "resolve_task_run_preview_redirect",
     "task_run_preview_ready",
@@ -499,7 +507,9 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(
+    run: TaskRun, *, include_agent_state: bool = False, include_log_url: bool = True
+) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -522,7 +532,7 @@ def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) 
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run),
+        log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
@@ -633,6 +643,7 @@ def _task_detail_to_dto(
     *,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+    include_latest_run_log_url: bool = True,
 ) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO."""
     if not include_latest_run:
@@ -663,7 +674,11 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=(
+            _task_run_detail_to_dto(resolved_latest_run, include_log_url=include_latest_run_log_url)
+            if resolved_latest_run is not None
+            else None
+        ),
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -983,6 +998,15 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
 
 
+def _pull_request_state(output: Mapping[str, object]) -> str:
+    """The state of the PR in ``output.pr_url``. ``pr_merged`` wins over ``pr_state``: it is the
+    webhook-attested flag, and runs merged before ``pr_state`` existed only carry it."""
+    if output.get("pr_merged"):
+        return "merged"
+    state = output.get("pr_state")
+    return state if isinstance(state, str) and state in PR_STATES else "unknown"
+
+
 def get_pull_requests_for_tasks(
     team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
 ) -> dict[str, list[contracts.TaskPullRequest]]:
@@ -1004,12 +1028,8 @@ def get_pull_requests_for_tasks(
             if key in seen:
                 continue
             seen.add(key)
-            state = "unknown"
-            if url == output.get("pr_url"):
-                state = "merged" if output.get("pr_merged") else output.get("pr_state", "unknown")
-            result.setdefault(str(task_id), []).append(
-                contracts.TaskPullRequest(url=url, state=state if isinstance(state, str) else "unknown")
-            )
+            state = _pull_request_state(output) if url == output.get("pr_url") else "unknown"
+            result.setdefault(str(task_id), []).append(contracts.TaskPullRequest(url=url, state=state))
     return result
 
 
@@ -1147,28 +1167,35 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
     return None
 
 
-def get_latest_active_internal_task_run_for_organization(
-    organization_id: str | UUID, *, ai_stage: str
+def get_latest_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str, active_only: bool = False, terminal_only: bool = False
 ) -> contracts.TaskRunDTO | None:
-    """Return the newest active cloud run for a server-owned organization flow."""
-    run = (
-        TaskRun.objects.filter(
-            team__organization_id=organization_id,
-            task__team__organization_id=organization_id,
-            task__internal=True,
-            environment=TaskRun.Environment.CLOUD,
-            state__ai_stage=ai_stage,
+    runs = TaskRun.objects.filter(
+        team__organization_id=organization_id,
+        task__team__organization_id=organization_id,
+        task__internal=True,
+        environment=TaskRun.Environment.CLOUD,
+        state__ai_stage=ai_stage,
+    )
+    if active_only:
+        runs = runs.filter(
             status__in=[
                 TaskRun.Status.NOT_STARTED,
                 TaskRun.Status.QUEUED,
                 TaskRun.Status.IN_PROGRESS,
-            ],
+            ]
         )
-        .select_related("task", "task__created_by")
-        .order_by("-created_at", "-id")
-        .first()
-    )
+    if terminal_only:
+        runs = runs.filter(status__in=_TERMINAL_TASK_RUN_STATUSES)
+    run = runs.select_related("task", "task__created_by").order_by("-created_at", "-id").first()
     return _task_run_to_dto(run) if run is not None else None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    return get_latest_internal_task_run_for_organization(organization_id, ai_stage=ai_stage, active_only=True)
 
 
 def get_stale_queued_task_run_ids(
@@ -2228,6 +2255,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "run_source",
+        "pr_base_branch",
         "github_credential_source",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
@@ -2246,6 +2275,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "systemPrompt",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
@@ -2474,6 +2504,22 @@ def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunD
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
     return [_task_run_detail_to_dto(run) for run in runs]
+
+
+def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__run_source", flat=True)
+        .first()
+    )
+
+
+def get_task_run_claude_model_access(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    return (
+        TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id)
+        .values_list("state__claude_model_access", flat=True)
+        .first()
+    )
 
 
 def get_task_run_detail(
@@ -2760,6 +2806,8 @@ def update_task_run(
         return None
 
     validated_data = dict(validated_data)
+    if "state" in validated_data and not isinstance(validated_data["state"], dict):
+        raise ValueError("Run state must be an object.")
     if (
         "status" in validated_data
         and not caller_is_agent
@@ -4774,6 +4822,23 @@ def _github_credential_source_extra_state(pr_authorship_mode, github_user_token:
     return {"github_credential_source": source.value}
 
 
+def _task_run_runtime_state_fields(validated_data: dict) -> dict[str, Any]:
+    return {
+        key: validated_data.get(key)
+        for key in (
+            "pr_authorship_mode",
+            "auto_publish",
+            "run_source",
+            "signal_report_id",
+            "runtime_adapter",
+            "model",
+            "reasoning_effort",
+            "context_window",
+            "fast_mode",
+        )
+    }
+
+
 def bootstrap_task_run(
     task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
 ) -> contracts.TaskRunCreateResult | None:
@@ -4805,14 +4870,10 @@ def bootstrap_task_run(
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
-    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
-    signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
     reasoning_effort = validated_data.get("reasoning_effort")
-    context_window = validated_data.get("context_window")
-    fast_mode = validated_data.get("fast_mode")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
     imported_mcp_servers = validated_data.get("imported_mcp_servers")
@@ -4826,17 +4887,10 @@ def bootstrap_task_run(
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
     for key, value in {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
-        "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
         "provider": provider,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
         "claude_model_access": validated_data.get("claude_model_access"),
@@ -4946,6 +5000,9 @@ def bootstrap_task_run(
     return contracts.TaskRunCreateResult(run=_task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)))
 
 
+WORKFLOW_START_FAILED_ERROR = "Failed to start task workflow."
+
+
 def _trigger_task_processing_workflow(
     task: Task,
     run: TaskRun,
@@ -4954,7 +5011,7 @@ def _trigger_task_processing_workflow(
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
-) -> None:
+) -> str | None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
@@ -4989,30 +5046,33 @@ def _trigger_task_processing_workflow(
             ),
         )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
+        return None
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
         if raise_on_error:
             raise
+        return WORKFLOW_START_FAILED_ERROR
 
 
 # Statuses from which a cloud run may be started via the start endpoint.
 _STARTABLE_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
 
 
-def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str:
+def check_task_run_startable(run_id: str | UUID, task_id: str | UUID, team_id: int) -> tuple[str, str | None]:
     """Whether a run can be started via the start endpoint.
 
     Returns ``"not_found"`` (run missing), ``"not_cloud"``, ``"bad_status:<current>"``, or
-    ``"ok"``. The usage gate (429) is applied by the view between this check and ``start_task_run``.
+    ``"ok"``, together with the stored run source. The view applies the usage gate before ``start_task_run``.
     """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
-        return "not_found"
+        return "not_found", None
+    run_source = (run.state or {}).get("run_source")
     if run.environment != TaskRun.Environment.CLOUD:
-        return "not_cloud"
+        return "not_cloud", run_source
     if run.status not in _STARTABLE_TASK_RUN_STATUSES:
-        return f"bad_status:{run.status}"
-    return "ok"
+        return f"bad_status:{run.status}", run_source
+    return "ok", run_source
 
 
 def start_task_run(
@@ -5485,6 +5545,10 @@ def _list_tasks_queryset(
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
 
+    client_provenance = filters.get("client_provenance")
+    if client_provenance:
+        qs = qs.filter(client_provenance=client_provenance)
+
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
@@ -5684,11 +5748,16 @@ def _search_latest_run_summary(run: TaskRun | None) -> contracts.TaskLatestRunSu
     if run is None:
         return None
     interactive = (run.state or {}).get("mode") == "interactive"
+    output = run.output if isinstance(run.output, dict) else {}
+    pr_url = output.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
     return contracts.TaskLatestRunSummaryDTO(
         id=run.id,
         status=run.status,
         environment=run.environment,
         mode="interactive" if interactive else "background",
+        pr_url=pr_url,
+        pr_state=_pull_request_state(output) if pr_url else None,
     )
 
 
@@ -5792,6 +5861,21 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
+def _latest_run_summary(raw: object) -> contracts.TaskLatestRunSummaryDTO | None:
+    if not isinstance(raw, dict):
+        return None
+    pr_url = raw.get("pr_url")
+    pr_url = pr_url if isinstance(pr_url, str) and pr_url else None
+    return contracts.TaskLatestRunSummaryDTO(
+        id=raw["id"],
+        status=raw.get("status"),
+        environment=raw.get("environment"),
+        mode=raw.get("mode", "background"),
+        pr_url=pr_url,
+        pr_state=_pull_request_state(raw) if pr_url else None,
+    )
+
+
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
@@ -5805,7 +5889,15 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 default=Value("background"),
                 output_field=CharField(),
             ),
-            _data=JSONObject(id="id", status="status", environment="environment", mode="_mode"),
+            _data=JSONObject(
+                id="id",
+                status="status",
+                environment="environment",
+                mode="_mode",
+                pr_url=KeyTransform("pr_url", "output"),
+                pr_state=KeyTransform("pr_state", "output"),
+                pr_merged=KeyTransform("pr_merged", "output"),
+            ),
         )
     )
     tasks = (
@@ -5814,32 +5906,19 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
         .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
         .order_by("-created_at", "id")
     )
-    summaries: list[contracts.TaskSummaryDTO] = []
-    for task in tasks:
-        raw = getattr(task, "_latest_run", None)
-        latest = (
-            contracts.TaskLatestRunSummaryDTO(
-                id=raw["id"],
-                status=raw.get("status"),
-                environment=raw.get("environment"),
-                mode=raw.get("mode", "background"),
-            )
-            if isinstance(raw, dict)
-            else None
+    return [
+        contracts.TaskSummaryDTO(
+            id=task.id,
+            title=task.title,
+            repository=task.repository,
+            created_by_id=task.created_by_id,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            origin_product=task.origin_product,
+            latest_run=_latest_run_summary(getattr(task, "_latest_run", None)),
         )
-        summaries.append(
-            contracts.TaskSummaryDTO(
-                id=task.id,
-                title=task.title,
-                repository=task.repository,
-                created_by_id=task.created_by_id,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                origin_product=task.origin_product,
-                latest_run=latest,
-            )
-        )
-    return summaries
+        for task in tasks
+    ]
 
 
 def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
@@ -5878,6 +5957,64 @@ def _capture_no_repo_selection_override(
         )
     except Exception as e:
         logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
+
+
+def create_task_and_run(
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    run_data: dict,
+    client_provenance: TaskClientProvenance | None = None,
+    code_access_allowed: bool = False,
+) -> contracts.TaskRunResult:
+    from products.signals.backend.facade.api import ReportTaskCapExceeded
+
+    if custom_image_id := run_data.get("custom_image_id"):
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if custom_image is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id")
+            )
+        if not custom_image.is_ready:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
+                )
+            )
+    if sandbox_environment_id := run_data.get("sandbox_environment_id"):
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id, team_id=team_id, task_created_by_id=user_id
+        )
+        if sandbox_environment is None:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id")
+            )
+
+    create_data = dict(validated_data)
+    create_data.pop("branch", None)
+    task = create_task(
+        team_id,
+        user_id,
+        validated_data=create_data,
+        client_provenance=client_provenance,
+        code_access_allowed=code_access_allowed,
+    )
+    try:
+        result = run_task(task.id, team_id, user_id, validated_data=run_data)
+        if result is None:
+            return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
+        return contracts.TaskRunResult(
+            task=result.task or task,
+            run_error=result.error.detail if result.error else result.run_error,
+        )
+    except ReportTaskCapExceeded as error:
+        return contracts.TaskRunResult(task=task, run_error=error.detail)
+    except Exception:
+        logger.exception("Failed to create first run for task %s", task.id)
+        return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
 
 
 def create_task(
@@ -6055,6 +6192,7 @@ def create_task(
                 warm_task,
                 team_id,
                 message=pending_user_message or description or None,
+                branch=warm_branch,
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
@@ -6597,6 +6735,22 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     return _can_mint(team_id)
 
 
+def readonly_github_integration_id(team_id: int) -> int | None:
+    """Id of the GitHub integration a read-only sandbox token would be minted from, or ``None``.
+
+    Pairs with :func:`can_mint_readonly_github_token` for callers that must validate repository
+    names against the credential a downscoped run will actually hold, because a repository the
+    mintable installation cannot reach is a clone that fails mid-run. Team-level installations only, same
+    rule as the mint. Never raises.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+        resolve_readonly_github_integration,
+    )
+
+    integration = resolve_readonly_github_integration(team_id)
+    return integration.integration.id if integration is not None else None
+
+
 def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
     """A copy of ``data`` with the team/user default AI run triple filled in when it pins
     no runtime selection (see ``resolve_ai_run_selection``).
@@ -6886,6 +7040,7 @@ def _activate_warm_run(
     team_id: int,
     *,
     message: str | None,
+    branch: str | None,
     artifact_ids: list[str],
     description: str | None = None,
     auto_publish: bool | None = None,
@@ -6907,7 +7062,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    activation_state_updates: dict[str, object] = {}
+    activation_state_updates: dict[str, object] = {"pr_base_branch": branch}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -7056,12 +7211,13 @@ def warm_task_sandbox(
         description="",
         origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
-        repository=repository,
+        repositories=normalized_repositories,
         client_provenance=client_provenance,
     )
-    task.repositories = normalized_repositories
+    # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
+    # one the caller asked for, because warm reuse matches on the integration id.
     task.github_integration = github_integration
-    task.save(update_fields=["repositories", "github_integration", "updated_at"])
+    task.save(update_fields=["github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
@@ -7073,6 +7229,7 @@ def warm_task_sandbox(
     )
     extra_state: dict = {
         "branch": branch,
+        "pr_base_branch": branch,
         "initial_permission_mode": resolved_permission_mode,
     }
     if sandbox_environment is not None:
@@ -7125,6 +7282,7 @@ def warm_task_resume_sandbox(
         WarmSourceChanged,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RunSource,
         get_pr_authorship_mode,
         get_provider_for_runtime_adapter,
         get_reasoning_effort_error,
@@ -7168,7 +7326,7 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
-    if previous_state.claude_model_access == "own-subscription":
+    if previous_state.run_source == RunSource.AGENT or previous_state.claude_model_access == "own-subscription":
         return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
@@ -7231,7 +7389,7 @@ def warm_task_resume_sandbox(
     for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
-    extra_state = {key: value for key, value in extra_state.items() if value is not None}
+    extra_state = {key: value for key, value in extra_state.items() if value is not None or key == "pr_base_branch"}
     stable_selection = {
         key: value
         for key, value in extra_state.items()
@@ -7266,6 +7424,17 @@ def warm_task_resume_sandbox(
 
 
 # --- Task run (the ``run`` action) ---
+
+
+def _branches_worked_on(run: TaskRun) -> set[str]:
+    output = run.output if isinstance(run.output, dict) else {}
+    branches = {entry["branch"] for entry in read_head_branches(output)}
+    head_branch = output.get("head_branch")
+    if isinstance(head_branch, str) and head_branch:
+        branches.add(head_branch)
+    if run.branch:
+        branches.add(run.branch)
+    return branches
 
 
 def run_task(
@@ -7329,6 +7498,7 @@ def run_task(
                 team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
             )
     mode = validated_data.get("mode", "background")
+    run_source = validated_data.get("run_source")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
@@ -7350,6 +7520,17 @@ def run_task(
                 )
             )
         previous_state = parse_run_state(previous_run.state)
+        if previous_state.run_source == RunSource.AGENT:
+            run_source = RunSource.AGENT
+        previous_branch = previous_state.pr_base_branch
+        if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."
+                )
+            )
+
+        branch = previous_branch
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
@@ -7379,7 +7560,7 @@ def run_task(
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
 
-    warm_run = _idling_warm_run_for_task(task)
+    warm_run = None if run_source == RunSource.AGENT else _idling_warm_run_for_task(task)
     if warm_run is not None and claude_model_access == "own-subscription":
         warm_run = None
     if warm_run is not None:
@@ -7391,10 +7572,7 @@ def run_task(
         warm_resume_matches = (warm_state.get("resume_from_run_id") or None) == (
             str(resume_from_run_id) if resume_from_run_id else None
         )
-        effective_branch = branch
-        if effective_branch is None and previous_state is not None:
-            effective_branch = previous_state.pr_base_branch
-        if warm_resume_matches and (effective_branch or None) == (warm_run.branch or None):
+        if warm_resume_matches and (branch or None) == (warm_run.branch or None):
             desired_runtime_adapter = validated_data.get("runtime_adapter")
             desired_model = validated_data.get("model")
             desired_context_window = validated_data.get("context_window")
@@ -7468,6 +7646,7 @@ def run_task(
                         task,
                         team_id,
                         message=pending_user_message or (task.description or None),
+                        branch=branch,
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
@@ -7483,7 +7662,6 @@ def run_task(
     custom_image_id_supplied_by_user = custom_image_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
     auto_publish = validated_data.get("auto_publish")
-    run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
     model = validated_data.get("model")
@@ -7498,15 +7676,9 @@ def run_task(
         pr_authorship_mode = PrAuthorshipMode.BOT
 
     runtime_state_fields = {
+        **_task_run_runtime_state_fields(validated_data),
         "pr_authorship_mode": pr_authorship_mode,
-        "auto_publish": auto_publish,
         "run_source": run_source,
-        "signal_report_id": signal_report_id,
-        "runtime_adapter": runtime_adapter,
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "context_window": context_window,
-        "fast_mode": fast_mode,
     }
 
     extra_state: dict | None = None
@@ -7575,13 +7747,10 @@ def run_task(
         reasoning_effort = runtime_state_fields["reasoning_effort"]
         context_window = runtime_state_fields["context_window"]
         fast_mode = runtime_state_fields["fast_mode"]
-        if branch is None and prev_state.pr_base_branch is not None:
-            branch = prev_state.pr_base_branch
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
 
     run_state_values = {
-        "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
         "auto_publish": auto_publish,
         "run_source": run_source,
@@ -7596,9 +7765,10 @@ def run_task(
     if is_pi_task:
         for key in ("runtime_adapter", "provider", "model", "reasoning_effort"):
             run_state_values.pop(key)
+    extra_state = extra_state or {}
+    extra_state["pr_base_branch"] = branch
     for key, value in run_state_values.items():
         if value is not None:
-            extra_state = extra_state or {}
             extra_state[key] = value.value if hasattr(value, "value") else value
 
     reasoning_effort_error = get_reasoning_effort_error(
@@ -7751,7 +7921,7 @@ def run_task(
         initial_message = (
             pending_user_message if resume_from_run_id else pending_user_message or task.description or None
         )
-        _trigger_task_processing_workflow(
+        run_error = _trigger_task_processing_workflow(
             task,
             task_run,
             user_id,
@@ -7760,9 +7930,18 @@ def run_task(
             raise_on_error=False,
         )
     else:
-        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        run_error = _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
 
-    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    try:
+        if run_error is None:
+            task_run.refresh_from_db(fields=["status"])
+            if task_run.status == TaskRun.Status.FAILED:
+                run_error = WORKFLOW_START_FAILED_ERROR
+        task_detail = get_task_detail(task.id, team_id, user_id)
+    except Exception:
+        logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)
+        task_detail = _task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False)
+    return contracts.TaskRunResult(task=task_detail, run_error=run_error)
 
 
 # --- Task presence beacons ---
@@ -9977,3 +10156,30 @@ def post_pr_created_thread_update(run: TaskRun, pr_url: str) -> None:
             )
     except Exception:
         logger.exception("Failed to post pr-created thread update", extra={"task_id": str(run.task_id)})
+
+
+# --- Inbound GitHub App deliveries (entered from backend/webhook_consumers.py) ---
+
+
+def accept_github_pull_request(delivery: WebhookDelivery) -> None:
+    """The PR backstop that records a pull request the agent output never reported."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_event  # noqa: PLC0415
+
+    handle_pull_request_event(dict(delivery.payload))
+
+
+def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
+    """A review on a PR a task opened, which can resume the run that is waiting on it."""
+    # Deferred to keep the GitHub client off the facade import path.
+    from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
+
+    handle_pull_request_review_event(dict(delivery.payload))
+
+
+def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
+    """Every event type a loop trigger can match on, which fires the loops whose filters accept it."""
+    # Deferred to keep the Redis client off the facade import path.
+    from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
+
+    handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")

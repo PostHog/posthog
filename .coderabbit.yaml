@@ -1,9 +1,9 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
 tone_instructions: >-
-    Always be direct and concise. State the issue, impact, and required fix with no
-    preamble, praise, repetition, or unnecessary explanation. Omit nonessential
-    commentary and keep each response as short as clarity allows.
+    Be direct and concise. State the issue, impact, and fix with no preamble, praise,
+    or repetition. In pull request conversations, never reply with agreement alone or
+    restate the author's explanation. Reply only to add actionable information.
 
 reviews:
     # Surface only the highest-signal feedback.
@@ -17,12 +17,32 @@ reviews:
     commit_status: false
     poem: false
 
+    # CodeRabbit writes this summary into the pull request description by
+    # default, so it would edit the body the author wrote.
+    high_level_summary: false
+
+    # Each section below renders in the walkthrough comment, the second comment
+    # CodeRabbit posts on a pull request. CodeRabbit has no setting that
+    # suppresses that comment, so the sections are off to keep it short. The
+    # walkthrough prose and the merge risk line have no toggle and stay.
+    changed_files_summary: false
+    sequence_diagrams: false
+    estimate_code_review_effort: false
+    assess_linked_issues: false
+    related_issues: false
+    related_prs: false
+    suggested_labels: false
+    suggested_reviewers: false
+    in_progress_fortune: false
+
     auto_review:
         enabled: true
 
-        # One review per pull request, as Greptile's triggerOnUpdates does.
-        # Re-review after a fix costs a run and repeats findings already handled.
-        auto_incremental_review: false
+        # Review the commits pushed after the first review too, so work added
+        # while a pull request is open is not merged unreviewed. An incremental
+        # review reads only the diff since the last one, so it does not repeat
+        # findings already handled.
+        auto_incremental_review: true
 
         # Most agent-authored pull requests open as drafts, which is where the
         # findings are cheapest to act on.

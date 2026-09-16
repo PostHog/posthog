@@ -1745,6 +1745,40 @@ class TestProcessTaskWorkflowUnit:
                 await workflow._wait_for_task_external_event() == process_task_workflow_module.TaskEvent.SIGNAL_RECEIVED
             )
 
+    async def test_a_late_heartbeat_does_not_reopen_an_ended_turn(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", AsyncMock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+
+        await workflow.agent_state_changed(False)
+        await workflow.heartbeat(agent_active=True)
+
+        assert workflow._end_of_turn_received is True
+        assert workflow._agent_lost_mid_turn() is False
+
+    @pytest.mark.parametrize(
+        "agent_active, expected",
+        [(True, True), (None, True), (False, False)],
+    )
+    async def test_an_open_turn_is_a_lost_agent_only_with_evidence(self, agent_active, expected):
+        workflow = ProcessTaskWorkflow()
+        workflow._end_of_turn_received = False
+        workflow._agent_active = agent_active
+
+        assert workflow._agent_lost_mid_turn() is expected
+
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [("workflow", True), ("slack", False), ("user_created", False), (None, False)],
+    )
+    async def test_only_a_workflow_run_fails_on_a_lost_agent(self, origin_product, expected):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, origin_product=origin_product)
+        workflow._end_of_turn_received = False
+
+        assert workflow._agent_lost_exit_is_failure() is expected
+
     @pytest.mark.parametrize(
         "outcome, expected",
         [(None, False), (STEER_DECLINED_OUTCOME, True), (RuntimeError("Sandbox session is dead"), True)],
@@ -1753,6 +1787,9 @@ class TestProcessTaskWorkflowUnit:
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
         workflow._end_of_turn_received = True
+        # Stale evidence from the turn that just closed — a second turn opening on an
+        # ingest-only run must not inherit it, or a lost agent later this turn is hidden.
+        workflow._agent_active = False
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
         monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
@@ -1763,6 +1800,7 @@ class TestProcessTaskWorkflowUnit:
         await workflow._send_followup_to_sandbox("go", [])
 
         assert workflow._end_of_turn_received is expected
+        assert workflow._agent_active is (None if outcome is None else False)
 
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -2035,8 +2073,13 @@ class TestProcessTaskWorkflowUnit:
         [
             (None, False, 1, None, "completed"),
             (None, False, 1, True, "completed"),
-            # The agent was mid-turn when the sandbox vanished, so its work is gone.
-            (None, False, 1, False, "failed"),
+            # The agent was mid-turn when the sandbox vanished, so the workflow step waiting on
+            # this run has no work to continue from.
+            ("workflow", False, 1, False, "failed"),
+            # Every other origin keeps completing: the run is the snapshot its reader or its resume
+            # flow picks up, and a red run in the task list would report breakage that never was.
+            (None, False, 1, False, "completed"),
+            ("slack", False, 1, False, "completed"),
             ("user_created", False, 1, None, "completed"),
             # Onboarding runs are one-shot, so a vanished sandbox is a failed setup rather than a
             # resumable snapshot.
@@ -2165,15 +2208,27 @@ class TestProcessTaskWorkflowUnit:
                 "completed",
                 {"timed_out_inactivity": True},
             ),
-            # The agent was still mid-turn when the timer fired, so it died rather than finished.
+            # The agent was still mid-turn when the timer fired, so the step waiting on this run
+            # has to hear that its work never happened.
             (
                 process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
-                None,
+                "workflow",
                 False,
                 1,
                 False,
                 "failed",
                 {"error_message": AGENT_LOST_ERROR_MESSAGE, "timed_out_inactivity": True},
+            ),
+            # An attended run ends the same way every time it answers and then idles out, so the
+            # open turn is its normal exit rather than a lost agent.
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                "slack",
+                False,
+                1,
+                False,
+                "completed",
+                {"timed_out_inactivity": True},
             ),
             (
                 process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
@@ -2207,8 +2262,9 @@ class TestProcessTaskWorkflowUnit:
         expected_kwargs,
     ):
         # The wall-clock cap is a failure for every origin; the inactivity timeout only fails for
-        # onboarding runs that delivered nothing, because other origins resume from the timed-out
-        # run and a PR-bearing onboarding run already succeeded.
+        # onboarding runs that delivered nothing and workflow runs whose turn never closed, because
+        # other origins resume from the timed-out run and a PR-bearing onboarding run already
+        # succeeded.
         workflow = ProcessTaskWorkflow()
         workflow._pr_progress_emitted = pr_progress_emitted
         workflow._ci_repetitions = ci_repetitions

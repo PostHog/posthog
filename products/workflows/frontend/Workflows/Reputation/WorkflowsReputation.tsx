@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { Sparkline } from 'lib/components/Sparkline'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -47,6 +46,12 @@ const RATE_THRESHOLDS = {
 
 type RateLevel = 'healthy' | 'elevated' | 'high'
 
+// Below this much volume one event on its own clears the elevated line, so a tag would be
+// reporting noise: one bounce in 20 sends reads as 5%.
+function minimumVolumeToClassify(kind: 'bounce' | 'complaint'): number {
+    return Math.ceil(1 / RATE_THRESHOLDS[kind].elevated)
+}
+
 function classifyRate(rate: number, kind: 'bounce' | 'complaint'): RateLevel {
     const thresholds = RATE_THRESHOLDS[kind]
     if (rate >= thresholds.high) {
@@ -81,10 +86,31 @@ function MissingRate({ reason }: { reason: 'unavailable' | 'no-rate' }): JSX.Ele
     )
 }
 
-function RateCell({ rate, kind }: { rate: number; kind: 'bounce' | 'complaint' }): JSX.Element {
+function RateCell({
+    rate,
+    kind,
+    // What the rate divides by, which differs per kind: sends for bounces, and for complaints the
+    // far smaller set of deliveries the provider reports them for.
+    volume,
+}: {
+    rate: number
+    kind: 'bounce' | 'complaint'
+    volume: number
+}): JSX.Element {
+    const label = kind === 'bounce' ? 'bounce rate' : 'spam complaint rate'
+    const minimumVolume = minimumVolumeToClassify(kind)
+    if (volume < minimumVolume) {
+        const noun = kind === 'bounce' ? 'emails sent' : 'deliveries this provider reports complaints for'
+        return (
+            <Tooltip
+                title={`Too little volume to judge the ${label}. Under ${humanFriendlyNumber(minimumVolume)} ${noun}, one ${kind === 'bounce' ? 'bounce' : 'complaint'} on its own would put this above ${formatRate(RATE_THRESHOLDS[kind].elevated)}.`}
+            >
+                <span className="tabular-nums text-secondary cursor-default">{formatRate(rate)}</span>
+            </Tooltip>
+        )
+    }
     const level = classifyRate(rate, kind)
     const tag = RATE_LEVEL_TAG[level]
-    const label = kind === 'bounce' ? 'bounce rate' : 'spam complaint rate'
     const highPct = formatRate(RATE_THRESHOLDS[kind].high)
     const elevatedPct = formatRate(RATE_THRESHOLDS[kind].elevated)
     const tooltip =
@@ -172,9 +198,6 @@ function AwsFindings({ aws }: { aws: AwsTenantReputationApi }): JSX.Element | nu
     )
 }
 
-// A single point is a reading, not a trend, so the column stays empty until there are two.
-const MIN_TREND_POINTS = 2
-
 // SES names providers as one capitalized word, which is not how people write most of them. Only
 // the names that read wrong are listed; anything absent is shown as SES reports it, so a provider
 // added to SES_ISP_DIMENSIONS still renders without a matching entry here. `__other__` is the
@@ -190,57 +213,21 @@ function ispDisplayName(isp: string): string {
     return ISP_DISPLAY_NAMES[isp] ?? isp
 }
 
-// Every row is drawn against the same dates: the days any provider sent on. A provider only appears
-// on its own send days, so without this each row stretches its own handful of dates across the full
-// width — a provider whose last send was two weeks ago ends level with one that sent yesterday, and
-// a ten-day gap draws like a one-day gap.
-function trendDates(isps: readonly IspSendingHealthApi[]): string[] {
-    return [...new Set(isps.flatMap((isp) => isp.daily.map((point) => point.date)))].sort()
-}
-
-// NaN rather than 0 for a day with no sends to this provider: the renderer breaks the line at a
-// non-finite value, so the gap reads as "nothing sent" instead of as a drop to zero.
-function alignToDates(isp: IspSendingHealthApi, dates: string[]): number[] {
-    const byDate = new Map(isp.daily.map((point) => [point.date, point.delivery_rate * 100]))
-    return dates.map((date) => byDate.get(date) ?? Number.NaN)
-}
-
-function DeliveryTrend({ isp, dates }: { isp: IspSendingHealthApi; dates: string[] }): JSX.Element {
-    // An empty box of the same size rather than nothing: a provider with too few points to draw
-    // would otherwise collapse its row, and the table's rows would step up and down the column.
-    if (isp.daily.length < MIN_TREND_POINTS) {
-        return <div className="h-8 w-28" aria-hidden />
-    }
-    return (
-        <Sparkline
-            data={alignToDates(isp, dates)}
-            labels={dates}
-            name={`${ispDisplayName(isp.isp)} delivery rate (%)`}
-            type="line"
-            renderTooltipValue={(value) => `${value.toFixed(1)}%`}
-            // Fixed 0-100 rather than auto-scaled per row: these are read against each other, and
-            // an auto-scaled axis draws a steady 40% provider identically to a steady 98% one.
-            valueDomain={{ min: 0, max: 100 }}
-            // Sizes Sparkline's own container: without a height it grows to fill the table cell
-            // and the chart bleeds across rows.
-            className="h-8 w-28"
-        />
-    )
-}
-
 function IspBreakdown({
     isps,
     sharedDomains,
+    emailsSent,
 }: {
     isps: readonly IspSendingHealthApi[]
     sharedDomains: readonly string[]
+    /** The card's own total, to reconcile against. Null when the project sent no workflow email. */
+    emailsSent: number | null
 }): JSX.Element | null {
     // The API returns [] unless the flag and access checks pass on its side, so gating on isps alone
     // keeps one decision. A second client flag check can bucket differently and hide returned rows.
     if (isps.length === 0) {
         return null
     }
-    const dates = trendDates(isps)
     return (
         <div className="mt-4 space-y-2" data-attr="workflows-reputation-isp-breakdown">
             <MetricLabel
@@ -282,20 +269,29 @@ function IspBreakdown({
                             ),
                     },
                     {
-                        title: 'Delivery trend',
-                        key: 'delivery_trend',
-                        tooltip: 'Every provider is drawn on the same 0-100% axis, so rows can be compared by height.',
-                        render: (_, row: IspSendingHealthApi) => <DeliveryTrend isp={row} dates={dates} />,
-                    },
-                    {
-                        title: 'Bounce rate',
+                        title: 'Hard bounce rate',
                         key: 'bounce_rate',
+                        tooltip:
+                            'Permanent rejections: the address does not exist, or the provider refused the mail outright.',
                         align: 'right',
                         render: (_, row: IspSendingHealthApi) =>
                             row.bounce_rate === null ? (
                                 <MissingRate reason="unavailable" />
                             ) : (
-                                <RateCell rate={row.bounce_rate} kind="bounce" />
+                                <RateCell rate={row.bounce_rate} kind="bounce" volume={row.emails_sent} />
+                            ),
+                    },
+                    {
+                        title: 'Soft bounce rate',
+                        key: 'transient_bounce_rate',
+                        tooltip:
+                            'Temporary rejections the provider may accept on a retry, such as a full mailbox, rate limiting, or a provider holding mail from a sender it does not recognize yet. These are why a delivery rate can fall short without any hard bounces.',
+                        align: 'right',
+                        render: (_, row: IspSendingHealthApi) =>
+                            row.transient_bounce_rate === null ? (
+                                <MissingRate reason="unavailable" />
+                            ) : (
+                                <span className="tabular-nums">{formatRate(row.transient_bounce_rate)}</span>
                             ),
                     },
                     {
@@ -308,7 +304,7 @@ function IspBreakdown({
                                     reason={row.unavailable?.includes('complaint') ? 'unavailable' : 'no-rate'}
                                 />
                             ) : (
-                                <RateCell rate={row.complaint_rate} kind="complaint" />
+                                <RateCell rate={row.complaint_rate} kind="complaint" volume={row.complaint_base} />
                             ),
                     },
                     {
@@ -319,6 +315,32 @@ function IspBreakdown({
                     },
                 ]}
             />
+            {sharedDomains.length === 0 && <IspCoverage isps={isps} emailsSent={emailsSent} />}
+        </div>
+    )
+}
+
+// The card counts every workflow email sent; the table counts what AWS attributed to the verified
+// domains. Different populations, and the table is routinely the smaller one.
+//
+// Only sound while no domain is shared. A shared domain puts another project's mail in the table
+// but not in the card, so the two stop being comparable and the caller withholds this.
+function IspCoverage({
+    isps,
+    emailsSent,
+}: {
+    isps: readonly IspSendingHealthApi[]
+    emailsSent: number | null
+}): JSX.Element | null {
+    const attributed = isps.reduce((total, isp) => total + isp.emails_sent, 0)
+    if (emailsSent === null || attributed >= emailsSent) {
+        return null
+    }
+    return (
+        <div className="text-secondary text-xs" data-attr="workflows-reputation-isp-coverage">
+            Covers {humanFriendlyNumber(attributed)} of the {humanFriendlyNumber(emailsSent)} emails this project sent.
+            The rest went out from a domain this breakdown does not cover, or your email provider has not reported on it
+            yet.
         </div>
     )
 }
@@ -380,7 +402,7 @@ function TeamRatesCard({
                 </div>
             )}
             {aws && <AwsFindings aws={aws} />}
-            <IspBreakdown isps={isps} sharedDomains={sharedDomains} />
+            <IspBreakdown isps={isps} sharedDomains={sharedDomains} emailsSent={reputation?.emails_sent ?? null} />
             {withheldDomains.length > 0 && (
                 <div className="text-secondary text-xs mt-3" data-attr="workflows-reputation-isp-withheld">
                     {withheldDomains.join(', ')} {withheldDomains.length > 1 ? 'are' : 'is'} left out of the provider
@@ -540,7 +562,7 @@ export function WorkflowsReputation(): JSX.Element {
                         key: 'bounce_rate',
                         align: 'right',
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
-                            <RateCell rate={snapshot.bounce_rate} kind="bounce" />
+                            <RateCell rate={snapshot.bounce_rate} kind="bounce" volume={snapshot.emails_sent} />
                         ),
                     },
                     {
@@ -548,7 +570,7 @@ export function WorkflowsReputation(): JSX.Element {
                         key: 'complaint_rate',
                         align: 'right',
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
-                            <RateCell rate={snapshot.complaint_rate} kind="complaint" />
+                            <RateCell rate={snapshot.complaint_rate} kind="complaint" volume={snapshot.emails_sent} />
                         ),
                     },
                     {

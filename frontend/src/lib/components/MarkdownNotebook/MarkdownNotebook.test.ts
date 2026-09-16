@@ -1865,50 +1865,81 @@ Repeated block`),
         expect(container.querySelector('[data-attr="notebook-comment-editor"]')).toBeNull()
     })
 
-    it('moves the caret with the text when a collaborator inserts before it', () => {
-        const onChange = jest.fn()
-        const onCaretChange = jest.fn()
+    it.each(['remote', 'external'] as const)(
+        'maps the caret without scrolling when an incoming %s edit inserts before it',
+        (source) => {
+            const onChange = jest.fn()
+            const onCaretChange = jest.fn()
+            const { container, rerender } = render(
+                createElement(MarkdownNotebook, {
+                    value: '# Title\n\nHello',
+                    onChange,
+                    onCaretChange,
+                    remoteValue: '# Title\n\nHello',
+                })
+            )
+            const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+            const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
+            expect(paragraphBlock.textContent).toEqual('Hello')
+
+            // Caret at the end of the line while a collaborator types at the beginning.
+            placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+
+            const focus = jest.spyOn(paragraphBlock, 'focus')
+            const scrollIntoView = jest.fn()
+            paragraphBlock.scrollIntoView = scrollIntoView
+
+            rerender(
+                createElement(MarkdownNotebook, {
+                    value: source === 'external' ? '# Title\n\nWell, Hello' : '# Title\n\nHello',
+                    onChange,
+                    onCaretChange,
+                    remoteValue: source === 'remote' ? '# Title\n\nWell, Hello' : '# Title\n\nHello',
+                })
+            )
+
+            const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
+            const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
+            expect(updatedBlock.textContent).toEqual('Well, Hello')
+
+            // The caret must still sit at the end of "Hello" — after the remote insertion,
+            // not at the stale numeric offset 5 (which would now be inside "Well,").
+            const range = window.getSelection()?.getRangeAt(0)
+            expect(range?.collapsed).toBe(true)
+            expect(range?.startContainer.textContent).toEqual('Well, Hello')
+            expect(range?.startOffset).toEqual('Well, Hello'.length)
+
+            expect(focus).not.toHaveBeenCalled()
+            expect(scrollIntoView).not.toHaveBeenCalled()
+            focus.mockRestore()
+
+            // The corrected caret is re-published right away so collaborators see it move too.
+            if (source === 'remote') {
+                expect(onCaretChange).toHaveBeenCalledWith({
+                    nodeIndex: 1,
+                    offset: 'Well, Hello'.length,
+                    listItemIndex: undefined,
+                })
+            }
+        }
+    )
+
+    it.each(['outside', 'embedded'] as const)('keeps focus in an %s input during a remote edit', (location) => {
+        const initial = '# Title\n\nHello'
         const { container, rerender } = render(
-            createElement(MarkdownNotebook, {
-                value: '# Title\n\nHello',
-                onChange,
-                onCaretChange,
-                remoteValue: '# Title\n\nHello',
-            })
+            createElement(MarkdownNotebook, { value: initial, remoteValue: initial })
         )
-        const blocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
-        const paragraphBlock = blocks[blocks.length - 1] as HTMLElement
-        expect(paragraphBlock.textContent).toEqual('Hello')
+        const paragraph = getBodyTextBlock(container)
+        placeCaretInElement(paragraph, paragraph.childNodes.length)
+        const input = document.createElement('input')
+        const parent = location === 'embedded' ? container.querySelector('.MarkdownNotebook')! : container
+        parent.appendChild(input)
+        input.focus()
 
-        // Caret at the end of the line while a collaborator types at the beginning.
-        placeCaretInElement(paragraphBlock, paragraphBlock.childNodes.length)
+        rerender(createElement(MarkdownNotebook, { value: initial, remoteValue: '# Title\n\nWell, Hello' }))
 
-        rerender(
-            createElement(MarkdownNotebook, {
-                value: '# Title\n\nHello',
-                onChange,
-                onCaretChange,
-                remoteValue: '# Title\n\nWell, Hello',
-            })
-        )
-
-        const updatedBlocks = container.querySelectorAll(NOTEBOOK_TEST_EDITABLE_SELECTOR)
-        const updatedBlock = updatedBlocks[updatedBlocks.length - 1] as HTMLElement
-        expect(updatedBlock.textContent).toEqual('Well, Hello')
-
-        // The caret must still sit at the end of "Hello" — after the remote insertion,
-        // not at the stale numeric offset 5 (which would now be inside "Well,").
-        const range = window.getSelection()?.getRangeAt(0)
-        expect(range?.collapsed).toBe(true)
-        expect(range?.startContainer.textContent).toEqual('Well, Hello')
-        expect(range?.startOffset).toEqual('Well, Hello'.length)
-
-        // The corrected caret is re-published right away so collaborators see it move too.
-        expect(onCaretChange).toHaveBeenCalledWith({
-            nodeIndex: 1,
-            offset: 'Well, Hello'.length,
-            listItemIndex: undefined,
-        })
+        expect(getBodyTextBlock(container).textContent).toEqual('Well, Hello')
+        expect(document.activeElement).toBe(input)
     })
 
     it('keeps the caret in place when a collaborator inserts after it', () => {

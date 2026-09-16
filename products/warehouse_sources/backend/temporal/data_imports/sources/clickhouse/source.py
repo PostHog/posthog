@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -17,9 +18,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -168,7 +166,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            name=ExternalDataSourceType.CLICKHOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             releaseStatus=ReleaseStatus.GA,
@@ -354,9 +352,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "Connection aborted",
-            "Tunnel connection failed: 502",
-            "Tunnel connection failed: 503",
-            "Tunnel connection failed: 504",
             "returned response code 429",
             "returned response code 502",
             "returned response code 503",
@@ -381,10 +376,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # entry covers the case where the server stays saturated past all in-process
             # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
             "TOO_MANY_SIMULTANEOUS_QUERIES",
-            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
-            # in clickhouse.py); this entry covers the case where our own egress proxy stays
-            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
-            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager

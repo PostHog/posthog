@@ -19,7 +19,7 @@ from posthog.jwt import PosthogJwtAudience, decode_jwt
     HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS=["test-language-service-signing-key"],
 )
 class TestLanguageServiceClient(SimpleTestCase):
-    @patch("posthog.hogql.language_service.requests.request")
+    @patch("posthog.hogql.language_service.internal_requests.request")
     def test_routes_request_and_scopes_token_to_principal_and_operation(self, request: MagicMock) -> None:
         response = MagicMock()
         response.ok = True
@@ -50,7 +50,7 @@ class TestLanguageServiceClient(SimpleTestCase):
         assert result.body["valid"] is True
         assert result.response_size_bytes == len(response.content)
 
-    @patch("posthog.hogql.language_service.requests.request")
+    @patch("posthog.hogql.language_service.internal_requests.request")
     def test_catalog_miss_has_a_distinct_error(self, request: MagicMock) -> None:
         response = MagicMock()
         response.ok = False
@@ -68,7 +68,7 @@ class TestLanguageServiceClient(SimpleTestCase):
         }
 
     @patch("posthog.hogql.language_service.LANGUAGE_SERVICE_HTTP_DURATION_SECONDS")
-    @patch("posthog.hogql.language_service.requests.request", side_effect=requests.Timeout("timed out"))
+    @patch("posthog.hogql.language_service.internal_requests.request", side_effect=requests.Timeout("timed out"))
     def test_records_latency_for_failed_requests(self, _request: MagicMock, duration: MagicMock) -> None:
         with self.assertRaises(LanguageServiceError):
             LanguageServiceClient().validate(12, 34, "SELECT 1")

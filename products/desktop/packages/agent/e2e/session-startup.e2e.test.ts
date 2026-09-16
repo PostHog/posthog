@@ -10,7 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
+import { DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
 import { expect, it, vi } from "vitest";
 import { createAcpConnection } from "../src/adapters/acp-connection";
 import { withTimeout } from "../src/utils/common";
@@ -43,7 +45,14 @@ it("runs repository setup in a new worktree beyond the connection deadline", asy
   try {
     execFileSync(
       "git",
-      ["clone", "--shared", "--no-checkout", source, repository],
+      [
+        "clone",
+        "--depth",
+        "1",
+        "--no-checkout",
+        pathToFileURL(source).href,
+        repository,
+      ],
       {
         stdio: "ignore",
       },
@@ -67,6 +76,7 @@ it("runs repository setup in a new worktree beyond the connection deadline", asy
     vi.stubEnv("ANTHROPIC_API_KEY", "example-not-a-real-key");
     vi.stubEnv("ANTHROPIC_AUTH_TOKEN", "");
     vi.stubEnv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9");
+    vi.stubEnv("ANTHROPIC_DEFAULT_OPUS_MODEL", DEFAULT_GATEWAY_MODEL);
     vi.stubEnv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
 
     for (const { cwd, needsSetup } of [
