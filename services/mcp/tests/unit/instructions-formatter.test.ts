@@ -215,6 +215,7 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
                 result.indexOf('`docs-search`')
             )
+            expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
 

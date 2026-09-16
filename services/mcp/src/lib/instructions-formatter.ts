@@ -29,6 +29,7 @@ import ENTITY_SCHEMA_DISCOVERY from '@/templates/sections/entity-schema-discover
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
+import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
@@ -134,10 +135,11 @@ export class InstructionsFormatter {
      *  an agent before its first tool call, and agents that answer PostHog-behavior
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(opts: { skillsEnabled?: boolean; knowledgeSearchEnabled?: boolean } = {}): string {
+        const hasMandate = opts.skillsEnabled || opts.knowledgeSearchEnabled
         return [
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
             ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
-            EXEC_TOOL_BLURB,
+            hasMandate ? EXEC_TOOL_BLURB_COMPACT : EXEC_TOOL_BLURB,
         ]
             .map((section) => section.trim())
             .join('\n\n')
