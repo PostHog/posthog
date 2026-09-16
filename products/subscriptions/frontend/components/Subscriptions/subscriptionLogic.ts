@@ -325,6 +325,9 @@ export interface subscriptionLogicActions {
     applyDefaultSelectedInsights: (selectedIds: number[]) => {
         selectedIds: number[]
     }
+    clearStaleManualErrors: () => {
+        value: true
+    }
     generatePreview: () => {
         value: true
     }
@@ -440,9 +443,6 @@ export interface subscriptionLogicActions {
             limit: number | null
         }
         payload?: any
-    }
-    clearStaleManualErrors: () => {
-        value: true
     }
     replaceTeamsWebhook: () => {
         value: true

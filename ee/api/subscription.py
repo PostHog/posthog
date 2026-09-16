@@ -93,6 +93,18 @@ AI_DELIVERY_DISPLAY_FIELDS = frozenset(
 )
 
 
+def _capture_post_write_failure(exc: Exception) -> None:
+    """Report a failure that happens after the write is committed.
+
+    `capture_exception` reads query tags and logs, neither of which is guarded, so a fault in
+    reporting would propagate and fail a request whose write already landed.
+    """
+    try:
+        capture_exception(exc)
+    except Exception:
+        pass
+
+
 def _summary_quota_cache_key(organization_id) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
 
@@ -1244,7 +1256,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                     )
                 )
         except Exception as exc:
-            capture_exception(exc)
+            _capture_post_write_failure(exc)
 
         return instance
 
@@ -1384,7 +1396,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # succeeded, so skip the duplicate send rather than failing the request.
             pass
         except Exception as exc:
-            capture_exception(exc)
+            _capture_post_write_failure(exc)
 
         return instance
 

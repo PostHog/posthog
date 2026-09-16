@@ -224,12 +224,18 @@ class TestSubscriptionTemporal(APILicensedTest):
             ("a delivery is already in flight", "start_workflow"),
             ("the workflow cannot be started", "start_workflow_raises"),
             ("temporal cannot be reached", "connect_raises"),
+            ("reporting the failure also fails", "capture_raises"),
         ]
     )
     def test_update_survives_a_confirmation_delivery_it_cannot_start(self, _name, failure):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
-        if failure == "start_workflow":
+        if failure == "capture_raises":
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+            capture_patcher = patch("ee.api.subscription.capture_exception", side_effect=RuntimeError("capture down"))
+            capture_patcher.start()
+            self.addCleanup(capture_patcher.stop)
+        elif failure == "start_workflow":
             self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
                 f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
             )
