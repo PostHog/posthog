@@ -96,15 +96,19 @@ describe("ContextWikiDreamsPane", () => {
     hoisted.unpublishedRun = null;
   });
 
-  it("links an unpublished attempt to its task in the correct project", () => {
+  it.each([
+    ["completed", "No update published"],
+    ["failed", "Dream failed"],
+    ["cancelled", "Dream canceled"],
+  ])("links an unpublished %s attempt to its task", (status, label) => {
     hoisted.unpublishedRun = {
       task_url: "https://example.com/project/123/tasks/dream-task",
-      run_status: "completed",
+      run_status: status,
       started_at: "2026-08-18T05:00:00Z",
     };
     render(<ContextWikiDreamsPane />);
 
-    expect(screen.getByText("No update published")).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View task" })).toHaveAttribute(
       "href",
       "https://example.com/project/123/tasks/dream-task",
