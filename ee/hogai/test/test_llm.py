@@ -873,7 +873,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             self.assertEqual(client.max_retries, 0)
         self.assertIsNone(twin._client_params["timeout"])
 
-        # A stalled gateway must leave the twin time to start streaming before the activity heartbeat times out.
+        # The twin needs time to start streaming before the activity heartbeat times out.
         assert AI_GATEWAY_TIMEOUT.connect is not None and AI_GATEWAY_TIMEOUT.read is not None
         stalled_gateway_seconds = (AI_GATEWAY_TIMEOUT.connect + AI_GATEWAY_TIMEOUT.read) * (model.max_retries + 1)
         self.assertGreaterEqual(CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT - stalled_gateway_seconds, 120)

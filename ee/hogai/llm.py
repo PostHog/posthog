@@ -46,11 +46,9 @@ AI_GATEWAY_FALLBACK_COUNTER = Counter(
 )
 
 AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0)
-"""Gateway-leg client timeout. The read bound sits above the gateway's 120s stream idle close and leaves the twin
-time to answer inside the chat agent activity's 300s heartbeat window."""
+"""Above the gateway's 120s stream idle close, and short enough for the twin to answer inside the 300s heartbeat."""
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
-"""generation_info flag on a generation the Go ai-gateway served and captured itself."""
 
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
@@ -81,7 +79,6 @@ _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all
 
 
 def is_ai_gateway_served(output: object) -> bool:
-    """Whether a model result was served by the Go ai-gateway, which captures its own `$ai_generation`."""
     if not isinstance(output, LLMResult):
         return False
     return any(
@@ -92,7 +89,7 @@ def is_ai_gateway_served(output: object) -> bool:
 
 
 def _ai_gateway_fallback_reason(error: Exception) -> str | None:
-    """Name a gateway failure the direct provider can still serve, or None when retrying there would not help."""
+    """None re-raises: a direct retry cannot fix other errors, and 402/403 must keep the gateway's caps binding."""
     if isinstance(error, anthropic.APITimeoutError):
         return "timeout"
     if isinstance(error, anthropic.APIConnectionError):
@@ -112,7 +109,6 @@ def _has_ai_gateway_headers(kwargs: Mapping[str, Any]) -> bool:
 
 
 def _without_ai_gateway_headers(kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    """Drop the gateway's X-PostHog-* headers before a call goes to the direct provider."""
     new_kwargs = {key: value for key, value in kwargs.items() if key != "extra_headers"}
     extra_headers = {
         name: value
@@ -330,21 +326,17 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     """
 
     ai_gateway_fallback: ChatAnthropic | None = Field(default=None, exclude=True)
-    """
-    Direct-provider twin of a model built by `via_ai_gateway`. It serves calls the Go ai-gateway must not
-    serve, and calls the gateway failed before any output.
-    """
+    """Direct twin that serves calls which must not route, and gateway failures before any output."""
 
     @classmethod
     def via_ai_gateway(cls, ai_gateway: AIGatewayConfig, **kwargs: Any) -> "MaxChatAnthropic":
-        """Build a model that routes posthog_ai calls through the Go ai-gateway, with a direct twin from the same kwargs."""
         return cls(
             **{
                 **kwargs,
                 "anthropic_api_url": anthropic_gateway_base_url(ai_gateway.url),
                 "anthropic_api_key": ai_gateway.api_key,
                 "bypass_proxy": True,
-                # The direct twin is the retry; an SDK retry would double the wait before it.
+                # The twin is the retry; an SDK retry doubles the wait before it.
                 "max_retries": 0,
                 "ai_gateway_fallback": cls(**kwargs),
             }
@@ -354,7 +346,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     def _client_params(self) -> dict[str, Any]:
         params = cast(dict[str, Any], ChatAnthropic._client_params.func(self))  # type: ignore[attr-defined]
         if self.ai_gateway_fallback is not None:
-            # A stalled gateway must raise a timeout, or the call never reaches the direct twin.
+            # langchain-anthropic defaults to no timeout, so a stalled gateway would never fall back.
             params["timeout"] = AI_GATEWAY_TIMEOUT
         return params
 
@@ -397,19 +389,18 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         return kwargs
 
     def _routes_via_ai_gateway(self) -> bool:
-        """Route only posthog_ai conversations; other products keep their capture and billing on the direct path."""
+        """Other products keep their capture and billing on the direct path."""
         if self.ai_gateway_fallback is None:
             return False
         configurable = ensure_config().get("configurable") or {}
         return (
             configurable.get("ai_product") == POSTHOG_AI_PRODUCT
-            # The gateway captures prompts and outputs unredacted, so privacy mode stays direct.
+            # The gateway captures content unredacted, so privacy mode, and an unknown value, stay direct.
             and configurable.get("privacy_mode") is False
             and (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) == POSTHOG_AI_PRODUCT
         )
 
     def _with_ai_gateway_headers(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Add the per-call headers the gateway attributes, bills, and traces the generation with."""
         configurable = ensure_config().get("configurable") or {}
         posthog_properties = kwargs["metadata"]["posthog_properties"]
         trace_id = str(configurable["trace_id"]) if configurable.get("trace_id") else None
@@ -441,7 +432,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         logger.warning("posthog_ai_gateway_fallback", reason=reason, error_type=type(error).__name__, model=self.model)
 
     def get_num_tokens_from_messages(self, messages: list[BaseMessage], tools: Any = None, **kwargs: Any) -> int:
-        # Token counts go direct: the gateway captures nothing for them, and a gateway 429 would fail the turn.
+        # Token counts have no fallback, so a gateway 429 here would fail the turn.
         if self.ai_gateway_fallback is not None:
             return self.ai_gateway_fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
         return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
@@ -455,7 +446,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         stream_usage: bool | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        # Sync calls stay direct; only the async agent loop sends the gateway's per-call headers.
+        # Sync calls stay direct: only `agenerate` adds the gateway headers.
         if self.ai_gateway_fallback is not None:
             return self.ai_gateway_fallback._stream(
                 messages,
@@ -504,14 +495,14 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
                     messages, stop=stop, run_manager=run_manager, stream_usage=stream_usage, **kwargs
                 ):
                     if not served:
-                        # Marking one chunk marks the merged generation, so the SDK callback skips capturing it.
+                        # One marked chunk marks the merged generation, which the SDK callback then skips.
                         chunk.generation_info = {**(chunk.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
                         served = True
                     yield chunk
                 return
             except Exception as error:
                 reason = _ai_gateway_fallback_reason(error)
-                # Once a chunk is out the user has seen output, so a direct retry would repeat it.
+                # After a chunk the user has seen output, so a direct retry would repeat it.
                 if served or reason is None:
                     raise
                 self._record_ai_gateway_fallback(reason, error)

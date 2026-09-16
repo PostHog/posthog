@@ -80,9 +80,8 @@ _tracer = trace.get_tracer(__name__)
 
 class MaxCallbackHandler(CallbackHandler):
     """
-    Callback handler that skips $ai_generation for calls the Go ai-gateway served, since the gateway captures those.
-
-    $ai_trace and $ai_span still emit here: the AI credits query decides free turns from them.
+    Skips $ai_generation for gateway-served calls, which the gateway captures. $ai_trace and $ai_span still emit
+    because the AI credits query decides free turns from them.
     """
 
     def _capture_generation(
@@ -201,7 +200,7 @@ class BaseAgentRunner(ABC):
             self._ai_product = "mcp" if self._conversation.type == Conversation.Type.TOOL_CALL else POSTHOG_AI_PRODUCT
 
             def init_handler(client: posthoganalytics.Client):
-                # Evaluated only here: the flag call creates a default client when there is none.
+                # Evaluated lazily: the flag call creates a posthoganalytics default client when none exists.
                 if self._privacy_mode is None:
                     self._privacy_mode = is_privacy_mode_enabled(team)
                 callback_properties = {
@@ -559,7 +558,6 @@ class BaseAgentRunner(ABC):
                 "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
-                # The root model routes through the Go ai-gateway only for posthog_ai without privacy mode.
                 "ai_product": self._ai_product,
                 "privacy_mode": self._privacy_mode,
                 "event_source": self._event_source,
