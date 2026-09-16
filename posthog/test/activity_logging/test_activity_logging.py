@@ -560,10 +560,10 @@ class TestActivityTriggerContext(BaseTest):
 class TestAgentAttributionOnApiWrites(APIBaseTest):
     """The intent header, the OAuth token binding and the audit row only meet on a real request."""
 
-    def _authenticate_as_sandbox_agent(self, task_id: UUID | None, delegated: bool = False) -> None:
+    def _authenticate_as_oauth_agent(self, client_id: str, task_id: UUID | None, delegated: bool = False) -> None:
         application = OAuthApplication.objects.create(
-            name="Sandbox",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            name="OAuth application",
+            client_id=client_id,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -593,9 +593,11 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "records the intent of a token bound to a sandbox task",
+                "records an allowlisted token bound to a sandbox task",
+                ARRAY_APP_CLIENT_ID_DEV,
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 False,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
@@ -603,9 +605,11 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "records the intent of a delegated token bound to a sandbox task",
+                "records a third-party delegated token bound to a sandbox task",
+                "third-party-client",
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 True,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
@@ -613,9 +617,11 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "records intent without a task binding",
+                "records allowlisted intent without a task binding",
+                ARRAY_APP_CLIENT_ID_DEV,
                 None,
                 False,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "",
@@ -623,28 +629,70 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "records delegated intent without a task binding",
+                "records allowlisted delegated intent without a task binding",
+                ARRAY_APP_CLIENT_ID_DEV,
                 None,
                 True,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "",
                     "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            (
+                "ignores third-party intent without a task binding",
+                "third-party-client",
+                None,
+                False,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            (
+                "ignores third-party delegated intent without a task binding",
+                "third-party-client",
+                None,
+                True,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            ("ignores an empty allowlisted intent", ARRAY_APP_CLIENT_ID_DEV, None, False, None, None),
+            (
+                "records an allowlisted task binding without intent",
+                ARRAY_APP_CLIENT_ID_DEV,
+                UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                False,
+                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
+                    "payload": {},
                 },
             ),
         ]
     )
     def test_agent_write(
-        self, _name: str, task_id: UUID | None, delegated: bool, expected_trigger: dict | None
+        self,
+        _name: str,
+        client_id: str,
+        task_id: UUID | None,
+        delegated: bool,
+        intent: str | None,
+        expected_trigger: dict | None,
     ) -> None:
-        self._authenticate_as_sandbox_agent(task_id, delegated)
+        self._authenticate_as_oauth_agent(client_id, task_id, delegated)
+
+        agent_headers = {
+            "HTTP_X_POSTHOG_CLIENT": "mcp",
+            "HTTP_X_POSTHOG_TASK_ID": "019f4c2a-0000-7000-8000-0000000000bb",
+        }
+        if intent:
+            agent_headers["HTTP_X_POSTHOG_INTENT"] = intent
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
             {"name": "Weekly signups"},
-            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
-            HTTP_X_POSTHOG_CLIENT="mcp",
-            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+            **agent_headers,
         )
         self.assertEqual(response.status_code, 201, response.content)
 
@@ -656,7 +704,7 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
 
     def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
         task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")
-        self._authenticate_as_sandbox_agent(task_id)
+        self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, task_id)
 
         with patch("posthog.auth.activity_storage.set_agent_intent", side_effect=RuntimeError("storage is broken")):
             response = self.client.post(

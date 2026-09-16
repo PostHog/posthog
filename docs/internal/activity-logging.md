@@ -123,9 +123,10 @@ A receiver can also read one from `get_current_trigger()` when the job wrapped i
 
 ### Agent writes
 
-`OAuthAccessTokenAuthentication` records the agent's stated reason from the `x-posthog-intent` header.
-It also records the task id when the server has bound the token to a sandbox task.
-Desktop uses the signed-in user's OAuth token, so its intent does not require a sandbox task binding.
+`OAuthAccessTokenAuthentication` records the agent's stated reason from the `x-posthog-intent` header for applications in the Desktop OAuth allowlist.
+Other OAuth applications need a server-set sandbox task binding before they can record agent attribution.
+The authentication also records the task id when the server has bound the token to a sandbox task.
+Desktop uses the signed-in user's OAuth token, so an allowlisted token does not require a sandbox task binding.
 When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
 A product that passes its own trigger keeps it, so this only fills the gap.
 

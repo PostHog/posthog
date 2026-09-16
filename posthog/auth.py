@@ -63,6 +63,7 @@ from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
@@ -900,12 +901,17 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
 
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
-    """Record the sandbox task bound to the token, and the intent the agent claims.
+    """Record a trusted task binding, or intent from a Desktop OAuth application.
 
     Intent is self-reported. Only the token binding can supply a verified task id.
     Attribution is extra detail on an audit row, so an error here must not fail the request.
     """
     try:
+        if (
+            access_token.sandbox_task_id is None
+            and access_token.application.client_id not in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
+        ):
+            return
         if access_token.sandbox_task_id is not None:
             activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
         intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
