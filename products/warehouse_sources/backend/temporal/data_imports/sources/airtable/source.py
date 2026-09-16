@@ -57,7 +57,7 @@ class AirtableSource(SimpleSource[AirtableSourceConfig]):
 Create a personal access token at [airtable.com/create/tokens](https://airtable.com/create/tokens) with the `data.records:read` and `schema.bases:read` scopes, and grant it access to the bases you want to sync. Records are synced from every table of every base the token can access.""",
             iconPath="/static/services/airtable.png",
             docsUrl="https://posthog.com/docs/cdp/sources/airtable",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
