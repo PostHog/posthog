@@ -3,14 +3,15 @@ import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
 import * as cursor from '@posthog/brand/hoggies/png/cursor'
 import * as deskWizard from '@posthog/brand/hoggies/png/desk-wizard'
 import * as director from '@posthog/brand/hoggies/png/director'
+import * as drivingHogzilla from '@posthog/brand/hoggies/png/driving-hogzilla'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
 import * as greek from '@posthog/brand/hoggies/png/greek'
 import * as judge from '@posthog/brand/hoggies/png/judge'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as megaphone from '@posthog/brand/hoggies/png/megaphone'
 import * as organized from '@posthog/brand/hoggies/png/organized'
 import * as panic from '@posthog/brand/hoggies/png/panic'
 import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
+import * as puzzle from '@posthog/brand/hoggies/png/puzzle'
 import * as reading from '@posthog/brand/hoggies/png/reading'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
 import * as robot from '@posthog/brand/hoggies/png/robot'
@@ -19,7 +20,7 @@ import * as trafficController from '@posthog/brand/hoggies/png/traffic-controlle
 import * as transformer from '@posthog/brand/hoggies/png/transformer'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
 import * as xRay from '@posthog/brand/hoggies/png/x-ray'
-import { IconAI, IconGithub } from '@posthog/icons'
+import { IconGithub } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -35,14 +36,15 @@ const HedgehogCodeBubble = pngHoggie(codeBubble)
 const HedgehogCursor = pngHoggie(cursor)
 const HedgehogDeskWizard = pngHoggie(deskWizard)
 const HedgehogDirector = pngHoggie(director)
+const HedgehogDrivingHogzilla = pngHoggie(drivingHogzilla)
 const HedgehogExperiment = pngHoggie(experiment)
 const HedgehogGreek = pngHoggie(greek)
 const HedgehogJudge = pngHoggie(judge)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 const HedgehogMegaphone = pngHoggie(megaphone)
 const HedgehogOrganized = pngHoggie(organized)
 const HedgehogPanic = pngHoggie(panic)
 const HedgehogPhoneCall = pngHoggie(phoneCall)
+const HedgehogPuzzle = pngHoggie(puzzle)
 const HedgehogReading = pngHoggie(reading)
 const HedgehogReporter = pngHoggie(reporter)
 const HedgehogRobot = pngHoggie(robot)
@@ -59,7 +61,7 @@ export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
         "We think your organization would get a lot out of this product - it works with the data you're already sending. Give it a try!",
 }
 
-// Shared size for the icon-font surface logos (Slack, GitHub, Self-driving). Desktop's Logomark
+// Shared size for the icon-font surface logos (Slack, GitHub). Desktop's Logomark
 // sizes itself via its own `size` prop instead.
 const SURFACE_ICON_CLASS = 'text-[64px]'
 
@@ -124,11 +126,11 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         hoggieOffset: { x: 60, y: 18 },
     },
     [ProductKey.AI_OBSERVABILITY]: {
-        Hoggie: HedgehogMagnifyingGlass,
+        Hoggie: HedgehogRobot,
         accentColor: 'var(--color-product-llm-analytics-light)',
         tagline:
             "Traces, costs, and latency for every LLM call - know what your AI is doing, and what it's costing you.",
-        hoggieOffset: { x: 35, y: 18 },
+        hoggieOffset: { x: 54 },
     },
     [ProductKey.LLM_CLUSTERS]: {
         Hoggie: HedgehogScientist,
@@ -170,7 +172,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     [ProductKey.NOTEBOOKS]: {
         Hoggie: HedgehogReading,
         accentColor: 'var(--color-product-notebooks-light)',
-        tagline: 'Collect insights, replays, and notes on one page, so an investigation still reads well next month.',
+        tagline: 'Write up a bug hunt or a launch, with live insights and replays right there in the page.',
         hoggieOffset: { x: 28, y: 20 },
     },
     [ProductKey.ENDPOINTS]: {
@@ -186,10 +188,10 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         hoggieOffset: { x: 65, y: 20 },
     },
     [ProductKey.MCP_ANALYTICS]: {
-        Hoggie: HedgehogRobot,
+        Hoggie: HedgehogPuzzle,
         accentColor: 'var(--color-product-mcp-analytics-light)',
         tagline: 'See which of your MCP tools agents reach for, how long each call takes, and where they fail.',
-        hoggieOffset: { x: 54 },
+        hoggieOffset: { x: 55, y: 24 },
     },
     [ProductKey.MARKETING_ANALYTICS]: {
         Hoggie: HedgehogMegaphone,
@@ -202,15 +204,16 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         accentColor: 'var(--color-product-workflows-light)',
         tagline: 'Automate messages and actions triggered by what users actually do in your product.',
     },
-    // Surfaces that aren't catalog products carry their own label, destination, and logo.
+    // Surfaces that aren't catalog products carry their own label and destination, and show a logo
+    // where there is no hoggie that fits them.
     [ProductKey.SELF_DRIVING]: {
-        Icon: <IconAI className={`${SURFACE_ICON_CLASS} text-[color:var(--color-purple-300)]`} />,
-        iconBackdrop: true,
+        Hoggie: HedgehogDrivingHogzilla,
         accentColor: 'var(--color-purple-300)',
         tagline:
             'Let PostHog watch your data and surface what needs attention - findings land in your inbox, ready to act on.',
         label: 'PostHog Self-driving',
         href: urls.inbox(),
+        hoggieOffset: { x: 58, y: 18 },
     },
     [ProductKey.POSTHOG_SLACK]: {
         Icon: <IconSlack className={SURFACE_ICON_CLASS} />,
