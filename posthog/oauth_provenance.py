@@ -61,7 +61,7 @@ def is_first_party_oauth_client(request) -> bool:
     return get_oauth_client_id(request) in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 
-def is_interactive_desktop_grant(request) -> bool:
+def is_interactive_desktop_grant(request, access_token: object | None = None) -> bool:
     """Whether this request carries a PostHog Desktop token a person consented to.
 
     The Electron app, the cloud coding agent, and the Slack app all authenticate against the
@@ -69,7 +69,8 @@ def is_interactive_desktop_grant(request) -> bool:
     the server-minted `internal_run:read` marker, and refresh-token lineage proving a consent
     flow happened. Sandbox tokens fail the second check before the third does any query.
     """
-    access_token = get_oauth_access_token(request)
+    if access_token is None:
+        access_token = get_oauth_access_token(request)
     if access_token is None or not is_first_party_oauth_client(request):
         return False
     scopes = set((getattr(access_token, "scope", "") or "").split())

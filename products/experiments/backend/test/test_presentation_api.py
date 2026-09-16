@@ -5588,8 +5588,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5630,14 +5629,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_cleanup_pr_allowed_for_session_users(self, _mock_flag):
+    def test_cleanup_pr_allowed_for_session_users(self):
         exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
             "id"
         ]
 
-        # Session auth carries no scopes, and opening a cleanup PR is no longer gated on the
-        # Desktop waitlist, so both actions succeed ("end first, ship later" flow).
+        # Session auth carries no scopes, and opening a cleanup PR is not gated on the Desktop
+        # waitlist, so both actions succeed ("end first, ship later" flow).
         resp = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
             {"conclusion": "won", "open_cleanup_pr": True},
@@ -5828,14 +5826,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         [
             # (name, open_cleanup_pr, repository, expected_status)
             # Nothing persists in any of these: the value only sticks when a cleanup PR
-            # actually opens against it (team flag on + repo in the installation).
+            # actually opens against it, which needs the repo in the GitHub installation.
             ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
             ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
             ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status, _mock_flag):
+    def test_end_endpoint_repository(self, _name, open_cleanup_pr, repository, expected_status):
         exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
 
         resp = self.client.post(
@@ -5848,11 +5845,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
@@ -5872,11 +5868,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
     @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report
+        self, mock_resolve_github, mock_create_task, _mock_report
     ):
         mock_resolve_github.return_value = SimpleNamespace(
             list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
@@ -7236,6 +7231,61 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         change_fields = [change["field"] for change in activity_log.detail["changes"]]
         self.assertIn("description", change_fields)
         self.assertNotIn("parameters", change_fields)
+
+    def test_running_time_calculation_output_drift_writes_no_activity_row(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Running time drift flag",
+            key="running-time-drift",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Running time drift",
+            feature_flag=feature_flag,
+            running_time_calculation={
+                "minimum_detectable_effect": 5,
+                "recommended_sample_size": 1000,
+                "recommended_running_time": 14,
+            },
+        )
+
+        drift_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_sample_size": 2000,
+                    "recommended_running_time": 28,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(drift_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").count(),
+            0,
+        )
+
+        input_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_sample_size": 500,
+                    "recommended_running_time": 7,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(input_response.status_code, status.HTTP_200_OK)
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("running_time_calculation", change_fields)
 
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
