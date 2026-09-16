@@ -171,15 +171,17 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         _log_host_check(host, team_id, "block", "localhost", _INTERNAL_IP_ERROR)
         return HostResolution(connect_host=None, error=_INTERNAL_IP_ERROR)
 
+    lookup_host = unbracket_host(host)
+
     try:
-        if not _is_safe_public_ip(host):
+        if not _is_safe_public_ip(lookup_host):
             _log_host_check(host, team_id, "block", "literal_ip", _INTERNAL_IP_ERROR)
             return HostResolution(connect_host=None, error=_INTERNAL_IP_ERROR)
     except ValueError:
         pass
 
     try:
-        addrinfo = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        addrinfo = socket.getaddrinfo(lookup_host, None, proto=socket.IPPROTO_TCP)
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
     except socket.gaierror as e:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
@@ -269,6 +271,36 @@ def host_lookup_is_skipped() -> bool:
 
 def _normalize_host(host: str) -> str:
     return host.lower().strip().rstrip(".")
+
+
+def unbracket_host(host: str) -> str:
+    """Return an IPv6 literal without the brackets it carries inside a `host:port` string.
+
+    Both `_is_safe_public_ip` and the resolver want the bare address. Anything else, a hostname or
+    an IPv4 literal, comes back unchanged.
+    """
+    inner = host.strip()
+    if not (inner.startswith("[") and inner.endswith("]")):
+        return host
+    try:
+        ipaddress.ip_address(inner[1:-1])
+    except ValueError:
+        return host
+    return inner[1:-1]
+
+
+def bracket_host(host: str) -> str:
+    """Return an IPv6 address in the form a `host:port` string needs.
+
+    The inverse of `unbracket_host`: a client that joins host and port with a colon cannot tell an
+    IPv6 address from its own port. A hostname or an IPv4 address comes back unchanged.
+    """
+    stripped = host.strip()
+    try:
+        parsed = ipaddress.ip_address(stripped)
+    except ValueError:
+        return host
+    return f"[{stripped}]" if parsed.version == 6 else host
 
 
 _HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
@@ -476,6 +508,23 @@ def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
     if resolution.connect_host is None:
         raise HostNotAllowedError(f"{SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
     return resolution.connect_host
+
+
+def pinned_connect_host(host: str, team_id: int | None) -> str:
+    """Resolve `host` and return the address to dial, ready for a `host:port` join.
+
+    For a source whose client dials the host itself, on a raw socket that no egress proxy sees.
+    A client that takes the hostname resolves it a second time, and a record with a short TTL can
+    answer public for the check and private for that second lookup. Dialling the address the check
+    approved closes that race, so the caller carries the hostname to TLS separately.
+
+    The host comes back unchanged where the policy does not apply, so the caller needs no TLS
+    name of its own in that case.
+    """
+    resolution = resolve_safe_host(host, team_id)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or _INTERNAL_IP_ERROR}")
+    return bracket_host(resolution.connect_host)
 
 
 def _check_direct_host(config, team_id: int | None) -> None:

@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    bracket_host,
     check_resolved_addresses,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
@@ -55,6 +56,8 @@ class TestIsHostSafe(SimpleTestCase):
             ("ipv4_compatible_imds", "::169.254.169.254"),
             ("ipv6_reserved", "4000::1"),
             ("ipv6_loopback", "::1"),
+            ("ipv6_bracketed_loopback", "[::1]"),
+            ("ipv6_bracketed_imds", "[::ffff:169.254.169.254]"),
             ("multicast", "224.0.0.1"),
             ("reserved", "0.0.0.0"),
         ]
@@ -70,6 +73,8 @@ class TestIsHostSafe(SimpleTestCase):
             ("public_ip", "8.8.8.8"),
             ("public_ip_2", "1.1.1.1"),
             ("public_ip_3", "52.0.0.1"),
+            ("ipv6_public", "2606:4700:4700::1111"),
+            ("ipv6_bracketed_public", "[2606:4700:4700::1111]"),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
@@ -274,6 +279,19 @@ class TestIsHostSafe(SimpleTestCase):
             assert kwargs["stage"] == "resolved_ip"
             assert kwargs["resolved_ips"] == ["52.1.2.3"]
             mock_logger.warning.assert_not_called()
+
+
+class TestBracketHost(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ipv6", "2606:4700:4700::1111", "[2606:4700:4700::1111]"),
+            ("ipv6_already_bracketed", "[2606:4700:4700::1111]", "[2606:4700:4700::1111]"),
+            ("ipv4", "93.184.216.34", "93.184.216.34"),
+            ("hostname", "db.example.com", "db.example.com"),
+        ]
+    )
+    def test_brackets_only_an_ipv6_address(self, _name: str, host: str, expected: str):
+        assert bracket_host(host) == expected
 
 
 class TestValidateDatabaseHostMixin(SimpleTestCase):
