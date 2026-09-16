@@ -1617,6 +1617,21 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                 },
                 [{"name": "email", "type": "string"}],
             ),
+            (
+                "variable_inside_limit_expression",
+                {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT {variables.row_limit} + 1"},
+                [{"name": "event", "type": "string"}],
+            ),
+            (
+                "variable_inside_offset_expression",
+                {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 10 OFFSET {variables.skip} + 1"},
+                [{"name": "event", "type": "string"}],
+            ),
+            (
+                "variable_as_limit_by_count",
+                {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT {variables.per_group} BY event"},
+                [{"name": "event", "type": "string"}],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):
@@ -1624,6 +1639,19 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
 
         result = EndpointVersion.extract_columns(query, team_id=self.team.pk)
         self.assertEqual(result, expected)
+
+
+class TestPlaceholderDummies(TestCase):
+    def test_set_level_limit_placeholder_becomes_zero(self):
+        from posthog.hogql.parser import parse_select
+
+        from products.endpoints.backend.models import _PLACEHOLDER_REPLACER
+
+        query = parse_select(
+            "(SELECT event FROM events) UNION ALL (SELECT event FROM events) LIMIT {variables.row_limit}"
+        )
+        cleaned = _PLACEHOLDER_REPLACER.visit(query)
+        self.assertEqual(cleaned.limit.value, 0)
 
 
 class TestClickhouseTypeMapping(TestCase):

@@ -263,13 +263,22 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
         assert "in(tuple(person.id, person.version)" in response.clickhouse
         assert pushed_down_limit not in response.clickhouse
 
-    def test_v2_join_does_not_push_limit_down(self):
+    @parameterized.expand(
+        [
+            # (name, clauses that follow the join)
+            ("plain", "LIMIT 10"),
+            # An ORDER BY on a joined query failed to compile at all, because the push-down clones
+            # it into the inner subquery, whose only scope is raw_persons.
+            ("ordered", "ORDER BY persons.created_at DESC LIMIT 10"),
+        ]
+    )
+    def test_v2_join_does_not_push_limit_down(self, _name, tail):
         # The inner subquery slices persons before the join runs, so a joined person that sits
         # outside the slice never reaches the join and the query returns too few rows.
         printed, _ = prepare_and_print_ast(
             parse_select(
                 "SELECT persons.properties.email, events.event FROM persons "
-                "JOIN events ON events.person_id = persons.id LIMIT 10"
+                f"JOIN events ON events.person_id = persons.id {tail}"
             ),
             HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=self._v2_modifiers()),
             "clickhouse",
