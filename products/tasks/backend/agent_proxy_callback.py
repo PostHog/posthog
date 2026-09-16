@@ -8,6 +8,7 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.event_ingest import _parse_budget_steer_properties
@@ -151,6 +152,8 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
             )
             task_run.signal_agent_turn_completed()
             dispatched = dispatch_task_run_turn_completed(task_run, turn_completed=data["turn_completed"])
+            if dispatched:
+                enqueue_turn_suggestion(task_run)
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
         except Exception:

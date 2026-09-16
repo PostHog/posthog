@@ -130,6 +130,22 @@ const NOTIFICATION_PARAMS_BY_METHOD: { [M in keyof PosthogNotificationParamsByMe
     '_posthog/permission_resolved': [{ requestId: 'perm-1', toolCallId: 'toolu_01', optionId: 'allow_once' }],
     '_posthog/run_started': [{ sessionId: 'sess_a1b2c3', runId: RUN_ID, taskId: TASK_ID, agentVersion: '1.42.0' }],
     '_posthog/turn_complete': [{ sessionId: 'sess_a1b2c3', stopReason: 'end_turn' }],
+    '_posthog/turn_suggestion': [
+        {
+            turnIndex: 0,
+            kind: 'scout',
+            intent: 'metric_state',
+            confidence: 0.92,
+            title: 'Get this every week in Slack',
+            description: 'A scout can rerun this count each week and post what moved.',
+            scout: {
+                displayName: 'Weekly signups',
+                description: 'Counts signed_up events for the last 7 days.',
+                body: '# Weekly signups\n\nCount signed_up events for the last 7 days.',
+                cadence: 'weekly',
+            },
+        },
+    ],
 }
 
 const KNOWN_POSTHOG_METHODS = Object.keys(NOTIFICATION_PARAMS_BY_METHOD) as (keyof PosthogNotificationParamsByMethod)[]
