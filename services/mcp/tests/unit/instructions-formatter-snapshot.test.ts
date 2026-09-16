@@ -32,6 +32,7 @@ const STATIC_TOOLS = [
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
     { name: 'business-knowledge-documents-search', category: 'Business knowledge' },
+    { name: 'docs-search', category: 'Docs' },
     { name: 'query-funnel', category: 'Query wrappers' },
     { name: 'query-trends', category: 'Query wrappers' },
 ]
@@ -247,7 +248,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const inputSchemaSize = JSON.stringify(finalEntry.inputSchema).length
 
         expect(properties).toHaveProperty('context')
-        expect(entry.description).toContain('### Business knowledge first')
+        expect(entry.description).toContain('### Business knowledge, then PostHog docs')
         expect(inputSchemaSize).toBeLessThan(16_384)
     })
 
