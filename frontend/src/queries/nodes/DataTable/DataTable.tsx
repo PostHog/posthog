@@ -194,6 +194,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        elapsedTime,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
@@ -1118,6 +1119,8 @@ export function DataTable({
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
                                             insightProps={insightProps}
+                                            queryElapsedMs={elapsedTime}
+                                            onRetry={() => loadData('force_blocking')}
                                         />
                                     )
                                 }

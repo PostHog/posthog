@@ -166,8 +166,9 @@ export const Table = (props: TableProps): JSX.Element => {
         isTransposed,
         hasSortedTable,
         hasMoreData,
+        elapsedTime,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setTableSorted, loadData } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -373,6 +374,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             heading="There are no matching rows for this query"
                             detail=""
                             sampleDataVariant="table"
+                            queryElapsedMs={elapsedTime}
+                            onRetry={() => loadData('force_blocking')}
                         />
                     )
                 }
