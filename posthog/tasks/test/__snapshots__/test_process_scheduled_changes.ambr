@@ -242,7 +242,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---
@@ -297,7 +301,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -317,7 +322,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1161,7 +1167,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---
@@ -1216,7 +1226,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1236,7 +1247,8 @@
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
-         "posthog_taggeditem"."project_id"
+         "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''

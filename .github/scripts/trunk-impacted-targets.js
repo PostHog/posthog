@@ -388,7 +388,6 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
     ['.github/workflows/publish-quill-npm.yml', DEPLOY],
     ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
-    ['.github/workflows/clickhouse-udfs.yml', DEPLOY],
     // A scheduled mirror of the upstream Playwright image; no suite runs it.
     ['.github/workflows/ci-playwright-container.yml', DEPLOY],
     // The dev-environment checks: the flox boot check and the sandbox
@@ -667,7 +666,6 @@ const TRIPWIRE_RULES = [
     ['bin/deploy-hobby', HOBBY],
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
-    ['bin/migrate-session-recordings-hobby', HOBBY],
     // Called by the hobby storage-migration scripts above, so it has to share
     // their lane.
     ['bin/migrate-minio-to-seaweedfs', HOBBY],
@@ -887,6 +885,7 @@ const REPO_CONFIG_DIRS = [
 // .dockerignore and the .env files are deliberately not here. Both are read by
 // something that every suite runs inside, and both are tripwires above.
 const REPO_CONFIG_FILES = [
+    '.coderabbit.yaml',
     '.cursorignore',
     '.cursorrules',
     '.editorconfig',

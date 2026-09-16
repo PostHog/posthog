@@ -236,6 +236,39 @@ describe('meta ads template', () => {
         })
     })
 
+    describe('fbp browser ID', () => {
+        it.each([
+            {
+                name: 'sends the $fbp the SDK read from the pixel cookie',
+                person: { $fbp: 'fb.1.1735689600000.1098115397' },
+                expected: 'fb.1.1735689600000.1098115397',
+            },
+            {
+                name: 'prefers the fbp the site stores itself',
+                person: { fbp: 'fb.1.1735689600000.site-owned', $fbp: 'fb.1.1735689600000.1098115397' },
+                expected: 'fb.1.1735689600000.site-owned',
+            },
+            {
+                name: 'sends nothing when the person holds no fbp',
+                person: {},
+                expected: undefined,
+            },
+        ])('$name', async ({ person, expected }) => {
+            const response = await tester.invokeMapping(
+                'Page Viewed',
+                { accessToken: 'access-token', pixelId: 'pixel-id' },
+                createAdDestinationPayload({
+                    event: { event: '$pageview', properties: {} },
+                    person: { properties: person },
+                })
+            )
+
+            expect(response.error).toBeUndefined()
+            const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
+            expect(body.data[0].user_data.fbp).toEqual(expected)
+        })
+    })
+
     it('surfaces error responses', async () => {
         const response = await tester.invokeMapping(
             'Order Completed',

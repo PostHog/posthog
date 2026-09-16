@@ -3181,7 +3181,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 } else {
                     urlParams.delete('referrer')
                 }
-                return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+                const basePath =
+                    router.values.location.pathname.endsWith('/marketing') &&
+                    router.values.searchParams.tab === 'page-visibility'
+                        ? urls.marketingAnalyticsApp()
+                        : urls.webAnalyticsPagePerformance()
+                return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.AGENTS) {
                 urlParams.delete('filters')
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
@@ -3219,6 +3224,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('date_from', dateFrom ?? '')
                 urlParams.set('date_to', dateTo ?? '')
                 urlParams.set('interval', interval ?? '')
+            } else {
+                // Delete these params when the state is at its defaults. `urlParams` starts from the
+                // live URL, so a param left behind keeps an earlier value, which `urlToAction` reads
+                // back and applies over the user's current selection.
+                urlParams.delete('date_from')
+                urlParams.delete('date_to')
+                urlParams.delete('interval')
             }
             if (_deviceTab) {
                 urlParams.set('device_tab', _deviceTab)
@@ -3377,7 +3389,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
             if (
                 productTab === ProductTab.PAGE_PERFORMANCE &&
-                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]
+                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE] &&
+                !(
+                    router.values.location.pathname.endsWith('/marketing') &&
+                    router.values.searchParams.tab === 'page-visibility' &&
+                    values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
+                )
             ) {
                 router.actions.replace(urls.webAnalytics())
                 return
@@ -3588,6 +3605,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
 
         return {
+            '/marketing': (_, searchParams) => {
+                if (searchParams.tab === 'page-visibility') {
+                    toAction({ productTab: ProductTab.PAGE_PERFORMANCE }, searchParams)
+                }
+            },
             '/web': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)

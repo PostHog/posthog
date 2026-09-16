@@ -12,6 +12,7 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from products.data_catalog.backend.facade.api import upsert_metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -220,10 +221,48 @@ class TestRetentionSweep(BaseTest):
         assert DataQualityCheck.objects.unscoped().filter(id=check.id).exists()
         assert DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
 
+    @parameterized.expand([("live", False, 1, True), ("deleted", True, 1, False), ("recent", True, 0, True)])
+    def test_metric_lifecycle_cleans_history_after_grace(
+        self, _name: str, deleted: bool, age_days: int, survives: bool
+    ) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="signups",
+            description="Signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS signups"},
+        )
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.METRIC,
+            metric_id=metric.id,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            fingerprint=uuid4().hex,
+        )
+        self._age(DataQualityCheck, check, age_days)
+        suite = self._suite(age_days=age_days, subject_type=SubjectType.METRIC, subject_uuid=metric.id)
+        run = self._run(
+            age_days=age_days,
+            quality_check=check,
+            suite_run=suite,
+            subject_type=SubjectType.METRIC,
+            subject_uuid=metric.id,
+        )
+        if deleted:
+            metric.deleted = True
+            metric.save(update_fields=["deleted"])
+        _cleanup()
+        assert DataQualityCheck.objects.for_team(self.team.id).filter(pk=check.pk).exists() == survives
+        assert DataQualityCheckRun.objects.for_team(self.team.id).filter(pk=run.pk).exists() == survives
+        assert DataQualitySuiteRun.objects.for_team(self.team.id).filter(pk=suite.pk).exists() == survives
+
     def test_rows_with_an_unknown_subject_type_are_treated_as_dead(self) -> None:
         suite = self._suite(age_days=1, subject_type=SubjectType.VIEW, subject_uuid=self.view.id)
         run = self._run(age_days=1, suite_run=suite)
-        DataQualityCheck.objects.unscoped().filter(id=self.check.id).update(subject_type="future_subject")
+        DataQualityCheck.objects.unscoped().filter(id=self.check.id).update(
+            subject_type="future_subject", saved_query_id=None
+        )
         DataQualityCheckRun.objects.unscoped().filter(id=run.id).update(subject_type="future_subject")
         DataQualitySuiteRun.objects.unscoped().filter(id=suite.id).update(subject_type="future_subject")
 

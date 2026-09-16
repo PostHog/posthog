@@ -7,7 +7,7 @@ from itertools import groupby
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -129,7 +129,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         type = "String"
                     properties_to_create[key] = type
 
-            with freeze_time(first_timestamp):
+            with time_machine.travel(first_timestamp, tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -789,7 +789,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_exclude_incomplete_periods_drops_current_bucket(self):
         self._create_test_events()
 
-        with freeze_time("2020-01-15T12:00:00Z"):
+        with time_machine.travel("2020-01-15T12:00:00Z", tick=False):
             query = TrendsQuery(
                 series=[EventsNode(event="$pageview")],
                 dateRange=DateRange(date_from="-7d", excludeIncompletePeriods=True),
@@ -804,7 +804,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # 2020-01-19 is a Sunday (default week start), so -13d starts mid-week on Jan 6: the
         # partial Jan 6-11 bucket is dropped alongside the current week, leaving Jan 12-18 only
-        with freeze_time("2020-01-19T12:00:00Z"):
+        with time_machine.travel("2020-01-19T12:00:00Z", tick=False):
             query = TrendsQuery(
                 series=[EventsNode(event="$pageview")],
                 dateRange=DateRange(date_from="-13d", excludeIncompletePeriods=True),
@@ -1990,7 +1990,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         utc = zoneinfo.ZoneInfo("UTC")
 
-        with freeze_time("2020-01-15T12:00:00Z"):
+        with time_machine.travel("2020-01-15T12:00:00Z", tick=False):
             response = self._run_trends_query(
                 date_from,
                 date_to,
@@ -2010,7 +2010,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_compare_weeks(self):
         self._create_test_events()
 
-        with freeze_time("2020-01-24"):
+        with time_machine.travel("2020-01-24", tick=False):
             response = self._run_trends_query(
                 "-7d",
                 None,
@@ -6128,7 +6128,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_handles_multiple_ids(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["anon1", "p1"],
@@ -6206,7 +6206,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_filters_first_events(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["anon1", "p1"],
@@ -6309,7 +6309,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_prioritizes_first_event(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["p1"],
@@ -6423,7 +6423,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        with freeze_time("2020-01-20"):
+        with time_machine.travel("2020-01-20", tick=False):
             response = self._run_trends_query(
                 "-180d",
                 None,
@@ -6441,7 +6441,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 4
         assert len(response.results[0]["days"]) == 7
 
-        with freeze_time("2020-01-20"):
+        with time_machine.travel("2020-01-20", tick=False):
             response = self._run_trends_query(
                 "-180d",
                 None,
@@ -6459,7 +6459,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 4
         assert len(response.results[0]["days"]) == 27
 
-        with freeze_time("2020-01-20"):
+        with time_machine.travel("2020-01-20", tick=False):
             response = self._run_trends_query(
                 "-30d",
                 None,
@@ -6477,7 +6477,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 4
         assert len(response.results[0]["days"]) == 721
 
-        with freeze_time("2020-01-11T12:30:00Z"):
+        with time_machine.travel("2020-01-11T12:30:00Z", tick=False):
             response = self._run_trends_query(
                 "-1h",
                 None,
@@ -6499,7 +6499,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        with freeze_time("2020-01-20"):
+        with time_machine.travel("2020-01-20", tick=False):
             response = self._run_trends_query(
                 "-180d",
                 None,
@@ -7104,7 +7104,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
 
         # Test line graph with explicit_date=False (whole day periods)
-        with freeze_time(freeze_time_at.isoformat()):
+        with time_machine.travel(freeze_time_at.isoformat(), tick=False):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
@@ -7139,7 +7139,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(11, response.results[1]["data"][0])
 
         # Test line graph with explicit_date=True (rolling window with current time)
-        with freeze_time(freeze_time_at.isoformat()):
+        with time_machine.travel(freeze_time_at.isoformat(), tick=False):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
@@ -7178,7 +7178,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, response.results[1]["data"][-1])
 
         # Test with bold number and explicit_date=False (whole day periods)
-        with freeze_time(freeze_time_at.isoformat()):
+        with time_machine.travel(freeze_time_at.isoformat(), tick=False):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
@@ -7199,7 +7199,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(25, result["aggregated_value"])
 
         # Test with bold number and explicit_date=True (rolling window with current time)
-        with freeze_time(freeze_time_at.isoformat()):
+        with time_machine.travel(freeze_time_at.isoformat(), tick=False):
             response = TrendsQueryRunner(
                 query=self._create_trends_query(
                     date_from="-7d",
@@ -7337,7 +7337,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Test 1: Without explicitDate, filtering last 7 days with monthly interval only includes events in range
-        with freeze_time("2020-01-31 23:59:59"):
+        with time_machine.travel("2020-01-31 23:59:59", tick=False):
             response_default = TrendsQueryRunner(
                 query=TrendsQuery(
                     series=[EventsNode(event="$pageview")],
@@ -7355,7 +7355,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)
-        with freeze_time("2020-01-31 23:59:59"):
+        with time_machine.travel("2020-01-31 23:59:59", tick=False):
             response_explicit = TrendsQueryRunner(
                 query=TrendsQuery(
                     series=[EventsNode(event="$pageview")],
@@ -7374,7 +7374,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Test 3: With explicitDate=True and relative dates, should only include events within the 7-day filter
-        with freeze_time("2020-01-31 23:59:59"):
+        with time_machine.travel("2020-01-31 23:59:59", tick=False):
             response_exact = TrendsQueryRunner(
                 query=TrendsQuery(
                     series=[EventsNode(event="$pageview")],
@@ -8028,7 +8028,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2020-01-20T00:00:00Z")
+    @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
     def test_group_node_property_filter_types(self, _name, property_filter, expected_count):
         self._create_test_events()
         flush_persons_and_events()
@@ -8109,7 +8109,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("median", PropertyMathType.MEDIAN),
         ]
     )
-    @freeze_time("2020-01-20T00:00:00Z")
+    @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
     def test_session_duration_math_with_event_property_filter(self, _name, math_type):
         self._create_test_events()
         flush_persons_and_events()
@@ -8175,7 +8175,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    @freeze_time("2020-01-20T00:00:00Z")
+    @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
     def test_week_interval_boundaries_with_week_start_day(
         self, _name, date_from, date_to, week_start_day, expected_count
     ):

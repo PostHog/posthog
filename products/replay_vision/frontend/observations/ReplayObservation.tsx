@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -16,7 +16,7 @@ import {
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,12 +26,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import {
-    SessionRecordingPlayerMode,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -52,6 +48,7 @@ import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -67,9 +64,10 @@ import {
     OBSERVATION_TRIGGER_TAG,
     SUCCEEDED_OUTPUT_LABEL,
 } from '../replay_scanners/types'
-import { scannerLabel } from '../utils/observation'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { observationLabelLogic } from './observationLabelLogic'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationShareButton } from './ObservationShareButton'
 import {
@@ -80,37 +78,12 @@ import {
 } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
+const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
+
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
-}
-
-function AutoSeekToTime({
-    playerKey,
-    sessionRecordingId,
-    ms,
-    trigger,
-}: {
-    playerKey: string
-    sessionRecordingId: string
-    ms: number
-    trigger: number
-}): null {
-    const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
-    // `start`/`end` are fresh Dayjs objects on every snapshot batch; compare epochs so deps stay stable.
-    const startMs = sessionPlayerData?.start?.valueOf() ?? null
-    const endMs = sessionPlayerData?.end?.valueOf() ?? null
-    // Latch per-trigger so snapshot-batch arrivals don't re-seek and fight playback.
-    const seekedForTrigger = useRef<number | null>(null)
-    useEffect(() => {
-        if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {
-            return
-        }
-        sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
-        seekedForTrigger.current = trigger
-    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
-    return null
 }
 
 // A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
@@ -141,6 +114,35 @@ function PromptRow({ prompt }: { prompt: string }): JSX.Element {
     )
 }
 
+/** Rating happens here, not in the Calibration tab, so a rater never sees the recommendation it feeds. */
+function CalibrationEntryPoint({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Read the rating from the control's logic rather than the loaded observation, which keeps the
+    // label it was fetched with. The control alongside builds this same keyed logic.
+    const { label } = useValues(
+        observationLabelLogic({ observationId: observation.id, initialLabel: observation.label })
+    )
+    // Multivariate flags resolve to the variant key, and "control" is truthy, so compare rather than coerce.
+    if (
+        !label ||
+        !hasScannerPage(observation) ||
+        featureFlags[FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT] !== 'test'
+    ) {
+        return null
+    }
+    return (
+        <p className="text-sm text-muted m-0">
+            <Link
+                to={`${urls.replayVision(observation.scanner_id)}?tab=calibration`}
+                data-attr="vision-observation-calibration-entry-point"
+            >
+                Rate more results for this scanner
+            </Link>{' '}
+            to get a config recommendation from your ratings.
+        </p>
+    )
+}
+
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
@@ -165,7 +167,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
-    const { observation, observationLoading, retrying } = useValues(observationLogic)
+    const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
+        useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
 
     if (observationLoading && !observation) {
@@ -266,13 +269,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             icon={<IconArrowLeft />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.previous_observation_id
-                                    ? observationUrl(observation.previous_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={previousObservationId ? observationUrl(previousObservationId) : undefined}
                             disabledReason={
-                                observation.previous_observation_id
+                                previousObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No previous observation matching your filters'
@@ -291,13 +291,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             sideIcon={<IconArrowRight />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.next_observation_id
-                                    ? observationUrl(observation.next_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={nextObservationId ? observationUrl(nextObservationId) : undefined}
                             disabledReason={
-                                observation.next_observation_id
+                                nextObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No next observation matching your filters'
@@ -363,23 +360,13 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 )}
                 {recordingExpanded && (
                     <div className="border-t border-border h-[calc(100vh-16rem)] min-h-[480px]">
-                        <SessionRecordingPlayer
-                            sessionRecordingId={observation.session_id}
-                            playerKey={playerKey}
-                            mode={SessionRecordingPlayerMode.Standard}
-                            autoPlay={false}
-                            noBorder
-                            noDock
-                            withSidebar
-                        />
-                        {pendingSeek && (
-                            <AutoSeekToTime
+                        <Suspense fallback={<Spinner className="m-4" />}>
+                            <ObservationRecording
                                 playerKey={playerKey}
                                 sessionRecordingId={observation.session_id}
-                                ms={pendingSeek.ms}
-                                trigger={pendingSeek.trigger}
+                                pendingSeek={pendingSeek}
                             />
-                        )}
+                        </Suspense>
                     </div>
                 )}
             </LemonCard>
@@ -477,6 +464,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
+                            <CalibrationEntryPoint observation={observation} />
                         </div>
                     )}
 

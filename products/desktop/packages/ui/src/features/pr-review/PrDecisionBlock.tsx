@@ -148,6 +148,7 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
         <Button
           type="button"
           variant="outline"
+          loading={approve.isPending}
           disabled={approveDisabled}
           onClick={() => approve.mutate({ prUrl })}
           className={BIG_BUTTON}
@@ -165,6 +166,7 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
           <Button
             type="button"
             variant="primary"
+            loading={merge.isPending}
             disabled={mergeDisabled}
             onClick={() => merge.mutate({ prUrl, method })}
             className={BIG_BUTTON}
@@ -204,11 +206,11 @@ export function PrDecisionBlock({ prUrl }: PrDecisionBlockProps) {
               type="button"
               variant="outline"
               size="sm"
+              loading={markReady.isPending}
               disabled={markReady.isPending}
               onClick={() => markReady.mutate({ prUrl, action: "ready" })}
               className="gap-1.5"
             >
-              {markReady.isPending && <Spinner />}
               Ready for review
             </Button>
           </>

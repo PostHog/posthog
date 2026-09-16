@@ -4,11 +4,14 @@ import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+if TYPE_CHECKING:
+    from _pytest.terminal import TerminalReporter
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
@@ -21,6 +24,7 @@ from django.core.management.commands.flush import Command as FlushCommand
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
 
@@ -581,6 +585,18 @@ class _JUnitTimingsPlugin:
         # Appended exactly once: intermediate attempts never log a non-rerun teardown,
         # and each report owns its own copy of `user_properties`.
         report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
+        if runner_name := os.environ.get("RUNNER_NAME"):
+            report.user_properties.append(("posthog.runner_name", runner_name))
+
+    def pytest_terminal_summary(self, terminalreporter: "TerminalReporter") -> None:
+        if not terminalreporter.hasopt("R"):
+            return
+        # pytest-rerunfailures 16.1's summary lists nodeids but omits the failed attempt's traceback.
+        for report in terminalreporter.stats.get("rerun", []):
+            terminalreporter.write_sep("_", f"RERUN {report.nodeid} ({report.when})")
+            report.toterminal(terminalreporter._tw)
+            # Anchor the final exception within the log-thinning context window.
+            terminalreporter.write_sep("_", f"RERUN END {report.nodeid} ({report.when})")
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:
@@ -641,6 +657,41 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         pytest.skip("Skipping test that requires internal secrets on external PRs")
 
 
+def _vendor_credentials_present(marker: pytest.Mark) -> bool:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return all(name in os.environ for name in marker.args) and (check is None or check())
+
+
+def _describe_vendor_credentials(marker: pytest.Mark) -> str:
+    check: Callable[[], bool] | None = marker.kwargs.get("check")
+    return ", ".join([*marker.args, *([check.__name__] if check is not None else [])])
+
+
+def _gate_vendor_credential_tests(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Deselect vendor credential tests in CI, where they can only skip and a skip with no recorded
+    pass reads as a broken test. Locally they stay collected, because a developer may export the
+    credentials, and skip with a reason naming what is missing.
+    """
+    gated = [
+        (item, marker)
+        for item in items
+        if (marker := item.get_closest_marker("requires_vendor_credentials")) is not None
+    ]
+    if not gated:
+        return
+    if is_ci():
+        deselected = {id(item) for item, _ in gated}
+        config.hook.pytest_deselected(items=[item for item, _ in gated])
+        items[:] = [item for item in items if id(item) not in deselected]
+        return
+    for item, marker in gated:
+        if not _vendor_credentials_present(marker):
+            item.add_marker(
+                pytest.mark.skip(reason=f"vendor credentials not available: {_describe_vendor_credentials(marker)}")
+            )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if apply_quarantine_markers is not None:
         apply_quarantine_markers(items)
+    _gate_vendor_credential_tests(config, items)

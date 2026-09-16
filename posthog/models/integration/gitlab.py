@@ -104,6 +104,27 @@ class GitLabIntegration:
 
         return {"issue_id": issue["iid"]}
 
+    def close_issue(self, issue_id: int) -> None:
+        """Close an issue in the connected project. Raises on failure."""
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        url = f"{hostname}/api/v4/projects/{project_id}/issues/{issue_id}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
+        response = requests.put(
+            url,
+            json={"state_event": "close"},
+            headers={"PRIVATE-TOKEN": access_token},
+            allow_redirects=False,
+            timeout=10,
+        )
+        if response.status_code != 200:
+            raise GitLabIntegrationError(f"GitLabIntegration: failed to close issue: {response.text[:300]}")
+
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing GitLab issues in the connected project for the link-existing flow."""
         hostname = self.integration.config.get("hostname")

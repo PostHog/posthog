@@ -267,10 +267,6 @@ database "posthog" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_prompt_name"
     }
-    column "mat_$ai_experiment_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_experiment_id"
-    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"

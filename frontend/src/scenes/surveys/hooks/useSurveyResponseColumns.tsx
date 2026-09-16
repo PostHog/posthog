@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -12,6 +11,8 @@ import { urls } from 'scenes/urls'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { QueryContextColumn } from '~/queries/types'
 import { EventType } from '~/types'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 const getTraceIdFromRecord = (record: unknown): string | null => {
     if (!Array.isArray(record)) {

@@ -1,15 +1,19 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Optional
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
     DECAGON_BASE_URL,
+    DECAGON_PAGE_SIZE,
+    DecagonContractError,
     DecagonResumeConfig,
     _to_epoch_seconds,
     decagon_source,
@@ -20,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.se
     DECAGON_ENDPOINTS,
     DecagonEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.source import DecagonSource
 
 DECAGON_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon"
 SETTINGS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings"
@@ -38,7 +43,11 @@ def _conversation(conversation_id: str) -> dict[str, Any]:
 
 
 def _drive_rows(
-    manager: MagicMock, responses: list[Response], endpoint: str = "conversations", **incremental_kwargs: Any
+    manager: MagicMock,
+    responses: list[Response],
+    endpoint: str = "conversations",
+    logger: Optional[MagicMock] = None,
+    **incremental_kwargs: Any,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     sent_params: list[dict[str, Any]] = []
     response_iter = iter(responses)
@@ -56,7 +65,7 @@ def _drive_rows(
             get_rows(
                 api_key="key",
                 endpoint=endpoint,
-                logger=MagicMock(),
+                logger=logger or MagicMock(),
                 resumable_source_manager=manager,
                 **incremental_kwargs,
             )
@@ -194,6 +203,17 @@ class TestGetRows:
         sent_params, yielded_ids = self._drive(manager, responses)
         assert sent_params == [{}, {"cursor": "cur-1"}]
         assert yielded_ids == [["c1"]]
+
+    def test_full_page_without_a_cursor_warns_that_the_walk_may_be_truncated(self) -> None:
+        # Reading only a renamed cursor field already truncated this export once. A full
+        # page that ends the walk is the one symptom left, so it has to reach the log.
+        manager = self._fresh_manager()
+        logger = MagicMock()
+        page = [_conversation(f"c{i}") for i in range(DECAGON_PAGE_SIZE)]
+        _drive_rows(manager, [_make_response({"conversations": page})], logger=logger)
+
+        assert logger.warning.call_count == 1
+        assert "ended on a full page" in logger.warning.call_args.args[0]
 
     def test_incremental_walk_sends_window_on_every_page_and_saves_it(self) -> None:
         manager = self._fresh_manager()
@@ -492,6 +512,40 @@ class TestAgentAssistActions:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [DecagonResumeConfig(cursor="cur-1", min_timestamp=int(epoch))]
 
+    def test_a_refused_details_add_on_retries_the_walk_without_it(self) -> None:
+        # Detail export is entitled separately from the actions export, and a team without
+        # it is refused the whole request, so the table only syncs if the walk drops the
+        # param and retries.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"detail": "detail export is not enabled for this team."}, status_code=403),
+            _make_response({"events": [{"agent_name": "a"}], "has_more": False, "next_cursor": None}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
+        assert sent_params == [{"include_details": "true"}, {}]
+        assert [len(b) for b in batches] == [1]
+
+    def test_a_refused_details_add_on_stays_dropped_for_later_pages(self) -> None:
+        manager = _fresh_manager()
+        responses = [
+            _make_response({}, status_code=403),
+            _make_response({"events": [{"agent_name": "a"}], "has_more": True, "next_cursor": "cur-1"}),
+            _make_response({"events": [{"agent_name": "b"}], "has_more": False, "next_cursor": None}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
+        assert sent_params == [{"include_details": "true"}, {}, {"cursor": "cur-1"}]
+        assert [len(b) for b in batches] == [1, 1]
+
+    def test_a_403_without_add_on_params_still_fails_the_walk(self) -> None:
+        # The endpoint itself being refused must stay a failure rather than be swallowed
+        # by the retry.
+        manager = _fresh_manager()
+        responses = [_make_response({}, status_code=403), _make_response({}, status_code=403)]
+        with pytest.raises(HTTPError):
+            _drive_rows(manager, responses, endpoint="agent_assist_actions")
+
     def test_source_response_is_a_keyless_append_stream(self) -> None:
         response = decagon_source(
             api_key="key",
@@ -548,6 +602,36 @@ class TestArticleTables:
 
         assert len(sent_params) == 2
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
+    def test_rows_are_read_from_the_response_only_list_when_the_configured_key_is_absent(self) -> None:
+        # A renamed envelope key otherwise reads as an empty page: the walk ends on the
+        # first request and the sync reports success with an empty table.
+        manager = _fresh_manager()
+        responses = [_make_response({"data": [{"id": 1}, {"id": 2}], "total": 2})]
+        _, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
+    def test_no_rows_against_a_nonzero_total_fails_the_sync(self) -> None:
+        # The endpoint reports articles and the walk kept none, so the config no longer
+        # matches the response. Completing here is what kept the table empty silently.
+        manager = _fresh_manager()
+        responses = [_make_response({"unexpected": {"id": 1}, "total": 12})]
+
+        with pytest.raises(DecagonContractError) as excinfo:
+            _drive_rows(manager, responses, endpoint="articles")
+
+        # The failure is deterministic, so the source must classify the message it actually
+        # raises. An unclassified message repeats this identical request for the whole attempt
+        # budget, reports it every time, and leaves the schema enabled for the next schedule.
+        assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
+
+    def test_an_empty_knowledge_base_still_completes(self) -> None:
+        manager = _fresh_manager()
+        responses = [_make_response({"articles": [], "total": 0})]
+        _, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert batches == []
 
     def test_article_usage_is_a_single_request_pinned_to_utc(self) -> None:
         # The timezone param changes how usage is bucketed; leaving it to the account
@@ -654,6 +738,54 @@ class TestAdminLogs:
             {"offset": "2", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
         ]
         assert [len(b) for b in batches] == [2, 1]
+
+    def test_offset_walk_without_a_total_stops_on_a_short_page(self) -> None:
+        # Without `total` the only end signal is a page shorter than the requested limit.
+        # Missing it would re-request the same short page until the server complained.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [{"id": "a1"}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="admin_logs")
+
+        assert len(sent_params) == 1
+        assert [[r["id"] for r in b] for b in batches] == [["a1"]]
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {}),
+            (
+                "first_incremental_run_without_watermark",
+                {"should_use_incremental_field": True, "incremental_field": "created_at"},
+            ),
+        ]
+    )
+    def test_no_rows_against_a_nonzero_total_fails_the_sync(
+        self, _name: str, incremental_kwargs: dict[str, Any]
+    ) -> None:
+        # The mandatory `start` bound is the epoch in both modes, so the request covered every
+        # row and keeping none against a positive total means the envelope no longer matches.
+        # The bound must not read as a server-side window and excuse the empty walk.
+        manager = _fresh_manager()
+        responses = [_make_response({"unexpected": {"id": "a1"}, "total": 12})]
+
+        with pytest.raises(DecagonContractError):
+            _drive_rows(manager, responses, endpoint="admin_logs", **incremental_kwargs)
+
+    def test_a_watermarked_walk_that_finds_nothing_new_still_completes(self) -> None:
+        # `total` counts the whole table, not the window, so an incremental run with nothing
+        # new past the watermark keeps no rows against a positive total. That is the ordinary
+        # result and must stay a success.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [], "total": 12})]
+        _, batches = _drive_rows(
+            manager,
+            responses,
+            endpoint="admin_logs",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 12, 0, 5, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        assert batches == []
 
     def test_response_merges_on_id_partitioned_by_created_at(self) -> None:
         response = decagon_source(

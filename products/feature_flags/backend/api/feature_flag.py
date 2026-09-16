@@ -111,6 +111,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -119,7 +120,6 @@ from products.feature_flags.backend.flag_status import (
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
 )
-from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.models.team_feature_flag_policy_config import team_requires_flag_tags
@@ -170,8 +170,8 @@ FLAG_FILTERS_WRITE_COUNTER = Counter(
 
 FLAG_FILTERS_VIOLATION_COUNTER = Counter(
     "posthog_feature_flag_filters_violation_total",
-    "Filters validation violations, by tier and rule",
-    labelnames=["stage", "rule", "operation"],
+    "Filters validation violations, by tier, rule and write source",
+    labelnames=["stage", "rule", "operation", "source"],
 )
 
 
@@ -179,6 +179,14 @@ def _flag_write_source(request: Any) -> str:
     """Coarse write-source attribution for metrics. Never returns unbounded values."""
     if request is None:
         return "internal"
+    # ServiceRequest declares a system write and carries no authenticator, so the checks
+    # below would read it as an unidentified caller.
+    if getattr(request, "is_system", False):
+        return "internal"
+    # PostHog AI builds its own request shim with no authenticator, so without this it lands
+    # in the same bucket as a caller we failed to identify.
+    if getattr(request, "is_posthog_ai", False):
+        return "posthog_ai"
     headers = getattr(request, "headers", None) or {}
     if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
         return "mcp"
@@ -199,9 +207,11 @@ def _count_filters_write(operation: str, outcome: str, request: Any) -> None:
     FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source=_flag_write_source(request)).inc()
 
 
-def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None]) -> None:
+def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str | None], source: str) -> None:
     for rule_id in rule_ids:
-        FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
+        FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage=stage, rule=rule_id or "unknown", operation=operation, source=source
+        ).inc()
 
 
 def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
@@ -384,17 +394,18 @@ def assert_feature_flag_write_scope(
         )
 
 
-def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
+def _is_realtime_cohort_flag_targeting_enabled(request, *, team: Team) -> bool:
     """Check whether the realtime cohort flag targeting feature is enabled for this request."""
     try:
         user = getattr(request, "user", None)
         if user is None or user.is_anonymous:
             return False
+        organization_id = str(team.organization_id)
         return feature_enabled_or_false(
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
-            groups={"organization": str(user.organization.id)},
-            group_properties={"organization": {"id": str(user.organization.id)}},
+            groups={"organization": organization_id, "project": str(team.uuid)},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": team.id}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -573,27 +584,15 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
-    "fully rolled out" determination has a single source of truth. Maps the
-    summary to the bulk-delete vocabulary:
+    Thin adapter over ``rollout_state_and_variant`` so the "fully rolled out"
+    determination has a single source of truth. Maps the summary to the
+    bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
     summary = checker.get_rollout_summary(flag)
-
-    if summary.effectively_full_rollout:
-        active_variant = None
-        if summary.is_multivariate:
-            # summary already established full rollout; this only fetches the winning variant key.
-            # Both calls read the same in-memory flag, so they cannot disagree.
-            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
-        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
-
-    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
-    if summary.max_rollout_percentage == 0:
-        return {"rollout_state": "not_rolled_out", "active_variant": None}
-
-    return {"rollout_state": "partial", "active_variant": None}
+    rollout_state, active_variant = checker.rollout_state_and_variant(flag, summary)
+    return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
 def calculate_filter_size_bytes(filters: dict | None) -> int:
@@ -1355,6 +1354,13 @@ class FeatureFlagSerializer(
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
+        # `filters` is declared with source="get_filters", so its absence means the request
+        # omitted filters. A supplied-filters request runs the same check in _validate_filters_inner.
+        if self.instance is not None and "get_filters" not in attrs:
+            try:
+                self._validate_stored_config_format()
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({"filters": exc.detail}) from exc
         attrs = super().validate(attrs)
 
         # Run universal validations before any early returns so they always apply,
@@ -1584,7 +1590,9 @@ class FeatureFlagSerializer(
         This avoids a potentially expensive feature_enabled() call for flags that don't
         reference any cohort properties.
         """
-        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else Team.objects.get(pk=self.context["team_id"])
+        return _is_realtime_cohort_flag_targeting_enabled(self.context["request"], team=team)
 
     def validate_filters(self, filters):
         # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated
@@ -1602,7 +1610,23 @@ class FeatureFlagSerializer(
             )
             raise
 
+    def _validate_stored_config_format(self) -> None:
+        if self.instance is not None and detect_config_format(self.instance.filters).kind != "v1":
+            raise serializers.ValidationError(
+                "This flag's stored configuration cannot be updated through this API. Contact support.",
+                code="unsupported_config_version",
+            )
+
     def _validate_filters_inner(self, filters, operation: str):
+        # Unknown keys survive normalization during the validation rollout. Reserve the
+        # config discriminator before that path can store an unsupported format.
+        if "version" in filters:
+            raise serializers.ValidationError(
+                "filters.version is reserved. Remove it from the request.", code="reserved_config_version"
+            )
+
+        self._validate_stored_config_format()
+
         # An empty filters dict on an update carries no instruction, so the merged state is
         # the stored state and there is nothing to validate. Returning it untouched also
         # keeps normalization off flags the request never addressed: DRF hands DictField an
@@ -1611,11 +1635,16 @@ class FeatureFlagSerializer(
         # the empty-groups rule rejects them.
         if self.instance is not None and not filters:
             assert isinstance(self.instance, FeatureFlag)
-            return self.instance.filters
+            stored = copy.deepcopy(self.instance.filters or {})
+            if self.instance.has_encrypted_payloads and stored.get("payloads"):
+                # update() restores ciphertext for this sentinel without encrypting it again.
+                stored["payloads"] = dict.fromkeys(stored["payloads"], REDACTED_PAYLOAD_VALUE)
+            return stored
 
         # `filters` arrives as the raw request dict, so the structural tier runs once below,
         # on the merged state.
         fully_enforced = _all_filters_rules_are_enforced()
+        source = _flag_write_source(self.context.get("request"))
 
         # A rule that only logs must never accept what the pre-enforcement validator rejected,
         # so the cache-poisoning class stays rejected throughout the rollout. Once every rule
@@ -1625,7 +1654,7 @@ class FeatureFlagSerializer(
             try:
                 _reject_serde_unsafe_filters(filters)
             except serializers.ValidationError:
-                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
+                _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"], source)
                 raise
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
@@ -1680,12 +1709,12 @@ class FeatureFlagSerializer(
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
                 for violation in flatten_structural_errors(structural.errors)
             ]
-            _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
+            _count_filters_violations("merged_structural", operation, [detail.code for detail in details], source)
             # Cross-field collectors trust structurally valid input, so they never run for this
             # write. Record that rather than leaving the stage silent: the flags this rollout is
             # about are mostly cross-field violators whose merged state fails structurally, so a
             # bare zero on the cross_field series would read as "none left to fix".
-            _count_filters_violations("cross_field", operation, ["not_evaluated"])
+            _count_filters_violations("cross_field", operation, ["not_evaluated"], source)
             # Only the enforced rules reject, and only they are reported: a rule still rolling
             # out must not turn into a 400 by sharing a request with one that is enforced.
             enforced_details = [detail for detail in details if _filters_rule_is_enforced(detail.code)]
@@ -1801,7 +1830,7 @@ class FeatureFlagSerializer(
             cross_field_violations = collect_cross_field_violations(merged)
             if cross_field_violations:
                 _count_filters_violations(
-                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
+                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations], source
                 )
                 enforced_violations = [
                     violation for violation in cross_field_violations if _filters_rule_is_enforced(violation.rule_id)
@@ -1957,7 +1986,7 @@ class FeatureFlagSerializer(
     def _extract_flag_dependencies(self, filters):
         """Extract flag dependencies from filters."""
         dependencies = set()
-        for flag_prop in _get_flag_properties_from_filters(filters):
+        for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
                 flag_key = self._validate_flag_reference(flag_reference)
@@ -2237,13 +2266,18 @@ class FeatureFlagSerializer(
                 # could still land here). Only re-inject when `filters` is
                 # being sent, so a filters-less PATCH stays a partial update.
                 if filters is not None:
-                    existing_true_payload = (instance.filters or {}).get("payloads", {}).get("true")
-                    if not existing_true_payload:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    if not stored_payloads.get("true"):
                         raise exceptions.ValidationError(
                             "An encrypted payload is required when has_encrypted_payloads is true."
                         )
                     payloads = filters.get("payloads") or {}
-                    payloads["true"] = existing_true_payload
+                    # validate_filters substitutes the sentinel for every stored key, so restoring
+                    # only "true" would persist the placeholder over the other keys' ciphertext.
+                    for key, value in payloads.items():
+                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
+                            payloads[key] = stored_payloads[key]
+                    payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads
             else:
                 encrypt_flag_payloads(validated_data)
@@ -2263,14 +2297,12 @@ class FeatureFlagSerializer(
                 new_filters["payloads"] = payloads
                 validated_data["filters"] = new_filters
             else:
-                # Client sent filters. Drop an empty/missing/redacted echo at
-                # "true"; a fresh non-empty plaintext is left alone (the user
-                # explicitly set a new payload during the downgrade).
+                # Client sent filters. Drop every empty/missing/redacted echo; a fresh
+                # non-empty plaintext is left alone (the user explicitly set a new payload
+                # during the downgrade). Keeping a redacted key would write the placeholder
+                # over ciphertext that is unreadable once the flag is unencrypted.
                 payloads = filters.get("payloads") or {}
-                true_val = payloads.get("true")
-                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
-                    payloads.pop("true", None)
-                filters["payloads"] = payloads
+                filters["payloads"] = {k: v for k, v in payloads.items() if v and v != REDACTED_PAYLOAD_VALUE}
 
         # Opportunistically strip legacy keys on save, including on a write that sent no filters.
         # A caller that declares the exemption is spared: it would otherwise persist a rewritten
@@ -3291,11 +3323,42 @@ class FeatureFlagViewSet(
 
     @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        # The facade is imported inside the method because it imports this module's serializer.
+        from products.feature_flags.backend.facade.api import create_flag
+
+        flag = create_flag(
+            request.data,
+            team=self.team,
+            user=request.user,
+            request=request,
+            serializer_context=self.get_serializer_context(),
+        )
+        data = self.get_serializer(flag).data
+        apply_encrypted_payload_response_form(request, data)
+        headers = self.get_success_headers(data)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
 
     @extend_schema(request=FeatureFlagPartialUpdateRequestSchemaSerializer)
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        from products.feature_flags.backend.facade.api import update_flag
+
+        instance = self.get_object()
+        flag = update_flag(
+            instance,
+            request.data,
+            team=self.team,
+            user=request.user,
+            request=request,
+            partial=kwargs.pop("partial", False),
+            serializer_context=self.get_serializer_context(),
+        )
+        prefetched_objects = getattr(flag, "_prefetched_objects_cache", None)
+        if prefetched_objects:
+            prefetched_objects.clear()
+        return self._lifecycle_response(flag)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
@@ -4201,6 +4264,8 @@ class FeatureFlagViewSet(
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
         # Exclude internal flags (same as list/matching_ids endpoints)
+        # The stale-flags health check mirrors this guard's reference checks in
+        # products/feature_flags/backend/temporal/health_checks/stale_flags.py. Keep the two in step.
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False

@@ -8,6 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { sanitizeVariableKey } from './hogFlowOutputMappingLogic'
 
 export function HogFlowEditorPanelVariables(): JSX.Element | null {
     const { workflow } = useValues(hogFlowEditorLogic)
@@ -29,7 +30,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     }
 
     const editVariableKey = (idx: number, key: string): void => {
-        const sanitizedKey = key.replace(/\s+/g, '_')
+        const sanitizedKey = sanitizeVariableKey(key)
         setWorkflowInfo({
             variables: (workflow?.variables || []).map((variable, index) =>
                 index === idx ? { ...variable, key: sanitizedKey, label: sanitizedKey } : variable

@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -150,11 +150,11 @@ class TestToDateStr:
 
 
 class TestDefaultStartDate:
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_uses_config_start_date_floored(self) -> None:
         assert _default_start_date("2023-01-01T12:00:00Z") == "2023-01-01"
 
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_defaults_to_lookback_window_when_blank(self) -> None:
         assert _default_start_date("") == "2025-07-02"
 
@@ -208,7 +208,7 @@ class TestFanOut:
         return _response([_item(i, "accounts") for i in ids], next_url=next_url)
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_iterates_every_account_and_injects_account_id(self, MockSession) -> None:
         session = MockSession.return_value
         urls, params = _wire(
@@ -234,7 +234,7 @@ class TestFanOut:
         assert lead_params["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_incremental_watermark_sets_start_date(self, MockSession) -> None:
         session = MockSession.return_value
         _, params = _wire(session, [self._accounts_response("1"), _response([_item("100", "leads")])])
@@ -402,7 +402,7 @@ class TestUnifiedRequests:
         assert len(requests) == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_leads_fan_out_hits_visitor_companies_with_account_id_query(self, MockSession) -> None:
         session = MockSession.return_value
         requests = _wire_full(
@@ -422,7 +422,7 @@ class TestUnifiedRequests:
         assert company_reqs[0]["params"]["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    @freeze_time("2026-07-02")
+    @time_machine.travel("2026-07-02", tick=False)
     def test_visits_fan_out_posts_web_visits_with_date_body(self, MockSession) -> None:
         session = MockSession.return_value
         requests = _wire_full(

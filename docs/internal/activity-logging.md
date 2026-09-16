@@ -121,6 +121,16 @@ The row is a system row.
 To attribute it to a job, pass a `Trigger(job_type=..., job_id=..., payload=...)` in `Detail`.
 A receiver can also read one from `get_current_trigger()` when the job wrapped its write in `ActivityTriggerContext(...)`; the receiver has to read and pass it, the context alone stores nothing.
 
+### Agent writes
+
+`OAuthAccessTokenAuthentication` records two things for an agent running in a sandbox: the task the token is bound to, and the agent's stated reason from the `x-posthog-intent` header.
+When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id>, payload={"intent": ...})`.
+A product that passes its own trigger keeps it, so this only fills the gap.
+
+The task id is what makes the row an agent write, and it is not self-reported: the sandbox provisioning binds it to the token it mints.
+The intent is the agent's own claim and nothing verifies it, so it is read only from a request whose token carries that binding, and every surface that shows it says where it came from.
+Without that rule, any caller could put the header on a write of its own and have the audit trail present the write as automation.
+
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
