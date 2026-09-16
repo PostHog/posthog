@@ -2461,7 +2461,7 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 "pinned",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="Optional. Return only dashboards pinned by the current user.",
+                description="Optional. Return only pinned dashboards.",
             ),
         ],
     ),
