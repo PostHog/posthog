@@ -3635,11 +3635,11 @@
             "label": "_kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
@@ -3942,11 +3942,11 @@
             "label": "UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web",
@@ -6349,6 +6349,14 @@
                 "fb.1.1735689600000.IwAR2xY9zAbCdEf"
             ],
             "label": "Facebook click ID (fbc)",
+            "type": "String"
+        },
+        "$fbp": {
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": [
+                "fb.1.1735689600000.1098115397"
+            ],
+            "label": "Facebook browser ID (fbp)",
             "type": "String"
         },
         "$feature_flag": {
@@ -8785,11 +8793,11 @@
             "label": "Latest _kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
@@ -9102,11 +9110,11 @@
             "label": "Latest UTM term"
         },
         "version": {
-            "description": "The version of the app",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": [
                 "1.0.0"
             ],
-            "label": "App version"
+            "label": "App version (app lifecycle)"
         },
         "wbraid": {
             "description": "Google Ads, app to web Data from the last time this user was seen.",

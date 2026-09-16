@@ -40,9 +40,9 @@ def list_quarantined_identifiers(
     return list(qs.order_by("-created_at"))
 
 
-def expiry_soon_cutoff(now: datetime) -> datetime:
+def expiry_soon_cutoff(now: datetime, within_days: int = FLAKINESS_EXPIRY_SOON_DAYS) -> datetime:
     """The moment past which an expiry is close enough that somebody has to decide about it."""
-    return now + timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS)
+    return now + timedelta(days=within_days)
 
 
 def is_expiring_soon(entry: QuarantinedIdentifier, cutoff: datetime) -> bool:
@@ -54,14 +54,18 @@ def is_expiring_soon(entry: QuarantinedIdentifier, cutoff: datetime) -> bool:
     return entry.expires_at is not None and entry.expires_at <= cutoff
 
 
-def list_expiring_quarantines(repo_id: UUID, *, now: datetime) -> list[QuarantinedIdentifier]:
+def list_expiring_quarantines(
+    repo_id: UUID, *, now: datetime, within_days: int = FLAKINESS_EXPIRY_SOON_DAYS
+) -> list[QuarantinedIdentifier]:
     """Active quarantines that run out inside the window, soonest first.
 
     An entry leaves this list when somebody extends it past the window, lifts it, or lets it lapse.
+    A caller that reads this on a schedule widens `within_days`, so an entry cannot expire in the
+    gap between two of its runs.
     """
     return list(
         QuarantinedIdentifier.objects.using(READER_DB)
-        .filter(repo_id=repo_id, expires_at__gt=now, expires_at__lte=expiry_soon_cutoff(now))
+        .filter(repo_id=repo_id, expires_at__gt=now, expires_at__lte=expiry_soon_cutoff(now, within_days))
         # Preload `source_run` so the caller can render the "what was wrong" link without an extra
         # fetch per row. `Run.metadata` (JSONField) and `Run.error_message` (TextField) can be
         # large and aren't needed for the summary.

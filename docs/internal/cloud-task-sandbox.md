@@ -45,9 +45,9 @@ Let that migration finish before retrying. Interrupting it leaves a partial data
 
 For a shared-page correction, read the page with `task-context-wiki-page-retrieve`, then send the updated content to `task-context-wiki-page-propose` with the returned `head_sha` as `base_head`.
 The server stores an immutable suggestion without changing the published wiki.
-The user must review the full diff before applying a suggestion.
+The user opens **Context > Suggested edits**, selects the edit, reviews the full diff, and selects **Apply to shared wiki**.
 The Desktop review interface ships separately, after the backend is deployed.
-Until that interface is available, suggestions stay unpublished. Use direct human page editing for immediate corrections.
+Desktop validates proposal responses before showing them. If suggestions cannot load, use **Try again** to retry the request.
 Only that user with wiki write permission can apply the stored content. Task and loop tokens cannot approve suggestions.
 If the wiki changes before approval, publication returns a conflict. Read the page again and submit a new suggestion; never replace the base head to bypass review.
 
@@ -59,6 +59,11 @@ Loops can edit only their configured channel page, and read-only task tokens can
 Do not grant broader token scopes to work around a denied write.
 Ordinary tasks cannot publish commit bundles or use `scripts/publish` to bypass review.
 Server-owned nightly maintenance can publish a dated, content-only dream branch. The server verifies an active internal maintenance task in the organization, not just a branch name or token scope.
+Scheduled dreams run `scripts/publish --dream <summary-file>` from the mounted wiki after consolidation and lint.
+The helper uses the current UTC date for the branch, reuses that branch on retries, creates a local commit, and uploads a git bundle through the context layer API.
+The server records the authenticated maintenance run ID in the merge commit. Dream publication status matches this ID, not the commit time, so overlapping runs cannot hide a failed publication.
+GitHub signed-commit tools do not apply to this local bundle repository.
+The helper reports `publish: landed` only after a successful upload, reports `publish: no changes` for an unchanged wiki, and returns a nonzero exit for failures.
 Direct human page editing remains available.
 This review gate applies to server-minted task and loop tokens. Human/API credentials keep their existing permissions.
 

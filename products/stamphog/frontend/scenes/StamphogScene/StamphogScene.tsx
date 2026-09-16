@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,7 +24,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { StamphogTabs } from '../../components/StamphogTabs'
 import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
 import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
-import { stamphogSceneLogic } from './stamphogSceneLogic'
+import { type RepoStatusFilter, stamphogSceneLogic } from './stamphogSceneLogic'
 
 // Whether a repository is reviewed at all is a manager decision. The digest only changes who hears
 // about the work, and connecting a repository starts no review on its own, so both stay at editor.
@@ -34,20 +43,21 @@ export const scene: SceneExport = {
 }
 
 function ConnectRepositoryButton(): JSX.Element {
-    // Authorize-first: the connect button opens the OAuth authorize URL. An already-installed user gets a
-    // silent instant redirect back, so it never dead-ends on GitHub's "update installation" screen.
-    const { authorizeUrl, installInfoLoading, stamphogAccessLevel } = useValues(stamphogSceneLogic)
+    const { installInfo, installUrl, installInfoLoading, stamphogAccessLevel } = useValues(stamphogSceneLogic)
+    // The callback finishes through the authorize URL, so an install link alone cannot connect anything.
+    const canConnect = !!installUrl && !!installInfo?.authorize_url
     return (
         <LemonButton
             type="primary"
             icon={<IconGithub />}
-            to={authorizeUrl || undefined}
+            to={canConnect ? installUrl : undefined}
             disableClientSideRouting
+            data-attr="stamphog-connect-repository"
             disabledReason={
                 editorDisabledReason(stamphogAccessLevel) ??
                 (installInfoLoading
                     ? 'Loading install details'
-                    : authorizeUrl
+                    : canConnect
                       ? undefined
                       : 'GitHub App not configured yet')
             }
@@ -133,7 +143,7 @@ function SyncedBanner(): JSX.Element | null {
 }
 
 function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updating: boolean }): JSX.Element {
-    const { setReviewMode, setTriggerLabel } = useActions(stamphogSceneLogic)
+    const { updateRepoConfig } = useActions(stamphogSceneLogic)
     const disabledReason =
         managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ?? (updating ? 'Updating' : undefined)
 
@@ -142,7 +152,7 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
         // Save only real changes — blur after no edit (or after enter already saved) must not re-PATCH,
         // and a blank label is rejected by the API anyway.
         if (trimmed && trimmed !== repo.trigger_label) {
-            setTriggerLabel(repo.id, trimmed)
+            updateRepoConfig(repo.id, { trigger_label: trimmed })
         }
     }
 
@@ -152,7 +162,7 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
                 size="small"
                 value={repo.review_mode ?? ReviewModeEnumApi.All}
                 disabledReason={disabledReason}
-                onChange={(mode) => setReviewMode(repo.id, mode)}
+                onChange={(mode) => updateRepoConfig(repo.id, { review_mode: mode })}
                 options={[
                     { value: ReviewModeEnumApi.All, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.All] },
                     { value: ReviewModeEnumApi.Label, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.Label] },
@@ -177,9 +187,17 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
 }
 
 function RepoConfigsTable(): JSX.Element {
-    const { filteredRepoConfigs, repoConfigs, repoConfigsLoading, updatingRepoIds, repoSearch } =
-        useValues(stamphogSceneLogic)
-    const { setRepoEnabled, setDigestEnabled, setRepoSearch } = useActions(stamphogSceneLogic)
+    const {
+        visibleRepoConfigs,
+        filteredRepoConfigs,
+        repoConfigs,
+        repoConfigsLoading,
+        updatingRepoIds,
+        repoSearch,
+        repoStatusFilter,
+        repoStatusCounts,
+    } = useValues(stamphogSceneLogic)
+    const { updateRepoConfig, setRepoSearch, setRepoStatusFilter, showAllRepos } = useActions(stamphogSceneLogic)
 
     const columns: LemonTableColumns<StamphogRepoConfigApi> = [
         {
@@ -197,7 +215,7 @@ function RepoConfigsTable(): JSX.Element {
                         managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ??
                         (updatingRepoIds.includes(repo.id) ? 'Updating' : undefined)
                     }
-                    onChange={(checked) => setRepoEnabled(repo.id, checked)}
+                    onChange={(checked) => updateRepoConfig(repo.id, { enabled: checked })}
                 />
             ),
         },
@@ -216,7 +234,7 @@ function RepoConfigsTable(): JSX.Element {
                         editorDisabledReason(toAccessControlLevel(repo.user_access_level)) ??
                         (updatingRepoIds.includes(repo.id) ? 'Updating' : undefined)
                     }
-                    onChange={(checked) => setDigestEnabled(repo.id, checked)}
+                    onChange={(checked) => updateRepoConfig(repo.id, { digest_enabled: checked })}
                 />
             ),
         },
@@ -230,22 +248,65 @@ function RepoConfigsTable(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             {repoConfigs.length > 10 && (
-                <LemonInput
-                    type="search"
-                    placeholder="Search repositories"
-                    value={repoSearch}
-                    onChange={setRepoSearch}
-                    className="max-w-100"
-                />
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search repositories"
+                        value={repoSearch}
+                        onChange={setRepoSearch}
+                        className="max-w-100"
+                        data-attr="stamphog-repo-search"
+                    />
+                    <LemonSegmentedButton<RepoStatusFilter>
+                        size="small"
+                        value={repoStatusFilter}
+                        onChange={setRepoStatusFilter}
+                        options={[
+                            {
+                                value: 'all',
+                                label: `All (${repoStatusCounts.all})`,
+                                'data-attr': 'stamphog-repo-status-filter-all',
+                            },
+                            {
+                                value: 'on',
+                                label: `On (${repoStatusCounts.on})`,
+                                tooltip: 'Reviews or the digest are turned on',
+                                'data-attr': 'stamphog-repo-status-filter-on',
+                            },
+                            {
+                                value: 'off',
+                                label: `Off (${repoStatusCounts.off})`,
+                                tooltip: 'Connected, with reviews and the digest turned off',
+                                'data-attr': 'stamphog-repo-status-filter-off',
+                            },
+                        ]}
+                    />
+                </div>
             )}
             <LemonTable
                 columns={columns}
-                dataSource={filteredRepoConfigs}
+                dataSource={visibleRepoConfigs}
                 loading={repoConfigsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
-                emptyState="No repositories yet. Install the Stamphog GitHub App to get started."
+                emptyState={
+                    repoConfigs.length === 0
+                        ? 'No repositories yet. Install the Stamphog GitHub App to get started.'
+                        : 'No repositories match. Clear the search or pick All to see every repository.'
+                }
             />
+            {filteredRepoConfigs.length > visibleRepoConfigs.length && (
+                <div className="flex items-center gap-2 flex-wrap text-secondary">
+                    <span>{`Showing ${visibleRepoConfigs.length} of ${filteredRepoConfigs.length}. Search to find a repository, or show the full list.`}</span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={showAllRepos}
+                        data-attr="stamphog-repo-show-all"
+                    >
+                        {`Show all ${filteredRepoConfigs.length}`}
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }

@@ -1,10 +1,9 @@
 import pytest
 from unittest.mock import patch
 
-from clickhouse_pool import ChPool
-
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import (
+    ClickHouseChPool,
     ClickHouseCredentials,
     ClickHouseUser,
     RefreshingChPool,
@@ -45,7 +44,7 @@ def test_connection_pool_creation_without_offline_cluster(settings):
     settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST = None
 
     online_pool = get_pool(Workload.ONLINE)
-    assert type(online_pool) is ChPool  # a user with no password file keeps a plain, non-refreshing pool
+    assert type(online_pool) is ClickHouseChPool  # a user with no password file keeps a non-refreshing pool
     assert get_pool(Workload.ONLINE) is online_pool
     assert get_pool(Workload.OFFLINE) is online_pool
     assert get_pool(Workload.DEFAULT) is online_pool

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_API_VERSION_V2,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -60,7 +58,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            # google-api-core raises `PermissionDenied` from the Storage Read API's
+            # `create_read_session`, whose message is the gRPC form "403 request failed: the user
+            # does not have '<permission>' permission for '<resource>'". Reading a table that way
+            # needs dataset read access and permission to open a read session on the project the
+            # read bills to, and the denial names only whichever one it hit first — so name both
+            # roles rather than leaving the customer to work out which grant is missing. Matched on
+            # the stable status wording, not the volatile permission and resource ids.
+            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer role on the dataset you're syncing and the Read Session User role on its project, then reconnect the source.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -381,7 +386,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BIG_QUERY,
+            name=ExternalDataSourceType.BIGQUERY,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,

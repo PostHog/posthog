@@ -28,7 +28,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
-from posthog.llm.openai_flex import is_flex_recoverable
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +47,9 @@ class FlexFirstChatOpenAI(ChatOpenAI):
     turns instead of rerunning from scratch. Build flex clients with max_retries=0:
     the tier switch is the retry. The first fallback latches the client to standard,
     so a flex brownout costs one timeout per agent run, not one per call.
+
+    Build one through ``build_flex_first_chat_client`` rather than directly, so every
+    caller gets the same tier, timeout, and retry policy.
     """
 
     _flex_latched: bool = PrivateAttr(default=False)
@@ -60,7 +63,7 @@ class FlexFirstChatOpenAI(ChatOpenAI):
         if self._flex_latched or self.service_tier != "flex" or not is_flex_recoverable(error):
             raise error
         logger.warning(
-            "labeling_flex_call_fell_back",
+            "flex_call_fell_back",
             error_type=type(error).__name__,
             status_code=getattr(error, "status_code", None),
             model=self.model_name,
@@ -146,6 +149,49 @@ def build_langchain_chat_client(
         raise Exception("OPENAI_API_KEY is not configured")
     return FlexFirstChatOpenAI(
         model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
+    )
+
+
+# Per-call timeouts, capped so no single call can outlive the activity that runs the agent:
+# flex 120s x 1 attempt (the standard-tier fallback call is the retry), standard 240s x 2
+# attempts. The ai-gateway cuts non-streaming calls at ~290s, so longer client timeouts are
+# unreachable.
+FLEX_CALL_TIMEOUT = 120.0
+STANDARD_CALL_TIMEOUT = 240.0
+
+
+def build_flex_first_chat_client(
+    model: str,
+    timeout: float,
+    *,
+    ai_product: str,
+    trace_id: str,
+    session_id: str,
+    properties: Mapping[str, str],
+    distinct_id: str,
+    flex: bool = True,
+) -> ChatOpenAI:
+    """Return a ChatOpenAI client that prefers the flex service tier.
+
+    The langchain agents behind this helper all run as scheduled batches with no user
+    waiting, so an allowlisted model requests flex for half-price tokens and
+    ``FlexFirstChatOpenAI`` retries a failed flex call on the standard tier.
+
+    A model outside the allowlist keeps the standard tier, because OpenAI decides flex
+    eligibility per model and the gpt-4.1 family rejects the service_tier field outright.
+    Pass ``flex=False`` to opt a caller out while keeping the bounded timeouts.
+    """
+    use_flex = flex and model in FLEX_CAPABLE_MODELS
+    return build_langchain_chat_client(
+        model,
+        FLEX_CALL_TIMEOUT if use_flex else min(timeout, STANDARD_CALL_TIMEOUT),
+        ai_product=ai_product,
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=properties,
+        distinct_id=distinct_id,
+        service_tier="flex" if use_flex else None,
+        max_retries=0 if use_flex else 1,
     )
 
 

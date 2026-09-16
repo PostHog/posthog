@@ -129,6 +129,7 @@ import {
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
+import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
@@ -660,6 +661,8 @@ function MessageContextMenu({
   );
 }
 
+const GROWING_TEXT_SETTLE_MS = 500;
+
 /**
  * Start-aligned assistant prose bubble. Streamed tokens arrive in bursts; `useSmoothedText` reveals
  * them at a steady character rate so the text reads as even typing (text present on mount shows
@@ -677,6 +680,10 @@ const AgentProse = memo(function AgentProse({
   isStreaming?: boolean;
 }) {
   const smoothed = useSmoothedText(text);
+  const { isPending: growing } = useDebouncedValue(
+    text,
+    GROWING_TEXT_SETTLE_MS,
+  );
 
   return (
     <MessageContextMenu value={text}>
@@ -684,7 +691,7 @@ const AgentProse = memo(function AgentProse({
         <ChatMessageContent className="gap-1">
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
-              {isStreaming ? (
+              {isStreaming || growing ? (
                 <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
                 <ChatMarkdown content={text} renderObjectTags />
@@ -1241,7 +1248,6 @@ interface SharedChatThreadProps {
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
   currentWork?: string;
   /**
@@ -1255,6 +1261,7 @@ interface SharedChatThreadProps {
 
 export interface ChatThreadProps extends SharedChatThreadProps {
   events: AgentConversationEvent[];
+  historyVersion: number;
 }
 
 /** Serves scroll-to-message requests from panes outside this tree (the Activity
@@ -1299,10 +1306,15 @@ export interface AcpChatThreadProps extends SharedChatThreadProps {
   events: AcpMessage[];
 }
 
-export function ChatThread({ events, ...props }: ChatThreadProps) {
+export function ChatThread({
+  events,
+  historyVersion,
+  ...props
+}: ChatThreadProps) {
   const { items, ...footerState } = useAgentConversationItems(
     events,
     props.isPromptPending,
+    historyVersion,
   );
 
   return (
@@ -1311,7 +1323,6 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={[]}
         footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
@@ -1320,9 +1331,13 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const { items, ...footerState } = useConversationItems(
+    events,
+    props.isPromptPending,
+    {
+      showDebugLogs,
+    },
+  );
 
   return (
     <RawLogsToggleContext.Provider value={true}>
@@ -1330,7 +1345,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         key={props.taskId}
         {...props}
         conversationItems={items}
-        footerEvents={events}
+        footerState={footerState}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1338,12 +1353,11 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
-  footerEvents: AcpMessage[];
+  footerState: Omit<BuildResult, "items">;
 }
 
 function ChatThreadRenderer({
   conversationItems,
-  footerEvents,
   groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
@@ -1470,7 +1484,6 @@ function ChatThreadRenderer({
   const footer = (
     <>
       <ChatThreadFooter
-        events={footerEvents}
         isPromptPending={isPromptPending}
         promptStartedAt={promptStartedAt}
         task={task}

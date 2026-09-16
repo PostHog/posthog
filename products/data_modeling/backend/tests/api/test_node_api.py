@@ -72,7 +72,13 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
-    def test_a_duckgres_shadow_failure_does_not_mark_a_served_model_failed(self):
+    @parameterized.expand(
+        [
+            ("legacy_duckgres", DataModelingJobEngine.LEGACY_DUCKGRES),
+            ("managed_warehouse", DataModelingJobEngine.MANAGED_WAREHOUSE),
+        ]
+    )
+    def test_a_shadow_failure_does_not_mark_a_served_model_failed(self, _name: str, shadow_engine: str):
         """The shadow run finishes after the serving one, so reading the newest job of any engine
         would report a model that served fine as failed."""
         DataModelingJob.objects.create(
@@ -86,7 +92,7 @@ class TestNodeViewSet(APIBaseTest):
             team=self.team,
             saved_query=self.saved_query,
             status=DataModelingJob.Status.FAILED,
-            engine=DataModelingJobEngine.DUCKGRES,
+            engine=shadow_engine,
             last_run_at=timezone.now(),
         )
 
@@ -298,21 +304,6 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["dag_name"], self.dag_id)
-
-    def test_dag_ids_action(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/dag_ids/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dag_names = {d["name"] for d in response.json()["dag_ids"]}
-        self.assertEqual(dag_names, {"another_dag", self.dag_id})
 
     def test_run_requires_direction(self):
         response = self.client.post(

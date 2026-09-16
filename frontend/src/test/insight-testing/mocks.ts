@@ -60,7 +60,7 @@ export interface MockResponse {
 
 /** Build an ActorsQueryResponse shaped like the server response, with one row
  *  per canned person. Each person's display name is driven by the email
- *  property (see `asDisplay` in scenes/persons/person-utils). */
+ *  property (see `asDisplay` in products/persons/frontend/person-utils). */
 export function buildActorsResponse(
     persons: Array<{ email: string; id?: string; distinctId?: string }>
 ): ActorsQueryResponse {

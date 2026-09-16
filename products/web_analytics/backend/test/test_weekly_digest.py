@@ -1,17 +1,31 @@
+from collections.abc import Callable
 from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.schema import (
+    CacheMissResponse,
+    QueryStatus,
+    QueryStatusResponse,
+    WebGoalsQueryResponse,
+    WebOverviewQueryResponse,
+    WebStatsTableQueryResponse,
+)
 
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
 from products.web_analytics.backend.weekly_digest import (
+    _default_overview,
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
@@ -22,6 +36,55 @@ from products.web_analytics.backend.weekly_digest import (
 )
 
 QUERY_TIMESTAMP = "2025-01-29"
+
+DIGEST_QUERY_CASES = [
+    (get_overview_for_team, "WebOverviewQueryRunner", WebOverviewQueryResponse, _default_overview()),
+    (get_top_pages, "WebStatsTableQueryRunner", WebStatsTableQueryResponse, []),
+    (get_top_sources, "WebStatsTableQueryRunner", WebStatsTableQueryResponse, []),
+    (get_goals_for_team, "WebGoalsQueryRunner", WebGoalsQueryResponse, []),
+]
+
+
+class TestDigestQueryFailures(SimpleTestCase):
+    @parameterized.expand(DIGEST_QUERY_CASES)
+    def test_query_exceptions_are_not_zero_traffic(
+        self, query: Callable[..., object], runner_name: str, *_: object
+    ) -> None:
+        with patch(f"products.web_analytics.backend.weekly_digest.{runner_name}") as runner:
+            runner.return_value.run.side_effect = TimeoutError("Query timed out")
+            with self.assertRaises(TimeoutError):
+                query(Team(pk=1))
+
+    @parameterized.expand(DIGEST_QUERY_CASES)
+    def test_empty_results_are_distinct_from_failed_or_missing_results(
+        self, query: Callable[..., object], runner_name: str, response_type: type, expected_empty: object
+    ) -> None:
+        with patch(f"products.web_analytics.backend.weekly_digest.{runner_name}") as runner:
+            for response in [
+                CacheMissResponse(),
+                QueryStatusResponse(query_status=QueryStatus(id="pending-query", team_id=1, complete=False)),
+                response_type(results=[], error="Query failed"),
+            ]:
+                with self.subTest(response=type(response).__name__):
+                    runner.return_value.run.return_value = response
+                    with self.assertRaises(ValueError):
+                        query(Team(pk=1))
+
+            runner.return_value.run.return_value = response_type(results=[])
+            assert query(Team(pk=1)) == expected_empty
+
+    def test_no_configured_actions_is_a_valid_empty_goals_section(self) -> None:
+        with patch("products.web_analytics.backend.weekly_digest.WebGoalsQueryRunner") as runner:
+            runner.return_value.run.side_effect = NoActionsError()
+            assert get_goals_for_team(Team(pk=1)) == []
+
+    def test_an_incomplete_section_stops_digest_construction(self) -> None:
+        with (
+            patch("products.web_analytics.backend.weekly_digest.get_overview_for_team", return_value={}),
+            patch("products.web_analytics.backend.weekly_digest.get_top_pages", side_effect=TimeoutError),
+        ):
+            with self.assertRaises(TimeoutError):
+                build_team_digest(Team(pk=1))
 
 
 def _create_pageview(

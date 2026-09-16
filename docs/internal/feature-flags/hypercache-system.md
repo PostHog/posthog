@@ -115,6 +115,10 @@ flags_hypercache = HyperCache(
 
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
+Cohort references and flag dependencies are read from each flag's `filters` through `products/feature_flags/backend/facade/references.py`, which runs `detect_config_format` before it reads a v1 key.
+A flag stored in any other config format raises `ConfigFormatError` rather than reading as a flag with no references; in this cache that fails the team's rebuild the way any malformed document does, and `HyperCache.update_cache` keeps the existing entry and ETag.
+Inactive and deleted flags are skipped before that read (`_is_unevaluable`), so they are not classified.
+
 Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
 `_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
@@ -175,6 +179,9 @@ flag_definitions_hypercache = HyperCache(
 ```
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
+
+The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
+A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
 
 ### Cache invalidation
 

@@ -59,6 +59,7 @@ pub fn empty(
             rows: vec![],
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         },
         State {
             collected_at: Some(cx.now),
@@ -167,6 +168,7 @@ pub async fn collect(
             rows: text_rows,
             events: vec![],
             aux: vec![],
+            indexes: vec![],
         });
     }
 
@@ -183,6 +185,7 @@ pub async fn collect(
             rows: deltas,
             events,
             aux,
+            indexes: vec![],
         },
         state,
     ))
@@ -213,6 +216,34 @@ pub fn bundled_pgss_version(pg_version: u32) -> (u32, u32) {
         17 => (1, 11),
         _ => (1, 12),
     }
+}
+
+/// Oldest extension `pgss_columns` can select from: 1.8 split exec and plan time and added `wal_*`.
+pub const MIN_PGSS_VERSION: (u32, u32) = (1, 8);
+
+/// Warns once per state and returns the `pgss_stale` event when the installed extension is
+/// behind the server's bundled one.
+pub fn stale_report(cx: &CollectCtx<'_>, extra: &mut Extra) -> Option<Event> {
+    let ext = pgss_version(cx);
+    let bundled = bundled_pgss_version(cx.pg_version);
+    let stale = ext < bundled;
+    let first_report = stale && !extra.warned_stale;
+    extra.warned_stale = stale;
+    if !first_report {
+        return None;
+    }
+    let installed = format!("{}.{}", ext.0, ext.1);
+    let bundled = format!("{}.{}", bundled.0, bundled.1);
+    tracing::warn!(server = cx.target.server_id, instance = cx.target.instance, installed, bundled,
+        "pg_stat_statements is behind the server's bundled version; run ALTER EXTENSION pg_stat_statements UPDATE in the maintenance database");
+    Some(Event {
+        kind: "pgss_stale".into(),
+        subject: cx.target.instance.clone(),
+        before: Some(serde_json::json!({ "extversion": installed })),
+        after: Some(
+            serde_json::json!({ "extversion": bundled, "hint": "run ALTER EXTENSION pg_stat_statements UPDATE in the maintenance database; newer columns are skipped until then" }),
+        ),
+    })
 }
 
 /// Falls back to the server's bundled version when the probe could not read `extversion`.

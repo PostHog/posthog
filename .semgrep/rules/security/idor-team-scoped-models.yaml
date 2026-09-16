@@ -74,6 +74,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -258,6 +259,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -334,6 +336,9 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
+                              |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
@@ -355,6 +360,7 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -485,6 +491,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -661,6 +668,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -735,6 +743,9 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
+                        |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
@@ -756,6 +767,7 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive

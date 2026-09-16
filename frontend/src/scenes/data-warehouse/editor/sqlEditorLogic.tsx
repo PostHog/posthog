@@ -48,7 +48,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
+import {
+    filtersPlaceholderBindings,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { urls } from 'scenes/urls'
@@ -574,6 +578,7 @@ export interface sqlEditorLogicValues {
     editorSource: SqlEditorSource
     error: string | null
     exportContext: ExportContext
+    filtersPlaceholderBindings: string[] | null
     finishedLoading: boolean
     fixErrorsError: string | null
     hasFiltersPlaceholder: boolean
@@ -636,7 +641,6 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?:
             | (Partial<DataWarehouseSavedQuery> & {
-                  dag_id?: string
                   folder_id?: string | null
                   types: string[][]
               })
@@ -644,7 +648,6 @@ export interface sqlEditorLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
@@ -667,9 +670,9 @@ export interface sqlEditorLogicActions {
     materializeDataWarehouseSavedQuery: (
         viewId: string,
         syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
-        incremental?: DataWarehouseSavedQueryIncremental | undefined
+        incremental?: DataWarehouseSavedQueryIncremental | null | undefined
     ) => {
-        incremental: DataWarehouseSavedQueryIncremental | undefined
+        incremental: DataWarehouseSavedQueryIncremental | null | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
@@ -681,26 +684,8 @@ export interface sqlEditorLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -710,30 +695,10 @@ export interface sqlEditorLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     loadDatabase: (
         args_0?:
@@ -954,10 +919,8 @@ export interface sqlEditorLogicActions {
     saveAsEndpointSubmit: (
         name: string,
         description?: string,
-        queryOverride?: string,
-        dagId?: string
+        queryOverride?: string
     ) => {
-        dagId: string | undefined
         description: string | undefined
         name: string
         queryOverride: string | undefined
@@ -1190,6 +1153,7 @@ export interface sqlEditorLogicMeta {
             splitQueryRanges: QueryRange[]
         ) => boolean
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
+        filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
@@ -1351,11 +1315,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
         }),
         saveAsEndpoint: true,
-        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string, dagId?: string) => ({
+        saveAsEndpointSubmit: (name: string, description?: string, queryOverride?: string) => ({
             name,
             description,
             queryOverride,
-            dagId,
         }),
         saveAsMetric: true,
         saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
@@ -3316,6 +3279,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (queryInput: string | null) => {
                 return queryUsesFiltersPlaceholder(queryInput)
             },
+        ],
+        filtersPlaceholderBindings: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): string[] | null => filtersPlaceholderBindings(queryInput),
+            { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
         isEmbeddedMode: [
