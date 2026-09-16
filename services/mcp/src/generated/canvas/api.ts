@@ -1229,6 +1229,11 @@ export const CanvasesStateRetrieveParams = () => zod.object({
 })
 
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
+    key_prefix: zod.string().optional().describe('Only return entries whose key starts with this prefix.'),
+    keys_only: zod
+        .boolean()
+        .optional()
+        .describe('Return the entries without their values, to inventory the keys of a large state.'),
     scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
 })
 

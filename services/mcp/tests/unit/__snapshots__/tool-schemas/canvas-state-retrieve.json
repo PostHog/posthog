@@ -5,6 +5,14 @@
             "description": "A UUID string identifying this canvas.",
             "type": "string"
         },
+        "key_prefix": {
+            "description": "Only return entries whose key starts with this prefix.",
+            "type": "string"
+        },
+        "keys_only": {
+            "description": "Return the entries without their values, to inventory the keys of a large state.",
+            "type": "boolean"
+        },
         "scope": {
             "description": "Only return entries in this scope.",
             "enum": ["shared", "user"],

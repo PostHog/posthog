@@ -29,6 +29,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.utils import str_to_bool
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
@@ -2124,7 +2125,19 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 required=False,
                 enum=CanvasState.SCOPES,
                 description="Only return entries in this scope.",
-            )
+            ),
+            OpenApiParameter(
+                "key_prefix",
+                OpenApiTypes.STR,
+                required=False,
+                description="Only return entries whose key starts with this prefix.",
+            ),
+            OpenApiParameter(
+                "keys_only",
+                OpenApiTypes.BOOL,
+                required=False,
+                description="Return the entries without their values, to inventory the keys of a large state.",
+            ),
         ],
         responses={
             200: CanvasStateResponseSerializer,
@@ -2156,7 +2169,17 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             if scope not in CanvasState.SCOPES:
                 return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
             entries = entries.filter(scope=scope)
-        return Response(CanvasStateResponseSerializer(instance={"entries": entries.order_by("scope", "key")}).data)
+        key_prefix = request.query_params.get("key_prefix")
+        if key_prefix:
+            entries = entries.filter(key__startswith=key_prefix)
+        entries = entries.order_by("scope", "key")
+        # A scope holds up to 256 keys of 64 KB, so a whole-scope read can exceed what the caller can hold.
+        rows = (
+            entries.values("scope", "key", "updated_at")
+            if str_to_bool(request.query_params.get("keys_only"))
+            else entries
+        )
+        return Response(CanvasStateResponseSerializer(instance={"entries": rows}).data)
 
     @extend_schema(
         operation_id="canvases_state_set",

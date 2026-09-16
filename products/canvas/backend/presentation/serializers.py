@@ -1175,7 +1175,9 @@ class CanvasStateEntrySerializer(serializers.Serializer):
         help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
     )
     key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
-    value = serializers.JSONField(help_text="The stored JSON value.")
+    value = serializers.JSONField(
+        required=False, help_text="The stored JSON value. Absent when the read asked for keys only."
+    )
     updated_at = serializers.DateTimeField(help_text="When the entry was last written.")
 
 

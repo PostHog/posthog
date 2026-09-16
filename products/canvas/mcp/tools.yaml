@@ -363,6 +363,8 @@ tools:
             own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
             progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
             declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+            A whole-scope read can be too large to hold: pass `keys_only` to inventory the keys first, then read them
+            in bounded groups with `key_prefix`.
     canvas-state-set:
         operation: canvases_state_set
         enabled: true

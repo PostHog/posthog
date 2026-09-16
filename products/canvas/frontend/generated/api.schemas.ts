@@ -1434,8 +1434,8 @@ export interface CanvasStateEntryApi {
      * @maxLength 200
      */
     key: string
-    /** The stored JSON value. */
-    value: unknown
+    /** The stored JSON value. Absent when the read asked for keys only. */
+    value?: unknown
     /** When the entry was last written. */
     updated_at: string
 }
@@ -1708,6 +1708,14 @@ export type CanvasesSourceRetrieveParams = {
 }
 
 export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries whose key starts with this prefix.
+     */
+    key_prefix?: string
+    /**
+     * Return the entries without their values, to inventory the keys of a large state.
+     */
+    keys_only?: boolean
     /**
      * Only return entries in this scope.
      */

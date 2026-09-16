@@ -1475,7 +1475,7 @@
         }
     },
     "canvas-state-retrieve": {
-        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.",
+        "description": "Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative progress, checklist selections, filters, or other runtime values live outside the source. Only scopes declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`. A whole-scope read can be too large to hold: pass `keys_only` to inventory the keys first, then read them in bounded groups with `key_prefix`.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Read canvas state",

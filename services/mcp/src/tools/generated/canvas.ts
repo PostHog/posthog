@@ -520,6 +520,8 @@ const canvasStateRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/`,
             query: {
+                key_prefix: params.key_prefix,
+                keys_only: params.keys_only,
                 scope: params.scope,
             },
         })

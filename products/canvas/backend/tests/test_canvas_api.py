@@ -1546,8 +1546,8 @@ class TestCanvasState(CanvasAPIBaseTest):
             format="json",
         )
 
-    def _entries(self, canvas_id: str) -> list[dict[str, Any]]:
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
+    def _entries(self, canvas_id: str, **params: Any) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/", params)
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["entries"]
 
@@ -1565,6 +1565,18 @@ class TestCanvasState(CanvasAPIBaseTest):
         self.client.force_login(self.user)
         own_view = {(e["scope"], e["key"]): e["value"] for e in self._entries(canvas_id)}
         assert own_view == {("shared", "board"): {"columns": 3}, ("user", "draft"): "mine"}
+
+    def test_state_reads_can_be_bounded_by_prefix_and_to_keys_only(self):
+        canvas_id = self._state_canvas()
+        assert self._set_state(canvas_id, "shared", "todo:1", {"title": "first"}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "shared", "todo:2", {"title": "second"}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "shared", "history", "x" * 1000).status_code == status.HTTP_200_OK
+
+        assert [e["key"] for e in self._entries(canvas_id, key_prefix="todo:")] == ["todo:1", "todo:2"]
+
+        inventory = self._entries(canvas_id, keys_only="true")
+        assert [e["key"] for e in inventory] == ["history", "todo:1", "todo:2"]
+        assert all("value" not in e for e in inventory)
 
     def test_state_reads_only_declared_scopes(self):
         canvas_id = self._state_canvas()
