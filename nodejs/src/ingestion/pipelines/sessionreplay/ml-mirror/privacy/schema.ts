@@ -5,6 +5,9 @@ import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror
 export const ML_KEY_SHARDS = 32
 export const INGESTION_VERSION_HEADER = 'ai_research_ingestion_version'
 
+/** Value of {@link INGESTION_VERSION_HEADER}: '2' carries an encrypted envelope, '1' carries cleartext. */
+export type MlWireVersion = '1' | '2'
+
 export interface MlSessionIdentity {
     teamId: number
     organizationId: string
@@ -47,10 +50,6 @@ export function keySessionMonth(identity: MlKeyIdentity): string {
         throw new Error('ML image key requires a session month')
     }
     return identity.sessionMonth
-}
-
-export function monthBlockId(month: string): TableKey {
-    return { pk: `month:${month}`, sk: 'deleted' }
 }
 
 export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKey {

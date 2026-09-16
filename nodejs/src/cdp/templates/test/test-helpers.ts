@@ -184,13 +184,19 @@ export class TemplateTester {
     public mockTeamManager = {
         getTeam: jest.fn().mockResolvedValue({ id: 1, secret_api_token: 'test-secret-token' }),
     }
-    constructor(private _template: HogFunctionTemplate) {
+    constructor(
+        private _template: HogFunctionTemplate,
+        options: { executionTimeoutMs?: number } = {}
+    ) {
         this.template = {
             ..._template,
             bytecode: [],
         }
 
         this.mockHub = { ...defaultConfig } as any
+        if (options.executionTimeoutMs !== undefined) {
+            this.mockHub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS = options.executionTimeoutMs
+        }
 
         this.hogExecutor = this.createHogExecutor()
         this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)

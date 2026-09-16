@@ -121,6 +121,13 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
     })
 
+    it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
+        // `/replay/:id` would otherwise match and read `vision` as a recording id.
+        router.actions.push('/replay/vision')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)
@@ -187,6 +194,31 @@ describe('sceneLogic', () => {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }
     })
+
+    // The third case is a legacy project token, which matches no route on its own.
+    test.each(['12345', 'phc_12345', 'aBcDeFgHiJkLmN'])(
+        'renders the project access denied scene while the address names the refused project %s',
+        async (refusedProject) => {
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            try {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    project_access_denied: refusedProject,
+                } as AppContext
+
+                router.actions.push(`/project/${refusedProject}/settings/user`)
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+
+                // Later navigations run against the project we do serve.
+                router.actions.push(urls.settings('user'))
+                await expectLogic(logic).delay(1)
+                expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
+            }
+        }
+    )
 
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {

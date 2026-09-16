@@ -1083,6 +1083,57 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # A multi-tenant Postgres provider rejects a connection with no SNI (the host was
+            # configured as a raw IP), naming the hostname to use instead, then also rejects the
+            # sslmode=prefer fallback attempt for lacking SSL/TLS. Host/IP, port, and the named
+            # hostname are volatile; the rejection reason is stable.
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com\n"
+            'connection to server at "34.200.85.18", port 5432 failed: FATAL:  SSL/TLS connection '
+            "required. Connect with sslmode=require or higher.",
+        ],
+    )
+    def test_sni_hostname_routing_rejection_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "requires connecting via" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SNI hostname routing rejection should be non-retryable: {error_msg}"
+
+    def test_sni_hostname_routing_rejection_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "SNI hostname routing rejection should surface an actionable message"
+        assert "hostname" in friendly[0]
+
+    def test_sni_hostname_routing_rejection_wins_over_the_plaintext_refusal(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com\n"
+            'connection to server at "34.200.85.18", port 5432 failed: FATAL:  SSL/TLS connection '
+            "required. Connect with sslmode=require or higher."
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "SNI hostname routing rejection should surface an actionable message"
+        assert "requires connecting via" in friendly[0]
+
+    def test_plaintext_refusal_alone_is_non_retryable(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "SSL/TLS connection required. Connect with sslmode=require or higher."
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A refused unencrypted connection should surface an actionable message"
+        assert "unencrypted connection" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Observed on a Neon-style pooler: the role is reported on its own line instead of
             # libpq's "for user" wording, so it doesn't substring-match "password authentication
             # failed for user". Host/IP, port, and the role id are volatile.
@@ -1098,6 +1149,24 @@ class TestPostgresSourceNonRetryableErrors:
         assert is_non_retryable, (
             f"Password auth failure without 'for user' wording should be non-retryable: {error_msg}"
         )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user". Host/IP and port are volatile.
+            'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+            "Failed to identify your database: Your Postgres credentials are incorrect. "
+            "Please check your username and password and try again.",
+        ],
+    )
+    def test_identify_database_credentials_error_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "Your Postgres credentials are incorrect" in non_retryable
+        assert "password authentication failed" not in error_msg
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Proxy credentials rejection should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1478,6 +1547,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "FDW column-width mismatch error should surface an actionable message"
         assert "Widen the local" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+        ],
+    )
+    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+
+    def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'invalid input syntax for type timestamp: "\\N"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FDW timestamp mismatch error should surface an actionable message"
+        assert "timestamp" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -4610,6 +4700,15 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user".
+            (
+                'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+                "Failed to identify your database: Your Postgres credentials are incorrect. "
+                "Please check your username and password and try again.",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
             (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
                 "PostHog couldn't resolve your database host right now. Check the host name, then try "
@@ -4619,6 +4718,27 @@ class TestValidateCredentialsErrorMapping:
                 TEMPORARY_HOST_RESOLUTION_ERROR,
                 "PostHog couldn't resolve your database host right now. Check the host name, then try "
                 "again in a moment.",
+            ),
+            # A provider that routes by TLS SNI refuses a connection carrying none, and the
+            # sslmode=prefer fallback then draws a second, plaintext refusal. Both wordings arrive
+            # in one message and the host guidance must be the one selected.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+                "this server requires connecting via org123.dw.us.example.com\n"
+                'connection to server at "203.0.113.10", port 5432 failed: FATAL:  SSL/TLS connection '
+                "required. Connect with sslmode=require or higher.",
+                "Your database provider requires connecting through a specific hostname for routing "
+                '("requires connecting via ..."). This usually happens when the host is configured as an '
+                "IP address instead of a hostname. Update the host to the hostname your database "
+                "provider gave you and try again.",
+            ),
+            # The plaintext refusal on its own, without the host line.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+                "SSL/TLS connection required. Connect with sslmode=require or higher.",
+                'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
+                "only tries an unencrypted connection after an encrypted one fails, so check that the host "
+                "is the hostname your database provider gave you rather than an IP address, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -6510,6 +6630,31 @@ class TestGetTableChunkSize:
 
         assert chunking.batch_rows == 1
         assert chunking.fetch_rows == 1
+
+    @parameterized.expand(
+        [
+            ("cap_binds_hard", True, 400.0, 3.0 * 1024 * 1024, "info"),
+            ("cap_at_exactly_ten_times", True, 1024.0, 10240, "info"),
+            ("cap_just_short_of_ten_times", True, 1024.0, 10239, "debug"),
+            ("cap_barely_moves", True, 400.0, 420.0, "debug"),
+            ("no_cap_at_all", True, 400.0, 400.0, "debug"),
+            ("cap_binds_but_byte_bound_off", False, 400.0, 3.0 * 1024 * 1024, "debug"),
+        ]
+    )
+    def test_the_probe_reports_at_info_only_when_an_applied_page_cap_binds(
+        self, _name, byte_bounded, p95, p99, expected_level
+    ):
+        cursor = self._ProbeCursor((p95, p99, int(p99)))
+        logger = mock.Mock()
+
+        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger, byte_bounded=byte_bounded)
+
+        levels = [
+            level
+            for level in ("info", "debug")
+            if any("CHUNK_SIZE" in str(call) for call in getattr(logger, level).call_args_list)
+        ]
+        assert levels == [expected_level]
 
     def test_a_sample_that_measured_nothing_falls_back(self):
         # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading

@@ -9,12 +9,12 @@ Its storage and deletion implementation is separate from production session repl
 
 ## Session versions
 
-The cutoff is **Tuesday, 2026-09-15 at 10:00 UTC**, which is 11:00 in Europe/London.
+The cutoff is **Tuesday, 2026-09-15 at 12:00 UTC**, which is 13:00 in Europe/London.
 The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
-- An invalid UUIDv7 timestamp or a start year beyond 9999 selects v1.
+- The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
@@ -44,7 +44,7 @@ The authenticated payload also binds the dataset kind and, for images, the objec
 
 Ingestion processes privacy state in batches:
 
-1. Bulk-read session keys, team blocks, month blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
 3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
 4. On a competing write, bulk-read the winning state and retry with its keys.
@@ -106,10 +106,12 @@ Key creation writes a month index entry in the same DynamoDB transaction as the 
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
-Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
+The mirror drops a session whose ID started more than 14 days in the past or more than 1 day in the future, and the command accepts a month from 14 days after the month ends, so a key cannot arrive after its index shard was swept.
+Neither side reads a shared block item for the month, because every commit in the fleet would contend on that one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
-Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
-Readers reject blocked months even when a wrapped key remains during deletion.
+Rerun the command after an interrupted run; it safely repeats completed pages.
+Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
 Existing read leases expire within five minutes.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
@@ -180,6 +182,9 @@ New privacy settings use `AI_RESEARCH_REPLAY_*`:
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
+
+The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
+Missing values stop startup before it consumes Kafka messages.
 
 Established HMAC settings retain their transition aliases.
 When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, including an explicit empty value.
