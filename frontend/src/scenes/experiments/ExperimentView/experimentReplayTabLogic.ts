@@ -1204,7 +1204,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // trigger and the caption.
                 setMetricFilterMode: () => null,
                 setSelectedVariantKey: () => null,
-                setExposureScope: () => null,
+                // The committed half of the scope pick rather than the pick: a pick the listener
+                // rejects moves nothing on screen, so it must not take the card either.
+                exposureScopeCommitted: () => null,
                 setMetricSelected: () => null,
                 // A card picked on an earlier visit would otherwise survive the deep link and
                 // answer with its own session set instead of the one the link names.
