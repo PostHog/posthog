@@ -368,6 +368,11 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
         response:
             include:
                 - id
@@ -423,6 +428,11 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
         response:
             include:
                 - id
