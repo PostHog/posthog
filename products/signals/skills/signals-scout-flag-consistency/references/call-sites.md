@@ -24,13 +24,13 @@ When a key reaches an evaluation call only through a variable, say so in the rep
 
 Five modes, and the disagreements in Lane B nearly always come from two of them meeting.
 
-| Mode                     | How to recognize it                                                                | What it reads conditions from                          |
-| ------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Client, remote           | a browser or mobile SDK call, no bootstrap config                                  | the identified person's stored properties               |
-| Client, bootstrapped     | `bootstrap: { featureFlags: … }` at init, values rendered server-side              | whatever the server put in the bootstrap payload        |
-| Server, remote           | a server SDK call with no personal API key configured                              | only the properties the call itself passes              |
-| Server, local evaluation | a personal API key at init; definitions polled and evaluated in process            | only the properties the call itself passes              |
-| Server, local-only       | an explicit "evaluate locally only" option on the call                             | the same, and it returns the fallback when it cannot decide |
+| Mode                     | How to recognize it                                                     | What it reads conditions from                               |
+| ------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Client, remote           | a browser or mobile SDK call, no bootstrap config                       | the identified person's stored properties                   |
+| Client, bootstrapped     | `bootstrap: { featureFlags: … }` at init, values rendered server-side   | whatever the server put in the bootstrap payload            |
+| Server, remote           | a server SDK call with no personal API key configured                   | only the properties the call itself passes                  |
+| Server, local evaluation | a personal API key at init; definitions polled and evaluated in process | only the properties the call itself passes                  |
+| Server, local-only       | an explicit "evaluate locally only" option on the call                  | the same, and it returns the fallback when it cannot decide |
 
 The two rows that matter most: **a server SDK resolves conditions from the properties the call passes, not from the person's stored properties.** A client call and a server call for the same flag and the same user therefore disagree whenever the flag's conditions read a property the server call does not send. That is the most common cause of a confirmed regime split, and it is invisible in either repo alone.
 
