@@ -6,9 +6,8 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 # Steps whose parked runs a timing edit can strand: delays park up to 30 days out and time
-# windows up to a week. wait_until_condition re-parks on an hourly reconciliation cap, so a
-# sweep is a cheap no-op re-park for waits shorter than that; past an hour the sweep is what
-# stops a shortened max-wait stranding runs.
+# windows up to a week. A wait_until_condition parks for its whole max_wait_duration, so the
+# sweep is what stops a shortened one stranding runs.
 TIMING_ACTION_TYPES = {"delay", "wait_until_time_window", "wait_until_condition"}
 
 # Only jobs parked on this many steps or fewer get swept; a diff touching more than this is
@@ -68,7 +67,7 @@ def get_timing_reschedule_action_ids(
     - wait_until_condition: trigger on a shortened max_wait_duration (same comparison as
       delay) and on any condition edit - a swept run re-evaluates the live condition at
       wake (advance if it now matches, re-park if not), which keeps fixes to broken
-      conditions taking effect promptly once the poll re-check is gone.
+      conditions taking effect promptly, with no periodic re-check to fall back on.
     - wait_until_time_window: trigger on any timing-config change - whether a window edit
       moves a given run's wake earlier depends on each person's timezone and position in
       the week, so it isn't statically decidable.
