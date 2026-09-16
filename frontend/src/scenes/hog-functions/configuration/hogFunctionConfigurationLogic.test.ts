@@ -351,6 +351,82 @@ describe('hogFunctionConfigurationLogic', () => {
             })
             expect(logic.values.configuration.filters).toEqual(globalFilters)
         })
+
+        it('matches every event for an all-events mapping', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'all-events' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event across mixed mappings while preserving global properties', async () => {
+            const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
+                { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
+            ]
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: { properties: globalProperties },
+                mapping_templates: [
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'mixed-mappings' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: globalProperties,
+                    },
+                ],
+            })
+            expect(logic.values.baseEventsQuery?.fixedProperties).toEqual([logic.values.matchingFilters])
+        })
     })
 
     describe('loading a missing function', () => {
