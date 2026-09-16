@@ -188,9 +188,11 @@ const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 /** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
 
-/** Start of the oldest day the table still holds. */
+// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
+// compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
+// which drops the 90-day preset in a timezone ahead of UTC.
 function earliestRetainedDay(): dayjs.Dayjs {
-    return dayjs().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
+    return dayjs.utc().startOf('day').subtract(FLAG_EVALUATIONS_RETENTION_DAYS, 'day')
 }
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */

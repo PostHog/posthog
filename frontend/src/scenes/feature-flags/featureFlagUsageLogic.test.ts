@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,7 +16,12 @@ import { DEFAULT_USAGE_DATE_RANGE, FlagUsageQuery } from './featureFlagUsageQuer
 
 const FLAG_ID = 1
 
-// No feature flag is enabled in these tests, so every chart reads the events table.
+const BOTH_EVALUATION_FLAGS = {
+    [FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB]: true,
+    [FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE]: true,
+}
+
+// Every chart reads the events table unless a test enables both evaluation flags.
 function trendsSource(query: FlagUsageQuery): TrendsQuery {
     if (query.kind !== NodeKind.InsightVizNode) {
         throw new Error(`Expected an events-table trend, got ${query.kind}`)
@@ -45,6 +52,42 @@ describe('featureFlagUsageLogic', () => {
         featureFlagLogic({ id: FLAG_ID }).mount()
         logic = featureFlagUsageLogic({ id: FLAG_ID })
         logic.mount()
+    })
+
+    afterEach(() => {
+        // The flag set persists across tests, so a test that enables one must not leak it.
+        enabledFeaturesLogic.actions.setFeatureFlags([], {})
+    })
+
+    it.each([
+        ['neither flag', {}, false],
+        ['the usage-tab flag alone', { [FEATURE_FLAGS.FLAG_EVALUATIONS_USAGE_TAB]: true }, false],
+        ['the HogQL-table flag alone', { [FEATURE_FLAGS.FLAG_EVALUATIONS_HOGQL_TABLE]: true }, false],
+        ['both flags', BOTH_EVALUATION_FLAGS, true],
+    ])('reads flag_evaluations with %s', (_name, variants, readsEvaluations) => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], variants)
+
+        expect(logic.values.readsFlagEvaluationsTable).toEqual(readsEvaluations)
+        expect(logic.values.usageCharts.map((chart) => chart.query.kind)).toEqual(
+            readsEvaluations
+                ? [NodeKind.DataVisualizationNode, NodeKind.DataVisualizationNode]
+                : [NodeKind.InsightVizNode, NodeKind.InsightVizNode]
+        )
+    })
+
+    it('holds the date range inside the retention window when reading flag_evaluations', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([], BOTH_EVALUATION_FLAGS)
+
+        await expectLogic(logic, () => {
+            logic.actions.setDates('-180d', null)
+        }).toMatchValues({
+            selectedDateRange: { date_from: '-180d', date_to: null },
+            dateRange: { date_from: '-90d', date_to: null },
+        })
+
+        const optionKeys = logic.values.dateOptions?.map((option) => option.key)
+        expect(optionKeys).toContain('Last 90 days')
+        expect(optionKeys).not.toContain('All time')
     })
 
     it.each([
