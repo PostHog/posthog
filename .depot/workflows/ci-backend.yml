@@ -43,6 +43,9 @@
 #   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
 #   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
 #   does not need a mirrored action)
+# - dynamic-ci-filter: canonical asks Trunk which jobs a diff needs and records the verdict
+#   in that job's log. Nothing there reads its outputs, and the shadow posts to Trunk from
+#   nowhere (above), so the job and its action pin are depot-exempt.
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
