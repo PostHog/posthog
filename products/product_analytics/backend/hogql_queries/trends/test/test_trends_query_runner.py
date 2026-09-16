@@ -49,6 +49,7 @@ from posthog.schema import (
     MathGroupTypeIndex,
     MetricSummary,
     MultipleBreakdownType,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
@@ -8055,6 +8056,36 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
             team=self.team,
         ).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
+
+    @parameterized.expand(
+        [
+            # (name, placement, operator, value, expected_count)
+            # Person created_at comes from the first event of each person: p1 2020-01-11,
+            # p2 2020-01-09, p3 2020-01-12, p4 2020-01-15.
+            ("global_is_date_after", "global", PropertyOperator.IS_DATE_AFTER, "2020-01-12", 2),
+            ("global_is_date_before", "global", PropertyOperator.IS_DATE_BEFORE, "2020-01-11", 2),
+            ("series_is_date_after", "series", PropertyOperator.IS_DATE_AFTER, "2020-01-12", 2),
+        ]
+    )
+    def test_trends_person_metadata_created_at_filter(self, _name, placement, operator, value, expected_count):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        property_filter = PersonMetadataPropertyFilter(key="created_at", operator=operator, value=value)
+        series: list[EventsNode | ActionsNode] = [
+            EventsNode(event="$pageview", properties=[property_filter] if placement == "series" else None)
+        ]
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            series,
+            properties=[property_filter] if placement == "global" else None,
+        )
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == expected_count
