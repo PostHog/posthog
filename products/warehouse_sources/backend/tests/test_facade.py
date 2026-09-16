@@ -264,7 +264,16 @@ class TestWarehouseSourcesFacade(BaseTest):
         assert results[0].source_type == "Postgres"
         assert results[0].source_prefix == "stripe_"
 
-    def test_list_jobs_for_source_returns_the_newest_within_the_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("within_the_limit", 2, [30, 20]),
+            ("above_the_cap", api.MAX_JOBS_PER_SOURCE + 1, [30, 20, 10]),
+            ("zero", 0, [30]),
+        ]
+    )
+    def test_list_jobs_for_source_returns_the_newest_within_the_limit(
+        self, _name: str, limit: int, expected_rows: list[int]
+    ) -> None:
         for rows in (10, 20, 30):
             ExternalDataJob.objects.create(
                 team_id=self.team.pk,
@@ -275,9 +284,9 @@ class TestWarehouseSourcesFacade(BaseTest):
                 rows_synced=rows,
             )
 
-        results = api.list_jobs_for_source(self.source.id, self.team.pk, limit=2)
+        results = api.list_jobs_for_source(self.source.id, self.team.pk, limit=limit)
 
-        assert [r.rows_synced for r in results] == [30, 20]
+        assert [r.rows_synced for r in results] == expected_rows
 
     def test_facade_enforces_team_isolation(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
