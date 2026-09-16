@@ -34,6 +34,32 @@ WindowSize = Literal["none", "hour", "day"]
 USAGE_DAILY_HISTORY = timedelta(days=365)
 USAGE_HOURLY_HISTORY = timedelta(days=30)
 
+# The depths a user can pick per source. `POST /v1/usage` takes no page-size parameter and pages per
+# customer and billable metric, so a first sync costs one request per page whatever the account's
+# size, and depth is the only lever over how long that sync takes. The daily table is labelled in
+# months because that is the grain people reason about it in; twelve months is 365 days, which is
+# what this source shipped with.
+USAGE_HOURLY_HISTORY_DAYS: dict[str, int] = {"3": 3, "7": 7, "14": 14, "30": 30}
+USAGE_DAILY_HISTORY_DAYS: dict[str, int] = {"1": 30, "3": 91, "6": 182, "12": 365, "24": 730}
+DEFAULT_USAGE_HOURLY_HISTORY = "30"
+DEFAULT_USAGE_DAILY_HISTORY = "12"
+
+
+def usage_history_window(schema_name: str, hourly: str | None, daily: str | None) -> timedelta | None:
+    """How far back a first sync of one bucketed usage table reaches.
+
+    An unset or unrecognised choice falls back to the default, so a value left over from an older
+    option list widens or narrows nothing on its own.
+    """
+    if schema_name == "usage_hourly":
+        days = USAGE_HOURLY_HISTORY_DAYS.get(hourly or "", USAGE_HOURLY_HISTORY_DAYS[DEFAULT_USAGE_HOURLY_HISTORY])
+        return timedelta(days=days)
+    if schema_name == "usage_daily":
+        days = USAGE_DAILY_HISTORY_DAYS.get(daily or "", USAGE_DAILY_HISTORY_DAYS[DEFAULT_USAGE_DAILY_HISTORY])
+        return timedelta(days=days)
+    return None
+
+
 # Metronome accepts usage events backdated up to 34 days, so a period that already synced can still
 # change. Each incremental run re-reads this much of the period it already covered and upserts it.
 USAGE_DAILY_LOOKBACK_SECONDS = 7 * 24 * 60 * 60

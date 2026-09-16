@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -614,6 +614,35 @@ class TestMetronomeSchemas:
         assert [field["field"] for field in schema.incremental_fields] == ["start_timestamp"]
         assert schema.should_sync_default is False
         assert schema.default_incremental_lookback_seconds == lookback_seconds
+
+    @parameterized.expand(
+        [
+            ("hourly_default", "usage_hourly", None, None, 30),
+            ("hourly_chosen", "usage_hourly", "7", None, 7),
+            ("daily_default", "usage_daily", None, None, 365),
+            ("daily_chosen_reads_as_months", "usage_daily", None, "3", 91),
+            # A value left over from an older option list falls back to the default rather than
+            # resolving to None, which the caller reads as "no bound at all".
+            ("unrecognised_value_falls_back", "usage_hourly", "999", None, 30),
+            ("a_table_with_no_window", "customers", "7", "3", None),
+        ]
+    )
+    def test_the_usage_history_window_follows_the_source_setting(
+        self, _name, schema_name, hourly, daily, expected_days
+    ) -> None:
+        source = MetronomeSource()
+        config = source.parse_config(
+            {"api_key": "tok", "usage_hourly_history_days": hourly, "usage_daily_history_months": daily}
+        )
+
+        window = source.history_lookback_for_schema(schema_name, config)
+
+        assert window == (timedelta(days=expected_days) if expected_days is not None else None)
+
+    def test_an_unreadable_config_leaves_the_defaults(self) -> None:
+        # `history_start_for_schema` passes None when the source's inputs no longer parse, and a
+        # table whose depth it cannot read must still be bounded.
+        assert MetronomeSource().history_lookback_for_schema("usage_hourly", None) == timedelta(days=30)
 
     def test_the_lifetime_usage_table_keeps_its_defaults(self) -> None:
         schema = self._schema("usage")

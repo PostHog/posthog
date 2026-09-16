@@ -7,6 +7,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -28,10 +30,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     validate_credentials as validate_metronome_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.settings import (
+    DEFAULT_USAGE_DAILY_HISTORY,
+    DEFAULT_USAGE_HOURLY_HISTORY,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     METRONOME_ENDPOINTS,
     USAGE_HISTORY,
+    usage_history_window,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -85,11 +90,17 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
             ].default_incremental_lookback_seconds
         return schemas
 
-    def history_lookback_for_schema(self, schema_name: str) -> timedelta | None:
+    def history_lookback_for_schema(
+        self, schema_name: str, config: MetronomeSourceConfig | None = None
+    ) -> timedelta | None:
         # Only the bucketed usage tables bound their first sync. Everything else reads a list the
         # account already bounds, and the lifetime `usage` aggregate is one row per customer and
         # metric however far back it reaches.
-        return USAGE_HISTORY.get(schema_name)
+        return usage_history_window(
+            schema_name,
+            config.usage_hourly_history_days if config else None,
+            config.usage_daily_history_months if config else None,
+        )
 
     def validate_credentials(
         self,
@@ -144,6 +155,31 @@ class MetronomeSource(ResumableSource[MetronomeSourceConfig, MetronomeResumeConf
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="usage_hourly_history_days",
+                        label="Hourly usage history",
+                        required=False,
+                        defaultValue=DEFAULT_USAGE_HOURLY_HISTORY,
+                        options=[
+                            SourceFieldSelectConfigOption(label="3 days", value="3"),
+                            SourceFieldSelectConfigOption(label="7 days", value="7"),
+                            SourceFieldSelectConfigOption(label="14 days", value="14"),
+                            SourceFieldSelectConfigOption(label="30 days", value="30"),
+                        ],
+                    ),
+                    SourceFieldSelectConfig(
+                        name="usage_daily_history_months",
+                        label="Daily usage history",
+                        required=False,
+                        defaultValue=DEFAULT_USAGE_DAILY_HISTORY,
+                        options=[
+                            SourceFieldSelectConfigOption(label="1 month", value="1"),
+                            SourceFieldSelectConfigOption(label="3 months", value="3"),
+                            SourceFieldSelectConfigOption(label="6 months", value="6"),
+                            SourceFieldSelectConfigOption(label="12 months", value="12"),
+                            SourceFieldSelectConfigOption(label="24 months", value="24"),
+                        ],
                     ),
                 ],
             ),

@@ -188,11 +188,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # See `sources/common/history_window.py`.
     history_lookback: datetime.timedelta | None = None
 
-    def history_lookback_for_schema(self, schema_name: str) -> datetime.timedelta | None:
+    def history_lookback_for_schema(
+        self, schema_name: str, config: ConfigType | None = None
+    ) -> datetime.timedelta | None:
         """How far back a first sync of one schema reaches, or None for no bound.
 
         Override when tables of one source need different bounds, for example a daily and an hourly
-        rollup of the same data, where the hourly table holds 24 rows for every daily row.
+        rollup of the same data, where the hourly table holds 24 rows for every daily row. `config`
+        is the source's parsed config, for a source whose depth the user picks at setup; it is None
+        when the config could not be read, and an override must still answer in that case.
         """
         return self.history_lookback
 
