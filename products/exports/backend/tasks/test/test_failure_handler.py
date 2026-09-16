@@ -13,6 +13,7 @@ from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
     SLO_FAILURE_CATEGORY_APPLICATION,
+    SLO_FAILURE_CATEGORY_QUERY,
     SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
     SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
     SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
@@ -155,12 +156,12 @@ class TestExportSloFailureDetails(TestCase):
                 True,
             ),
             ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
-            # Same storage category, but the customer has to fix their credentials before a retry
-            # can succeed, so this one is not retryable.
+            # Same storage component, but the query category: the customer has to fix their own
+            # credentials, so this is not an SLO breach and not retryable.
             (
                 "storage_access_denied",
                 "CHQueryErrorS3AccessDenied",
-                SLO_FAILURE_CATEGORY_STORAGE,
+                SLO_FAILURE_CATEGORY_QUERY,
                 "object_storage",
                 False,
             ),

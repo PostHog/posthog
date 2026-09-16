@@ -333,9 +333,12 @@ def export_slo_failure_details(exception: Exception | str) -> ExportFailureDetai
 
     # Checked before the storage branch below, which matches every "s3" name and would report this
     # as retryable. The bucket keeps refusing until the customer fixes their own credentials.
+    # The category stays "query" because posthog.temporal.exports.types.is_user_query_export_error
+    # reads it as the blame dimension, and this failure belongs to the customer, not to us. The
+    # component keeps the storage value, so a breakdown still shows which dependency refused.
     if exception_type == CHQueryErrorS3AccessDenied.__name__:
         return {
-            "failure_category": SLO_FAILURE_CATEGORY_STORAGE,
+            "failure_category": SLO_FAILURE_CATEGORY_QUERY,
             "failure_component": SLO_FAILURE_COMPONENT_STORAGE,
             "failure_retryable": False,
         }
