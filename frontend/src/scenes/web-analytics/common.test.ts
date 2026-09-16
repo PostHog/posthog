@@ -82,4 +82,26 @@ describe('withPresetTag', () => {
         const input = tiles()
         expect(withPresetTag(input, null)).toBe(input)
     })
+
+    it('stamps a wrapper that carries its own tags above an untagged source', () => {
+        const input: WebAnalyticsTile[] = [
+            {
+                kind: 'query',
+                tileId: TileId.WEB_VITALS,
+                layout,
+                insightProps,
+                query: {
+                    kind: NodeKind.WebVitalsQuery,
+                    tags: { productKey: 'web_analytics' },
+                    source: { kind: NodeKind.TrendsQuery, series: [] },
+                } as any,
+            },
+        ]
+
+        const [tile] = withPresetTag(input, 'abc123')
+
+        expect((tile as any).query.tags).toEqual({ productKey: 'web_analytics', presetId: 'abc123' })
+        // The untagged source stays untagged: only nodes already carrying tags are stamped.
+        expect((tile as any).query.source.tags).toBeUndefined()
+    })
 })

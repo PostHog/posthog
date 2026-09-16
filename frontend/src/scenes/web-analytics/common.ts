@@ -541,14 +541,17 @@ export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
 }
 
 const tagQueryNode = <T extends QuerySchema>(node: T, presetId: string): T => {
-    const source = (node as { source?: QuerySchema }).source
-    if (source) {
-        return { ...node, source: tagQueryNode(source, presetId) }
-    }
     // Only extend tags that are already there. Nodes without them were left untagged on purpose,
-    // and creating one would change what the query log attributes to web analytics.
+    // and creating one would change what the query log attributes to web analytics. Tags can sit
+    // on the wrapper, the source, or both (WebVitalsQuery tags the wrapper), so the node's own
+    // tags are stamped before recursing rather than instead of it.
     const tags = (node as { tags?: QueryLogTags }).tags
-    return tags ? { ...node, tags: { ...tags, presetId } } : node
+    const tagged = tags ? { ...node, tags: { ...tags, presetId } } : node
+    const source = (tagged as { source?: QuerySchema }).source
+    if (source) {
+        return { ...tagged, source: tagQueryNode(source, presetId) }
+    }
+    return tagged
 }
 
 /**

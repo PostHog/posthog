@@ -35,8 +35,7 @@ export function WebAnalyticsSavePresetNudge(): JSX.Element | null {
                 },
             }}
         >
-            Save these filters as a preset. Saved presets are refreshed in the background, so they load faster when you
-            come back to them.
+            Save these filters as a preset so you can come back to them in one click.
         </LemonBanner>
     )
 }

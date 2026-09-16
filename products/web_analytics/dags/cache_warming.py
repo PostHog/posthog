@@ -601,15 +601,30 @@ def queries_to_keep_fresh(
             ", maxIf(event_time, preset_id != '') AS variant_preset_last_seen"
         )
         preset_outer_columns = (
-            ", arrayDistinct(arrayFlatten(groupArray(variant_preset_ids))) AS preset_ids"
+            # Bounded aggregate, not arrayDistinct(arrayFlatten(groupArray(...))): ignored-field
+            # variants each carry up to the per-variant cap of ids, so an unbounded outer merge
+            # would let one shape accumulate an attacker-sized id array (aggregate state included)
+            # before Postgres validation ever sees it.
+            f", groupUniqArrayArray({PRESET_LANE_MAX_IDS_PER_SHAPE})(variant_preset_ids) AS preset_ids"
             ", max(variant_preset_last_seen) AS preset_last_seen_at"
+            # Whether the representative variant itself ran under a preset. The raw replay
+            # floor keys on this, not on shape-level tagging: raw replays aren't shared
+            # across variants, so a tagged sibling must not lower the bar for an untagged
+            # representative.
+            ", argMax(notEmpty(variant_preset_ids), variant_count) AS representative_preset_tagged"
+            # Priority is capped at the lane's own per-team budget so tagged rows beyond it
+            # (or with invented ids Postgres will reject later) compete on demand terms
+            # instead of evicting a team's real hot shapes before validation can run.
+            ", notEmpty(preset_ids)"
+            " AND row_number() OVER (PARTITION BY team_id, notEmpty(preset_ids) ORDER BY query_count DESC)"
+            f" <= {PRESET_LANE_MAX_SHAPES_PER_TEAM} AS preset_priority"
         )
         # A preset shape is kept whatever its demand — that is the point of the lane —
-        # and sorted ahead of the demand lane so neither LIMIT can crowd it out. The
-        # per-team LIMIT is widened by the lane's own budget so the demand lane keeps
-        # its full MAX_SHAPES_PER_TEAM slots.
+        # and, up to the lane's per-team budget, sorted ahead of the demand lane so
+        # neither LIMIT can crowd it out. The per-team LIMIT is widened by the lane's
+        # own budget so the demand lane keeps its full MAX_SHAPES_PER_TEAM slots.
         preset_having = "query_count >= %(minimum_query_count)s OR notEmpty(preset_ids)"
-        preset_order_by = "notEmpty(preset_ids) DESC, "
+        preset_order_by = "preset_priority DESC, "
         max_shapes_per_team = MAX_SHAPES_PER_TEAM + PRESET_LANE_MAX_SHAPES_PER_TEAM
     else:
         preset_row_columns = ""
@@ -755,7 +770,15 @@ def queries_to_keep_fresh(
             "observed_date_froms": result[5],
             # Preset ids ClickHouse saw on this shape, still unvalidated. Absent
             # entirely when the lane is off, so downstream code can key on the field.
-            **({"preset_ids": list(result[6]), "preset_last_seen_at": result[7]} if preset_lane else {}),
+            **(
+                {
+                    "preset_ids": list(result[6]),
+                    "preset_last_seen_at": result[7],
+                    "representative_preset_tagged": bool(result[8]),
+                }
+                if preset_lane
+                else {}
+            ),
         }
         for result in results
     ]
@@ -968,8 +991,16 @@ RAW_REPLAY_MIN_QUERY_COUNT = 10
 # stale hour, so exempting it entirely is exactly where the lane's cost would blow up.
 # But at 10 a preset with a conversion goal (raw-only) would never warm, which is the
 # promise the lane exists to keep — so a preset earns its replay at two loads in the
-# window instead, bounded by the lane's per-preset and per-team caps.
+# window instead. The lower floor applies only when the representative variant itself
+# ran under the preset, and raw preset replays are further capped per team below.
 PRESET_RAW_REPLAY_MIN_QUERY_COUNT = 2
+
+# Raw preset replays a team can warm per pass. Validated preset ids prove membership,
+# not that the query matches the preset, so without this cap a team member could tag
+# arbitrary expensive raw-only shapes and have the warmer rerun them hourly. One
+# preset's worth of shapes keeps the conversion-goal promise while bounding the
+# amplification to a fraction of the lane's overall budget.
+PRESET_LANE_MAX_RAW_SHAPES_PER_TEAM = PRESET_LANE_MAX_SHAPES_PER_PRESET
 
 # Worker threads for the warm pass. The pass is IO-bound (cache checks, CH
 # reads/inserts), so a pool cuts wall time at the widened selection size. A cold
@@ -1150,6 +1181,8 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     # Selection groups by raw JSON text, so differently-encoded rows can
     # normalize to one cache key; first worker to claim it warms, the rest skip.
     seen_cache_keys: set[tuple[int, str]] = set()
+    # Raw (non-lazy) preset replays warmed this pass, per team — see the budget gate below.
+    raw_preset_replays_by_team: dict[int, int] = {}
     seen_lock = threading.Lock()
 
     def _warm_one(query_info: dict) -> str:
@@ -1230,7 +1263,11 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             # representative variant's own demand, not the shape-wide sum: raw
             # replays aren't shared across variants, so a rarely-run expensive
             # variant must not inherit a popular sibling's count.
-            raw_floor = PRESET_RAW_REPLAY_MIN_QUERY_COUNT if lane == "preset" else RAW_REPLAY_MIN_QUERY_COUNT
+            raw_floor = (
+                PRESET_RAW_REPLAY_MIN_QUERY_COUNT
+                if lane == "preset" and query_info.get("representative_preset_tagged")
+                else RAW_REPLAY_MIN_QUERY_COUNT
+            )
             if not lazy_eligible and query_info.get("representative_query_count", 0) < raw_floor:
                 WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_raw_low_demand").inc()
                 return "skipped_raw_low_demand"
@@ -1268,6 +1305,17 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 if not runner._is_stale(aged_refresh):
                     WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_fresh").inc()
                     return "skipped_fresh"
+
+            # A raw replay is a full live query, so the lane's low floor alone would let one
+            # team turn a handful of preset loads into hundreds of hourly scans. Budget is
+            # consumed here, after every skip gate, so fresh or duplicate shapes don't burn it.
+            if lane == "preset" and not lazy_eligible:
+                with seen_lock:
+                    used = raw_preset_replays_by_team.get(team.pk, 0)
+                    if used >= PRESET_LANE_MAX_RAW_SHAPES_PER_TEAM:
+                        WARMING_QUERIES_COUNTER.labels(lane=lane, outcome="skipped_raw_over_budget").inc()
+                        return "skipped_raw_over_budget"
+                    raw_preset_replays_by_team[team.pk] = used + 1
 
             # TODO: We shouldn't try to run a query if it failed last run
             # Blocking-always, not the stale-checking default: run() re-checks

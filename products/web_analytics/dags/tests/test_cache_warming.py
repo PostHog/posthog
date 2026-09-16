@@ -539,6 +539,7 @@ class TestPresetLane(BaseTest):
         team_id: int | None = None,
         shape: str = "s",
         last_seen: datetime | None = None,
+        representative_tagged: bool = True,
     ) -> tuple:
         return (
             team_id or self.team.pk,
@@ -549,6 +550,7 @@ class TestPresetLane(BaseTest):
             ["-7d"],
             preset_ids,
             last_seen or self.LAST_SEEN,
+            representative_tagged,
         )
 
     def _select(self, rows: list[tuple], minimum_query_count: int = 5) -> list[dict]:
@@ -560,6 +562,25 @@ class TestPresetLane(BaseTest):
                 max_shapes=1000,
                 preset_lane=True,
             )
+
+    def test_preset_sql_bounds_ids_and_caps_priority(self) -> None:
+        # The id merge across ignored-field variants must stay bounded (an unbounded
+        # arrayDistinct(arrayFlatten(...)) let one shape carry an attacker-sized id array
+        # into validation), and preset priority must stop at the lane's per-team budget so
+        # unvalidated tagged rows can't evict a team's real hot shapes from the selection.
+        with patch("products.web_analytics.dags.cache_warming.sync_execute", return_value=[]) as mock_exec:
+            queries_to_keep_fresh(
+                dagster.build_op_context(),
+                days=7,
+                minimum_query_count=5,
+                max_shapes=1000,
+                preset_lane=True,
+            )
+        sql = mock_exec.call_args[0][0]
+        self.assertIn("groupUniqArrayArray", sql)
+        self.assertNotIn("arrayFlatten", sql)
+        self.assertIn("preset_priority DESC", sql)
+        self.assertIn("row_number() OVER", sql)
 
     def test_preset_shape_survives_below_the_demand_floor(self) -> None:
         # The reason the lane exists: exploration rarely runs often enough to clear the
@@ -681,7 +702,7 @@ class TestWarmableQueriesCaching(BaseTest):
         # The selection is cached for hours, so unless the preset lane flag is part of the
         # cache key, turning it off keeps serving preset shapes until the TTL expires and
         # the kill switch is cosmetic exactly when it is needed.
-        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"], [], None)]
+        mock_exec.return_value = [(101, '{"kind": "WebOverviewQuery"}', 50, 50, 123, ["-7d"], [], None, False)]
 
         with override_instance_config("WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED", True):
             get_warmable_queries_op(dagster.build_op_context())
@@ -722,13 +743,16 @@ class TestWarmQueriesOp(BaseTest):
             # A raw-path (not lazy-eligible) shape below the demand bar must not
             # replay: an expensive ineligible shape would otherwise become an
             # hourly background scan outside the tenant's request throttles.
-            ("raw_low_demand_skipped", False, 2, [], 0),
-            ("raw_high_demand_warms", False, 10, [], 1),
-            ("lazy_low_demand_warms", True, 2, [], 1),
+            ("raw_low_demand_skipped", False, 2, [], False, 0),
+            ("raw_high_demand_warms", False, 10, [], False, 1),
+            ("lazy_low_demand_warms", True, 2, [], False, 1),
             # A preset shape gets a lower raw floor, not a bypass: a preset with a
             # conversion goal is raw-only, so at the demand floor it would never warm.
-            ("preset_raw_at_lower_floor_warms", False, 2, ["abc123"], 1),
-            ("preset_raw_below_lower_floor_skipped", False, 1, ["abc123"], 0),
+            ("preset_raw_at_lower_floor_warms", False, 2, ["abc123"], True, 1),
+            ("preset_raw_below_lower_floor_skipped", False, 1, ["abc123"], True, 0),
+            # Raw replays are not shared across variants, so a tagged sibling must not
+            # lower the bar for an untagged representative.
+            ("preset_raw_untagged_representative_keeps_full_floor", False, 2, ["abc123"], False, 0),
         ]
     )
     def test_raw_replays_keep_higher_demand_bar(
@@ -737,6 +761,7 @@ class TestWarmQueriesOp(BaseTest):
         lazy_eligible: bool,
         representative_query_count: int,
         preset_ids: list[str],
+        representative_preset_tagged: bool,
         expected_runs: int,
     ) -> None:
         runner = MagicMock()
@@ -763,11 +788,46 @@ class TestWarmQueriesOp(BaseTest):
                         "representative_query_count": representative_query_count,
                         "normalized_query_hash": "h",
                         "preset_ids": preset_ids,
+                        "representative_preset_tagged": representative_preset_tagged,
                     }
                 ],
             )
 
         self.assertEqual(runner.run.call_count, expected_runs)
+
+    def test_raw_preset_replays_are_budgeted_per_team(self) -> None:
+        # Valid preset ids prove membership, not that the query matches the preset, so
+        # without the budget a team member could tag arbitrary expensive raw-only shapes
+        # and have every one replayed hourly.
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, False),
+            ),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.PRESET_LANE_MAX_RAW_SHAPES_PER_TEAM", 2),
+        ):
+            mock_cm.return_value.freshness.return_value = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": [{"key": str(i)}]},
+                        "query_count": 999,
+                        "representative_query_count": 999,
+                        "normalized_query_hash": f"h{i}",
+                        "preset_ids": ["abc123"],
+                        "representative_preset_tagged": True,
+                    }
+                    for i in range(3)
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, 2)
 
     @parameterized.expand(
         [
