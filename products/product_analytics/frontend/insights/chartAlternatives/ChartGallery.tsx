@@ -3,8 +3,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import type { InsightLogicProps } from '~/types'
 
-import type { ChartPreview } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
+import type { ChartPreview } from './chartPreviewsLogic'
+import { chartPreviewsLogic } from './chartPreviewsLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
 const GRID = 'grid grid-cols-1 gap-2 @sm:grid-cols-2 @lg:grid-cols-3'
@@ -22,9 +23,11 @@ export function ChartGallery({
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const logic = useMountedLogic(chartAlternativesLogic({ editMode, embedded, inSharedMode, ...insightProps }))
-    const { previewGroups, selectionDisabledReason } = useValues(logic)
-    const { selectChart } = useActions(logic)
+    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
+    const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
+    const { selectionDisabledReason } = useValues(alternativesLogic)
+    const { selectChart } = useActions(alternativesLogic)
+    const { previewGroups } = useValues(useMountedLogic(chartPreviewsLogic(logicProps)))
 
     const suggestedGroup = previewGroups.find((group) => group.title === 'Suggested')
     const suggested = suggestedGroup?.previews ?? []

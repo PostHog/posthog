@@ -100,6 +100,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * filter that returns nothing once the data moves. See `TaxonomicFilterProps.includeHiddenEvents`.
      */
     includeHiddenEvents?: boolean
+    /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
+    hideAxes?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

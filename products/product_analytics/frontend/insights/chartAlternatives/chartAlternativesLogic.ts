@@ -41,16 +41,6 @@ export interface ChartAlternativesLogicProps extends InsightLogicProps {
     inSharedMode?: boolean
 }
 
-export interface ChartPreview {
-    option: ChartDisplayOption
-    suggested: boolean
-}
-
-export interface ChartPreviewGroup {
-    title: string
-    previews: ChartPreview[]
-}
-
 const optionForDisplay = (
     options: ChartDisplayOptionGroup[],
     display: ChartDisplayType
@@ -90,7 +80,6 @@ export interface chartAlternativesLogicValues {
     galleryOpen: boolean
     inSharedMode: boolean | undefined
     options: ChartDisplayOptionGroup[]
-    previewGroups: ChartPreviewGroup[]
     selectionDisabledReason: string | undefined
     trendsSource: TrendsQuery | null
 }
@@ -154,11 +143,6 @@ export interface chartAlternativesLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => ChartDisplayOptionGroup[]
         alternatives: (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null) => ChartDisplayOption[]
-        previewGroups: (
-            trendsSource: TrendsQuery | null,
-            options: ChartDisplayOptionGroup[],
-            alternatives: ChartDisplayOption[]
-        ) => ChartPreviewGroup[]
         currentOption: (
             options: ChartDisplayOptionGroup[],
             currentDisplay: ChartDisplayType
@@ -271,43 +255,6 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             (s) => [s.options, s.trendsSource],
             (options: ChartDisplayOptionGroup[], trendsSource: TrendsQuery | null): ChartDisplayOption[] =>
                 getChartAlternatives(options, trendsSource),
-        ],
-        previewGroups: [
-            (s) => [s.trendsSource, s.options, s.alternatives],
-            (
-                trendsSource: TrendsQuery | null,
-                options: ChartDisplayOptionGroup[],
-                alternatives: ChartDisplayOption[]
-            ): ChartPreviewGroup[] => {
-                if (!trendsSource) {
-                    return []
-                }
-                const suggestedDisplays = new Set(alternatives.map((option) => option.display))
-                const toPreview = (option: ChartDisplayOption): ChartPreview => ({
-                    option,
-                    suggested: suggestedDisplays.has(option.display),
-                })
-                const groups: ChartPreviewGroup[] = []
-                if (alternatives.length) {
-                    groups.push({ title: 'Suggested', previews: alternatives.map(toPreview) })
-                }
-                for (const group of options) {
-                    const previews = group.options
-                        .filter((option) => !suggestedDisplays.has(option.display))
-                        .map(toPreview)
-                    if (!previews.length) {
-                        continue
-                    }
-                    const title = group.title === 'Cumulative time series' ? 'Time series' : group.title
-                    const existing = groups.find((g) => g.title === title)
-                    if (existing) {
-                        existing.previews.push(...previews)
-                    } else {
-                        groups.push({ title, previews })
-                    }
-                }
-                return groups
-            },
         ],
         currentOption: [
             (s) => [s.options, s.currentDisplay],
