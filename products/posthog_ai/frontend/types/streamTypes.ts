@@ -264,7 +264,6 @@ export interface PermissionRequestRecord {
 
 export type ScoutSuggestionCadence = 'daily' | 'weekly'
 
-/** The scout the classifier drafted from the turn: what the card creates when accepted. */
 export interface ScoutSuggestionDraft {
     displayName: string
     description: string
@@ -272,7 +271,6 @@ export interface ScoutSuggestionDraft {
     cadence: ScoutSuggestionCadence
 }
 
-/** The notebook the classifier proposed for a diagnostic turn: the saved conversation's title and lead. */
 export interface NotebookSuggestionDraft {
     title: string
     summary: string

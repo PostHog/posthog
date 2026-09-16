@@ -14,10 +14,6 @@ export interface NotebookSuggestionCardProps {
     sessionId: string
 }
 
-/**
- * The "save this investigation" offer under a diagnostic turn: name the notebook and save the
- * conversation so far, with its queries as live cells, without leaving the thread.
- */
 export function NotebookSuggestionCard({
     streamKey,
     turnIndex,

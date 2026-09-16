@@ -32,7 +32,6 @@ import { runStreamLogic } from './runStreamLogic'
 export interface ScoutSuggestionLogicProps {
     streamKey: string
     turnIndex: number
-    /** Task id backing the conversation. Lands in the analytics events as `task_id`. */
     sessionId: string
 }
 
@@ -134,11 +133,6 @@ export type scoutSuggestionLogicType = MakeLogicType<
     scoutSuggestionLogicMeta
 >
 
-/**
- * State of one scout suggestion card: the cadence and Slack destination the user picks, the
- * scout creation call, and the "connect Slack in a new tab" wait. Keyed per turn so a second
- * suggestion in the same conversation starts clean.
- */
 export const scoutSuggestionLogic: LogicWrapper<scoutSuggestionLogicType> = kea<scoutSuggestionLogicType>([
     props({} as ScoutSuggestionLogicProps),
     key((props) => `${props.streamKey}:${props.turnIndex}`),
