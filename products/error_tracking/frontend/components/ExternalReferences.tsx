@@ -121,9 +121,10 @@ export const ExternalReferences = (): JSX.Element | null => {
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
                         <div className="flex items-center gap-2 min-w-0 w-full">
                             <IntegrationIcon kind={reference.integration.kind} />
-                            {reference.title && (
-                                <span className="truncate min-w-0 flex-1 text-left">{reference.title}</span>
-                            )}
+                            <span className="truncate min-w-0 flex-1 text-left">
+                                {reference.title ||
+                                    PROVIDER_LABELS[reference.integration.kind as ErrorTrackingIntegrationKind]}
+                            </span>
                             {reference.external_id && (
                                 <span className="text-sm text-muted flex-shrink-0 ml-auto">
                                     {reference.external_id}

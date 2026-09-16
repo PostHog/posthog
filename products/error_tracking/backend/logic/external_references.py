@@ -216,6 +216,7 @@ def create_external_reference(
     _validate_external_reference_config(integration, config)
     provider_config = dict(config or {})
     title = provider_config["title"].strip()
+    provider_config["title"] = title
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
         created_context = GitHubIntegration(integration).create_issue(provider_config)

@@ -120,11 +120,12 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             team_id=self.team.id,
             issue_id=issue.id,
             integration_id=integration.id,
-            config={"team_id": "linear-team-id", "title": "Checkout TypeError", "description": ""},
+            config={"team_id": "linear-team-id", "title": " Checkout TypeError ", "description": ""},
             distinct_id=self.user.id,
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
+        assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
         assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
         assert reference.external_id == "LIN-1"
         assert reference.title == "Checkout TypeError"

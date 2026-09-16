@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -18,11 +19,17 @@ class GitLabIntegration:
     integration: model.Integration
 
     @staticmethod
-    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
-        url = f"{hostname}/api/v4/{endpoint}"
+    def _validate_api_url(url: str) -> None:
+        if urlparse(url).scheme != "https":
+            raise GitLabIntegrationError("Invalid GitLab hostname: HTTPS is required")
         allowed, error = is_url_allowed(url)
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        GitLabIntegration._validate_api_url(url)
 
         response = requests.get(
             url,
@@ -37,9 +44,7 @@ class GitLabIntegration:
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
         url = f"{hostname}/api/v4/{endpoint}"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        GitLabIntegration._validate_api_url(url)
 
         response = requests.post(
             url,
@@ -112,9 +117,7 @@ class GitLabIntegration:
         access_token = self.integration.sensitive_config.get("access_token")
 
         url = f"{hostname}/api/v4/projects/{project_id}/issues/{issue_id}"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        self._validate_api_url(url)
 
         response = requests.put(
             url,
@@ -133,9 +136,7 @@ class GitLabIntegration:
         access_token = self.integration.sensitive_config.get("access_token")
 
         url = f"{hostname}/api/v4/projects/{project_id}/issues"
-        allowed, error = is_url_allowed(url)
-        if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+        self._validate_api_url(url)
 
         # A blank query lists the project's recent issues instead of filtering.
         params: dict[str, str | int] = {"per_page": limit, "order_by": "updated_at"}

@@ -50,6 +50,16 @@ class TestGitLabIntegrationSSRFProtection:
 
         mock_get.assert_not_called()
 
+    @patch("posthog.models.integration.gitlab.requests.get")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_get_rejects_http_before_sending_credentials(self, _mock_is_url_allowed, mock_get):
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        with pytest.raises(GitLabIntegrationError, match="HTTPS is required"):
+            GitLabIntegration.get("http://gitlab.example.com", "projects/1", "token123")
+
+        mock_get.assert_not_called()
+
     @patch("posthog.models.integration.gitlab.requests.post")
     @patch("posthog.models.integration.gitlab.is_url_allowed")
     def test_post_validates_url_before_request(self, mock_is_url_allowed, mock_post):
