@@ -229,7 +229,7 @@ function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.
             ))}
             {hiddenCount > 0 && (
                 <Link
-                    className="text-warning text-xs"
+                    className="text-warning text-xs ml-1"
                     onClick={() => openProjectAccessModal(member)}
                     data-attr="org-member-project-access-more"
                 >
