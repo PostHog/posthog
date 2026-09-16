@@ -16,17 +16,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from requests import PreparedRequest, Response, Timeout
 from urllib3.util.retry import Retry
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     get_custom_oauth2_integration,
@@ -810,7 +808,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CUSTOM,
+            name=ExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             # The generic HTTP/API connector. Match the terms people search when no named

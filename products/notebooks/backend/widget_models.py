@@ -5,7 +5,7 @@ WIDGET_MODEL_CHOICES = (
     "claude-opus-5",
 )
 
-DEFAULT_WIDGET_MODEL = "claude-sonnet-4-6"
+DEFAULT_WIDGET_MODEL = "claude-sonnet-5"
 
 WIDGET_LIFECYCLE_STATUS_CHOICES = (
     "awaiting_generation",

@@ -69,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
@@ -119,7 +120,7 @@ LOGGER = get_logger(__name__)
 # Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
 # iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
 # expensive retry-exhaustion paths fast.
-MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 20
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 MISSING_INTEGRATION_MESSAGE = (
@@ -266,9 +267,7 @@ Transient_Error_Messages: dict[str, str] = {
     # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
     # this message asks nothing of them.
     "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    **dict.fromkeys(TRANSIENT_EGRESS_PROXY_ERRORS, TRANSIENT_EGRESS_MESSAGE),
     # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
     # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
     # and again through Temporal, so reaching here means the outage outlasted both and the stored
@@ -299,6 +298,11 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
+)
+
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
 )
 
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
@@ -1043,7 +1047,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Generate semantic descriptions for the synced table. Gated up front on actual need
-            # (feature flag + AI consent AND unannotated columns / missing table description, resolved in
+            # (AI consent AND unannotated columns / missing table description, resolved in
             # create_external_data_job_model_activity) so a steady-state sync — which re-fires every few
             # minutes — doesn't spawn a child that immediately no-ops; the activity re-checks as a safety
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
@@ -1158,6 +1162,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                if is_v3:
+                    # No final batch reached the queue, so the loader can never complete this job.
+                    # A COMPLETED write would release the pipeline lock and let the buffered run
+                    # extract the same table again on top of this run's still-queued batches.
+                    # Set before the buffer-one activity so a failure there cannot skip it.
+                    update_inputs.status = ExternalDataJob.Status.FAILED
+                    update_inputs.internal_error = str(e.cause)
+                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(

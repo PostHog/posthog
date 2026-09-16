@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
+import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~/layout/ErrorProjectAccessDenied'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
@@ -28,6 +29,9 @@ export const preloadedScenes: Record<string, SceneExport> = {
     },
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
+    },
+    [Scene.ErrorProjectAccessDenied]: {
+        component: ErrorProjectAccessDeniedComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
@@ -151,6 +155,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
     [Scene.ErrorNetwork]: { name: 'Network error' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
     [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,
@@ -521,6 +526,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -871,6 +877,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
     [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],
+    [urls.codeLoopLink(':loopId')]: [Scene.CodeLoopLink, 'codeLoopLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],

@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
@@ -95,6 +96,56 @@ describe('taskTrackerSceneLogic', () => {
         logic?.unmount()
         toolEvents?.unmount()
     })
+
+    it.each([
+        ['/ai', '/ai', { task: 'new-task' }],
+        ['/tasks/new', '/tasks/new-task', {}],
+    ])('keeps a newly created task in its host at %s', async (start, pathname, searchParams) => {
+        router.actions.push(start)
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${pathname}`)
+        expect(router.values.searchParams).toEqual(searchParams)
+        expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
+
+        router.actions.push('/ai?task=another-task')
+        expect(logic.values.activeCreation).toBeNull()
+    })
+
+    // Regression coverage: under the shared navigation a task or a chat is opened through the query
+    // string, so a pending creation that only remembered the pathname stayed attached, and the
+    // success navigation then pulled the user off the page they had just opened.
+    it.each([
+        ['another task', '/ai?task=another-task', { task: 'another-task' }],
+        ['a chat', '/ai?chat=another-chat', { chat: 'another-chat' }],
+    ])(
+        'releases a pending creation when %s is opened from the same page',
+        async (_name, destination, expectedParams) => {
+            let finishCreation!: (response: [number, Record<string, unknown>]) => void
+            const creation = new Promise<[number, Record<string, unknown>]>((resolve) => {
+                finishCreation = resolve
+            })
+            useMocks({ post: { '/api/projects/:team/tasks/': () => creation } })
+            router.actions.push('/ai')
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+            logic.actions.submitNewTask()
+
+            router.actions.push(destination)
+            expect(logic.values.activeCreation).toBeNull()
+
+            await expectLogic(logic, () =>
+                finishCreation([200, { id: 'new-task', latest_run: { id: 'run-1' } }])
+            ).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe('/project/997/ai')
+            expect(router.values.searchParams).toEqual(expectedParams)
+        }
+    )
 
     it.each([
         [null, ''],
@@ -536,6 +587,34 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
     })
 
+    // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
+    it('keeps a hidden repository out of the warm and create requests', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
+                },
+            },
+        })
+        const overrides = composerOverrideLogic()
+        overrides.mount()
+        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ repositoryConfig: { integrationId: 7, repository: 'acme/widgets' } })
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({ description: 'draft a welcome sequence' })
+        }).toDispatchActions(['noteDraft'])
+
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ repository: null, github_integration: null })
+
+        overrides.unmount()
+    })
+
     // An embedded instance (e.g. Max's side panel runner) keeps the run in place instead of navigating the
     // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
     // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
@@ -658,7 +737,8 @@ describe('taskTrackerSceneLogic', () => {
                 expect(router.values.location.pathname).toContain(destination)
             } else {
                 expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task', runId: 'run-1' })
-                expect(router.values.location.pathname).toContain('/tasks/new-task')
+                expect(router.values.location.pathname).toBe('/project/997/ai')
+                expect(router.values.searchParams).toEqual({ task: 'new-task' })
             }
         } finally {
             jest.useRealTimers()

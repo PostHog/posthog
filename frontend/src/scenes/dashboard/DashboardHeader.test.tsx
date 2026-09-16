@@ -1,10 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -73,10 +71,6 @@ describe('DashboardHeader', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION], {
-            [FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION]: true,
-        })
     })
 
     afterEach(() => {
@@ -130,6 +124,35 @@ describe('DashboardHeader', () => {
 
         logic.unmount()
     })
+
+    test.each([
+        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Editor, canEdit: true },
+        {
+            mode: 'filter edit',
+            dashboardEditing: { filters: true, layout: false },
+            access: AccessControlLevel.Editor,
+            canEdit: true,
+        },
+        { mode: 'view', dashboardEditing: null, access: AccessControlLevel.Viewer, canEdit: false },
+    ])(
+        'pressing E in $mode mode with $access access enters layout editing=$canEdit',
+        ({ dashboardEditing, access, canEdit }) => {
+            const dashboard = makeDashboard({
+                user_access_level: access,
+                tiles: [{ id: 1, color: null, layouts: {}, text: { body: 'Dashboard note' } }],
+            })
+            const { logic } = renderHeader({ dashboard, dashboardEditing })
+
+            fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE' })
+
+            expect(logic.values.layoutEditMode).toBe(canEdit)
+            if (canEdit) {
+                expect(document.querySelector('[data-attr="dashboard-edit-mode-save"]')).toBeInTheDocument()
+            }
+
+            logic.unmount()
+        }
+    )
 
     it('recognizes sandbox insight calls that add to the open dashboard', () => {
         expect(insightIsAddedToDashboard({ dashboards: ['5', 8] }, 5)).toBe(true)
