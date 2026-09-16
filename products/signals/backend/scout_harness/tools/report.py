@@ -1857,6 +1857,19 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+        # `content_revision_count` is the report's running total, the number the scout reasons about
+        # the cap with. A revision above already set it to the report's new total; every other edit
+        # shape — a note, a reviewer change, cleared charts, or a restatement that diffed to nothing —
+        # leaves that total untouched, so read it back rather than echoing the 0 initializer as if the
+        # report had never been revised.
+        #
+        # Inside the transaction, unlike the read-backs below, because those degrade to a best-effort
+        # answer and this one cannot: reporting the report as never revised is the wrong answer this
+        # read exists to prevent. So a failure here has to take the edit with it. `edit_report` is not
+        # retry-safe, and an edit that committed and then reported failure is retried into a second
+        # note, a second corroboration count, or a second set of evidence rows.
+        if not updated_fields:
+            content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
     charts_set = len(charts) if charts is not None and charts_changed else None
     metrics_set = len(metrics) if metrics is not None and metrics_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
@@ -1989,14 +2002,9 @@ def _do_edit_report(
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-    # `content_revision_count` is the report's running total, the number the scout reasons about the
-    # cap with. A revision above already set it to the report's new total; every other edit shape — a
-    # note, a reviewer change, cleared charts, or a restatement that diffed to nothing — leaves that
-    # total untouched, so read it back rather than echoing the 0 initializer as if the report had never
-    # been revised. `is_content_revision` stays keyed on whether *this* edit rewrote the content.
+    # Keyed on whether *this* edit rewrote the content, unlike the running total the transaction
+    # above resolved.
     is_content_revision = bool(updated_fields)
-    if not is_content_revision:
-        content_revision_count = get_content_revision_count(team_id=team.id, report_id=report_id)
     # Routing changes and a new replacement decision each need an autostart evaluation.
     # Run it after the commit because it spawns a task.
     if reviewers_set or repository_set or supersede_recorded:

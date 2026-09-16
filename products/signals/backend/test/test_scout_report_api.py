@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -69,6 +69,7 @@ METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organiz
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
 SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_scout_report_repository"
+REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
@@ -713,6 +714,30 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.json()["is_content_revision"] is False
         assert response.json()["content_revision_count"] == 1
         assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == 1
+
+    def test_a_failed_running_total_read_takes_the_edit_with_it(self) -> None:
+        # The read above runs inside the edit's transaction, so a database failure on it rolls the
+        # note back instead of reporting a committed edit as failed. `edit_report` is not retry-safe:
+        # the scout's retry would append a second note and count a second corroboration.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with (
+            _safe_judge(),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch(REVISION_COUNT_PATH, side_effect=OperationalError("connection lost")),
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "append_note": "still there", "corroboration_only": True},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not SignalReportArtefact.objects.filter(
+            report_id=report_id, type="note", content__contains="still there"
+        ).exists()
+        assert SignalReport.objects.get(id=report_id).corroboration_count is None
 
     @parameterized.expand(
         [
