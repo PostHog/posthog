@@ -46,7 +46,8 @@ def deliver_comment_slack_dms(
     )
 
 
-# No retries: the wake is best-effort by design, and the parked step has its own deadline.
-@shared_task(ignore_result=True)
+# The deferred wake is the only wake for its run, so a lost one costs the step its 190 minute
+# deadline. Three retries with backoff cover a cdp-api blip; a failure after that is alerted.
+@shared_task(ignore_result=True, autoretry_for=(Exception,), max_retries=3, retry_backoff=True)
 def resume_workflow_step_for_run_deferred(run_id: str) -> None:
     resume_workflow_step_for_run_id(run_id)

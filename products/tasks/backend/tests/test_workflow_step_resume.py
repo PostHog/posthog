@@ -72,6 +72,7 @@ class TestResumeWorkflowStepForRun(BaseTest):
             team_id=self.team.id,
             origin_key="job:step:1",
             status=expected,
+            raise_on_error=False,
             result={
                 "run_id": str(run.id),
                 "output": None,
@@ -171,6 +172,13 @@ class TestResumeWorkflowStepForRun(BaseTest):
 
         send_task.assert_not_called()
         assert resume.call_args.kwargs["result"]["final_message"] is None
+        assert resume.call_args.kwargs["raise_on_error"] is True
+
+    def test_the_deferred_wake_raises_when_the_emit_fails_so_celery_retries(self) -> None:
+        run = self._run(final_message=None)
+
+        with patch(_RESUME, side_effect=RuntimeError("api down")), pytest.raises(RuntimeError, match="api down"):
+            resume_workflow_step_for_run_id(run.id)
 
     @parameterized.expand(
         [

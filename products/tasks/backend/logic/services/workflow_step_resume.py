@@ -86,9 +86,15 @@ def _workflow_origin_key(task_run: TaskRun) -> str | None:
     return task.origin_key
 
 
-def _emit(task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus) -> None:
+def _emit(
+    task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus, *, raise_on_error: bool = False
+) -> None:
     emit_workflow_step_resume(
-        team_id=task_run.task.team_id, origin_key=origin_key, status=status, result=_result_for_run(task_run)
+        team_id=task_run.task.team_id,
+        origin_key=origin_key,
+        status=status,
+        result=_result_for_run(task_run),
+        raise_on_error=raise_on_error,
     )
 
 
@@ -118,8 +124,13 @@ def resume_workflow_step_after_final_message(task_run: TaskRun) -> None:
 
 
 def resume_workflow_step_for_run_id(run_id: str | UUID) -> None:
+    """The deferred wake. Raises on a lost wake so the Celery task retries it."""
     runs = TaskRun.objects.select_related("task")
     task_run = runs.filter(id=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if task_run is None:
         return
-    resume_workflow_step_for_run(task_run, wait_for_final_message=False)
+    status = _STATUS_BY_RUN_STATUS.get(task_run.status)
+    origin_key = _workflow_origin_key(task_run)
+    if status is None or origin_key is None:
+        return
+    _emit(task_run, origin_key, status, raise_on_error=True)
