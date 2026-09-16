@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrame } from './PlayerFrame'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 describe('PlayerFrame', () => {
@@ -16,6 +17,7 @@ describe('PlayerFrame', () => {
 
     beforeEach(() => {
         setupSessionRecordingTest()
+        playerSettingsLogic.mount()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT], {
             [FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT]: true,
@@ -36,6 +38,30 @@ describe('PlayerFrame', () => {
         }
         return { container, iframe }
     }
+
+    // Dividing the indicator duration by playback speed alone left 21ms at 16x, about one rendered
+    // frame, so a click was gone before a viewer could see it.
+    it.each([
+        // The floor binds from 3x up; below that the duration still tracks the playback speed.
+        [1, '0.3333333333333333s'],
+        [4, '0.15s'],
+        [16, '0.15s'],
+    ])('holds the click indicator above the floor at %sx speed', (speed, expectedDuration) => {
+        playerSettingsLogic.actions.setSpeed(speed)
+
+        const { container, iframe } = renderPlayerFrame()
+        const frameDocument = iframe.contentDocument!
+        frameDocument.open()
+        frameDocument.write('<div id="player-frame-content"></div>')
+        frameDocument.close()
+        fireEvent.load(iframe)
+
+        const player = container.querySelector('div.PlayerFrame') as HTMLElement
+        expect(player.style.getPropertyValue('--player-frame-click-duration')).toEqual(expectedDuration)
+        expect(frameDocument.documentElement.style.getPropertyValue('--player-frame-click-duration')).toEqual(
+            expectedDuration
+        )
+    })
 
     it('mounts the player on the frame document once the frame loads', () => {
         const { iframe } = renderPlayerFrame()

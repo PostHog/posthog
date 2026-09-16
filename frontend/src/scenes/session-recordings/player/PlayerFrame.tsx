@@ -13,6 +13,12 @@ import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/pla
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
+// Dividing the indicator by playback speed alone leaves 21ms at 16x, about one rendered frame, so a
+// click flashes past before a viewer can see it. Hold a floor above the ~100ms a flash needs.
+const MIN_CLICK_INDICATOR_DURATION_S = 0.15
+
+const clickIndicatorDuration = (speed: number): string =>
+    `${Math.max(BASE_CLICK_INDICATOR_DURATION_S / speed, MIN_CLICK_INDICATOR_DURATION_S)}s`
 
 // rrweb builds its replay iframe on about:blank, and a frame on a local scheme inherits its
 // embedder's whole policy, report-uri included. Mounting rrweb inside a real document instead puts
@@ -95,7 +101,7 @@ export const PlayerFrame = (): JSX.Element => {
         }
         iframeRef.current?.contentDocument?.documentElement?.style?.setProperty(
             '--player-frame-click-duration',
-            `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`
+            clickIndicatorDuration(speed)
         )
         frameRef.current?.classList?.toggle('PlayerFrame__content--masking-window', !!maskingWindow)
     }, [ownDocument, speed, maskingWindow])
@@ -174,13 +180,12 @@ export const PlayerFrame = (): JSX.Element => {
     return (
         // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
         // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
-        // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
         <div
             ref={containerRef}
             className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight', isIOS() && 'PlayerFrame--ios')}
             style={
                 {
-                    '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,
+                    '--player-frame-click-duration': clickIndicatorDuration(speed),
                 } as React.CSSProperties
             }
         >
