@@ -29,6 +29,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { withInsightSceneSource } from 'lib/utils/insightNavigation'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -535,10 +536,13 @@ function SearchRoot({
             if (onItemSelect) {
                 onItemSelect(item, openInNewTab)
             } else if (item.href) {
+                const sceneSource =
+                    item.category === 'recents' ? 'recents' : item.category === 'starred' ? 'starred' : 'search'
+                const href = withInsightSceneSource(item.href, item.itemType ?? item.record?.type, sceneSource)
                 if (openInNewTab) {
-                    newInternalTab(item.href)
+                    newInternalTab(href)
                 } else {
-                    navigateToHref(item.href)
+                    navigateToHref(href)
                 }
             }
         },

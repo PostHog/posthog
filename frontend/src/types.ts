@@ -3135,7 +3135,19 @@ export type BreakdownType =
 export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
-export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
+/**
+ * Where an insight was opened from, carried in the `sceneSource` url hash param.
+ * The product scenes drive the insight's breadcrumb; the navigation surfaces only report `opened_from`.
+ */
+export type InsightSceneSource =
+    | 'web-analytics'
+    | 'llm-analytics'
+    | 'endpoints'
+    | 'saved-insights-list'
+    | 'recents'
+    | 'starred'
+    | 'search'
+    | 'feature-flag-related'
 
 export enum InsightType {
     TRENDS = 'TRENDS',

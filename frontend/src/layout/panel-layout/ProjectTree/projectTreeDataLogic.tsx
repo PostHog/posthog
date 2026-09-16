@@ -15,6 +15,7 @@ import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'li
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { insightShortIdForEntry } from 'lib/utils/insightNavigation'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -976,7 +977,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   href: item.href,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
+                    eventUsageLogic.actions.reportNavbarStarredItemAdded(
+                        shortcutItem.type ?? 'unknown',
+                        shortcutPath,
+                        insightShortIdForEntry(shortcutItem.type, shortcutItem.ref)
+                    )
                     lemonToast.success('Added to starred', {
                         button: {
                             label: 'View',
@@ -1005,7 +1010,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     eventUsageLogic.actions.reportNavbarStarredItemRemoved(
                         shortcut?.type ?? 'unknown',
-                        shortcut?.path ?? 'unknown'
+                        shortcut?.path ?? 'unknown',
+                        insightShortIdForEntry(shortcut?.type, shortcut?.ref)
                     )
                     lemonToast.success('Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)

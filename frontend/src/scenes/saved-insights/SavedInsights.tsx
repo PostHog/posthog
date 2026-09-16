@@ -26,6 +26,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { isNonEmptyObject } from 'lib/utils/guards'
+import { withSceneSource } from 'lib/utils/insightNavigation'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
@@ -132,7 +133,7 @@ export function SavedInsights(): JSX.Element {
                 return (
                     <div className="flex items-center gap-1">
                         <LemonTableLink
-                            to={urls.insightView(insight.short_id)}
+                            to={withSceneSource(urls.insightView(insight.short_id), 'saved-insights-list')}
                             title={name || <i>{summarizeInsight(insight.query)}</i>}
                             description={insight.description}
                         />
@@ -242,7 +243,10 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton
+                                    to={withSceneSource(urls.insightView(insight.short_id), 'saved-insights-list')}
+                                    fullWidth
+                                >
                                     View
                                 </LemonButton>
 

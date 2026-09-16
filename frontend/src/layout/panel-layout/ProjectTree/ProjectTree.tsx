@@ -23,6 +23,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightShortIdForEntry, withInsightSceneSource } from 'lib/utils/insightNavigation'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -264,9 +265,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
 
                 onItemClicked?.(item)
 
+                const isStarredItem = item?.id.startsWith('shortcuts')
+
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
+                    router.actions.push(
+                        isStarredItem ? withInsightSceneSource(href, item.record.type, 'starred') : href
                     )
                 }
 
@@ -274,10 +279,11 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     setLastViewedId(item?.id || '')
                 }
 
-                if (item?.id.startsWith('shortcuts')) {
+                if (isStarredItem) {
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
-                        item?.name || 'unknown'
+                        item?.name || 'unknown',
+                        insightShortIdForEntry(item?.record?.type, item?.record?.ref)
                     )
                 }
 
