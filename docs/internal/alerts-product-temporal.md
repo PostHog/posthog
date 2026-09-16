@@ -5,12 +5,12 @@ The Alerts product registers three queues through `products/alerts/backend/facad
 | Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                     |
 | ------------------------------------------------ | ------------------------------------------------ | ---------------------------- |
 | `ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-product-shared-orchestration-task-queue` | `alerts-product-orchestrate` |
-| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-check-due`   |
+| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-evaluate`    |
 | `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`     |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow and a synthetic demand-discovery activity.
-The evaluation queue registers the source dispatcher, the evaluation workflow (`alerts-product-check-due`) and the probe activity.
+The evaluation queue registers the source dispatcher, the evaluation workflow (`alerts-product-evaluate`) and the probe activity.
 Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
 Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
@@ -61,7 +61,7 @@ If the dev schedule does not exist yet, start all three workers before the first
    Existing pause state is preserved. Resume only after all three workers are ready, then verify the complete workflow chain.
 
 To stop future starts, pause the schedule. Keep all three workers running until orchestration, evaluation, and delivery work drains.
-For rollback, restore the previous schedule action (`alerts-product-check-due` on the evaluation queue) after draining, then roll back the code.
+For rollback, restore the previous schedule action (the evaluation workflow started directly on the evaluation queue, named `alerts-product-check-due` before the rename below) after draining, then roll back the code.
 Do not reconcile with the new code after restoring the old action: reconciliation would route back to orchestration.
 Pausing or changing the schedule does not move or stop queued or running workflows.
 
@@ -95,6 +95,13 @@ The child ID includes the evaluation run ID, so repeated runs of the same evalua
 Delivery has a one-minute execution timeout for the noop.
 Real notification delivery guarantees remain undecided.
 
+## Names
+
+The evaluation workflow is `alerts-product-evaluate` (class `AlertsProductEvaluateWorkflow`), the probe activity is `alerts_product_probe_postgres_activity`, and the schedule is registered by `create_alerts_product_tick_schedule`.
+These replace `alerts-product-check-due`, `alerts_product_check_due_activity` and `create_alerts_product_check_due_schedule`: discovery finds what is due and dispatchers hand it out, so this workflow only evaluates.
+A workflow type rename breaks runs of the old type that are in flight at deploy time: no worker knows the old name, so they fail. Dev evaluations live under 40 seconds, and production is off.
+The schedule ID stays `alerts-product-check-due-schedule`. Registration does not delete schedules, so a new ID would leave two schedules until someone deleted the old one by hand.
+
 ## Tick loop and source dispatchers
 
 One tick is one `alerts-product-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
@@ -107,7 +114,7 @@ The hard stop is the run's own execution timeout when it has one, and the budget
 The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
 Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
 The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
-It starts one `alerts-product-check-due` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 40-second execution timeout and one attempt.
+It starts one `alerts-product-evaluate` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 40-second execution timeout and one attempt.
 It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
 Members are not passed to evaluation yet: evaluation keeps the probe path until claims exist.
 

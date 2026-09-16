@@ -53,7 +53,7 @@ async def alerts_product_discover_demand_activity(inputs: DemandDiscoveryInputs)
 
 
 @activity.defn
-async def alerts_product_check_due_activity() -> None:
+async def alerts_product_probe_postgres_activity() -> None:
     try:
         await sync_to_async(check_postgres_connection, thread_sensitive=False)()
     except (OperationalError, InterfaceError):
@@ -79,15 +79,15 @@ class AlertsProductDeliverWorkflow(PostHogWorkflow):
         )
 
 
-@workflow.defn(name="alerts-product-check-due")
-class AlertsProductCheckDueWorkflow(PostHogWorkflow):
+@workflow.defn(name="alerts-product-evaluate")
+class AlertsProductEvaluateWorkflow(PostHogWorkflow):
     inputs_cls = AlertsProductInputs
 
     @workflow.run
     async def run(self, inputs: AlertsProductInputs) -> None:
         try:
             await workflow.execute_activity(
-                alerts_product_check_due_activity,
+                alerts_product_probe_postgres_activity,
                 task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 schedule_to_close_timeout=dt.timedelta(seconds=30),
@@ -133,7 +133,7 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
             # Members are not passed to evaluation until claims exist. The probe path stays as is.
             evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
             await workflow.start_child_workflow(
-                AlertsProductCheckDueWorkflow.run,
+                AlertsProductEvaluateWorkflow.run,
                 AlertsProductInputs(),
                 id=evaluation_workflow_id,
                 task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -242,7 +242,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
 
 SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductOrchestrateWorkflow]
 SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_discover_demand_activity]
-EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductCheckDueWorkflow, AlertsProductSourceDispatchWorkflow]
-EVALUATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_check_due_activity]
+EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductEvaluateWorkflow, AlertsProductSourceDispatchWorkflow]
+EVALUATION_ACTIVITIES: list[Callable[..., object]] = [alerts_product_probe_postgres_activity]
 DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsProductDeliverWorkflow]
 DELIVERY_ACTIVITIES: list[Callable[..., object]] = [alerts_product_deliver_activity]

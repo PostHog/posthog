@@ -50,7 +50,7 @@ from products.alerts.backend.facade.temporal import (
 from products.alerts.backend.logic import demand
 from products.alerts.backend.temporal import postgres
 from products.alerts.backend.temporal.workflows import (
-    AlertsProductCheckDueWorkflow,
+    AlertsProductEvaluateWorkflow,
     AlertsProductInputs,
     AlertsProductOrchestrateWorkflow,
 )
@@ -60,7 +60,7 @@ from products.alerts.backend.temporal.workflows import (
 class CloseAfterChildStartWorkflow:
     @workflow.run
     async def run(self, close_mode: str) -> None:
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
         await workflow.execute_activity("test_confirm_child_start", start_to_close_timeout=dt.timedelta(seconds=5))
         if close_mode == "failed":
             raise ApplicationError("Test parent failure", non_retryable=True)
@@ -95,7 +95,7 @@ def postgres_cursor() -> Iterator[MagicMock]:
 @pytest.mark.parametrize("database_error", [False, True])
 @pytest.mark.parametrize(
     "tick_workflow, tick_queue",
-    [("alerts-product-check-due", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE)],
+    [("alerts-product-evaluate", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE)],
 )
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
@@ -231,7 +231,7 @@ async def test_each_tick_starts_independent_delivery(
         assert child_start.parent is not None
         evaluation = spans_by_id[child_start.parent.span_id]
         assert child_start.name == "StartChildWorkflow:alerts-product-deliver"
-        assert evaluation.name == "RunWorkflow:alerts-product-check-due"
+        assert evaluation.name == "RunWorkflow:alerts-product-evaluate"
         assert delivery.context.trace_id == child_start.context.trace_id == evaluation.context.trace_id
         assert evaluation.end_time is not None and delivery.start_time is not None
         assert evaluation.end_time <= delivery.start_time
@@ -260,7 +260,7 @@ async def test_each_tick_starts_independent_delivery(
             "failure"
             if (
                 (attempt_span.name == "RunActivity:alerts_product_deliver_activity" and entries[1]["attempt"] == 1)
-                or (attempt_span.name == "RunActivity:alerts_product_check_due_activity" and database_error)
+                or (attempt_span.name == "RunActivity:alerts_product_probe_postgres_activity" and database_error)
             )
             else "success"
         )
@@ -324,7 +324,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
-    @activity.defn(name="alerts_product_check_due_activity")
+    @activity.defn(name="alerts_product_probe_postgres_activity")
     async def blocked_probe() -> None:
         activity_started.set()
         await release_activity.wait()
@@ -337,7 +337,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         parent = await client.start_workflow(
-            AlertsProductCheckDueWorkflow.run,
+            AlertsProductEvaluateWorkflow.run,
             AlertsProductInputs(),
             id=str(uuid.uuid4()),
             task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
@@ -402,7 +402,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         scheduled_event_id=1,
         started_event_id=2,
         identity="test-worker",
-        activity_type="alerts_product_check_due_activity",
+        activity_type="alerts_product_probe_postgres_activity",
         activity_id="1",
         retry_state=None,
     )
@@ -412,7 +412,7 @@ async def test_probe_unrelated_activity_failures_do_not_start_delivery(cause: Ex
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(ActivityError) as caught,
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     assert caught.value is error
     start_delivery.assert_not_awaited()
 
@@ -423,7 +423,7 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
         patch.object(workflow, "start_child_workflow", AsyncMock()) as start_delivery,
         pytest.raises(asyncio.CancelledError),
     ):
-        await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
+        await AlertsProductEvaluateWorkflow().run(AlertsProductInputs())
     start_delivery.assert_not_awaited()
 
 

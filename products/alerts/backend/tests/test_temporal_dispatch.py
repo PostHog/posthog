@@ -46,7 +46,7 @@ from products.alerts.backend.facade.temporal import (
 )
 from products.alerts.backend.temporal import postgres, workflows
 from products.alerts.backend.temporal.workflows import (
-    AlertsProductCheckDueWorkflow,
+    AlertsProductEvaluateWorkflow,
     AlertsProductInputs,
     AlertsProductOrchestrateWorkflow,
     AlertsProductSourceDispatchWorkflow,
@@ -67,7 +67,7 @@ class PagingDispatcher:
         )
         evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
         await workflow.start_child_workflow(
-            AlertsProductCheckDueWorkflow.run,
+            AlertsProductEvaluateWorkflow.run,
             AlertsProductInputs(),
             id=evaluation_workflow_id,
             task_queue=EVALUATION_QUEUE,
@@ -126,7 +126,7 @@ def workers(
 ) -> tuple[Worker, Worker]:
     runner = UnsandboxedWorkflowRunner()
     evaluation_workflows: list[type] = (
-        [AlertsProductCheckDueWorkflow, PagingDispatcher] if paging else list(EVALUATION_WORKFLOWS)
+        [AlertsProductEvaluateWorkflow, PagingDispatcher] if paging else list(EVALUATION_WORKFLOWS)
     )
     return (
         Worker(
@@ -189,7 +189,7 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         initiated = events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED)
         assert len(initiated) == 1
         child = initiated[0].start_child_workflow_execution_initiated_event_attributes
-        assert child.workflow_type.name == "alerts-product-check-due"
+        assert child.workflow_type.name == "alerts-product-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
         assert child.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
         # The dispatcher completed without waiting for the evaluation; the evaluation finishes on its own.
