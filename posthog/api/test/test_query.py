@@ -109,8 +109,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
         error.cache_key = "cache_key_1"
         error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
+        redis = mock.Mock()
+        redis.get.return_value = A_STORED_SCAN
 
-        with patch("posthog.api.query.process_query_model", side_effect=error):
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=error),
+            patch("posthog.query_scan.serve.get_query_scan_flag", return_value=SHOW_FLAG),
+            patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/query/",
                 {"query": HogQLQuery(query="select 1").model_dump()},
@@ -121,6 +127,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         extra = response.json()["extra"]
         self.assertEqual(extra["cache_key"], "cache_key_1")
         self.assertEqual(extra["query_scan"]["killed"], True)
+        # An API caller has no later request to poll from, so the analysis its own wait stored
+        # rides on the error body.
+        self.assertEqual(
+            [finding["kind"] for finding in extra["query_scan"]["analysis"]["findings"]], ["no_event_filter"]
+        )
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

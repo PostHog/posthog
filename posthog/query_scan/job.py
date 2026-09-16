@@ -120,10 +120,12 @@ class QueryScanJob:
     inline_deadline_ms: int | None = None
 
 
-def run_query_scan(job: QueryScanJob) -> None:
+def run_query_scan(job: QueryScanJob, *, started: float | None = None) -> None:
     """Analyze one run and store the result. Never raises, and never retries: the next slow
-    run of the same query enqueues a new job."""
-    started = perf_counter()
+    run of the same query enqueues a new job. ``started`` is the ``perf_counter`` the job's time
+    counts from, for a caller that has already waited by the time the job runs."""
+    if started is None:
+        started = perf_counter()
     try:
         _run(job, started)
     except SoftTimeLimitExceeded:
@@ -153,7 +155,8 @@ def run_query_scan_inline(job: QueryScanJob) -> InlineOutcome:
         return InlineOutcome.DECLINED
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="query_scan_inline")
     try:
-        future = _submit_in_context(pool, _run_and_free_the_slot, job)
+        # The clock starts before the submit, so `deadline_hit` agrees with the wait below.
+        future = _submit_in_context(pool, _run_and_free_the_slot, job, perf_counter())
     except BaseException:
         _inline_slots.release()
         raise
@@ -167,9 +170,9 @@ def run_query_scan_inline(job: QueryScanJob) -> InlineOutcome:
     return InlineOutcome.STORED
 
 
-def _run_and_free_the_slot(job: QueryScanJob) -> None:
+def _run_and_free_the_slot(job: QueryScanJob, started: float) -> None:
     try:
-        run_query_scan(job)
+        run_query_scan(job, started=started)
     finally:
         _inline_slots.release()
 

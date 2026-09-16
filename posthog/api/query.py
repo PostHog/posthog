@@ -58,11 +58,12 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
-from posthog.query_scan.serve import analysis_with_prompt
+from posthog.query_scan.serve import analysis_with_prompt, hydrate_scan_summary
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -108,9 +109,18 @@ def _add_query_cost_headers(response: HttpResponseBase, bytes_read: int, remaini
         response["X-PostHog-Query-Budget-Remaining-Bytes"] = str(remaining_bytes)
 
 
-def _scan_extra(error: Exception) -> dict[str, Any]:
-    """The scan a stopped run left on the exception, for the error body's ``extra``."""
-    return {key: value for key in ("cache_key", "query_scan") if (value := getattr(error, key, None)) is not None}
+def _scan_extra(team: Team, error: Exception) -> dict[str, Any]:
+    """The scan a stopped run left on the exception, for the error body's ``extra``, with the stored
+    analysis on it once there is one: an API caller reads the findings off this body."""
+    extra = {key: value for key in ("cache_key", "query_scan") if (value := getattr(error, key, None)) is not None}
+    summary = extra.get("query_scan")
+    if isinstance(summary, dict):
+        hydrated = hydrate_scan_summary(team, summary, extra.get("cache_key"))
+        if hydrated is None:
+            del extra["query_scan"]
+        else:
+            extra["query_scan"] = hydrated
+    return extra
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -387,7 +397,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
             # A run ClickHouse stopped carries its scan, so the client can show the advice under
             # the error.
-            scan_extra = _scan_extra(e)
+            scan_extra = _scan_extra(self.team, e)
             if scan_extra:
                 extra = {**(extra or {}), **scan_extra}
             validation_error = ValidationError(detail, getattr(e, "code_name", None))
@@ -398,7 +408,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self.handle_column_ch_error(e)
             capture_exception(e)
             replacement = APIException("ClickHouse error while executing query.")
-            scan_extra = _scan_extra(e)
+            scan_extra = _scan_extra(self.team, e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]
             raise replacement
@@ -424,7 +434,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 capture_exception(e)
             # The timeout and memory-limit classes land here, which are the runs the scan
             # exists for.
-            scan_extra = _scan_extra(e)
+            scan_extra = _scan_extra(self.team, e)
             if scan_extra:
                 e.extra = {**(getattr(e, "extra", None) or {}), **scan_extra}  # type: ignore[attr-defined]
             raise
