@@ -485,9 +485,6 @@ const workflowsSuggest = (): ToolBase<ReturnType<typeof WorkflowsSuggestSchema>,
         if (params.step_id !== undefined) {
             body['step_id'] = params.step_id
         }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
         if (params.source_id !== undefined) {
             body['source_id'] = params.source_id
         }

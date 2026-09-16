@@ -1092,12 +1092,6 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
         .describe(
             "The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest."
         ),
-    source_type: zod
-        .enum(['scout', 'responder', 'human', 'stub'])
-        .describe('\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator')
-        .describe(
-            'What kind of producer authored this proposal.\n\n\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator'
-        ),
     source_id: zod
         .string()
         .max(hogFlowsProposalsCreateBodySourceIdMax)
