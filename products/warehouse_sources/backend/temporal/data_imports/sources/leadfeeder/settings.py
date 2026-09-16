@@ -45,7 +45,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class LeadfeederEndpointConfig:
     name: str
     # Legacy-API path relative to the base. Fan-out endpoints carry an `{account_id}` placeholder
