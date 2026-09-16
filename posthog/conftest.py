@@ -4,11 +4,14 @@ import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+
+if TYPE_CHECKING:
+    from _pytest.terminal import TerminalReporter
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
@@ -582,6 +585,18 @@ class _JUnitTimingsPlugin:
         # Appended exactly once: intermediate attempts never log a non-rerun teardown,
         # and each report owns its own copy of `user_properties`.
         report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
+        if runner_name := os.environ.get("RUNNER_NAME"):
+            report.user_properties.append(("posthog.runner_name", runner_name))
+
+    def pytest_terminal_summary(self, terminalreporter: "TerminalReporter") -> None:
+        if not terminalreporter.hasopt("R"):
+            return
+        # pytest-rerunfailures 16.1's summary lists nodeids but omits the failed attempt's traceback.
+        for report in terminalreporter.stats.get("rerun", []):
+            terminalreporter.write_sep("_", f"RERUN {report.nodeid} ({report.when})")
+            report.toterminal(terminalreporter._tw)
+            # Anchor the final exception within the log-thinning context window.
+            terminalreporter.write_sep("_", f"RERUN END {report.nodeid} ({report.when})")
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:

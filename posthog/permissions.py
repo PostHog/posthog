@@ -9,7 +9,7 @@ from django.db.models import Model
 
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
@@ -1115,7 +1115,13 @@ class AccessControlPermission(ScopeBasePermission):
         if hasattr(view, "param_derived_from_user_current_team"):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
-                    raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+                    # Not `AuthenticationFailed`: the credential is valid, the account state is
+                    # not. A 401 here tells a token caller to replace a key that was never the
+                    # problem, and clients act on it by refreshing the token and retrying.
+                    raise PermissionDenied(
+                        "This endpoint reads the project that is set on your account, and your "
+                        "account has none. Open PostHog, select a project, then try again."
+                    )
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)

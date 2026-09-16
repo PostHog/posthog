@@ -1,6 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { MlWireVersion } from './privacy/schema'
+import { MlWireVersion } from './keys/schema'
 
 export type MlProducedLane = 'image' | 'url' | 'metadata'
 
@@ -17,6 +17,16 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
+/** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
+export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
+export type MlKeyIdentityMismatchReason = 'organization_changed' | 'wrapped_key_missing'
+export type MlKeyRequest =
+    | 'kms_generate'
+    | 'kms_decrypt'
+    | 'kms_wait'
+    | 'dynamodb_read'
+    | 'dynamodb_put'
+    | 'dynamodb_put_if_absent'
 export type MlImageSourceKind = 'inline' | 'url'
 
 const URL_BYTES_SAMPLE_RATE = 16
@@ -54,6 +64,15 @@ export class MlMirrorMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlLegacyEnvelopesDropped = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total',
+        help: 'Kafka records still in the sealed envelope shape the ML lanes wrote before they switched to cleartext records. The consumers drop them without dead-lettering, so this counter is the only trace of the backlog draining; once it stays at zero after a rollout, nothing else reads that shape',
+    })
+    private static readonly mlKeyIdentityMismatch = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
+        help: 'Stored ML keys whose row disagrees with the team. organization_changed: the row names another organization than the team has now, and the key is unwrapped under the one the row names (ml_key_organization_changed log). wrapped_key_missing: the row has no wrapped key and no tombstone, and its sessions are dropped (ml_key_stored_key_unusable log)',
+        labelNames: ['reason'],
+    })
     private static readonly mlProducedVersion = new Counter({
         name: 'recording_blob_ingestion_v2_ml_produced_version_total',
         help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
@@ -117,6 +136,18 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
+    private static readonly mlKeyPhaseDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
+        help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
+        labelNames: ['phase'],
+        buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
+    })
+    private static readonly mlKeyRequestDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_key_request_duration_ms',
+        help: 'Duration of one KMS or DynamoDB request from the ML key store, and for kms_wait the time a KMS request spent queued behind the per-pod rate limit before it was sent',
+        labelNames: ['request'],
+        buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, Infinity],
+    })
     private static readonly mlUrlsPerRecord = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_urls_per_record',
         help: 'URLs packed into one record on the fetch topic. Bounded in practice by the collector cap per message, since a record holds one domain from one message',
@@ -127,6 +158,14 @@ export class MlMirrorMetrics {
         help: 'Serialized bytes of one record on the fetch topic. Read against librdkafka message.max.bytes, which this producer leaves at its 1,000,000 byte default: the packing budget is what keeps a record under it',
         buckets: [1024, 8192, 65536, 262144, 524288, 1_000_000],
     })
+
+    public static observeMlKeyPhase(phase: MlKeyPhase, ms: number): void {
+        this.mlKeyPhaseDuration.labels(phase).observe(ms)
+    }
+
+    public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
+        this.mlKeyRequestDuration.labels(request).observe(ms)
+    }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
         this.mlAnonymizeDuration.labels(impl, route).observe(ms)
@@ -144,6 +183,16 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlKeyIdentityMismatch(reason: MlKeyIdentityMismatchReason, count: number): void {
+        this.mlKeyIdentityMismatch.labels(reason).inc(count)
+    }
+
+    public static incrementMlLegacyEnvelopesDropped(count: number): void {
+        if (count > 0) {
+            this.mlLegacyEnvelopesDropped.inc(count)
+        }
     }
 
     public static incrementMlProducedVersion(lane: MlProducedLane, version: MlWireVersion, count: number): void {
@@ -281,7 +330,7 @@ export class MlParquetSinkMetrics {
         this.rowsParsed.inc(count)
     }
     public static incRowsRejected(
-        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'privacy',
+        reason: 'parse_failed' | 'invalid' | 'invalid_record' | 'key_missing',
         count = 1
     ): void {
         this.rowsRejected.labels(reason).inc(count)

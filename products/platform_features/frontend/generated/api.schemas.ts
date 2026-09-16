@@ -1343,6 +1343,8 @@ export type ActivityLogListParams = {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -1442,6 +1444,8 @@ export const ActivityLogListScope = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1528,6 +1532,8 @@ export const ActivityLogListScope = {
  * * `Survey` - Survey
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `ReplayScanner` - ReplayScanner
+ * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
  * * `Project` - Project
@@ -1615,6 +1621,8 @@ export const ActivityLogListScopesItem = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
