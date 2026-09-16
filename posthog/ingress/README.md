@@ -4,7 +4,7 @@ General-purpose controls for the webhooks third parties send _in_ to PostHog.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
 Four lanes:
 
-- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check, and a bearer JWT checked against the issuer's published signing keys.
+- **`verify/`** — signature schemes. HMAC-SHA256 in the shapes providers actually send (hex or base64, an optional prefix, an optional `v0:{timestamp}:{body}` input with a replay window), the SNS envelope check and the AWS SNS message signature it rests on, and a bearer JWT checked against the issuer's published signing keys.
 - **`dispatch/`** — the validated consumer registry, per-delivery dedup, the wall-clock budget, consumer isolation, and `bounded_statement_timeout()` for consumers that read the database.
 - **`observability/`** — Prometheus: delivery volume by transport outcome, and one metric set per consumer run.
 - **`views.py`** — the view that composes the other three: one request that is verified _and_ recorded by construction, so no incarnation can skip either.
@@ -69,7 +69,6 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
-The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
 It moves onto `throttle_class` next.

@@ -39,4 +39,4 @@ Use `urlpatterns` only for a plain Django path that no router can carry, such as
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared: one endpoint fans out to several products, so core mounts it.
 An App a single product registers, such as Stamphog's GitHub App, is mounted by that product.
-The SES topic behind `webhooks/workflows/ses-events` is the exception for now: its view still lives in `backend/api/`, so it waits for the change that moves it onto the ingress builders.
+A topic a single product owns works the same way: `webhooks/workflows/ses-events` is mounted from `products/workflows/backend/routes.py`.

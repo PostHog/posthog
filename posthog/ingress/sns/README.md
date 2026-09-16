@@ -12,7 +12,9 @@ The envelope fields `Type`, `MessageId` and `TopicArn` all come from the JSON bo
 
 Not HMAC.
 `SnsSignature` checks two things and needs both.
-The message signature proves the message is from SNS, through a verifier the caller supplies, which owns the certificate fetch and its own cache.
+The message signature proves the message is from SNS: an RSA-SHA256 check over AWS's canonical string-to-sign, against a certificate fetched from a `sns.<region>.amazonaws.com` URL of the one shape SNS serves.
+That half is the same for every SNS topic, so it lives in the verify lane (`verify/sns_signature.py`) with its certificate cache, its failure cache, and a per-minute budget on fetches for URLs that have never verified a message.
+Only `SignatureVersion` 2 is accepted; a topic left on version 1 has every delivery rejected, logged as a misconfiguration rather than an attack.
 The `TopicArn` allowlist proves the message is from our topic.
 An empty allowlist reads as unconfigured.
 A body that is not a JSON object is invalid, and there is no replay window.
@@ -25,8 +27,9 @@ The `TopicArn` goes into the delivery context.
 
 ## Apps and secrets
 
-One app, `default`, and no secret.
-The verifier and the topic allowlist belong to whoever owns the topic, so `build_sns_provider()` takes both as callables.
+One app, `default`, and no secret: SNS signs with its own certificate, so there is nothing for an operator to hold.
+The topic allowlist is the only per-endpoint configuration, so `build_sns_provider()` takes the name of the Django setting that holds it and reads it per request.
+The SES events endpoint names `WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS`.
 
 ## Quirks
 
@@ -36,6 +39,5 @@ An unknown topic logs `ingress_sns_unknown_topic` and answers like a bad signatu
 
 ## Consumers
 
-No product registers an SNS consumer yet.
-The workflows SES events endpoint moves to ingress in its own PR.
+`workflows_ses_events`, on the `default` app, for `SubscriptionConfirmation` and `Notification`.
 See the [Endpoints table](../README.md#endpoints).

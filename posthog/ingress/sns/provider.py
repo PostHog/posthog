@@ -5,9 +5,10 @@ subscription handshake and for notifications: confirming a subscription means ca
 back, which is the consumer's business, not the transport's.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -20,18 +21,21 @@ SNS_EVENT_TYPES = frozenset({"SubscriptionConfirmation", "Notification", "Unsubs
 SPECS = (ProviderSpec(provider="sns", app="default", event_types=SNS_EVENT_TYPES),)
 
 
+def topic_arns_from_setting(setting_name: str) -> frozenset[str]:
+    """The topics one endpoint accepts. Read per request, so an override takes effect at once."""
+    return frozenset(arn for arn in getattr(settings, setting_name, ()) or () if arn)
+
+
 class SnsProvider(WebhookProvider):
     provider = "sns"
+    # An SNS endpoint is a public URL with no allowlisted topic until an operator sets one, so an
+    # unconfigured one answers like a route that was never registered rather than confirming it
+    # exists with a 500 a prober can flood the error logs with.
+    unconfigured_status = 404
 
-    def __init__(
-        self,
-        *,
-        app: str = "default",
-        verify_message: Callable[[Mapping[str, Any]], bool],
-        allowed_topic_arns: Callable[[], frozenset[str]],
-    ) -> None:
+    def __init__(self, *, app: str = "default", topic_arns_setting: str) -> None:
         self.app = app
-        self._scheme = SnsSignature(verify_message=verify_message, allowed_topic_arns=allowed_topic_arns)
+        self._scheme = SnsSignature(allowed_topic_arns=lambda: topic_arns_from_setting(topic_arns_setting))
 
     def scheme(self) -> SignatureScheme:
         return self._scheme
@@ -54,12 +58,6 @@ class SnsProvider(WebhookProvider):
         )
 
 
-def build_sns_provider(
-    *,
-    verify_message: Callable[[Mapping[str, Any]], bool],
-    allowed_topic_arns: Callable[[], frozenset[str]],
-    app: str = "default",
-) -> SnsProvider:
-    """The RSA verifier and the topic allowlist belong to whoever owns the topic, so both are
-    passed in rather than reached for from here."""
-    return SnsProvider(app=app, verify_message=verify_message, allowed_topic_arns=allowed_topic_arns)
+def build_sns_provider(*, topic_arns_setting: str, app: str = "default") -> SnsProvider:
+    """The topic allowlist belongs to whoever owns the topic, so the URLconf names its setting."""
+    return SnsProvider(app=app, topic_arns_setting=topic_arns_setting)

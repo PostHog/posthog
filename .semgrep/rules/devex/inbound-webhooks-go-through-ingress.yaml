@@ -121,4 +121,3 @@ rules:
               - /products/conversations/backend/mailgun.py
               - /products/conversations/backend/support_slack.py
               - /products/user_interviews/backend/presentation/webhooks.py
-              - /products/workflows/backend/api/ses_events_webhook.py

@@ -1,8 +1,16 @@
+"""The AWS SNS message signature: the signing certificate, and the RSA check over it.
+
+Nothing here is specific to one topic or one product. `SnsSignature` in `schemes.py` calls
+`verify_sns_message()` to prove a message is from SNS, and then checks the `TopicArn` against
+the endpoint's allowlist to prove it is from our topic.
+"""
+
 import re
 import time
 import base64
 import hashlib
 import logging
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -115,7 +123,7 @@ def _fetch_signing_cert(cert_url: str) -> bytes | None:
     return response.content
 
 
-def _string_to_sign(message: dict[str, Any]) -> str | None:
+def _string_to_sign(message: Mapping[str, Any]) -> str | None:
     keys = _SIGNED_KEYS_BY_TYPE.get(message.get("Type", ""))
     if keys is None:
         return None
@@ -128,7 +136,7 @@ def _string_to_sign(message: dict[str, Any]) -> str | None:
     return "".join(parts)
 
 
-def verify_sns_message(message: dict[str, Any]) -> bool:
+def verify_sns_message(message: Mapping[str, Any]) -> bool:
     """
     Verify an SNS message's authenticity: signing cert served by SNS over HTTPS, RSA signature over
     the canonical string-to-sign. Returns False (never raises) on any mismatch so callers fail
