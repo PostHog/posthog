@@ -1,0 +1,77 @@
+import json
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+SCRIPT_PATH = Path(__file__).with_name("ci_backend_route.py")
+SPEC = importlib.util.spec_from_file_location("ci_backend_route", SCRIPT_PATH)
+assert SPEC is not None
+assert SPEC.loader is not None
+route = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(route)
+
+
+def pr(percent=25, number=124, labels=(), fork=False, draft=False):
+    return route.decide("pull_request", percent, number, list(labels), fork, draft)
+
+
+@pytest.mark.parametrize(
+    "number,percent,expected",
+    [(124, 25, "depot"), (125, 25, "github"), (100, 0, "github"), (199, 100, "depot"), (0, 1, "depot")],
+)
+def test_bucket_is_pr_number_mod_100(number, percent, expected):
+    assert pr(number=number, percent=percent).engine == expected
+
+
+@pytest.mark.parametrize(
+    "labels,fork,draft,expected",
+    [
+        (["ci-backend-github"], False, False, "github"),
+        (["ci-backend-depot"], False, False, "depot"),
+        (["ci-backend-depot", "ci-backend-github"], False, False, "github"),
+        (["ci-backend-depot"], True, False, "github"),
+        (["ci-backend-depot", "no-ci"], False, True, "github"),
+        (["no-ci"], False, False, "depot"),
+    ],
+)
+def test_overrides(labels, fork, draft, expected):
+    assert pr(labels=labels, fork=fork, draft=draft).engine == expected
+
+
+@pytest.mark.parametrize("event", ["workflow_dispatch", "push", "schedule", "merge_group"])
+def test_non_pull_request_events_stay_on_github(event):
+    assert route.decide(event, 100, None, ["ci-backend-depot"], False, False).engine == "github"
+
+
+def test_missing_pr_number_stays_on_github():
+    assert pr(number=None, percent=100).engine == "github"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [(None, 0), ("", 0), ("abc", 0), ("-5", 0), ("42", 42), ("250", 100), (" 7 ", 7), ("²", 0), ("9" * 5000, 0)],
+)
+def test_parse_percent_fails_closed(raw, expected):
+    assert route.parse_percent(raw) == expected
+
+
+def test_main_treats_null_labels_as_none(tmp_path, monkeypatch):
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("EVENT", "push")
+    monkeypatch.setenv("PERCENT", "50")
+    monkeypatch.setenv("LABELS", "null")
+    assert route.main() == 0
+    assert output.read_text().startswith("engine=github\n")
+
+
+def test_main_writes_outputs(tmp_path, monkeypatch):
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("EVENT", "pull_request")
+    monkeypatch.setenv("PERCENT", "50")
+    monkeypatch.setenv("PR_NUMBER", "7")
+    monkeypatch.setenv("LABELS", json.dumps(["other"]))
+    assert route.main() == 0
+    assert output.read_text() == "engine=depot\nreason=bucket 7 < 50%\n"
