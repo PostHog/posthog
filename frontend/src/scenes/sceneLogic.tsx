@@ -146,6 +146,10 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/startups',
     '/coupons',
     '/legal',
+    // Org and project creation must stay reachable mid-setup, else the redirect sends a user who
+    // opens either one back to step one.
+    urls.organizationCreateFirst(),
+    urls.projectCreateFirst(),
 ]
 
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {

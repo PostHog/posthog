@@ -41,6 +41,10 @@ export function CreateOrganizationModal({
         }
     }
     const handleSubmit = (): void => {
+        // Also guards Enter-key submission, which bypasses the button's disabledReason
+        if (!name || currentOrganizationLoading) {
+            return
+        }
         createOrganization(name)
     }
 
@@ -127,7 +131,7 @@ export function CreateOrganizationModal({
                     value={name}
                     onChange={(value) => setName(value)}
                     onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !currentOrganizationLoading) {
+                        if (e.key === 'Enter') {
                             handleSubmit()
                         }
                     }}
