@@ -468,6 +468,14 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         return prompt
 
 
+class LLMPromptReferencedConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What is still referenced and what to do next.")
+    referencing_prompts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of the prompts whose latest or labeled version holds the reference.",
+    )
+
+
 class LLMPromptLabelSummarySerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Label name, e.g. 'production'.")
     version = serializers.IntegerField(help_text="Prompt version this label currently points to.")

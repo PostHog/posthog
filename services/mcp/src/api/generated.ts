@@ -49926,6 +49926,13 @@ export namespace Schemas {
       first_version_created_at: string;
     }
 
+    export interface LLMPromptReferencedConflict {
+      /** What is still referenced and what to do next. */
+      detail: string;
+      /** Names of the prompts whose latest or labeled version holds the reference. */
+      referencing_prompts: string[];
+    }
+
     export interface LLMPromptVersionSummary {
       readonly id: string;
       readonly version: number;

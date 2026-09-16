@@ -8,7 +8,7 @@ from django.db import IntegrityError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,6 +26,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptListSerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
+    LLMPromptReferencedConflictSerializer,
     LLMPromptResolveQuerySerializer,
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
@@ -478,7 +479,16 @@ class LLMPromptViewSet(
             }
         )
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The prompt is referenced by other prompts and cannot be archived.",
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -632,7 +642,15 @@ class LLMPromptViewSet(
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The label is referenced by other prompts and cannot be deleted.",
+            ),
+        },
+    )
     @set_label.mapping.delete
     @llma_track_latency("llma_prompts_delete_label")
     @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
