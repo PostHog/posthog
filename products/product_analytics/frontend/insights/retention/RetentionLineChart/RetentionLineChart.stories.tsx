@@ -102,3 +102,21 @@ const singleShadeFixture = {
 export const SingleShade: Story = {
     render: () => renderRetentionLineChart(singleShadeFixture),
 }
+
+const meanLineFixture = {
+    ...realisticFixture,
+    query: {
+        ...retentionFixture.query,
+        source: {
+            ...retentionFixture.query.source,
+            retentionFilter: {
+                ...retentionFixture.query.source.retentionFilter,
+                showMeanLine: true,
+            },
+        },
+    },
+}
+
+export const MeanLine: Story = {
+    render: () => renderRetentionLineChart(meanLineFixture),
+}

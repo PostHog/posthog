@@ -9,6 +9,7 @@ import {
     buildRetentionBarChartConfig,
     buildRetentionChartModel,
     buildRetentionLineChartConfig,
+    buildRetentionMeanSeries,
     buildRetentionSeries,
     type RetentionCohortLike,
     computeRetentionSeriesValue,
@@ -209,6 +210,18 @@ describe('retentionChartTransforms', () => {
             const config = buildRetentionLineChartConfig({
                 isPercentage: true,
                 series: baseSeries,
+                showTrendLines: true,
+            })
+            expect(config.trendLines).toEqual([
+                { seriesKey: 'retention-0', kind: 'linear' },
+                { seriesKey: 'retention-1', kind: 'linear' },
+            ])
+        })
+
+        it('excludes the mean overlay from trend lines', () => {
+            const config = buildRetentionLineChartConfig({
+                isPercentage: true,
+                series: [...baseSeries, buildRetentionMeanSeries([1, 2])],
                 showTrendLines: true,
             })
             expect(config.trendLines).toEqual([

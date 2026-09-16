@@ -6,6 +6,7 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { hexToRGBA } from 'lib/utils/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -22,6 +23,7 @@ import { retentionGraphLogic } from '../retentionGraphLogic'
 import { retentionModalLogic } from '../retentionModalLogic'
 import {
     buildRetentionLineChartConfig,
+    buildRetentionMeanSeries,
     buildRetentionSeries,
     type RetentionSeriesMeta,
     retentionSeriesOpacity,
@@ -63,6 +65,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         filteredTrendSeries,
         incompletenessOffsetFromEnd,
         labelGroupType,
+        meanLineData,
         shouldShowMeanPerBreakdown,
         showTrendLines,
         timezone,
@@ -85,26 +88,36 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const fadeCohorts =
         retentionFilter?.chartStyle?.seriesColorMode === 'opacity' && !isIntervalView && !shouldShowMeanPerBreakdown
 
-    const series = useMemo(
-        () =>
-            buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
-                incompletenessOffsetFromEnd,
-                isIntervalView,
-                getColor: (entry, index) => {
-                    const color = getRetentionColor(entry.rawBreakdownValue, fadeCohorts ? 0 : index)
-                    return fadeCohorts && color
-                        ? hexToRGBA(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
-                        : color
-                },
-            }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, getRetentionColor, fadeCohorts]
-    )
+    // Re-resolved per theme: getColorVar reads the CSS variable, which changes with the theme.
+    const meanColor = useMemo(() => getColorVar('color-accent'), [theme])
+
+    const series = useMemo(() => {
+        const cohortSeries = buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
+            incompletenessOffsetFromEnd,
+            isIntervalView,
+            getColor: (entry, index) => {
+                const color = getRetentionColor(entry.rawBreakdownValue, fadeCohorts ? 0 : index)
+                return fadeCohorts && color
+                    ? hexToRGBA(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
+                    : color
+            },
+        })
+        return meanLineData ? [...cohortSeries, buildRetentionMeanSeries(meanLineData, meanColor)] : cohortSeries
+    }, [
+        filteredTrendSeries,
+        incompletenessOffsetFromEnd,
+        isIntervalView,
+        getRetentionColor,
+        fadeCohorts,
+        meanLineData,
+        meanColor,
+    ])
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const onRowClick = useCallback(
         (datum: SeriesDatum) => {
-            if (shouldShowMeanPerBreakdown) {
+            if (shouldShowMeanPerBreakdown || series[datum.datasetIndex]?.meta?.isMean) {
                 return
             }
             // In interval view each x-position is a different cohort, otherwise each series is.
@@ -152,7 +165,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
 
     const onPointClick = useCallback(
         (clickData: PointClickData<RetentionSeriesMeta>) => {
-            if (shouldShowMeanPerBreakdown) {
+            if (shouldShowMeanPerBreakdown || clickData.series.meta?.isMean) {
                 return
             }
             const rowIndex = isIntervalView

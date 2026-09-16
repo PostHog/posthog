@@ -28249,6 +28249,10 @@ class RetentionFilter(BaseModel):
         default=None,
         description=("The selected interval to display across all cohorts (null = show all intervals for each cohort)"),
     )
+    showMeanLine: bool | None = Field(
+        default=None,
+        description="Draw the mean across cohorts as one line on the retention graph.",
+    )
     showTrendLines: bool | None = None
     targetEntity: RetentionEntity | None = None
     timeWindowMode: TimeWindowMode | None = Field(

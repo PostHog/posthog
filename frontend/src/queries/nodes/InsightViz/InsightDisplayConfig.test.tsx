@@ -277,7 +277,7 @@ describe('InsightDisplayConfig', () => {
                     sections: {
                         General: ['On dashboards', 'Cohort labels start at', 'Style', 'Cohort line colors', 'Overlays'],
                     },
-                    overlayItems: ['Show trend lines'],
+                    overlayItems: ['Show trend lines', 'Show mean line'],
                 },
             ],
             [
