@@ -517,6 +517,7 @@ const loopsRunsRetrieve = (): ToolBase<
             query: {
                 cursor: params.cursor,
                 limit: params.limit,
+                status: params.status,
             },
         })
         return await withPostHogUrl(
@@ -751,6 +752,9 @@ const tasksList = (): ToolBase<
                     'created_by.last_name',
                     'latest_run.id',
                     'latest_run.status',
+                    'latest_run.error_message',
+                    'latest_run.created_at',
+                    'latest_run.completed_at',
                     'created_at',
                     'updated_at',
                 ])

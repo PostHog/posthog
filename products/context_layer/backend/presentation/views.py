@@ -1,7 +1,7 @@
 from typing import Literal, cast
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
@@ -30,6 +30,7 @@ from products.context_layer.backend.presentation.serializers import (
     WikiHealthReportSerializer,
     WikiPageProposalSerializer,
     WikiPageProposalWriteSerializer,
+    WikiPageQuerySerializer,
     WikiPageSerializer,
     WikiPageWriteSerializer,
     WikiTreeSerializer,
@@ -119,12 +120,53 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     raise error
 
 
+_read_page_schema = extend_schema(
+    parameters=[WikiPageQuerySerializer],
+    responses={
+        200: WikiPageSerializer,
+        400: OpenApiResponse(description="Invalid query, or the offset exceeds the page length."),
+        404: OpenApiResponse(description="No page at this path."),
+        409: OpenApiResponse(description="The wiki changed. Restart from offset zero."),
+    },
+    summary="Read a wiki page",
+)
+
+
 def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
+    query = WikiPageQuerySerializer(data=request.query_params)
+    query.is_valid(raise_exception=True)
+    params = query.validated_data
     try:
-        wiki_page = facade.get_page(organization_id, request.query_params.get("path", ""))
+        wiki_page = facade.get_page(organization_id, params["path"])
     except facade.ContextLayerStoreError as error:
         return _store_error_response(error)
-    return Response(WikiPageSerializer(wiki_page).data)
+    if params.get("head_sha") and params["head_sha"] != wiki_page.head_sha:
+        return Response(
+            {"detail": "The wiki changed. Read again from offset zero.", "head_sha": wiki_page.head_sha},
+            status=status.HTTP_409_CONFLICT,
+        )
+    offset = params["offset"]
+    length = len(wiki_page.content)
+    if offset > length:
+        return Response(
+            {"detail": "Offset exceeds the page length. Read again from offset zero."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    end = offset + params["limit"] if "limit" in params else length
+    next_offset = end if end < length else None
+    page = WikiPageSerializer(
+        {
+            "path": wiki_page.path,
+            "content": wiki_page.content[offset:end],
+            "head_sha": wiki_page.head_sha,
+            "updated_at": wiki_page.updated_at,
+            "offset": offset,
+            "total_length": length,
+            "next_offset": next_offset,
+            "complete": next_offset is None,
+        }
+    )
+    return Response(page.data)
 
 
 def _assert_run_write_in_scope(organization_id, team_id, request: Request, path: str, content: str) -> None:  # noqa: ANN001
@@ -419,15 +461,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _store_error_response(error)
         return Response(WikiHealthReportSerializer(report).data)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="path", type=str, required=True, description="Repo-relative Markdown path of the page to read."
-            )
-        ],
-        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
-        summary="Read a wiki page",
-    )
+    @_read_page_schema
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
         return _read_page(self.organization.id, request)
@@ -621,15 +655,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return ["organization:read"]
         return None
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="path", type=str, required=True, description="Repo-relative Markdown path of the page to read."
-            )
-        ],
-        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
-        summary="Read a wiki page",
-    )
+    @_read_page_schema
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
         return _read_page(self.organization.id, request)
