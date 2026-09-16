@@ -1,3 +1,4 @@
+import re
 from collections.abc import Mapping
 
 from products.reaperhog.backend.logic.artefacts import EvidenceValue
@@ -57,3 +58,20 @@ PUBLIC_EVIDENCE_KEYS = frozenset(
 
 def public_evidence(evidence: Mapping[str, EvidenceValue]) -> dict[str, EvidenceValue]:
     return {key: value for key, value in evidence.items() if key in PUBLIC_EVIDENCE_KEYS}
+
+
+# Scout text carries values that people outside this product write: cleanup rationales built from
+# variant keys, git commit subjects, knip export names. Those values reach the prompt of an agent that
+# holds repository credentials, and they reach a published pull request body. Remove control characters
+# and angle brackets, so a crafted value cannot close a delimited block and open one that imitates the
+# prompt's own control channel, and cap the length so one value cannot fill the turn. No escaping stops
+# plain-text influence, so each prompt also labels the block as data.
+_UNSAFE_SCOUT_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
+_MAX_SCOUT_CHARS = 500
+
+
+def sanitize_scout_text(value: EvidenceValue) -> EvidenceValue:
+    if not isinstance(value, str):
+        return value
+    cleaned = re.sub(r"\s+", " ", _UNSAFE_SCOUT_CHARS.sub(" ", value)).strip()
+    return cleaned[:_MAX_SCOUT_CHARS] + "…" if len(cleaned) > _MAX_SCOUT_CHARS else cleaned
