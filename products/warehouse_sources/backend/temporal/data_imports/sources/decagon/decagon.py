@@ -362,6 +362,13 @@ class _RowDeduplicator:
         return fresh
 
 
+def _usable_total(reported: Any) -> Optional[int | float]:
+    """The reported total when it can bound a walk: a finite, non-negative number."""
+    if isinstance(reported, bool) or not isinstance(reported, int | float) or not math.isfinite(reported):
+        return None
+    return reported if reported >= 0 else None
+
+
 class _RowWalk:
     """Walks one endpoint's pages, one method per pagination mode.
 
@@ -521,41 +528,45 @@ class _RowWalk:
 
             page += 1
 
-    def _page_walk_exhausted(self, page: int, rows_walked: int, page_rows: int, total: Any, batch: _Batch) -> bool:
+    def _page_walk_exhausted(self, page: int, rows_walked: int, page_rows: int, reported: Any, batch: _Batch) -> bool:
         # A page of only already-seen rows does not end the walk: the catalog can shift rows
         # between pages mid-walk, so a later page can still hold rows this walk has not kept.
         # The page bound is what stops a server that ignores the page param instead.
         if not batch.items:
             return True
-        if isinstance(total, int | float) and rows_walked >= total:
+        total = _usable_total(reported)
+        if total is not None and rows_walked >= total:
             return True
 
-        max_pages = self._max_pages(total, page_rows)
-        if max_pages is None:
+        if total is None:
             # A missing or malformed total falls back to short-page termination and a
-            # constant bound.
+            # constant cap. With nothing to check the kept rows against, the cap can only
+            # warn.
             if self._short_page(batch):
                 return True
-            max_pages = MAX_PAGES_WITHOUT_TOTAL
+            if page < MAX_PAGES_WITHOUT_TOTAL:
+                return False
+            self._logger.warning(
+                f"Decagon: {self._endpoint} walk stopped at the page cap of {MAX_PAGES_WITHOUT_TOTAL} with no "
+                f"usable total (got {reported!r}). If the synced row count looks truncated, check that the "
+                f"endpoint honors the page param."
+            )
+            return True
 
-        if page < max_pages:
-            return False
-        self._logger.warning(
-            f"Decagon: {self._endpoint} walk stopped at its page bound of {max_pages} after keeping "
-            f"{rows_walked} rows against a reported total of {total!r}. If the synced row count looks "
-            f"truncated, check that the endpoint honors the page param."
-        )
-        return True
-
-    @staticmethod
-    def _max_pages(total: Any, page_rows: int) -> Optional[int]:
         # One page more than the total needs at the server's page size, so rows that shift
         # pages mid-walk (arriving twice, kept once) do not push the last unique rows past
         # the bound. Sized from the pages received, not the size requested, because the
         # server can cap the requested size and a bound from the larger size would truncate.
-        if not isinstance(total, int | float) or page_rows <= 0:
-            return None
-        return math.ceil(total / page_rows) + 1
+        max_pages = math.ceil(total / page_rows) + 1
+        if page < max_pages:
+            return False
+        # Every page the total allows for is walked and rows are still missing: the server
+        # ignores the page param or the total does not describe the export. Completing here
+        # would report success on a partial table.
+        raise DecagonContractError(
+            f"Decagon: {self._endpoint} walked {max_pages} pages and kept {rows_walked} rows against a "
+            f"reported total of {total}. Check that the endpoint honors the page param."
+        )
 
     def _walk_offset(self) -> Iterator[list[dict[str, Any]]]:
         config = self._config
