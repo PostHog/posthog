@@ -36,10 +36,10 @@ export class MlKeyEncryption {
     constructor(
         private readonly kms: Pick<KMSClient, 'send'>,
         private readonly masterKeyArn: string,
-        maxKeys = 10_000,
-        cacheLifetimeMs = 60_000,
+        maxKeys = 100_000,
+        cacheLifetimeMs = 1_800_000,
         concurrency = 8,
-        private readonly requestsPerSecond = 100
+        private readonly requestsPerSecond = 150
     ) {
         this.cache = new LRUCache({ max: maxKeys, ttl: cacheLifetimeMs })
         this.concurrency = pLimit(concurrency)
