@@ -41,6 +41,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>
         import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
