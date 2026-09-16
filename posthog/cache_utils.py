@@ -99,7 +99,17 @@ class OrjsonJsonSerializer(BaseSerializer):
             # supports, so an out-of-range int always raises (ijl/orjson#301). stdlib json
             # writes it exactly; orjson reads it back as a lossy float, which keeps the value
             # numeric and in the right magnitude.
-            return json.dumps(value, cls=JSONEncoder).encode("utf-8")
+            fallback = json.dumps(value, cls=JSONEncoder).encode("utf-8")
+            try:
+                orjson.loads(fallback)
+            except orjson.JSONDecodeError:
+                # Two payloads make stdlib json write JSON that `loads` refuses: an integer
+                # above the float64 maximum, and a NaN or Infinity sharing the segment (orjson
+                # alone writes those as null, so they only reach here beside an out-of-range
+                # int). Re-raise so the caller drops the payload rather than store bytes no
+                # reader can parse.
+                raise err from None
+            return fallback
 
     def loads(self, value: bytes) -> Any:
         return orjson.loads(value)

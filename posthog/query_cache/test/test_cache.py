@@ -68,10 +68,23 @@ class TestQueryCacheFacade(BaseTest):
 
         assert cache.lookup().entry is None
 
-    def test_store_result_swallows_serialization_failures(self):
-        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_unserializable_test_{self.team.pk}", insight_id=1)
+    @parameterized.expand(
+        [
+            ("unsupported_type", [{"data": object()}]),
+            # stdlib json writes both of these exactly, but orjson refuses to read them back,
+            # so the out-of-range-integer fallback must reject them instead of storing an
+            # entry no reader can parse. A non-finite float only reaches the fallback beside
+            # an out-of-range int, because orjson alone writes it as null.
+            ("integer_above_float64_max", [{"data": [10**309]}]),
+            ("non_finite_float_beside_out_of_range_integer", [{"data": [2**70, float("nan")]}]),
+        ]
+    )
+    def test_store_result_swallows_serialization_failures(self, name, results):
+        cache = QueryCache(
+            team_id=self.team.pk, cache_key=f"cache_unserializable_test_{name}_{self.team.pk}", insight_id=1
+        )
 
-        assert cache.store_result(response={"results": [{"data": object()}]}, target_age=None) is False
+        assert cache.store_result(response={"results": results}, target_age=None) is False
         assert cache.lookup().entry is None
 
     def test_store_result_caches_results_holding_an_out_of_range_integer(self):
