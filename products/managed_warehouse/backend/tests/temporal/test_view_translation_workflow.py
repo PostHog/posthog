@@ -8,6 +8,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.schema import HogQLQuery
 
 from posthog.models import Team
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
@@ -28,6 +29,10 @@ from products.managed_warehouse.backend.temporal.view_translation_workflow impor
     source_query_hash,
 )
 from products.managed_warehouse.backend.view_translation import start_managed_warehouse_view_translation
+from products.managed_warehouse.backend.view_translation_status import (
+    TRINO_TARGET_NOT_READY_ERROR_TYPE,
+    TRINO_TARGET_NOT_READY_MESSAGE,
+)
 
 
 def _membership(team: Team, *, enabled: bool) -> ManagedWarehouseTeamMembership:
@@ -188,6 +193,25 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
                 str(job.id),
             )
 
+    def test_prepare_marks_an_unready_trino_target_as_expected_control_flow(self) -> None:
+        job = ManagedWarehouseViewTranslationJob.objects.create(organization=self.organization)
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.get_ready_trino_catalog_name",
+                return_value=None,
+            ),
+            pytest.raises(ApplicationError) as error_info,
+        ):
+            self.activity_environment.run(
+                prepare_managed_warehouse_view_translation_activity,
+                str(job.id),
+            )
+
+        assert error_info.value.non_retryable is True
+        assert error_info.value.type == TRINO_TARGET_NOT_READY_ERROR_TYPE
+        assert TRINO_TARGET_NOT_READY_ERROR_TYPE in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
     def test_compile_continues_after_failures_and_preserves_saved_queries(self) -> None:
         saved_queries = [
             DataWarehouseSavedQuery.objects.create(
@@ -263,9 +287,15 @@ class TestManagedWarehouseViewTranslationStarter(BaseTest):
         temporal = MagicMock()
         temporal.start_workflow = AsyncMock(return_value=MagicMock(run_id="run-123"))
 
-        with patch(
-            "products.managed_warehouse.backend.view_translation.sync_connect",
-            return_value=temporal,
+        with (
+            patch(
+                "products.managed_warehouse.backend.view_translation.get_ready_trino_catalog_name",
+                return_value="managed_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.view_translation.sync_connect",
+                return_value=temporal,
+            ),
         ):
             start_managed_warehouse_view_translation(job.id, job.organization_id)
 
@@ -275,3 +305,22 @@ class TestManagedWarehouseViewTranslationStarter(BaseTest):
         call = temporal.start_workflow.call_args
         assert call.args == ("managed-warehouse.translate-views", str(job.id))
         assert call.kwargs["id"] == job.workflow_id
+
+    def test_start_fails_the_job_without_a_workflow_when_the_trino_target_is_not_ready(self) -> None:
+        job = ManagedWarehouseViewTranslationJob.objects.create(organization=self.organization)
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.view_translation.get_ready_trino_catalog_name",
+                return_value=None,
+            ),
+            patch("products.managed_warehouse.backend.view_translation.sync_connect") as sync_connect,
+        ):
+            start_managed_warehouse_view_translation(job.id, job.organization_id)
+
+        job.refresh_from_db()
+        sync_connect.assert_not_called()
+        assert job.status == ManagedWarehouseViewTranslationJob.Status.FAILED
+        assert job.latest_error == TRINO_TARGET_NOT_READY_MESSAGE
+        assert job.finished_at is not None
+        assert job.workflow_id is None
