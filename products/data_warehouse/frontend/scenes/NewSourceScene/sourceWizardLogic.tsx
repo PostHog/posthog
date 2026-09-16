@@ -2243,9 +2243,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            const inputs = values.selectedConnector?.webhookFieldsBeforeCreate ? values.webhookFieldInputs : undefined
             try {
-                const result = await api.externalDataSources.createWebhook(values.sourceId)
+                const result = await api.externalDataSources.createWebhook(values.sourceId, inputs)
                 actions.setWebhookResult(result)
+                if (inputs && result.success) {
+                    actions.resetWebhookFieldInputs()
+                }
             } catch (e: any) {
                 actions.setWebhookResult({
                     success: false,
@@ -2257,6 +2261,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         submitWebhookFields: async () => {
             if (!values.sourceId) {
+                return
+            }
+            if (!values.webhookResult && values.selectedConnector?.webhookFieldsBeforeCreate) {
+                actions.createWebhook()
                 return
             }
 

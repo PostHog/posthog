@@ -85,6 +85,7 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
+    store_webhook_extra_inputs,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
@@ -5312,6 +5313,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
+        inputs = request.data.get("inputs") or {}
+        webhook_field_names = {f.name for f in (source.get_source_config.webhookFields or [])}
+        if not isinstance(inputs, dict) or set(inputs) - webhook_field_names:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid webhook inputs"},
+            )
+
         # A connection known to lack the grant can't be fixed by trying. The hog function is still
         # minted below so manual setup has a URL to paste; only the doomed provider round-trip (one
         # call per repository, for GitHub) is skipped.
@@ -5358,6 +5367,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": hog_fn_result.error},
             )
 
+        # Stored before the vendor call, so a failed registration still keeps the key for manual setup.
+        if inputs:
+            assert hog_fn_result.hog_function_id is not None
+            store_webhook_extra_inputs(hog_fn_result.hog_function_id, self.team_id, inputs)
+
         if blocked_reason is not None:
             return Response(
                 status=status.HTTP_200_OK,
@@ -5379,7 +5393,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "success": result.success,
                 "webhook_url": result.webhook_url,
                 "error": result.error,
-                "pending_inputs": result.pending_inputs,
+                "pending_inputs": [name for name in result.pending_inputs if name not in inputs],
             },
         )
 

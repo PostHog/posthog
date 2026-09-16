@@ -1,3 +1,5 @@
+import secrets
+import dataclasses
 from collections.abc import AsyncIterable, Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -203,8 +205,8 @@ class RevenueCatSource(
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
                 "secret API key. The integration authenticates itself by sending a custom "
-                "**Authorization** header on every request, whose value you set below. "
-                "PostHog rejects deliveries whose header does not match.\n\n"
+                "**Authorization** header on every request. PostHog generates its value and "
+                "rejects deliveries whose header does not match.\n\n"
                 "**Manual setup** (only needed if auto-registration failed):\n\n"
                 "1. Go to your **RevenueCat project** > **Integrations** > **+ New** > **Webhook**\n"
                 "2. Paste the webhook URL shown below into the **Webhook URL** field\n"
@@ -319,14 +321,18 @@ class RevenueCatSource(
     def create_webhook(
         self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
-        # The user hasn't entered the auth-header value yet on the warehouse
-        # side. Skip passing one and the surrounding flow will collect it via
-        # `webhookFields`, then bind it to the integration in place.
-        return api_client.create_webhook(
+        # RevenueCat sends whatever Authorization value we register, so mint one here instead of
+        # asking the user to invent one and paste it in both places.
+        header_value = secrets.token_urlsafe(32)
+        result = api_client.create_webhook(
             api_key=config.secret_api_key,
             project_id=config.project_id,
             webhook_url=webhook_url,
+            authorization_header_value=header_value,
         )
+        if not result.success:
+            return result
+        return dataclasses.replace(result, extra_inputs={"authorization_header": header_value}, pending_inputs=[])
 
     def webhook_inputs_updated(
         self,

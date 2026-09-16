@@ -9045,6 +9045,31 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "sync_hog_function_templates" in response.json()["message"]
 
+    @parameterized.expand([("registered", True), ("registration_failed", False)])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_stores_inputs_sent_with_the_request(self, _name, success, mock_create_webhook):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+
+        mock_create_webhook.return_value = WebhookCreationResult(
+            success=success, error=None if success else "boom", pending_inputs=["signing_secret"] if success else []
+        )
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/",
+            data={"inputs": {"signing_secret": "whsec_upfront"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] is success
+        assert response.json()["pending_inputs"] == []
+        hog_function = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_saves_extra_inputs(self, mock_create_webhook):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction

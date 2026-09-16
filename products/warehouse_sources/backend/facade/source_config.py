@@ -318,6 +318,14 @@ class SourceConfig(BaseModel):
         ),
     )
     webhookSetupCaption: str | None = None
+    webhookFieldsBeforeCreate: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the setup UI asks for the webhookFields before it registers the webhook"
+            " and sends them with the create call. For sources whose credential exists in"
+            " the vendor dashboard ahead of time (Mailgun), so the webhook never runs without it."
+        ),
+    )
 
 
 class SourceVersionDeprecation(BaseModel):

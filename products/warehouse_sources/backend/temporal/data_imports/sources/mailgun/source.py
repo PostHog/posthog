@@ -138,12 +138,13 @@ Note: Mailgun only retains events for a limited period (1 day on free plans, up 
                 "Mailgun retains events for.\n\n"
                 "Mailgun doesn't return the signing key over the API, so copy it from "
                 f"[Settings > API security]({API_SECURITY_URL}) (**HTTP webhook signing key**) into the "
-                "field below. Deliveries are rejected until it's set.\n\n"
+                "field below before creating the webhook.\n\n"
                 "**Manual setup** (only needed if automatic registration failed):\n\n"
                 "1. Go to **Send > Sending > Webhooks** in your Mailgun dashboard and pick a domain\n"
                 "2. Add the URL shown below for each event type you want to sync\n"
                 "3. Repeat for every sending domain you want covered"
             ),
+            webhookFieldsBeforeCreate=True,
             webhookFields=cast(
                 list[FieldType],
                 [

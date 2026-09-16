@@ -74,19 +74,20 @@ class TestRevenueCatSourceCreateWebhook:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"
     )
-    def test_delegates_to_api_client_without_authorization_header(self, mock_create):
-        mock_create.return_value = WebhookCreationResult(success=True, pending_inputs=["authorization_header"])
+    def test_generates_the_authorization_header_and_stores_it(self, mock_create):
+        mock_create.return_value = WebhookCreationResult(success=True)
         source = RevenueCatSource()
 
         result = source.create_webhook(_config("k", "p"), "https://example.com/h", team_id=1)
 
-        assert result.success is True
-        assert result.pending_inputs == ["authorization_header"]
-        mock_create.assert_called_once()
         kwargs = mock_create.call_args.kwargs
         assert kwargs["api_key"] == "k"
         assert kwargs["project_id"] == "p"
         assert kwargs["webhook_url"] == "https://example.com/h"
+        assert len(kwargs["authorization_header_value"]) >= 32
+        assert result.success is True
+        assert result.pending_inputs == []
+        assert result.extra_inputs == {"authorization_header": kwargs["authorization_header_value"]}
 
 
 class TestRevenueCatSourceWebhookInputsUpdated:

@@ -391,9 +391,13 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             actions.resetWebhookFieldInputs(nonSecretValues)
         },
         createWebhook: async () => {
+            const inputs = values.sourceConfig?.webhookFieldsBeforeCreate ? values.webhookFieldInputs : undefined
             try {
-                const result = await api.externalDataSources.createWebhook(props.id)
+                const result = await api.externalDataSources.createWebhook(props.id, inputs)
                 actions.setCreateWebhookResult(result)
+                if (inputs && result.success) {
+                    actions.resetWebhookFieldInputs()
+                }
                 if (result.success) {
                     if ((result.pending_inputs?.length ?? 0) === 0) {
                         lemonToast.success('Webhook created successfully')
@@ -412,6 +416,10 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             actions.loadWebhookInfo()
         },
         submitWebhookFields: async () => {
+            if (!values.webhookInfo?.exists && values.sourceConfig?.webhookFieldsBeforeCreate) {
+                actions.createWebhook()
+                return
+            }
             // Only send fields that have a truthy value. Empty strings for fields the
             // user never touched (e.g. a masked secret left alone) must not overwrite
             // the existing server value.

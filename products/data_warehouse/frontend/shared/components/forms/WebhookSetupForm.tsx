@@ -75,6 +75,9 @@ export function WebhookSetupForm({
     // A blocked connection is manual-only in practice, so it takes the same path as a source that
     // never supported auto-creation: generate the URL, then show the manual steps.
     const manualOnly = (sourceConfig?.webhookManualOnly ?? false) || !!autoCreationBlockedReason
+    // The vendor never returns this credential, but the user already has it, so collect it up front.
+    const fieldsBeforeCreate =
+        !manualOnly && !!sourceConfig?.webhookFieldsBeforeCreate && webhookFields.length > 0 && !!formLogic && !!formKey
 
     const webhookTablesList =
         webhookTables && webhookTables.length > 0 ? (
@@ -120,9 +123,20 @@ export function WebhookSetupForm({
                         .
                     </p>
                 )}
-                <LemonButton type="primary" onClick={onCreateWebhook}>
-                    {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
-                </LemonButton>
+                {fieldsBeforeCreate && sourceConfig ? (
+                    <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
+                        <div className="space-y-3 ph-no-capture">
+                            {webhookFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
+                            <LemonButton type="primary" htmlType="submit">
+                                Create webhook
+                            </LemonButton>
+                        </div>
+                    </Form>
+                ) : (
+                    <LemonButton type="primary" onClick={onCreateWebhook}>
+                        {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
+                    </LemonButton>
+                )}
                 {isWizardStep && (
                     <p className="text-sm text-muted mb-0">
                         Your source is already connected. If you'd rather not finish this now, you can leave the wizard

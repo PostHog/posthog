@@ -5843,9 +5843,13 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).withAction('webhook_info').get()
         },
         async createWebhook(
-            sourceId: ExternalDataSource['id']
+            sourceId: ExternalDataSource['id'],
+            inputs?: Record<string, any>
         ): Promise<{ success: boolean; webhook_url: string; error?: string; pending_inputs?: string[] }> {
-            return await new ApiRequest().externalDataSource(sourceId).withAction('create_webhook').create()
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('create_webhook')
+                .create(inputs ? { data: { inputs } } : undefined)
         },
         async updateWebhookInputs(
             sourceId: ExternalDataSource['id'],

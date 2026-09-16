@@ -83519,6 +83519,8 @@ export namespace Schemas {
       /** If true, the source does not support automatic webhook registration via API (e.g. Slack, where the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration. */
       webhookManualOnly?: boolean | null;
       webhookSetupCaption?: string | null;
+      /** If true, the setup UI asks for the webhookFields before it registers the webhook and sends them with the create call. For sources whose credential exists in the vendor dashboard ahead of time (Mailgun), so the webhook never runs without it. */
+      webhookFieldsBeforeCreate?: boolean | null;
       /** Vendor API version labels this source supports. */
       versions: string[];
       /** Version used when a source instance pins none. */
