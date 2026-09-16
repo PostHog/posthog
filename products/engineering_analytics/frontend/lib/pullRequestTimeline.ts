@@ -66,9 +66,10 @@ export interface TimelinePush {
     at: string
 }
 
-/** A draft whose timeline starts at creation was never marked ready, open or closed. */
+/** A timeline that starts at creation has no ready event behind it: the pull request opened ready, is a
+ *  draft, or its issue events are not synced. "Opened" is true in all three cases. */
 export function timelineStartLabel(pr: PRTimelineApi): string {
-    return pr.is_draft && dayjs(pr.started_at).isSame(pr.created_at) ? 'Opened' : 'Ready for review'
+    return dayjs(pr.started_at).isSame(pr.created_at) ? 'Opened' : 'Ready for review'
 }
 
 /** A push before the start is left out, because the track begins there. */

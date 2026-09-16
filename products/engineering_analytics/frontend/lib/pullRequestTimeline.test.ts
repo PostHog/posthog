@@ -12,7 +12,7 @@ function at(hours: number): string {
 
 function pr(
     segments: [Kind, number, number][],
-    options: { state?: PRTimelineApi['state']; draft?: boolean } = {}
+    options: { state?: PRTimelineApi['state']; draft?: boolean; openedAtStart?: boolean } = {}
 ): PRTimelineApi {
     const state = options.state ?? 'open'
     return {
@@ -22,7 +22,7 @@ function pr(
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         state,
         is_draft: !!options.draft,
-        created_at: at(segments[0][1]),
+        created_at: at(segments[0][1] - (options.openedAtStart ? 0 : 1)),
         started_at: at(segments[0][1]),
         merged_at: state === 'merged' ? at(segments[segments.length - 1][2]) : null,
         pushes: 1,
@@ -95,10 +95,15 @@ describe('pullRequestTimeline', () => {
     })
 
     it.each([
-        ['an open draft', { draft: true }, 'Opened', undefined],
-        ['a closed pull request', { state: 'closed' as const }, 'Ready for review', 'Closed'],
-        ['a draft closed before it was ever ready', { state: 'closed' as const, draft: true }, 'Opened', 'Closed'],
-    ])('labels the ends of %s', (_, options, startLabel, endLabel) => {
+        ['went ready after it opened', { state: 'closed' as const }, 'Ready for review', 'Closed'],
+        [
+            'starts at opening with no ready event',
+            { state: 'closed' as const, openedAtStart: true },
+            'Opened',
+            'Closed',
+        ],
+        ['is an open draft', { draft: true, openedAtStart: true }, 'Opened', undefined],
+    ])('labels the ends of a pull request that %s', (_, options, startLabel, endLabel) => {
         const milestones = timelineMilestones(pr([[Kind.Draft, 0, 3]], options), [])
 
         expect(milestones[0].label).toBe(startLabel)
