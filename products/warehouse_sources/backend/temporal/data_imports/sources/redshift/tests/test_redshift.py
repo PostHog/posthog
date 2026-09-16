@@ -468,6 +468,29 @@ class TestGetTableMetadata:
         assert table.columns[0].numeric_precision == 10
         assert table.columns[0].numeric_scale == 2
 
+    def test_reads_columns_from_pg_catalog_when_information_schema_hides_the_relation(self, impl, cursor):
+        # Without the fallback a materialized view the role can read but `information_schema`
+        # does not list synced with an empty Arrow schema.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = (True,)
+        cursor.__iter__.return_value = iter([])
+        cursor.fetchall.return_value = [
+            ("public", "daily_totals", "day", "date", "NO"),
+            ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+        ]
+
+        table = impl.get_table_metadata(cursor, "public", "daily_totals")
+
+        assert table.type == "materialized_view"
+        assert [(c.name, c.data_type, c.nullable) for c in table.columns] == [
+            ("day", "date", False),
+            ("total", "numeric", True),
+        ]
+        assert (table.columns[1].numeric_precision, table.columns[1].numeric_scale) == (18, 2)
+        catalog_sql, catalog_params = cursor.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert catalog_params == {"schema": "public", "table": "daily_totals", "internal_column": "padb_internal%"}
+
     def test_excludes_redshift_internal_columns_from_arrow_schema(self, impl, cursor):
         # Materialized views expose `padb_internal_*` bookkeeping columns in
         # `information_schema.columns`, but `SELECT *` never returns them. Leaving them in the
@@ -942,17 +965,25 @@ class TestHasDuplicatePrimaryKeys:
 # ---------------------------------------------------------------------------
 
 
+def _columns_conn(*fetches: list) -> tuple[MagicMock, MagicMock]:
+    """A connection whose cursor answers successive `fetchall` calls with `fetches`, then nothing."""
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.fetchall.side_effect = [*fetches, [], [], []]
+    conn.cursor.return_value = cur
+    return conn, cur
+
+
 class TestGetColumns:
     def test_returns_columns_grouped_by_table(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [
-            ("public", "users", "id", "integer", "NO"),
-            ("public", "users", "email", "varchar", "YES"),
-            ("public", "orders", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("public", "users", "id", "integer", "NO"),
+                ("public", "users", "email", "varchar", "YES"),
+                ("public", "orders", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(), names=None)
 
@@ -961,43 +992,33 @@ class TestGetColumns:
             "users": [("id", "integer", False), ("email", "varchar", True)],
             "orders": [("id", "bigint", False)],
         }
-        executed_sql = cur.execute.call_args.args[0]
+        executed_sql = cur.execute.call_args_list[0].args[0]
         assert "table_schema = %(schema)s" in executed_sql
 
     def test_returns_empty_when_no_rows(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, _cur = _columns_conn([])
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
 
     def test_excludes_redshift_internal_columns(self, impl):
         # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
         # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = []
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([])
 
         impl.get_columns(conn, _make_config(), names=None)
 
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "column_name NOT LIKE %(internal_column)s" in executed_sql
         assert executed_params["internal_column"] == "padb_internal%"
 
     def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
         # Same table name in two schemas must stay distinct.
-        cur.fetchall.return_value = [
-            ("analytics", "users", "id", "integer", "NO"),
-            ("public", "users", "id", "bigint", "NO"),
-        ]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn(
+            [
+                ("analytics", "users", "id", "integer", "NO"),
+                ("public", "users", "id", "bigint", "NO"),
+            ]
+        )
 
         result = impl.get_columns(conn, _make_config(schema=""), names=None)
 
@@ -1005,17 +1026,13 @@ class TestGetColumns:
             "analytics.users": [("id", "integer", False)],
             "public.users": [("id", "bigint", False)],
         }
-        executed_sql, executed_params = cur.execute.call_args.args
+        executed_sql, executed_params = cur.execute.call_args_list[0].args
         assert "table_schema NOT IN" in executed_sql
         assert "pg_temp_%" in executed_sql
         assert set(executed_params.values()) >= {"pg_catalog", "information_schema", "pg_internal", "pg_automv"}
 
     def test_blank_schema_with_qualified_names_filters_by_pair(self, impl):
-        conn = MagicMock()
-        cur = MagicMock()
-        cur.__enter__.return_value = cur
-        cur.fetchall.return_value = [("analytics", "users", "id", "integer", "NO")]
-        conn.cursor.return_value = cur
+        conn, cur = _columns_conn([("analytics", "users", "id", "integer", "NO")])
 
         result = impl.get_columns(conn, _make_config(schema=""), names=["analytics.users"])
 
@@ -1024,6 +1041,72 @@ class TestGetColumns:
         assert "table_schema = %(sch_0)s AND table_name = %(tbl_0)s" in executed_sql
         assert executed_params["sch_0"] == "analytics"
         assert executed_params["tbl_0"] == "users"
+
+    def test_requested_relation_hidden_from_information_schema_is_read_from_pg_catalog(self, impl):
+        # A materialized view the role can read may still have no `information_schema.columns`
+        # rows, which made "edit sync method" report the relation as missing or unreadable.
+        conn, cur = _columns_conn(
+            [("public", "orders", "id", "bigint", "NO")],
+            [
+                ("public", "daily_totals", "day", "date", "NO"),
+                ("public", "daily_totals", "total", "numeric(18,2)", "YES"),
+                ("public", "daily_totals", "label", "character varying(256)", "YES"),
+                ("public", "daily_totals", "refreshed_at", "timestamp without time zone", "YES"),
+            ],
+        )
+
+        result = impl.get_columns(conn, _make_config(schema=""), names=["public.orders", "public.daily_totals"])
+
+        assert result == {
+            "public.orders": [("id", "bigint", False)],
+            "public.daily_totals": [
+                ("day", "date", False),
+                ("total", "numeric", True),
+                ("label", "character varying", True),
+                ("refreshed_at", "timestamp without time zone", True),
+            ],
+        }
+        catalog_sql, catalog_params = cur.execute.call_args.args
+        assert "pg_catalog.pg_attribute" in catalog_sql
+        assert "n.nspname = %(sch_0)s AND c.relname = %(tbl_0)s" in catalog_sql
+        assert catalog_params["tbl_0"] == "daily_totals"
+        assert "orders" not in catalog_params.values()
+
+    def test_full_listing_adds_materialized_views_missing_from_information_schema(self, impl):
+        # A schema refresh disables the sync of every table it no longer lists, so a hidden
+        # materialized view has to come back from `svv_mv_info` + `pg_catalog`. One that
+        # `information_schema` did list must not be read twice.
+        conn, cur = _columns_conn(
+            [
+                ("public", "orders", "id", "bigint", "NO"),
+                ("public", "listed_mv", "id", "bigint", "NO"),
+            ],
+            [("public", "listed_mv"), ("public", "hidden_mv")],
+            [("public", "hidden_mv", "id", "integer", "NO")],
+        )
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {
+            "orders": [("id", "bigint", False)],
+            "listed_mv": [("id", "bigint", False)],
+            "hidden_mv": [("id", "integer", False)],
+        }
+        mv_sql = cur.execute.call_args_list[1].args[0]
+        assert "svv_mv_info" in mv_sql
+        catalog_params = cur.execute.call_args.args[1]
+        assert catalog_params["name_0"] == "hidden_mv"
+        assert "listed_mv" not in catalog_params.values()
+
+    def test_full_listing_keeps_information_schema_rows_when_mv_probe_fails(self, impl):
+        conn, cur = _columns_conn([("public", "orders", "id", "bigint", "NO")])
+        cur.execute.side_effect = [cur, Exception("permission denied for relation svv_mv_info")]
+        conn.info.transaction_status = TransactionStatus.INERROR
+
+        result = impl.get_columns(conn, _make_config(), names=None)
+
+        assert result == {"orders": [("id", "bigint", False)]}
+        conn.rollback.assert_called_once()
 
 
 class TestGetPrimaryKeys:
