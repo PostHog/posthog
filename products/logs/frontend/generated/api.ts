@@ -39,6 +39,10 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSourceApi,
+    LogsSourceSetupApi,
+    LogsSourcesHealthApi,
+    LogsSourcesListParams,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -47,11 +51,13 @@ import type {
     PaginatedLogsMetricRuleListApi,
     PaginatedLogsRetentionRuleListApi,
     PaginatedLogsSamplingRuleListApi,
+    PaginatedLogsSourceListApi,
     PaginatedLogsViewListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsMetricRuleApi,
     PatchedLogsRetentionRuleApi,
     PatchedLogsSamplingRuleApi,
+    PatchedLogsSourceApi,
     PatchedLogsViewApi,
     PatchedTeamLogsConfigApi,
     TeamLogsConfigApi,
@@ -1056,6 +1062,147 @@ export const logsServicesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsServicesRequestApi),
+    })
+}
+
+export const getLogsSourcesListUrl = (projectId: string, params?: LogsSourcesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/sources/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/sources/`
+}
+
+export const logsSourcesList = async (
+    projectId: string,
+    params?: LogsSourcesListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsSourceListApi> => {
+    return apiMutator<PaginatedLogsSourceListApi>(getLogsSourcesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSourcesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/sources/`
+}
+
+export const logsSourcesCreate = async (
+    projectId: string,
+    logsSourceApi: NonReadonly<LogsSourceApi>,
+    options?: RequestInit
+): Promise<LogsSourceApi> => {
+    return apiMutator<LogsSourceApi>(getLogsSourcesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSourceApi),
+    })
+}
+
+export const getLogsSourcesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sources/${id}/`
+}
+
+export const logsSourcesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsSourceApi> => {
+    return apiMutator<LogsSourceApi>(getLogsSourcesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSourcesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sources/${id}/`
+}
+
+export const logsSourcesUpdate = async (
+    projectId: string,
+    id: string,
+    logsSourceApi: NonReadonly<LogsSourceApi>,
+    options?: RequestInit
+): Promise<LogsSourceApi> => {
+    return apiMutator<LogsSourceApi>(getLogsSourcesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSourceApi),
+    })
+}
+
+export const getLogsSourcesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sources/${id}/`
+}
+
+export const logsSourcesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsSourceApi?: NonReadonly<PatchedLogsSourceApi>,
+    options?: RequestInit
+): Promise<LogsSourceApi> => {
+    return apiMutator<LogsSourceApi>(getLogsSourcesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsSourceApi),
+    })
+}
+
+export const getLogsSourcesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sources/${id}/`
+}
+
+export const logsSourcesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsSourcesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLogsSourcesSetupRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/sources/${id}/setup/`
+}
+
+/**
+ * Values to configure on the customer's Firehose stream so it delivers to this source.
+ */
+export const logsSourcesSetupRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsSourceSetupApi> => {
+    return apiMutator<LogsSourceSetupApi>(getLogsSourcesSetupRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSourcesHealthRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/sources/health/`
+}
+
+/**
+ * Delivery status of every source in this environment over the last 24 hours, from ingestion metrics.
+ */
+export const logsSourcesHealthRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSourcesHealthApi> => {
+    return apiMutator<LogsSourcesHealthApi>(getLogsSourcesHealthRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

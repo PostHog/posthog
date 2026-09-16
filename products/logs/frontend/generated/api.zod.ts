@@ -2040,6 +2040,126 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The services aggregation query to execute.'),
 })
 
+export const logsSourcesCreateBodyNameMax = 255
+
+export const logsSourcesCreateBodyEnabledDefault = true
+export const logsSourcesCreateBodyConfigOneRegionRegExp = new RegExp('^[a-z]{2}(-gov|-iso[a-z]\*)?-[a-z]+-\\d$')
+export const logsSourcesCreateBodyConfigOneDefaultLabelsMaxOne = 1024
+
+export const logsSourcesCreateBodyConfigOneServiceNameOverridesMaxOne = 512
+
+export const LogsSourcesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsSourcesCreateBodyNameMax).describe('User-visible label for this source.'),
+    provider: zod
+        .enum(['aws_cloudwatch'])
+        .describe('\* `aws_cloudwatch` - Amazon CloudWatch')
+        .describe('Cloud provider the logs come from.\n\n\* `aws_cloudwatch` - Amazon CloudWatch'),
+    enabled: zod
+        .boolean()
+        .default(logsSourcesCreateBodyEnabledDefault)
+        .describe('When false, ingestion drops deliveries that carry this source id.'),
+    config: zod
+        .object({
+            region: zod
+                .string()
+                .regex(logsSourcesCreateBodyConfigOneRegionRegExp)
+                .describe('AWS region of the CloudWatch log groups and the Firehose stream, e.g. us-east-1.'),
+            default_labels: zod
+                .record(zod.string(), zod.string().max(logsSourcesCreateBodyConfigOneDefaultLabelsMaxOne))
+                .optional()
+                .describe('Resource attributes added to every log row from this source, e.g. {\"env\": \"prod\"}.'),
+            service_name_overrides: zod
+                .record(zod.string(), zod.string().max(logsSourcesCreateBodyConfigOneServiceNameOverridesMaxOne))
+                .optional()
+                .describe(
+                    'Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value.'
+                ),
+        })
+        .describe('Provider-specific settings.'),
+})
+
+export const logsSourcesUpdateBodyNameMax = 255
+
+export const logsSourcesUpdateBodyEnabledDefault = true
+export const logsSourcesUpdateBodyConfigOneRegionRegExp = new RegExp('^[a-z]{2}(-gov|-iso[a-z]\*)?-[a-z]+-\\d$')
+export const logsSourcesUpdateBodyConfigOneDefaultLabelsMaxOne = 1024
+
+export const logsSourcesUpdateBodyConfigOneServiceNameOverridesMaxOne = 512
+
+export const LogsSourcesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsSourcesUpdateBodyNameMax).describe('User-visible label for this source.'),
+    provider: zod
+        .enum(['aws_cloudwatch'])
+        .describe('\* `aws_cloudwatch` - Amazon CloudWatch')
+        .describe('Cloud provider the logs come from.\n\n\* `aws_cloudwatch` - Amazon CloudWatch'),
+    enabled: zod
+        .boolean()
+        .default(logsSourcesUpdateBodyEnabledDefault)
+        .describe('When false, ingestion drops deliveries that carry this source id.'),
+    config: zod
+        .object({
+            region: zod
+                .string()
+                .regex(logsSourcesUpdateBodyConfigOneRegionRegExp)
+                .describe('AWS region of the CloudWatch log groups and the Firehose stream, e.g. us-east-1.'),
+            default_labels: zod
+                .record(zod.string(), zod.string().max(logsSourcesUpdateBodyConfigOneDefaultLabelsMaxOne))
+                .optional()
+                .describe('Resource attributes added to every log row from this source, e.g. {\"env\": \"prod\"}.'),
+            service_name_overrides: zod
+                .record(zod.string(), zod.string().max(logsSourcesUpdateBodyConfigOneServiceNameOverridesMaxOne))
+                .optional()
+                .describe(
+                    'Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value.'
+                ),
+        })
+        .describe('Provider-specific settings.'),
+})
+
+export const logsSourcesPartialUpdateBodyNameMax = 255
+
+export const logsSourcesPartialUpdateBodyEnabledDefault = true
+export const logsSourcesPartialUpdateBodyConfigOneRegionRegExp = new RegExp('^[a-z]{2}(-gov|-iso[a-z]\*)?-[a-z]+-\\d$')
+export const logsSourcesPartialUpdateBodyConfigOneDefaultLabelsMaxOne = 1024
+
+export const logsSourcesPartialUpdateBodyConfigOneServiceNameOverridesMaxOne = 512
+
+export const LogsSourcesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsSourcesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this source.'),
+    provider: zod
+        .enum(['aws_cloudwatch'])
+        .describe('\* `aws_cloudwatch` - Amazon CloudWatch')
+        .optional()
+        .describe('Cloud provider the logs come from.\n\n\* `aws_cloudwatch` - Amazon CloudWatch'),
+    enabled: zod
+        .boolean()
+        .default(logsSourcesPartialUpdateBodyEnabledDefault)
+        .describe('When false, ingestion drops deliveries that carry this source id.'),
+    config: zod
+        .object({
+            region: zod
+                .string()
+                .regex(logsSourcesPartialUpdateBodyConfigOneRegionRegExp)
+                .describe('AWS region of the CloudWatch log groups and the Firehose stream, e.g. us-east-1.'),
+            default_labels: zod
+                .record(zod.string(), zod.string().max(logsSourcesPartialUpdateBodyConfigOneDefaultLabelsMaxOne))
+                .optional()
+                .describe('Resource attributes added to every log row from this source, e.g. {\"env\": \"prod\"}.'),
+            service_name_overrides: zod
+                .record(zod.string(), zod.string().max(logsSourcesPartialUpdateBodyConfigOneServiceNameOverridesMaxOne))
+                .optional()
+                .describe(
+                    'Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value.'
+                ),
+        })
+        .optional()
+        .describe('Provider-specific settings.'),
+})
+
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
 export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
