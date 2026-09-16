@@ -108,6 +108,10 @@ function runSubjectButtons(): HTMLElement[] {
     return queryAll('[data-attr="data-quality-overview-run-subject"]')
 }
 
+function settingsLinkHref(): string | null | undefined {
+    return document.querySelector('[data-attr="data-quality-overview-settings"]')?.getAttribute('href')
+}
+
 function isSpinning(button: HTMLElement): boolean {
     return !!button.querySelector('.LemonIcon--spin, [class*="Spinner"]')
 }
@@ -231,6 +235,20 @@ describe('DataQualityOverview', () => {
 
         expect(await screen.findByText('Table, view, or metric')).toBeTruthy()
         expect(document.querySelector('.ReactModal__Content')?.textContent).toContain('Browse tables and views')
+    })
+
+    it('links to the data quality settings from both the populated and the empty toolbar', async () => {
+        await renderOverview()
+
+        expect(settingsLinkHref()).toMatch(/\/settings\/environment-data-quality$/)
+
+        cleanup()
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        render(<DataQualityOverview />)
+        await screen.findByText('No checks yet')
+
+        expect(settingsLinkHref()).toMatch(/\/settings\/environment-data-quality$/)
     })
 
     it('keeps the existing subject-scoped editor free of a subject picker', async () => {
