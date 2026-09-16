@@ -369,6 +369,8 @@ rules:
                               |Subscription
                               |SubscriptionContext
                               |SubscriptionDelivery
+                              |SourceAlert
+                              |SourceAlertConfiguration
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -781,6 +783,8 @@ rules:
                         |Subscription
                         |SubscriptionContext
                         |SubscriptionDelivery
+                        |SourceAlert
+                        |SourceAlertConfiguration
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
