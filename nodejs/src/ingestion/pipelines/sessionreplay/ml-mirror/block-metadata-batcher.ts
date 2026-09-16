@@ -8,9 +8,9 @@ import { isWellFormedRow, selectBlockMetadataFields } from './block-metadata-col
 import { parseBlockMetadataMessages } from './block-metadata-message'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlEncryptedEnvelope, encryptEnvelope } from './keys/crypto'
+import { MlKafkaEncryption, ingestionVersion } from './keys/transport'
 import { MlParquetSinkMetrics } from './metrics'
-import { MlEncryptedEnvelope, encryptEnvelope } from './privacy/crypto'
-import { MlKafkaEncryption, ingestionVersion } from './privacy/transport'
 import { EncryptedReplayIndex, encryptReplayIndex } from './replay-index'
 
 /** The subset of the Kafka consumer the batcher needs: storing offsets it has durably written. */
@@ -37,7 +37,7 @@ export class BlockMetadataBatcher {
         private readonly offsetStore: OffsetStore,
         private readonly options: BlockMetadataBatcherOptions,
         nowMs: number,
-        private readonly privacy?: MlKafkaEncryption
+        private readonly keyManager?: MlKafkaEncryption
     ) {
         this.lastFlushMs = nowMs
     }
@@ -47,15 +47,15 @@ export class BlockMetadataBatcher {
         for (const message of messages) {
             this.bufferedBytes += message.value?.length ?? 0
         }
-        const decoded = this.privacy
-            ? await this.privacy.read(messages, 'metadata')
+        const decoded = this.keyManager
+            ? await this.keyManager.read(messages, 'metadata')
             : messages.map((message) => {
                   if (ingestionVersion(message) === 2) {
-                      throw new Error('ML v2 metadata requires privacy configuration')
+                      throw new Error('ML v2 metadata requires key manager configuration')
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
-        MlParquetSinkMetrics.incRowsRejected('privacy', messages.length - decoded.length)
+        MlParquetSinkMetrics.incRowsRejected('key_missing', messages.length - decoded.length)
         let encryptedRows = 0
         for (const { message, key, invalid } of decoded) {
             if (invalid) {

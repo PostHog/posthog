@@ -1,6 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { MlWireVersion } from './privacy/schema'
+import { MlWireVersion } from './keys/schema'
 
 export type MlProducedLane = 'image' | 'url' | 'metadata'
 
@@ -18,8 +18,8 @@ export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | '
 export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
 /** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
-export type MlPrivacyPhase = 'prepare' | 'commit' | 'publish'
-export type MlPrivacyRequest =
+export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
+export type MlKeyRequest =
     | 'kms_generate'
     | 'kms_decrypt'
     | 'kms_wait'
@@ -126,14 +126,14 @@ export class MlMirrorMetrics {
      * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
-    private static readonly mlPrivacyPhaseDuration = new Histogram({
-        name: 'recording_blob_ingestion_v2_ml_privacy_phase_duration_ms',
+    private static readonly mlKeyPhaseDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_key_phase_duration_ms',
         help: 'Wall time of one ML key phase per Kafka batch. The consumer handles one batch at a time, so these phases plus anonymization are the batch wall time; a phase that dominates while pod CPU stays low is the lane waiting on KMS, DynamoDB or Kafka rather than working',
         labelNames: ['phase'],
         buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, Infinity],
     })
-    private static readonly mlPrivacyRequestDuration = new Histogram({
-        name: 'recording_blob_ingestion_v2_ml_privacy_request_duration_ms',
+    private static readonly mlKeyRequestDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_key_request_duration_ms',
         help: 'Duration of one KMS or DynamoDB request from the ML key store, and for kms_wait the time a KMS request spent queued behind the per-pod rate limit before it was sent',
         labelNames: ['request'],
         buckets: [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, Infinity],
@@ -149,12 +149,12 @@ export class MlMirrorMetrics {
         buckets: [1024, 8192, 65536, 262144, 524288, 1_000_000],
     })
 
-    public static observeMlPrivacyPhase(phase: MlPrivacyPhase, ms: number): void {
-        this.mlPrivacyPhaseDuration.labels(phase).observe(ms)
+    public static observeMlKeyPhase(phase: MlKeyPhase, ms: number): void {
+        this.mlKeyPhaseDuration.labels(phase).observe(ms)
     }
 
-    public static observeMlPrivacyRequest(request: MlPrivacyRequest, ms: number): void {
-        this.mlPrivacyRequestDuration.labels(request).observe(ms)
+    public static observeMlKeyRequest(request: MlKeyRequest, ms: number): void {
+        this.mlKeyRequestDuration.labels(request).observe(ms)
     }
 
     public static observeMlAnonymizeDuration(impl: MlAnonymizeImpl, ms: number, route: MlAnonymizeRoute = ''): void {
@@ -310,7 +310,7 @@ export class MlParquetSinkMetrics {
         this.rowsParsed.inc(count)
     }
     public static incRowsRejected(
-        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'privacy',
+        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'key_missing',
         count = 1
     ): void {
         this.rowsRejected.labels(reason).inc(count)
