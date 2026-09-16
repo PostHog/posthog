@@ -58,13 +58,6 @@ const BRIEFING_COMPONENTS: Partial<Components> = {
   ),
 };
 
-/** Splits a leading `# Title` off the body so the section can wear it. */
-function splitTitle(markdown: string): { title: string | null; body: string } {
-  const match = /^\s*#\s+(.+?)\s*\n+([\s\S]*)$/.exec(markdown);
-  if (!match) return { title: null, body: markdown };
-  return { title: match[1], body: match[2] };
-}
-
 function missingSections(markdown: string): typeof SECTIONS {
   const headings = new Set(
     [...markdown.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1].toLowerCase()),
@@ -72,7 +65,11 @@ function missingSections(markdown: string): typeof SECTIONS {
   return SECTIONS.filter((s) => !headings.has(s.title.toLowerCase()));
 }
 
-/** The free text of CONTEXT.md, read as a document with the edit tools on hover. */
+/**
+ * The free text of CONTEXT.md, opened in place under its row. Reads as a
+ * document; the tools to change it sit under the text, where a reader
+ * arrives when done.
+ */
 export function KnowledgeBriefing({
   knowledge,
   onSave,
@@ -81,11 +78,9 @@ export function KnowledgeBriefing({
   startEditing = false,
 }: KnowledgeBriefingProps) {
   const [draft, setDraft] = useState<string | null>(
-    startEditing ? TEMPLATE : null,
+    startEditing ? knowledge.trim() || TEMPLATE : null,
   );
   const editing = draft !== null;
-  const hasKnowledge = knowledge.trim().length > 0;
-  const { title, body } = useMemo(() => splitTitle(knowledge), [knowledge]);
   const missing = useMemo(
     () => (editing ? missingSections(draft) : missingSections(knowledge)),
     [editing, draft, knowledge],
@@ -102,103 +97,82 @@ export function KnowledgeBriefing({
     setDraft(`${base}${base ? "\n\n" : ""}## ${heading}\n\n`);
   };
 
-  return (
-    <section className="group/briefing flex min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <Text size="xs" weight="medium" variant="muted">
-          {title && !editing ? title : "About"}
-        </Text>
-        <div className="flex items-center gap-1">
-          {editing ? (
-            <>
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => setDraft(null)}
-                disabled={isSaving}
-              >
-                Discard
-              </Button>
-              <Button
-                variant="primary"
-                size="xs"
-                onClick={save}
-                disabled={isSaving || draft === knowledge}
-              >
-                {isSaving ? <Spinner /> : null}
-                Save
-              </Button>
-            </>
-          ) : (
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-focus-within/briefing:opacity-100 group-hover/briefing:opacity-100">
-              <Button variant="default" size="xs" onClick={onAskAgent}>
-                <SparkleIcon size={13} />
-                Update with agent
-              </Button>
-              <Button
-                variant="default"
-                size="xs"
-                onClick={() => setDraft(hasKnowledge ? knowledge : TEMPLATE)}
-              >
-                <PencilSimpleIcon size={13} />
-                Edit
-              </Button>
-            </div>
-          )}
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="h-[380px] overflow-hidden rounded-lg border border-border bg-background">
+          <CodeMirrorEditor
+            content={draft}
+            filePath="CONTEXT.md"
+            onContentChange={setDraft}
+          />
         </div>
-      </div>
-
-      {editing ? (
-        <div className="flex flex-col gap-2">
-          <div className="h-[420px] overflow-hidden rounded-lg border border-border bg-background">
-            <CodeMirrorEditor
-              content={draft}
-              filePath="CONTEXT.md"
-              onContentChange={setDraft}
-            />
-          </div>
-          {missing.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {missing.length > 0 ? (
               <Text size="xxs" variant="muted" className="mr-1">
                 Add a section
               </Text>
-              {missing.map((section) => (
-                <Button
-                  key={section.title}
-                  variant="outline"
-                  size="xs"
-                  title={section.hint}
-                  onClick={() => appendSection(section.title)}
-                >
-                  <PlusIcon size={11} />
-                  {section.title}
-                </Button>
-              ))}
-            </div>
-          ) : null}
+            ) : null}
+            {missing.map((section) => (
+              <Button
+                key={section.title}
+                variant="outline"
+                size="xs"
+                title={section.hint}
+                onClick={() => appendSection(section.title)}
+              >
+                <PlusIcon size={11} />
+                {section.title}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => setDraft(null)}
+              disabled={isSaving}
+            >
+              Discard
+            </Button>
+            <Button
+              variant="primary"
+              size="xs"
+              onClick={save}
+              disabled={isSaving || draft === knowledge}
+            >
+              {isSaving ? <Spinner /> : null}
+              Save
+            </Button>
+          </div>
         </div>
-      ) : hasKnowledge ? (
-        <div className="max-w-[68ch] text-xs leading-relaxed">
-          <MarkdownRenderer
-            content={body}
-            componentsOverride={BRIEFING_COMPONENTS}
-          />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setDraft(TEMPLATE)}
-          className="flex items-baseline gap-2 border-border border-y py-4 text-left transition-colors hover:bg-fill-hover"
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="max-w-[68ch] text-xs leading-relaxed">
+        <MarkdownRenderer
+          content={knowledge}
+          componentsOverride={BRIEFING_COMPONENTS}
+        />
+      </div>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="link-muted"
+          size="xs"
+          onClick={() => setDraft(knowledge)}
         >
-          <Text size="sm" weight="medium">
-            Nothing written yet.
-          </Text>
-          <Text size="xs" variant="muted">
-            Start from {SECTIONS.map((s) => s.title.toLowerCase()).join(", ")},
-            or update with an agent.
-          </Text>
-        </button>
-      )}
-    </section>
+          <PencilSimpleIcon size={12} />
+          Edit
+        </Button>
+        <Button variant="link-muted" size="xs" onClick={onAskAgent}>
+          <SparkleIcon size={12} />
+          Update with agent
+        </Button>
+      </div>
+    </div>
   );
 }

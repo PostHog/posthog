@@ -32,9 +32,8 @@ import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
-import { KnowledgeBriefing } from "./KnowledgeBriefing";
+import { KnowledgeList } from "./KnowledgeList";
 import { RawContextEditor } from "./RawContextEditor";
-import { ReferencesRail } from "./ReferencesRail";
 import { SignalsMargin } from "./SignalsMargin";
 
 type View = "overview" | "source";
@@ -48,10 +47,11 @@ interface SpaceContextPageProps {
 }
 
 /**
- * The Context tab of a space: a document with a live margin. The document is
- * what people author, goals first and the briefing under them. The margin is
- * what is observed: the objects the space owns with their live state, and the
- * signals about them. One CONTEXT.md underneath.
+ * The Context tab of a space, read top to bottom in three zones. Goals: what
+ * the space is trying to move. Business knowledge: everything a person told
+ * it, the briefing and every doc and object as one list of rows. Signals:
+ * what agents and source products found about those rows. One CONTEXT.md
+ * underneath.
  */
 export function SpaceContextPage({
   channelId,
@@ -183,7 +183,7 @@ export function SpaceContextPage({
         </div>
       ) : (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-8 pt-8 pb-20">
+          <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 px-8 pt-8 pb-24">
             {store.saveError ? (
               <Notice
                 tone="warning"
@@ -239,32 +239,27 @@ export function SpaceContextPage({
                 onWrite={() => setWriting(true)}
               />
             ) : (
-              <div className="grid @3xl:grid-cols-[minmax(0,1fr)_288px] gap-x-16 gap-y-10">
-                <div className="flex min-w-0 flex-col gap-10">
-                  <GoalsList
-                    goals={doc.goals}
-                    onChange={(goals) => saveDoc({ ...doc, goals })}
-                    onAskAgentForMeasure={askAgentForMeasure}
-                    isSaving={store.isSaving}
-                  />
-                  <KnowledgeBriefing
-                    knowledge={doc.knowledge}
-                    onSave={(knowledge) => saveDoc({ ...doc, knowledge })}
-                    onAskAgent={() => setAgentOpen(true)}
-                    isSaving={store.isSaving}
-                    startEditing={writing && isBlank}
-                  />
-                </div>
-                <aside className="@3xl:sticky @3xl:top-0 flex min-w-0 flex-col gap-8 @3xl:self-start">
-                  <ReferencesRail
-                    links={doc.links}
-                    objects={doc.objects}
-                    onLinksChange={(links) => saveDoc({ ...doc, links })}
-                    onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
-                    isSaving={store.isSaving}
-                  />
-                  <SignalsMargin objects={doc.objects} />
-                </aside>
+              <div className="flex min-w-0 flex-col gap-12">
+                <GoalsList
+                  goals={doc.goals}
+                  onChange={(goals) => saveDoc({ ...doc, goals })}
+                  onAskAgentForMeasure={askAgentForMeasure}
+                  isSaving={store.isSaving}
+                />
+                <KnowledgeList
+                  knowledge={doc.knowledge}
+                  links={doc.links}
+                  objects={doc.objects}
+                  onKnowledgeSave={(knowledge) =>
+                    saveDoc({ ...doc, knowledge })
+                  }
+                  onLinksChange={(links) => saveDoc({ ...doc, links })}
+                  onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
+                  onAskAgent={() => setAgentOpen(true)}
+                  isSaving={store.isSaving}
+                  startWriting={writing && isBlank}
+                />
+                <SignalsMargin objects={doc.objects} />
               </div>
             )}
           </div>

@@ -49,7 +49,7 @@ export function SignalsMargin({ objects }: SignalsMarginProps) {
           Nothing about these objects in the last 7 days.
         </Text>
       ) : (
-        <ul className="flex flex-col divide-y divide-border">
+        <ul className="flex flex-col divide-y divide-border border-border border-y">
           {signals.map((signal, index) => (
             <SignalRow
               key={`${signal.sourceId}-${signal.timestamp}-${index}`}
@@ -65,8 +65,9 @@ export function SignalsMargin({ objects }: SignalsMarginProps) {
 /** One fact: where it came from and when on the first line, the fact under it. */
 function SignalRow({ signal }: { signal: SpaceSignal }) {
   const meta = getSourceProductMeta(signal.sourceProduct);
-  const source =
-    meta?.label ?? humanize(signal.sourceType || signal.sourceProduct);
+  const source = signal.sourceType
+    ? humanize(signal.sourceType)
+    : (meta?.label ?? humanize(signal.sourceProduct));
   return (
     <li className="flex flex-col gap-1 py-2.5">
       <span className="flex items-center gap-1.5 text-muted-foreground text-xxs">
