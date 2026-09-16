@@ -48,6 +48,13 @@ class TaggedItemQuerySet(models.QuerySet):
         # nosemgrep: orm-field-injection -- the name comes from the closed TAGGABLE_MODELS registry, never from input
         return self.filter(**{f"{legacy_field_for(model)}_id__in": pks})
 
+    def bulk_create(self, objs: Iterable["TaggedItem"], *args: Any, **kwargs: Any) -> list["TaggedItem"]:
+        """Fill the generic pointer on each row, because bulk_create never calls save()."""
+        objs = list(objs)
+        for obj in objs:
+            obj.sync_generic_columns()
+        return super().bulk_create(objs, *args, **kwargs)
+
 
 class TaggedItem(ModelActivityMixin, UUIDTModel):
     """
@@ -233,11 +240,14 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         legacy_field = self.related_object_type
         return getattr(self, legacy_field) if legacy_field else None
 
-    def _sync_generic_columns(self) -> None:
+    def sync_generic_columns(self) -> None:
         """Fill the generic pointer from whichever per-model foreign key is set.
 
         Reads `<field>_id` rather than `<field>`, so it resolves the target without loading it.
         """
+        self.content_type = None
+        self.object_id = None
+        self.object_uuid = None
         for legacy_field in RELATED_OBJECTS:
             related_id = getattr(self, f"{legacy_field}_id", None)
             if related_id is None:
@@ -255,7 +265,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        self._sync_generic_columns()
+        self.sync_generic_columns()
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:

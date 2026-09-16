@@ -7,10 +7,11 @@ differ in type, and Django puts that cast on the TaggedItem side, which makes th
 on the object column unusable for every `tagged_items__...` lookup. Two typed columns
 keep both joins cast-free.
 
-`object_id` is a plain integer even though `Project.id` is a bigint. Only Project pays
-for that, with a widening cast that cannot fail. Sizing the column to bigint instead would
-move the cast onto every other integer-keyed model, and make it a narrowing cast that can
-overflow.
+`object_id` is a plain integer even though `Project.id` is a bigint. Project ids are
+drawn from `posthog_team_id_seq`, an integer sequence, so they always fit. Only Project
+pays for the mismatch, with a widening cast that cannot fail. Sizing the column to bigint
+instead would move the cast onto every other integer-keyed model, and make it a narrowing
+cast that can overflow.
 
 This module holds no Django model imports, so it is safe to import from anywhere,
 including `posthog/models/tagged_item.py` itself.
@@ -116,7 +117,7 @@ def base_model_for(model: type[models.Model]) -> type[models.Model]:
 
 def content_type_for(model: type[models.Model]) -> ContentType:
     """The content type a tag on this model is stored under, always the registered base."""
-    return ContentType.objects.get_for_model(base_model_for(model))
+    return content_type_for_entry(require_taggable(model))
 
 
 def content_type_for_entry(entry: TaggableModel) -> ContentType:

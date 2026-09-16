@@ -132,6 +132,37 @@ class TestTaggedItemGenericColumns(BaseTest):
         assert tagged_item.content_type != ContentType.objects.get_for_model(EnterpriseEventDefinition)
         assert tagged_item.object_uuid == event_definition.id
 
+    def test_bulk_create_fills_the_generic_columns(self):
+        """bulk_create never calls save(), and the Zendesk import writes ticket tags through it."""
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        event_definition = EventDefinition.objects.create(team=self.team, name="event")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+
+        TaggedItem.objects.bulk_create(
+            [TaggedItem(tag=tag, dashboard=dashboard), TaggedItem(tag=tag, event_definition=event_definition)]
+        )
+
+        by_type = {item.related_object_type: item for item in TaggedItem.objects.filter(tag=tag)}
+        assert by_type["dashboard"].object_id == dashboard.id
+        assert by_type["dashboard"].content_type == ContentType.objects.get_for_model(Dashboard)
+        assert by_type["event_definition"].object_uuid == event_definition.id
+        assert by_type["event_definition"].content_type == ContentType.objects.get_for_model(EventDefinition)
+        assert all(item.team_id == tag.team_id for item in by_type.values())
+
+    def test_retargeting_a_row_clears_the_other_object_column(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="dashboard")
+        event_definition = EventDefinition.objects.create(team=self.team, name="event")
+        tag = Tag.objects.create(name="tag", team_id=self.team.id)
+        tagged_item = TaggedItem.objects.create(dashboard_id=dashboard.id, tag_id=tag.id)
+
+        tagged_item.dashboard = None
+        tagged_item.event_definition = event_definition
+        tagged_item.sync_generic_columns()
+
+        assert tagged_item.object_id is None
+        assert tagged_item.object_uuid == event_definition.id
+        assert tagged_item.content_type == ContentType.objects.get_for_model(EventDefinition)
+
     def test_helpers_report_the_tagged_object(self):
         insight = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team_id=self.team.id)
         tag = Tag.objects.create(name="tag", team_id=self.team.id)

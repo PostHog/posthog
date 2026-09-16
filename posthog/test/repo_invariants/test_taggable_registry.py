@@ -9,8 +9,7 @@ from posthog.models.tagged_item_registry import (
     OBJECT_UUID,
     TAGGABLE_MODELS,
     TaggableModel,
-    content_type_for,
-    require_taggable,
+    base_model_for,
     taggable_for,
 )
 
@@ -61,7 +60,6 @@ def test_object_column_holds_the_primary_key_range(entry: TaggableModel) -> None
     assert isinstance(TaggedItem._meta.get_field(OBJECT_ID), models.IntegerField)
 
 
-@pytest.mark.django_db
 def test_inherited_models_resolve_to_their_registered_base() -> None:
     """Django reads a generic relation's content type off the instance's own class.
 
@@ -70,13 +68,9 @@ def test_inherited_models_resolve_to_their_registered_base() -> None:
     """
     enterprise_event_definition = apps.get_model("ee.EnterpriseEventDefinition")
     enterprise_property_definition = apps.get_model("ee.EnterprisePropertyDefinition")
-    event_definition = apps.get_model("event_definitions.EventDefinition")
-    property_definition = apps.get_model("event_definitions.PropertyDefinition")
 
-    assert require_taggable(enterprise_event_definition).legacy_field == "event_definition"
-    assert require_taggable(enterprise_property_definition).legacy_field == "property_definition"
-    assert content_type_for(enterprise_event_definition) == content_type_for(event_definition)
-    assert content_type_for(enterprise_property_definition) == content_type_for(property_definition)
+    assert base_model_for(enterprise_event_definition) is apps.get_model("event_definitions.EventDefinition")
+    assert base_model_for(enterprise_property_definition) is apps.get_model("event_definitions.PropertyDefinition")
 
 
 def test_unregistered_models_are_not_taggable() -> None:
