@@ -23,6 +23,8 @@ import { TestIdCell } from '../components/TestIdCell'
 import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactHoursLabel } from '../lib/format'
 import { githubFileUrl } from '../lib/github'
+import { DELIVERY_DATE_OPTIONS, DeliverySections } from './DeliverySections'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import {
@@ -54,8 +56,12 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
         mergeTrendSeries,
         window,
         ownerTeam,
+        deliveryScope,
+        sourceId,
     } = useValues(teamDetailLogic)
     const { setWindow } = useActions(teamDetailLogic)
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
     const { activeSource } = useValues(engineeringAnalyticsLogic)
     const { timezone } = useValues(teamLogic)
     const repository = activeSource?.repo ?? null
@@ -110,7 +116,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
 
     return (
         <SceneContent className="pb-16">
-            <SceneTitleSection name="Team CI health" resourceType={{ type: 'health' }} />
+            <SceneTitleSection name="Team" resourceType={{ type: 'health' }} />
             <EntityHeader
                 icon={<IconPeople />}
                 title={isUnowned ? 'Unowned surfaces' : ownerTeam}
@@ -131,6 +137,25 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 ]}
                 showDate={false}
             />
+
+            {/* Delivery carries its own window, because it reaches back further than the test-health
+                figures below: those scan an equal-length prior window and the backend caps them at 30
+                days. 'unowned' is an ownership gap rather than an org team, so it has no delivery. */}
+            {!isUnowned && (
+                <ScopePanel
+                    controls={
+                        <DateFilter
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
+                            dateOptions={DELIVERY_DATE_OPTIONS}
+                            size="small"
+                        />
+                    }
+                >
+                    <DeliverySections scope={deliveryScope} scopeLabel="This team" sourceId={sourceId} />
+                </ScopePanel>
+            )}
 
             <ScopePanel
                 busy={healthRowLoading || mergeTrendLoading}

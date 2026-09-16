@@ -6,7 +6,6 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,15 +20,10 @@ import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
-import { DeliverySections } from './DeliverySections'
+import { DELIVERY_DATE_OPTIONS, DeliverySections } from './DeliverySections'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
-
-// Relative presets only: the backend caps a window at a year, and every preset here stays inside it.
-const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
-)
 
 export const scene: SceneExport<AuthorLogicProps> = {
     component: EngineeringAnalyticsAuthorScene,
@@ -101,7 +95,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         dateFrom={dateFrom}
                         dateTo={dateTo}
                         onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={AUTHOR_DATE_OPTIONS}
+                        dateOptions={DELIVERY_DATE_OPTIONS}
                         size="small"
                     />
                 }

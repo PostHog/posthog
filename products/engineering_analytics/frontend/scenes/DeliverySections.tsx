@@ -4,6 +4,7 @@
 
 import { useActions, useValues } from 'kea'
 
+import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -18,6 +19,11 @@ import { DeliveryScope } from '../lib/deliveryScope'
 import { compactMinutes, compactUsd, percent } from '../lib/format'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
 import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
+
+// Relative presets only: the backend caps a window at a year, and every preset here stays inside it.
+export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
+    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
+)
 
 const formatRatio = (value: number): string => value.toFixed(1)
 
