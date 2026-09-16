@@ -112,6 +112,21 @@ _CONTEXT_WRITE_SCOPES = ["task:read", "task:write", LOOP_CONTEXT_INTERNAL_SCOPE]
 _CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
 
 
+CONTEXT_MISSING_BODY = (
+    "This loop keeps a context up to date, but that context is gone. Point the loop at another one, "
+    "or turn its context updates off, then run it again."
+)
+
+
+class LoopContextUnavailable(Exception):
+    """The context channel or canvas a loop publishes into is gone.
+
+    Deterministic: the deliverable does not come back on its own, so a fire that hits this must
+    end as a recorded outcome the owner is told about, not as an exception the trigger path
+    retries until the loop dies without a trace.
+    """
+
+
 @dataclass
 class LoopFireResult:
     created: bool
@@ -348,6 +363,8 @@ def fire_loop(
         observe_loop_fire(reason=decision.reason)
         if decision.reason in ("rate_capped", "team_rate_capped"):
             dispatch_loop_event(loop, "needs_attention", {"reason": decision.reason})
+        if decision.reason == "context_missing":
+            dispatch_loop_event(loop, "needs_attention", {"reason": decision.reason, "body": CONTEXT_MISSING_BODY})
         if decision.created:
             logger.info(
                 "loop_fire_created",
@@ -477,7 +494,12 @@ def _fire_loop_committed(
                 )
             # ALLOW falls through and creates a new run alongside the active ones.
 
-        task, task_run = _create_loop_task_and_run(loop, trigger, trigger_context)
+        try:
+            task, task_run = _create_loop_task_and_run(loop, trigger, trigger_context)
+        except LoopContextUnavailable:
+            # Raised before the fire writes anything, so the transaction is still clean and the
+            # outcome can be recorded here. Retrying would only hit the same deleted deliverable.
+            return _record_fire_outcome(fire, "context_missing")
         fire.outcome_reason = "created"
         fire.outcome_task_id = task.id
         fire.outcome_task_run_id = task_run.id
@@ -695,9 +717,9 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         _resolve_feed_channel_id(loop) if outputs["update_context"] or outputs["post_to_feed"] else None
     )
     if outputs["update_context"] and resolved_channel_id is None:
-        raise ValueError("The loop's context channel is no longer available.")
+        raise LoopContextUnavailable("The loop's context channel is no longer available.")
     if outputs["canvas_id"] and not context_canvas_is_visible(loop.team_id, outputs["canvas_id"], loop.created_by_id):
-        raise ValueError("The loop's context canvas is no longer available.")
+        raise LoopContextUnavailable("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)

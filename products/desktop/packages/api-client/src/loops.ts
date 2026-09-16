@@ -37,7 +37,8 @@ export namespace LoopSchemas {
     | "disabled"
     | "gate_blocked"
     | "owner_inactive"
-    | "owner_changed";
+    | "owner_changed"
+    | "context_missing";
   export type LoopRunStatusEnum =
     | "not_started"
     | "queued"
