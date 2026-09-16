@@ -165,7 +165,10 @@ field definitions. The response is a dict keyed by source type. Each entry descr
     the usual way this goes wrong.
   - Branches nest in the payload too. A `select` container carries the chosen option under `selection`, a
     `switch-group` carries `enabled`, and the branch's own fields sit beside that key. Do not flatten them to the
-    top level.
+    top level. Flattening is not always an error, which is what makes it dangerous. `"auth_type": "keypair"` with
+    the branch fields beside it parses as the default `password` branch, and a `region` value with no
+    `use_custom_region` container parses as the group turned off. Both create the source on the wrong branch with
+    no message that says so.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
 
