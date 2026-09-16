@@ -41,7 +41,7 @@ runs:
               org-slug: posthog-inc
               variant: ${{ inputs.variant }}
               # Pinned rather than 'latest', which costs an extra github.com request to follow the release redirect.
-              cli-version: '0.13.7'
+              cli-version: '0.15.4'
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}
               token: ${{ inputs.token }}
@@ -65,7 +65,7 @@ runs:
               junit-paths: ${{ inputs.junit-paths }}
               org-slug: posthog-inc
               variant: ${{ inputs.variant }}
-              cli-version: '0.13.7'
+              cli-version: '0.15.4'
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}
               token: ${{ inputs.token }}

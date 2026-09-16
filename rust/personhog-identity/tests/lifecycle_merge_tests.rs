@@ -146,8 +146,8 @@ impl MergeHarness {
         .expect("insert foreign op");
         sqlx::query(&format!(
             r#"
-            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status)
-            VALUES ($1, $2, $3, $4, 'victim', 'marked')
+            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+            VALUES ($1, $2, $3, $4, 'victim', 'marked', true)
             "#,
             self.ctx.tables.lifecycle_op_person
         ))
@@ -1029,7 +1029,7 @@ async fn a_stale_drivers_fold_refusal_defers_instead_of_unfencing_the_new_owners
     // could land and be destroyed. The stale drive defers to the row.
     let err = h
         .driver
-        .run_step(&h.ctx.pool, &stale_row)
+        .run_step(&h.ctx.pools, &stale_row)
         .await
         .expect_err("the stale drive defers rather than settling");
     assert!(matches!(err, SagaError::Busy));
@@ -1091,7 +1091,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     .expect("insert parked op");
 
     let sweep_engine = Engine::new(
-        h.ctx.pool.clone(),
+        h.ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(3600),
             execute_timeout: std::time::Duration::from_secs(10),
@@ -1164,7 +1164,7 @@ async fn a_fold_without_a_live_target_mark_is_refused_and_the_op_aborts() {
     // bug). Unlike a scripted status, this refusal comes from the sim's
     // own verification, the same check the real leader runs.
     sqlx::query(
-        "UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1 AND role = 'target'",
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1 AND role = 'target'",
     )
     .bind(op_id)
     .execute(&h.ctx.pool)
@@ -1768,7 +1768,7 @@ async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
     .await
     .expect("insert rival op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(rival)
     .bind(h.ctx.team_id as i32)
@@ -1798,11 +1798,13 @@ async fn a_conflict_is_not_recorded_and_a_plain_retry_merges_once_released() {
 
     // The rival releases; a retry under the SAME op id must re-run the
     // merge rather than replaying the recorded contention.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
-        .bind(rival)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("release rival mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1",
+    )
+    .bind(rival)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("release rival mark");
 
     let retry = service
         .merge_persons(Request::new(rpc_request(
@@ -1841,7 +1843,7 @@ async fn a_completed_op_answers_its_embedded_conflict_settled() {
     .await
     .expect("insert rival op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(rival)
     .bind(h.ctx.team_id as i32)
@@ -1875,11 +1877,13 @@ async fn a_completed_op_answers_its_embedded_conflict_settled() {
 
     // Even released, a retry replays the frozen answer rather than
     // re-running the held pair.
-    sqlx::query("UPDATE lifecycle_op_person SET status = 'cleared' WHERE op_id = $1")
-        .bind(rival)
-        .execute(&h.ctx.pool)
-        .await
-        .expect("release rival mark");
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET status = 'cleared', mark_active = false WHERE op_id = $1",
+    )
+    .bind(rival)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("release rival mark");
     let retry = service
         .merge_persons(Request::new(rpc_request(
             h.ctx.team_id,

@@ -1,4 +1,3 @@
-import { EyeSlashIcon, PauseIcon } from "@phosphor-icons/react";
 import {
   Button,
   Dialog,
@@ -13,9 +12,6 @@ import {
   RadioGroup,
   RadioGroupItem,
   Textarea,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import {
   DISMISSAL_REASON_OPTIONS,
@@ -98,6 +94,33 @@ function DismissReportDialogBody({
   const hasOpenPr =
     Boolean(report.implementation_pr_url) &&
     report.implementation_pr_merged !== true;
+  const pauseOptions = DISMISSAL_REASON_OPTIONS.filter((option) =>
+    isDismissalReasonSnooze(option.value),
+  );
+  const hideOptions = DISMISSAL_REASON_OPTIONS.filter(
+    (option) => !isDismissalReasonSnooze(option.value),
+  );
+  const outcome =
+    reason == null
+      ? null
+      : pausesReport
+        ? `The ${reportNoun} comes back if another matching signal arrives.`
+        : `Matching signals won't surface the ${reportNoun} again.${hasOpenPr ? " The open pull request will be closed." : ""}`;
+
+  const renderOption = (
+    option: (typeof DISMISSAL_REASON_OPTIONS)[number],
+    disabled: boolean,
+  ): React.JSX.Element => {
+    const id = `${fieldId}-${option.value}`;
+    return (
+      <div key={option.value} className="flex items-center gap-2">
+        <RadioGroupItem value={option.value} id={id} disabled={disabled} />
+        <Label htmlFor={id} className="cursor-pointer font-normal">
+          {option.label}
+        </Label>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -108,12 +131,7 @@ function DismissReportDialogBody({
             : `Dismiss report "${title}"?`}
         </DialogTitle>
         <DialogDescription>
-          {pausesReport
-            ? `This dismisses the ${reportNoun} until another matching signal arrives.`
-            : `This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
-          {hasOpenPr && !pausesReport
-            ? " The open pull request will be closed."
-            : ""}
+          {`This dismisses the ${reportNoun} for everyone in this project. Your feedback is saved and helps the agent.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -124,55 +142,68 @@ function DismissReportDialogBody({
             onValueChange={(value) =>
               setReason(value as DismissalReasonOptionValue)
             }
+            className="gap-4"
           >
-            {DISMISSAL_REASON_OPTIONS.map((option) => {
-              const pauses = isDismissalReasonSnooze(option.value);
-              const disabled = pauses && snoozeDisabledReason !== null;
-              const id = `${fieldId}-${option.value}`;
-              const explanation = disabled
-                ? snoozeDisabledReason
-                : pauses
-                  ? "Dismiss this report until another matching signal arrives."
-                  : "Dismiss this report so matching signals do not surface it again.";
-              return (
-                <div key={option.value} className="flex items-center gap-2">
-                  <RadioGroupItem
-                    value={option.value}
-                    id={id}
-                    disabled={disabled}
-                  />
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Label
-                          htmlFor={id}
-                          className="flex cursor-pointer items-center gap-1.5 font-normal"
-                        />
-                      }
-                    >
-                      {option.label}
-                      {pauses ? (
-                        <PauseIcon size={12} className="text-(--gray-9)" />
-                      ) : (
-                        <EyeSlashIcon size={12} className="text-(--gray-9)" />
-                      )}
-                    </TooltipTrigger>
-                    <TooltipContent side="right">{explanation}</TooltipContent>
-                  </Tooltip>
-                </div>
-              );
-            })}
+            <fieldset
+              aria-describedby={
+                snoozeDisabledReason ? `${fieldId}-pause-disabled` : undefined
+              }
+              className="flex flex-col gap-2"
+            >
+              <legend className="mb-2 font-medium text-(--gray-11) text-xs">
+                Pause until a new matching signal
+              </legend>
+              {snoozeDisabledReason ? (
+                <span
+                  id={`${fieldId}-pause-disabled`}
+                  className="-mt-2 text-(--gray-9) text-xs"
+                >
+                  {snoozeDisabledReason}
+                </span>
+              ) : null}
+              {pauseOptions.map((option) =>
+                renderOption(option, snoozeDisabledReason !== null),
+              )}
+            </fieldset>
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-2 font-medium text-(--gray-11) text-xs">
+                Don't surface again
+              </legend>
+              {hideOptions.map((option) => renderOption(option, false))}
+            </fieldset>
           </RadioGroup>
 
-          <Textarea
-            autoFocus={initialReason != null}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Optional: add detail"
-            rows={3}
-            maxLength={4000}
-            disabled={isSubmitting}
-          />
+          <div className="flex flex-col gap-2">
+            <Label
+              htmlFor={`${fieldId}-note`}
+              className="font-medium text-(--gray-11) text-xs"
+            >
+              Details (optional)
+            </Label>
+            <Textarea
+              id={`${fieldId}-note`}
+              autoFocus={initialReason != null}
+              value={note}
+              onChange={(event) => {
+                const value = event.target.value;
+                setNote(value);
+                if (reason === null && value.trim()) {
+                  setReason("other");
+                }
+              }}
+              placeholder="What should the agent know?"
+              rows={3}
+              maxLength={4000}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <p
+            aria-live="polite"
+            className="text-muted-foreground text-xs empty:hidden"
+          >
+            {outcome}
+          </p>
         </div>
       </DialogBody>
 

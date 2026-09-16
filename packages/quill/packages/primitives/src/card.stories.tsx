@@ -4,6 +4,7 @@ import { MoreVertical, UserIcon } from 'lucide-react'
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table'
 
 const meta = {
     title: 'Primitives/Card',
@@ -125,22 +126,48 @@ export const Sizes: Story = {
     ),
 } satisfies Story
 
-// `flush` lets a full-bleed child (here a tinted block standing in for a Table or
-// chart) run to the card's rounded edges: the card drops its section gap + bottom
-// padding and the CardContent its inline padding, while the header keeps its own.
+const REVENUE_ROWS = [
+    { plan: 'Free', customers: 1204, revenue: '$0' },
+    { plan: 'Pay-as-you-go', customers: 312, revenue: '$18,420' },
+    { plan: 'Enterprise', customers: 14, revenue: '$96,000' },
+]
+
+// `flush` lets a full-bleed child (here a Table) run to the card's rounded edges: the card
+// drops its section gap + bottom padding and the CardContent its inline padding, while the
+// header keeps its own. The Table's `size` matches the Card's so edge columns line up with
+// the header title.
 export const Flush: Story = {
     render: () => (
-        <Card flush className="max-w-sm">
-            <CardHeader>
-                <CardTitle>Revenue</CardTitle>
-                <CardDescription>Last 30 days</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <div className="flex h-40 items-center justify-center bg-muted text-muted-foreground">
-                    Full-bleed content (Table / chart)
-                </div>
-            </CardContent>
-        </Card>
+        <div className="flex max-w-md flex-col gap-4">
+            {(['default', 'sm'] as const).map((size) => (
+                <Card key={size} size={size} flush>
+                    <CardHeader>
+                        <CardTitle>Revenue</CardTitle>
+                        <CardDescription>Last 30 days · size="{size}"</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Table size={size} fullWidth>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead expand>Plan</TableHead>
+                                    <TableHead align="right">Customers</TableHead>
+                                    <TableHead align="right">Revenue</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {REVENUE_ROWS.map((row) => (
+                                    <TableRow key={row.plan}>
+                                        <TableCell expand>{row.plan}</TableCell>
+                                        <TableCell align="right">{row.customers.toLocaleString()}</TableCell>
+                                        <TableCell align="right">{row.revenue}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
     ),
 } satisfies Story
 

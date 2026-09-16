@@ -53,6 +53,7 @@ from .amazon_s3.source import AmazonS3Source
 from .amazon_selling_partner.source import AmazonSellingPartnerSource
 from .amazon_sns.source import AmazonSNSSource
 from .amazon_sqs.source import AmazonSQSSource
+from .amplemarket.source import AmplemarketSource
 from .amplitude.source import AmplitudeSource
 from .anodot_cost.source import AnodotCostSource
 from .anomalo.source import AnomaloSource
@@ -966,6 +967,7 @@ from .qualtrics.source import QualtricsSource
 from .qualys_vmdr.source import QualysVmdrSource
 from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
+from .quo.source import QuoSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource

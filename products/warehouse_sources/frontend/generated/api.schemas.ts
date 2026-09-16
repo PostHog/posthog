@@ -1900,6 +1900,8 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Smartlead` - Smartlead
  * * `Substack` - Substack
  * * `ElectricityMaps` - ElectricityMaps
+ * * `Amplemarket` - Amplemarket
+ * * `Quo` - Quo
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3244,6 +3246,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Smartlead: 'Smartlead',
     Substack: 'Substack',
     ElectricityMaps: 'ElectricityMaps',
+    Amplemarket: 'Amplemarket',
+    Quo: 'Quo',
 } as const
 
 /**
@@ -4734,7 +4738,9 @@ export interface ExternalDataSourceCreateApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -4924,11 +4930,269 @@ export interface ExternalDataSourceBulkUpdateSchemasApi {
 }
 
 /**
+ * * `posthog` - posthog
+ * * `self_managed` - self_managed
+ */
+export type ManagementModeEnumApi = (typeof ManagementModeEnumApi)[keyof typeof ManagementModeEnumApi]
+
+export const ManagementModeEnumApi = {
+    Posthog: 'posthog',
+    SelfManaged: 'self_managed',
+} as const
+
+export interface CdcStatusApi {
+    /** Whether CDC is enabled on this source. */
+    enabled: boolean
+    /** Who owns the slot and publication: PostHog or the customer.
+     *
+     * * `posthog` - posthog
+     * * `self_managed` - self_managed */
+    management_mode?: ManagementModeEnumApi
+    /** Replication slot PostHog consumes from. Empty when unset. */
+    slot_name?: string
+    /** Publication PostHog reads changes from. Empty when unset. */
+    publication_name?: string
+    /** Lag in MB above which the UI warns. */
+    lag_warning_threshold_mb?: number
+    /** Lag in MB above which the UI alerts. */
+    lag_critical_threshold_mb?: number
+    /** True when a non-retryable failure paused the extraction schedule; the UI then offers Resume instead of Repair. Degrades to false when the schedule lookup fails. */
+    schedule_paused?: boolean
+    /** Whether the replication slot exists on the source, when the source was reachable. */
+    slot_exists?: boolean
+    /** Whether the publication exists on the source, when the source was reachable. */
+    publication_exists?: boolean
+    /**
+     * Current slot lag in bytes, when the source was reachable.
+     * @nullable
+     */
+    lag_bytes?: number | null
+    /** Tables in the publication, when the source was reachable and a publication exists. */
+    published_tables?: string[]
+}
+
+export interface CreateWebhookResponseApi {
+    /** Whether the webhook was created and registered with the source. */
+    success: boolean
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /**
+     * Why creation failed, when success is false.
+     * @nullable
+     */
+    error: string | null
+    /** Inputs the external service needs before delivery works. Submit via update_webhook_inputs. */
+    pending_inputs: string[]
+}
+
+export interface DeleteWebhookResponseApi {
+    /** Whether the webhook delivery function was deleted. */
+    success: boolean
+    /** Whether the webhook was also removed from the external service. False when the source config was already gone and only the local function was cleaned up, or when the external call failed. */
+    external_deleted: boolean
+    /**
+     * Why the external deletion failed, when external_deleted is false.
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
  * Response shape for a source's destination set.
  */
 export interface SourceDestinationsApi {
     /** Destinations every table on this source syncs to. */
     destination_ids: string[]
+}
+
+export interface CdcEnableResponseApi {
+    /** Whether CDC was enabled on the source. */
+    success: boolean
+    /** Whether the extraction and cleanup schedules could be created. False means CDC is enabled but scheduling failed; the schedule self-heals on the first CDC schema toggle. */
+    schedules_ready: boolean
+}
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export interface SimpleExternalDataSchemaApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    label?: string | null
+    should_sync?: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | BlankEnumApi | null
+}
+
+export interface ExternalDataJobSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly finished_at: string | null
+    readonly status: string
+    readonly schema: SimpleExternalDataSchemaApi
+    /** @nullable */
+    readonly rows_synced: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+     * @nullable
+     */
+    readonly cdc_write_mode: string | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+     * @nullable
+     */
+    readonly billable: boolean | null
+    /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
+    readonly destination_ids: readonly string[]
+}
+
+export interface UpdateWebhookInputsResponseApi {
+    /** Whether the inputs were saved and pushed to the external service. */
+    success: boolean
+}
+
+/**
+ * Resource name to external schema id, as configured on the webhook function.
+ */
+export type WebhookInfoResponseApiSchemaMapping = { [key: string]: string }
+
+/**
+ * * `hog` - hog
+ * * `liquid` - liquid
+ */
+export type HogFunctionTemplatingEnumApi =
+    (typeof HogFunctionTemplatingEnumApi)[keyof typeof HogFunctionTemplatingEnumApi]
+
+export const HogFunctionTemplatingEnumApi = {
+    Hog: 'hog',
+    Liquid: 'liquid',
+} as const
+
+export interface InputsItemApi {
+    value?: unknown
+    templating?: HogFunctionTemplatingEnumApi
+    readonly bytecode: readonly unknown[]
+    readonly order: number
+    readonly transpiled: unknown
+}
+
+/**
+ * Current webhook function inputs keyed by the source's declared webhook field names.
+ */
+export type WebhookInfoResponseApiInputs = { [key: string]: InputsItemApi }
+
+/**
+ * Delivery health reported by the pipeline: `state` and `tokens` counters.
+ */
+export type WebhookHogFunctionApiStatus = { [key: string]: unknown }
+
+export interface WebhookHogFunctionApi {
+    /** ID of the webhook delivery hog function. */
+    id: string
+    /** Name of the webhook delivery hog function. */
+    name: string
+    /** Whether the webhook delivery function is enabled. */
+    enabled: boolean
+    /** When the webhook delivery function was created (ISO 8601). */
+    created_at: string
+    /** Delivery health reported by the pipeline: `state` and `tokens` counters. */
+    status: WebhookHogFunctionApiStatus
+}
+
+export interface WebhookExternalStatusApi {
+    /** Whether the webhook exists on the external service. */
+    exists: boolean
+    /**
+     * The webhook URL on the external service.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * Events the external webhook is subscribed to.
+     * @nullable
+     */
+    enabled_events: string[] | null
+    /**
+     * Delivery health as the external service reports it (e.g. 'enabled').
+     * @nullable
+     */
+    status: string | null
+    /**
+     * Description the external service holds for it.
+     * @nullable
+     */
+    description: string | null
+    /**
+     * When the external webhook was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * Vendor API version the endpoint delivers at, when pinned.
+     * @nullable
+     */
+    api_version: string | null
+    /**
+     * Read error the external service returned, if any.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface WebhookInfoResponseApi {
+    /** Whether the source type supports webhooks at all. When false, the other fields are absent. */
+    supports_webhooks: boolean
+    /** Whether a PostHog webhook delivery function exists for this source yet. */
+    exists: boolean
+    /**
+     * Set when the connection's credentials can never create the webhook, so only manual setup is left. Null means 'not known to be blocked'.
+     * @nullable
+     */
+    auto_creation_blocked_reason: string | null
+    /** The webhook delivery function, present once the webhook exists. */
+    hog_function: WebhookHogFunctionApi | null
+    /**
+     * The PostHog endpoint the external service delivers events to.
+     * @nullable
+     */
+    webhook_url: string | null
+    /** Resource name to external schema id, as configured on the webhook function. */
+    schema_mapping: WebhookInfoResponseApiSchemaMapping
+    /** Current webhook function inputs keyed by the source's declared webhook field names. */
+    inputs?: WebhookInfoResponseApiInputs
+    /** Live webhook state as the external service reports it, when it could be read. */
+    external_status: WebhookExternalStatusApi | null
+    /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
+    missing_events?: string[]
+}
+
+export interface CdcPrerequisitesResponseApi {
+    /** Whether the source satisfies every CDC prerequisite. */
+    valid: boolean
+    /** Unmet prerequisites, empty when valid is true. */
+    errors: string[]
 }
 
 /**
@@ -6311,7 +6575,9 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7684,7 +7950,9 @@ export interface DatabaseSchemaRequestApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9032,7 +9300,9 @@ export interface DirectConnectionSourceOptionApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10465,7 +10735,9 @@ export interface SourcePreviewRequestApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11848,7 +12120,9 @@ export interface SourceSetupApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13238,7 +13512,9 @@ export interface SourceCredentialCreateApi {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
-     * * `ElectricityMaps` - ElectricityMaps */
+     * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -13253,6 +13529,247 @@ export interface SourceCredentialApi {
     created_at: string
     /** When the stored credentials expire. Unconsumed credentials are unusable past this time. */
     expires_at: string
+}
+
+export type DataWarehouseSourceCategoryApi =
+    (typeof DataWarehouseSourceCategoryApi)[keyof typeof DataWarehouseSourceCategoryApi]
+
+export const DataWarehouseSourceCategoryApi = {
+    Databases: 'Databases',
+    FileStorage: 'File storage',
+    Advertising: 'Advertising',
+    MarketingEmail: 'Marketing & email',
+    Crm: 'CRM',
+    Sales: 'Sales',
+    CustomerSupport: 'Customer support',
+    PaymentsBilling: 'Payments & billing',
+    FinanceAccounting: 'Finance & accounting',
+    Analytics: 'Analytics',
+    EngineeringMonitoring: 'Engineering & monitoring',
+    Productivity: 'Productivity',
+    HRRecruiting: 'HR & recruiting',
+    Communication: 'Communication',
+    ECommerce: 'E-commerce',
+} as const
+
+export type SourceFieldInputConfigTypeEnumApi =
+    (typeof SourceFieldInputConfigTypeEnumApi)[keyof typeof SourceFieldInputConfigTypeEnumApi]
+
+export const SourceFieldInputConfigTypeEnumApi = {
+    Text: 'text',
+    Email: 'email',
+    Search: 'search',
+    Url: 'url',
+    Password: 'password',
+    Time: 'time',
+    Number: 'number',
+    Textarea: 'textarea',
+} as const
+
+export interface SourceFieldInputConfigApi {
+    caption?: string | null
+    label: string
+    name: string
+    placeholder: string
+    required: boolean
+    /** Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field. */
+    secret: boolean
+    type: SourceFieldInputConfigTypeEnumApi
+}
+
+export type SourceFieldSelectConfigConverterApi =
+    (typeof SourceFieldSelectConfigConverterApi)[keyof typeof SourceFieldSelectConfigConverterApi]
+
+export const SourceFieldSelectConfigConverterApi = {
+    StrToInt: 'str_to_int',
+    StrToBool: 'str_to_bool',
+    StrToOptionalInt: 'str_to_optional_int',
+} as const
+
+export interface SourceFieldOauthConfigApi {
+    kind: string
+    label: string
+    name: string
+    required: boolean
+    requiredScopes?: string | null
+    type: 'oauth'
+}
+
+export interface SourceFieldOauthAccountSelectConfigApi {
+    caption?: string | null
+    /** Keep the field in the config tree (so its value parses and survives job_inputs redaction) without rendering it in the source form. Used for legacy fields that a newer field supersedes. */
+    hidden?: boolean | null
+    /** Name of the OAuth integration id field this account selector reads from. */
+    integrationField: string
+    /** Integration kind to validate and route the account fetch through. */
+    integrationKind: string
+    label: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean | null
+    name: string
+    placeholder?: string | null
+    required?: boolean | null
+    type: 'oauth-account-select'
+}
+
+export interface SourceFieldFileUploadJsonFormatConfigApi {
+    format?: '.json'
+    keys: '*' | string[]
+}
+
+export interface SourceFieldFileUploadConfigApi {
+    fileFormat: SourceFieldFileUploadJsonFormatConfigApi
+    label: string
+    name: string
+    required: boolean
+    type: 'file-upload'
+}
+
+export interface SourceFieldSSHTunnelConfigApi {
+    label: string
+    name: string
+    type: 'ssh-tunnel'
+}
+
+export interface SourceFieldSelectConfigOptionApi {
+    fields?:
+        | (
+              | SourceFieldInputConfigApi
+              | SourceFieldSwitchGroupConfigApi
+              | SourceFieldSelectConfigApi
+              | SourceFieldOauthConfigApi
+              | SourceFieldOauthAccountSelectConfigApi
+              | SourceFieldFileUploadConfigApi
+              | SourceFieldSSHTunnelConfigApi
+          )[]
+        | null
+    label: string
+    value: string
+}
+
+export interface SourceFieldSelectConfigApi {
+    caption?: string | null
+    converter?: SourceFieldSelectConfigConverterApi | null
+    defaultValue: string
+    label: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean | null
+    name: string
+    options: SourceFieldSelectConfigOptionApi[]
+    required: boolean
+    type: 'select'
+}
+
+export interface SourceFieldSwitchGroupConfigApi {
+    caption?: string | null
+    default: string | number | boolean
+    fields: (
+        | SourceFieldInputConfigApi
+        | SourceFieldSwitchGroupConfigApi
+        | SourceFieldSelectConfigApi
+        | SourceFieldOauthConfigApi
+        | SourceFieldOauthAccountSelectConfigApi
+        | SourceFieldFileUploadConfigApi
+        | SourceFieldSSHTunnelConfigApi
+    )[]
+    label: string
+    name: string
+    type: 'switch-group'
+}
+
+export type ReleaseStatusApi = (typeof ReleaseStatusApi)[keyof typeof ReleaseStatusApi]
+
+export const ReleaseStatusApi = {
+    Alpha: 'alpha',
+    Beta: 'beta',
+    Ga: 'ga',
+} as const
+
+export interface SuggestedTableApi {
+    table: string
+    tooltip?: string | null
+}
+
+export interface SourceVersionDeprecationApi {
+    version: string
+    /** ISO date the vendor stops serving this version, or null when no date is announced. */
+    sunsetAt?: string | null
+}
+
+export interface SourceDocumentedTableApi {
+    name: string
+    label: string
+    description?: string | null
+    sync_methods: string[]
+    incremental_fields: string[]
+    primary_keys: string[]
+}
+
+/**
+ * A `SourceConfig` plus the runtime metadata the two catalog endpoints add per source.
+ */
+export interface SourceConfigResponseApi {
+    caption?: string | null
+    /** Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). */
+    category?: DataWarehouseSourceCategoryApi | null
+    disabledReason?: string | null
+    docsUrl?: string | null
+    existingSource?: boolean | null
+    featureFlag?: string | null
+    /** Whether this source should be prominently displayed in onboarding flows */
+    featured?: boolean | null
+    fields: (
+        | SourceFieldInputConfigApi
+        | SourceFieldSwitchGroupConfigApi
+        | SourceFieldSelectConfigApi
+        | SourceFieldOauthConfigApi
+        | SourceFieldOauthAccountSelectConfigApi
+        | SourceFieldFileUploadConfigApi
+        | SourceFieldSSHTunnelConfigApi
+    )[]
+    iconClassName?: string | null
+    iconPath: string
+    /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
+    keywords?: string[] | null
+    label?: string | null
+    name: ExternalDataSourceTypeEnumApi
+    permissionsCaption?: string | null
+    releaseStatus?: ReleaseStatusApi | null
+    /** Tables to suggest enabling, with optional tooltip explaining why */
+    suggestedTables?: SuggestedTableApi[] | null
+    /** Whether the source-creation wizard should expose the per-column projection picker. Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker for drivers that ignore `enabled_columns` at sync time. */
+    supportsColumnSelection: boolean
+    unreleasedSource?: boolean | null
+    webhookFields?:
+        | (
+              | SourceFieldInputConfigApi
+              | SourceFieldSwitchGroupConfigApi
+              | SourceFieldSelectConfigApi
+              | SourceFieldOauthConfigApi
+              | SourceFieldOauthAccountSelectConfigApi
+              | SourceFieldFileUploadConfigApi
+              | SourceFieldSSHTunnelConfigApi
+          )[]
+        | null
+    /** If true, the source does not support automatic webhook registration via API (e.g. Slack, where the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration. */
+    webhookManualOnly?: boolean | null
+    webhookSetupCaption?: string | null
+    /** Vendor API version labels this source supports. */
+    versions: string[]
+    /** Version used when a source instance pins none. */
+    defaultVersion: string
+    /** Vendor API docs or changelog URL, or null when the vendor publishes none. */
+    apiDocsUrl?: string | null
+    deprecatedVersions: SourceVersionDeprecationApi[]
+    /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
+    tables?: SourceDocumentedTableApi[] | null
+}
+
+/**
+ * Map of source type identifier to its config, as both catalog endpoints return it.
+ */
+export interface SourceConfigMapResponseApi {
+    [key: string]: SourceConfigResponseApi
 }
 
 export interface WarehouseColumnStatisticsApi {
@@ -13384,6 +13901,25 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[]
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type ExternalDataSourcesRepairCdcCreate200 = {
     success?: boolean
     schemas_reset?: number
@@ -13391,11 +13927,6 @@ export type ExternalDataSourcesRepairCdcCreate200 = {
 
 export type ExternalDataSourcesResumeCdcCreate200 = {
     success?: boolean
-}
-
-export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
-    valid?: boolean
-    errors?: string[]
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {

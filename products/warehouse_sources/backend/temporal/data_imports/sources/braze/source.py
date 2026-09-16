@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.braze.braze import (
     BRAZE_FORBIDDEN_MSG,
     BrazeResumeConfig,
@@ -57,7 +55,7 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BRAZE,
+            name=ExternalDataSourceType.BRAZE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Braze",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -66,9 +64,12 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:
 - `campaigns.list`
 - `campaigns.data_series`
+- `campaigns.details`
 - `canvas.list`
 - `canvas.data_series`
+- `canvas.details`
 - `segments.list`
+- `segments.data_series`
 - `events.list`
 - `events.data_series`
 - `kpi.dau.data_series`

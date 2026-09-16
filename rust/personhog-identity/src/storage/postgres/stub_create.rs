@@ -26,13 +26,13 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::{Person, PersonStub, StubOutcome};
@@ -67,7 +67,7 @@ struct MappingOutcome {
 }
 
 pub(super) async fn create_person_stubs(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     stubs: &[PersonStub],
 ) -> StorageResult<Vec<StubOutcome>> {
@@ -83,7 +83,7 @@ pub(super) async fn create_person_stubs(
         .collect();
     let team_ids: Vec<i32> = stubs.iter().map(|s| s.team_id as i32).collect();
 
-    let mut tx = super::begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     let mut persons = insert_or_revive_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
     fetch_conflict_winners(
@@ -160,7 +160,7 @@ async fn insert_or_revive_persons(
                   SELECT 1 FROM {lop_table} lop
                   WHERE lop.team_id = {person_table}.team_id
                     AND lop.person_id = {person_table}.id
-                    AND lop.status IN ('marked', 'sealed')
+                    AND lop.mark_active
               )
         RETURNING {person_cols}
         "#,

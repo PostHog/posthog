@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from temporalio.exceptions import ActivityError, RetryState
@@ -25,10 +28,13 @@ from products.conversations.backend.temporal.ai_reply.activities.validate import
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
+    LEGACY_MAX_ATTEMPTS,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
+    MAX_VALIDATE_EVIDENCE_CHARS,
     PUBLISHABLE_DRAFT_SCOPES,
 )
+from products.conversations.backend.temporal.ai_reply.gate import FINDINGS_WITHHELD_REASON, format_findings_comment
 from products.conversations.backend.temporal.ai_reply.llms import (
     create_message as _create_message,
     strip_json_fence as _strip_json_fence,
@@ -134,12 +140,14 @@ async def test_workflow_persists_on_high_score(
         reply="You can install via pip.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
         confidence=0.9,
+        verdict="answerable",
     )
     mock_validate.return_value = ValidateOutput(
         grounded=True,
         coverage=0.9,
         confidence=0.85,
         missing=["setup prerequisites"],
+        blocker="none",
     )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
@@ -188,7 +196,7 @@ async def test_workflow_persists_on_high_score(
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_workflow_widens_on_low_score(
+async def test_workflow_retries_once_on_knowledge_blocker(
     mock_build,
     mock_safety,
     mock_classify,
@@ -215,7 +223,8 @@ async def test_workflow_widens_on_low_score(
     mock_draft.return_value = DraftOutput(
         reply="Here's pricing info.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
-        confidence=0.7,
+        confidence=0.9,
+        verdict="answerable",
     )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
@@ -223,9 +232,11 @@ async def test_workflow_widens_on_low_score(
 
     def validate_side_effect(*args, **kwargs):
         validate_count["n"] += 1
-        if validate_count["n"] < 3:
-            return ValidateOutput(grounded=False, coverage=0.4, confidence=0.3, missing=["pricing info"])
-        return ValidateOutput(grounded=True, coverage=0.9, confidence=0.8, missing=[])
+        if validate_count["n"] < 2:
+            return ValidateOutput(
+                grounded=False, coverage=0.4, confidence=0.3, missing=["pricing info"], blocker="knowledge"
+            )
+        return ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[], blocker="none")
 
     mock_validate.side_effect = validate_side_effect
 
@@ -255,11 +266,409 @@ async def test_workflow_widens_on_low_score(
             )
 
     assert "persisted" in result
-    assert validate_count["n"] == 3
-    assert mock_refine.call_count >= 3
+    assert validate_count["n"] == 2
+    assert mock_refine.call_count == 2
     refine_missing = [call.args[0].missing for call in mock_refine.call_args_list]
     assert refine_missing[0] == []
     assert ["pricing info"] in refine_missing[1:]
+
+
+_WORKFLOW_ACTIVITIES: Sequence[Callable[..., Any]] = [
+    support_build_context_activity,
+    support_safety_filter_activity,
+    support_classify_activity,
+    support_refine_queries_activity,
+    support_retrieve_activity,
+    support_draft_activity,
+    support_validate_activity,
+    support_review_reply_activity,
+    support_persist_reply_activity,
+    support_record_triage_activity,
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,draft_kwargs,validate_kwargs,expected_result,expect_review,expect_persist_as,expect_allow_bot,expect_drafts",
+    [
+        (
+            "auto_send",
+            {"confidence": 0.9, "verdict": "answerable"},
+            {"grounded": True, "coverage": 0.9, "confidence": 0.85, "blocker": "none"},
+            "persisted",
+            True,
+            "reply",
+            True,
+            1,
+        ),
+        (
+            "draft_low_does_not_auto_send",
+            {"confidence": 0.3, "verdict": "answerable"},
+            {"grounded": True, "coverage": 0.9, "confidence": 0.9, "blocker": "none"},
+            "suggested",
+            True,
+            "reply",
+            False,
+            1,
+        ),
+        (
+            "ungrounded_findings",
+            {
+                "confidence": 0.9,
+                "verdict": "answerable",
+                "investigation_summary": "Checked docs. Could not confirm the claim.",
+            },
+            {"grounded": False, "coverage": 0.9, "confidence": 0.9, "blocker": "none"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "ungrounded_citations_persist_findings",
+            {"confidence": 0.9, "verdict": "answerable"},
+            {"grounded": False, "coverage": 0.9, "confidence": 0.9, "blocker": "none"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "customer_info_does_not_retry",
+            {
+                "confidence": 0.2,
+                "verdict": "blocked_on_customer",
+                "clarifying_questions": ["Which SDK are you using?"],
+                "investigation_summary": "SDK not named.",
+            },
+            {"grounded": False, "coverage": 0.2, "confidence": 0.2, "blocker": "customer_info"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "contradiction_findings",
+            {"confidence": 0.4, "verdict": "answerable", "investigation_summary": "Docs say 30 days, ticket says 3."},
+            {"grounded": True, "coverage": 0.5, "confidence": 0.4, "blocker": "contradiction"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "blocked_on_knowledge_does_not_suggest",
+            {
+                "confidence": 0.6,
+                "verdict": "blocked_on_knowledge",
+                "investigation_summary": "Searched docs. No match.",
+            },
+            {"grounded": True, "coverage": 0.6, "confidence": 0.6, "blocker": "none"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "knowledge_after_retry_is_findings",
+            {
+                "confidence": 0.6,
+                "verdict": "answerable",
+                "investigation_summary": "Searched docs. Still missing the procedure.",
+            },
+            {"grounded": True, "coverage": 0.6, "confidence": 0.6, "blocker": "knowledge"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            2,
+        ),
+    ],
+)
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_blocker_aware_routing(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    name,
+    draft_kwargs,
+    validate_kwargs,
+    expected_result,
+    expect_review,
+    expect_persist_as,
+    expect_allow_bot,
+    expect_drafts,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = BuildContextOutput(ticket_context="Customer question", ticket_title="Help")
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["q"])
+    mock_refine.return_value = RefineQueriesOutput(queries=["q"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Drafted answer.",
+        citations=sample_chunk_ids,
+        **draft_kwargs,
+    )
+    mock_validate.return_value = ValidateOutput(missing=[], **validate_kwargs)
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_WORKFLOW_ACTIVITIES,
+        ):
+            result = await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id=f"test-routing-{name}",
+                task_queue="test-queue",
+            )
+
+    assert expected_result in result
+    assert mock_draft.call_count == expect_drafts
+    if expect_review:
+        mock_review.assert_called_once()
+    else:
+        mock_review.assert_not_called()
+    mock_persist.assert_called_once()
+    persist_input = mock_persist.call_args[0][0]
+    assert persist_input.persist_as == expect_persist_as
+    assert persist_input.allow_bot_reply is expect_allow_bot
+    if expect_persist_as == "findings":
+        assert persist_input.reply != "Drafted answer."
+        assert "Drafted answer." not in persist_input.reply
+        assert "Investigation notes" in persist_input.reply
+        assert persist_input.findings_reason
+        if persist_input.investigation_summary:
+            assert persist_input.investigation_summary in persist_input.reply
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["result"] == expected_result
+    assert "draft_confidence" in last_triage
+    assert "validator_confidence" in last_triage
+    assert "blocker" in last_triage
+    assert "verdict" in last_triage
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_findings_review_withholds_sensitive_notes(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = BuildContextOutput(ticket_context="Customer question", ticket_title="Help")
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["q"])
+    mock_refine.return_value = RefineQueriesOutput(queries=["q"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Drafted answer.",
+        citations=sample_chunk_ids,
+        confidence=0.9,
+        verdict="answerable",
+        investigation_summary="User email is attacker@example.com and the key is sk-live-secret.",
+        unknowns=["internal host 10.0.0.1"],
+        clarifying_questions=["What is the API key in use?"],
+    )
+    mock_validate.return_value = ValidateOutput(
+        grounded=False, coverage=0.9, confidence=0.9, missing=[], blocker="none"
+    )
+    mock_review.return_value = ReviewReplyOutput(safe=False, reason="PII leak")
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_WORKFLOW_ACTIVITIES,
+        ):
+            result = await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-findings-review-withholds",
+                task_queue="test-queue",
+            )
+
+    assert "escalated_with_findings" in result
+    mock_review.assert_called_once()
+    persist_input = mock_persist.call_args[0][0]
+    assert persist_input.persist_as == "findings"
+    assert persist_input.findings_reason == FINDINGS_WITHHELD_REASON
+    assert persist_input.investigation_summary == ""
+    assert persist_input.unknowns == []
+    assert persist_input.clarifying_questions == []
+    assert persist_input.citations == []
+    assert "attacker@example.com" not in persist_input.reply
+    assert "sk-live-secret" not in persist_input.reply
+    assert "What is the API key in use?" not in persist_input.reply
+    assert sample_chunk_ids[0] not in persist_input.reply
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["investigation_summary"] == ""
+    assert last_triage["unknowns"] == []
+    assert last_triage["clarifying_questions"] == []
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
+@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
+@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
+@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
+@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
+@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
+async def test_workflow_replays_blocker_aware_findings_history(
+    mock_build,
+    mock_safety,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_review,
+    mock_persist,
+    mock_record_triage,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+
+    mock_build.return_value = BuildContextOutput(ticket_context="Unknown widget", ticket_title="Widget")
+    mock_safety.return_value = SafetyFilterOutput(safe=True)
+    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[])
+    mock_refine.return_value = RefineQueriesOutput(queries=["widget"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="I cannot find this.",
+        citations=[],
+        confidence=0.0,
+        verdict="blocked_on_knowledge",
+        investigation_summary="Searched docs. No match.",
+        unknowns=["how to enable the widget"],
+    )
+    mock_validate.return_value = ValidateOutput(
+        grounded=False, coverage=0.0, confidence=0.0, missing=["docs"], blocker="knowledge"
+    )
+    mock_review.return_value = ReviewReplyOutput(safe=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=_WORKFLOW_ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-replay-blocker-aware-findings",
+                task_queue="test-queue",
+            )
+            result = await handle.result()
+            history = await handle.fetch_history()
+
+    assert "escalated_with_findings" in result
+    assert mock_draft.call_count == MAX_ATTEMPTS
+    mock_review.assert_called_once()
+    persist_input = mock_persist.call_args[0][0]
+    assert persist_input.persist_as == "findings"
+    assert persist_input.reply != "I cannot find this."
+    assert "Searched docs. No match." in persist_input.reply
+
+    await Replayer(
+        workflows=[SupportReplyWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(history)
+
+
+class TestFormatFindingsComment(SimpleTestCase):
+    def test_findings_note_does_not_include_the_draft_reply(self):
+        text = format_findings_comment(
+            investigation_summary="Checked the docs. SDK was not named.",
+            unknowns=["SDK in use"],
+            clarifying_questions=["Which SDK are you using?"],
+            findings_reason="",
+        )
+        assert "Investigation notes" in text
+        assert "Checked the docs" in text
+        assert "Which SDK are you using?" in text
+        assert "This is the answer to send" not in text
+
+    def test_findings_note_lists_citations_as_sources(self):
+        text = format_findings_comment(
+            investigation_summary="Checked the docs.",
+            unknowns=[],
+            clarifying_questions=[],
+            citations=["https://example.com/docs/sdk"],
+        )
+        assert "Sources:" in text
+        assert "https://example.com/docs/sdk" in text
+
+    def test_contradiction_reason_is_called_out(self):
+        text = format_findings_comment(
+            investigation_summary="Retention docs say 30 days.",
+            unknowns=[],
+            clarifying_questions=[],
+            findings_reason="This answer contradicts the cited sources, so it was not sent.",
+        )
+        assert "contradicts the cited sources" in text
+        assert "Retention docs say 30 days." in text
 
 
 @pytest.mark.django_db
@@ -337,7 +746,7 @@ async def test_workflow_replays_pre_patch_gap_persistence(
                 pre_patch_history = await handle.fetch_history()
 
     assert "escalated_with_best" in result
-    assert mock_validate.call_count == MAX_ATTEMPTS
+    assert mock_validate.call_count == LEGACY_MAX_ATTEMPTS
     mock_persist.assert_called_once()
     mock_persist_gaps.assert_called_once()
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
@@ -383,8 +792,15 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
     mock_refine.return_value = RefineQueriesOutput(queries=["unrelated"])
     # Empty seed retrieval must NOT short-circuit — the draft agent has MCP tools and runs anyway.
     mock_retrieve.return_value = RetrieveOutput(chunk_ids=[])
-    mock_draft.return_value = DraftOutput(reply="I cannot answer this.", citations=[], confidence=0.0)
-    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.0, confidence=0.0, missing=["everything"])
+    mock_draft.return_value = DraftOutput(
+        reply="I cannot answer this.",
+        citations=[],
+        confidence=0.0,
+        verdict="answerable",
+    )
+    mock_validate.return_value = ValidateOutput(
+        grounded=False, coverage=0.0, confidence=0.0, missing=["everything"], blocker="none"
+    )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -445,6 +861,80 @@ class TestPersistReplyActivity:
         assert comment.item_context["is_private"] is True
         assert comment.item_context["citations"] == ["chunk-1", "chunk-2"]
         assert comment.item_context["confidence"] == 0.85
+        assert comment.item_context["persist_as"] == "reply"
+        assert "investigation_summary" not in comment.item_context
+
+    def test_findings_note_does_not_present_reply_as_answer(self):
+        from posthog.models.comment import Comment
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+
+        _persist_reply_sync(
+            PersistReplyInput(
+                team_id=team.id,
+                ticket_id="test-ticket-id",
+                reply="Here is a guessed answer you should not send.",
+                citations=["chunk-1"],
+                confidence=0.1,
+                persist_as="findings",
+                investigation_summary="Checked the docs. SDK was not named.",
+                unknowns=["SDK in use"],
+                clarifying_questions=["Which SDK are you using?"],
+            )
+        )
+
+        comment = Comment.objects.get(team_id=team.id, item_id="test-ticket-id")
+        assert comment.content is not None
+        assert "Here is a guessed answer you should not send." not in comment.content
+        assert "Checked the docs. SDK was not named." in comment.content
+        assert "Which SDK are you using?" in comment.content
+        assert "chunk-1" in comment.content
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is True
+        assert comment.item_context["persist_as"] == "findings"
+
+    def test_findings_note_stays_private_on_bot_reply_channel(self):
+        from posthog.models.comment import Comment
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={"ai_reply_modes": {"email": {"how_to": "bot_reply"}}},
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            channel_source="email",
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            email_from="customer@example.com",
+        )
+
+        _persist_reply_sync(
+            PersistReplyInput(
+                team_id=team.id,
+                ticket_id=str(ticket.id),
+                reply="Guessed public answer.",
+                citations=[],
+                confidence=0.2,
+                ticket_type="how_to",
+                allow_bot_reply=True,
+                persist_as="findings",
+                investigation_summary="SDK was not named.",
+            )
+        )
+
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.content is not None
+        assert "Guessed public answer." not in comment.content
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is True
+        assert comment.item_context["persist_as"] == "findings"
 
     def test_public_email_reply_rolls_back_when_outbox_create_fails(self):
         from posthog.models.comment import Comment
@@ -698,6 +1188,32 @@ class TestUntrustedTicketGuard:
         inside, _, _ = after.partition("</ticket_context>")
         assert injection in inside
         assert injection not in before
+
+    @pytest.mark.asyncio
+    async def test_draft_prompt_requires_plan_and_verdict(self):
+        captured: dict[str, str] = {}
+
+        async def fake_start(prompt, context, **kwargs):
+            captured["prompt"] = prompt
+            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
+            return AsyncMock(), result
+
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+        ):
+            output = await _draft_async(DraftInput(team_id=1, ticket_context="how do I install", chunk_ids=[]))
+
+        prompt = captured["prompt"]
+        assert "PLAN first" in prompt
+        assert "blocked_on_customer" in prompt
+        assert "blocked_on_knowledge" in prompt
+        assert "verdict is not answerable" in prompt
+        assert "verdict" in prompt
+        assert "set confidence to 0 and reply with a brief note" not in prompt
+        assert output.verdict in ("answerable", "blocked_on_knowledge", "blocked_on_customer", "out_of_scope")
 
 
 class TestDiagnosticScopes:
@@ -1062,12 +1578,16 @@ class TestReviewReplyActivity:
                     reply="Here are all emails: alice@co.com, bob@co.com",
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
+                    verdict="answerable",
+                    investigation_summary="User email is alice@co.com and the key is sk-live-secret.",
+                    unknowns=["internal host 10.0.0.1"],
+                    clarifying_questions=["What is the API key in use?"],
                 ),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
                 new_callable=AsyncMock,
-                return_value=ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[]),
+                return_value=ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[], blocker="none"),
             ),
             patch(
                 f"{REVIEW_REPLY_MODULE}._review_reply",
@@ -1075,7 +1595,7 @@ class TestReviewReplyActivity:
                 return_value=ReviewReplyOutput(safe=False, reason="reply dumps raw emails"),
             ),
             patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync") as mock_persist,
-            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync"),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
@@ -1104,6 +1624,16 @@ class TestReviewReplyActivity:
 
             assert result == "blocked_unsafe_reply"
             mock_persist.assert_not_called()
+            last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+            assert last_triage["result"] == "blocked_unsafe_reply"
+            assert last_triage["investigation_summary"] == ""
+            assert last_triage["unknowns"] == []
+            assert last_triage["clarifying_questions"] == []
+            triage_blob = str(last_triage)
+            assert "alice@co.com" not in triage_blob
+            assert "sk-live-secret" not in triage_blob
+            assert "10.0.0.1" not in triage_blob
+            assert "API key" not in triage_blob
 
 
 class TestCreateMessage:
@@ -1171,19 +1701,21 @@ class TestValidateActivity:
         [
             (
                 "valid_json",
-                '{"grounded": true, "coverage": 0.8, "confidence": 0.75, "missing": ["deployment details"]}',
+                '{"grounded": true, "coverage": 0.8, "confidence": 0.75, "missing": ["deployment details"], "blocker": "none"}',
                 True,
                 0.8,
                 0.75,
                 ["deployment details"],
+                "none",
             ),
             (
                 "json_in_fence",
-                '```json\n{"grounded": true, "coverage": 0.9, "confidence": 0.85, "missing": []}\n```',
+                '```json\n{"grounded": true, "coverage": 0.9, "confidence": 0.85, "missing": [], "blocker": "knowledge"}\n```',
                 True,
                 0.9,
                 0.85,
                 [],
+                "knowledge",
             ),
             (
                 "partial_fields",
@@ -1192,6 +1724,7 @@ class TestValidateActivity:
                 0.5,
                 0.0,
                 [],
+                "knowledge",
             ),
         ]
     )
@@ -1204,6 +1737,7 @@ class TestValidateActivity:
         expected_coverage,
         expected_confidence,
         expected_missing,
+        expected_blocker,
     ):
         cited = [{"chunk_id": "chunk-1", "content": "Docker compose deployment guide"}]
         with (
@@ -1226,6 +1760,7 @@ class TestValidateActivity:
         assert result.coverage == expected_coverage
         assert result.confidence == expected_confidence
         assert result.missing == expected_missing
+        assert result.blocker == expected_blocker
 
     @parameterized.expand(
         [
@@ -1256,6 +1791,62 @@ class TestValidateActivity:
         assert result.grounded is False
         assert result.confidence == 0.0
         assert "parse_failure" in result.missing
+        assert result.blocker == "knowledge"
+
+    @pytest.mark.asyncio
+    async def test_validate_prompt_uses_full_chunk_and_ticket_window(self):
+        ticket = "T" * 4000
+        chunk_content = "C" * 800
+        client = _mock_gateway_client(
+            '{"grounded": true, "coverage": 1, "confidence": 1, "missing": [], "blocker": "none"}'
+        )
+        with (
+            patch(f"{VALIDATE_MODULE}.get_async_anthropic_gateway_client", return_value=client),
+            patch(
+                f"{VALIDATE_MODULE}._hydrate_chunks",
+                return_value=[{"chunk_id": "chunk-1", "content": chunk_content}],
+            ),
+        ):
+            await _validate(
+                ValidateInput(
+                    team_id=1,
+                    ticket_context=ticket,
+                    reply="Answer",
+                    citations=["chunk-1"],
+                    chunk_ids=["chunk-1"],
+                )
+            )
+
+        system = client.messages.create.call_args.kwargs["system"]
+        user = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "blocker" in system
+        assert ticket in user
+        assert chunk_content in user
+
+    @pytest.mark.asyncio
+    async def test_validate_prompt_caps_total_evidence(self):
+        chunks = [{"chunk_id": f"c{i}", "content": "C" * 2000} for i in range(25)]
+        client = _mock_gateway_client(
+            '{"grounded": true, "coverage": 1, "confidence": 1, "missing": [], "blocker": "none"}'
+        )
+        with (
+            patch(f"{VALIDATE_MODULE}.get_async_anthropic_gateway_client", return_value=client),
+            patch(f"{VALIDATE_MODULE}._hydrate_chunks", return_value=chunks),
+        ):
+            await _validate(
+                ValidateInput(
+                    team_id=1,
+                    ticket_context="How to deploy?",
+                    reply="Answer",
+                    citations=[c["chunk_id"] for c in chunks],
+                    chunk_ids=[c["chunk_id"] for c in chunks],
+                )
+            )
+
+        user = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        cited = user.split("CITED CHUNKS:", 1)[1]
+        assert len(cited.strip()) <= MAX_VALIDATE_EVIDENCE_CHARS
+        assert "[c24]" not in cited
 
 
 @pytest.mark.django_db
@@ -1372,7 +1963,9 @@ async def test_classify_threading_and_diagnostics_gating(
         confidence=0.3,
     )
     # Never clears threshold → loops MAX_ATTEMPTS so we can prove classify is one-shot.
-    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
+    mock_validate.return_value = ValidateOutput(
+        grounded=False, coverage=0.2, confidence=0.2, missing=["why"], blocker="knowledge"
+    )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -1400,7 +1993,7 @@ async def test_classify_threading_and_diagnostics_gating(
                 task_queue="test-queue",
             )
 
-    # Classify is one-shot up front; the loop still ran MAX_ATTEMPTS times.
+    # Classify is one-shot up front; knowledge blocker retries once (MAX_ATTEMPTS=2).
     assert mock_classify.call_count == 1
     assert mock_validate.call_count == MAX_ATTEMPTS
     draft_input = mock_draft.call_args[0][0]
@@ -1515,7 +2108,7 @@ class TestRecordTriageActivity:
                 "persisted",
                 ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["setup"]),
                 SafetyFilterOutput(safe=True),
-                ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[]),
+                ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[], blocker="none"),
                 ReviewReplyOutput(safe=True),
                 "persisted",
             ),
@@ -1539,7 +2132,7 @@ class TestRecordTriageActivity:
                 "blocked_unsafe_reply",
                 ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[]),
                 SafetyFilterOutput(safe=True),
-                ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[]),
+                ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[], blocker="none"),
                 ReviewReplyOutput(safe=False, reason="PII leak"),
                 "blocked_unsafe_reply",
             ),
@@ -1587,12 +2180,14 @@ class TestRecordTriageActivity:
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
                     sandbox_seconds=1.5,
+                    verdict="answerable",
                 ),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
                 new_callable=AsyncMock,
-                return_value=validate_output or ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[]),
+                return_value=validate_output
+                or ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[], blocker="none"),
             ),
             patch(
                 f"{REVIEW_REPLY_MODULE}._review_reply",
@@ -1692,12 +2287,20 @@ class TestRecordTriageActivity:
             patch(
                 f"{DRAFT_MODULE}._draft_async",
                 new_callable=AsyncMock,
-                return_value=DraftOutput(reply="", citations=[], confidence=0.0, sandbox_seconds=0.25),
+                return_value=DraftOutput(
+                    reply="",
+                    citations=[],
+                    confidence=0.0,
+                    sandbox_seconds=0.25,
+                    verdict="answerable",
+                ),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
                 new_callable=AsyncMock,
-                return_value=ValidateOutput(grounded=False, coverage=0.0, confidence=0.0, missing=["everything"]),
+                return_value=ValidateOutput(
+                    grounded=False, coverage=0.0, confidence=0.0, missing=["everything"], blocker="none"
+                ),
             ),
             patch(
                 f"{REVIEW_REPLY_MODULE}._review_reply",
@@ -1737,9 +2340,9 @@ class TestRecordTriageActivity:
             last_call_patch = mock_record_triage.call_args_list[-1][0][0].patch
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == "escalated_no_reply"
-            assert last_call_patch["attempts"] == MAX_ATTEMPTS
-            assert last_call_patch["cost"]["sandbox_seconds"] == pytest.approx(0.25 * MAX_ATTEMPTS)
-            assert last_call_patch["cost"]["llm_calls"] == 2 + MAX_ATTEMPTS * 2
+            assert last_call_patch["attempts"] == 1
+            assert last_call_patch["cost"]["sandbox_seconds"] == pytest.approx(0.25)
+            assert last_call_patch["cost"]["llm_calls"] == 4
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

@@ -39,7 +39,9 @@ pub const KNOWN_METHODS: &[&str] = &[
     "DeleteHashKeyOverridesByTeams",
     "DeletePersons",
     "DeletePersonsBatchForTeam",
+    "DeleteTombstonedPersons",
     "FencePerson",
+    "FencePersons",
     "FoldPersonDocument",
     "GetDistinctIdsForPerson",
     "GetDistinctIdsForPersons",
@@ -63,6 +65,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListCohortMemberIds",
     "ListGroups",
     "ReleaseFence",
+    "ReleaseFences",
     "SetPersonDistinctIdVersionFloor",
     "SetPersonVersionFloor",
     "SplitPerson",
@@ -251,13 +254,23 @@ impl RawProxyInner {
                 (resp, "leader", call_ms)
             }
             // Lifecycle fence RPCs: person writes, so they route to the
-            // owning leader and share the handoff stash discipline.
+            // owning leader and share the handoff stash discipline. A batch
+            // is routed by the one person its headers name, like any other
+            // leader call; the leader checks the rest hash there too.
             (Target::Service, "FencePerson") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
                 (resp, "leader", call_ms)
             }
+            (Target::Service, "FencePersons") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePersons").await;
+                (resp, "leader", call_ms)
+            }
             (Target::Service, "ReleaseFence") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
+                (resp, "leader", call_ms)
+            }
+            (Target::Service, "ReleaseFences") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFences").await;
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every

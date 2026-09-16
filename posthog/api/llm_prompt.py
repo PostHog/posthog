@@ -8,7 +8,7 @@ from django.db import IntegrityError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,6 +26,7 @@ from posthog.api.llm_prompt_serializers import (
     LLMPromptListSerializer,
     LLMPromptPublicSerializer,
     LLMPromptPublishSerializer,
+    LLMPromptReferencedConflictSerializer,
     LLMPromptResolveQuerySerializer,
     LLMPromptResolveResponseSerializer,
     LLMPromptSerializer,
@@ -42,6 +43,7 @@ from posthog.api.services.llm_prompt import (
     LLMPromptLabelLimitError,
     LLMPromptLabelNotFoundError,
     LLMPromptNotFoundError,
+    LLMPromptReferencedError,
     LLMPromptVersionConflictError,
     LLMPromptVersionLimitError,
     archive_prompt,
@@ -477,7 +479,16 @@ class LLMPromptViewSet(
             }
         )
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The prompt is referenced by other prompts and cannot be archived.",
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -495,6 +506,17 @@ class LLMPromptViewSet(
             prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
+        except LLMPromptReferencedError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This prompt is referenced by {', '.join(err.referencing_prompts)}. "
+                        "Remove those references before archiving."
+                    ),
+                    "referencing_prompts": err.referencing_prompts,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         report_user_action(
             cast(User, request.user),
@@ -554,7 +576,15 @@ class LLMPromptViewSet(
         )
         return Response(self._serialize_prompt(new_prompt), status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=LLMPromptSetLabelSerializer, responses={200: LLMPromptLabelSerializer})
+    @extend_schema(
+        request=LLMPromptSetLabelSerializer,
+        responses={
+            200: LLMPromptLabelSerializer,
+            400: OpenApiResponse(
+                description="The label is referenced by other prompts and the target version contains references or is not plain text."
+            ),
+        },
+    )
     @action(
         methods=["PUT"],
         detail=False,
@@ -620,7 +650,15 @@ class LLMPromptViewSet(
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
 
-    @extend_schema(responses={204: None})
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=LLMPromptReferencedConflictSerializer,
+                description="The label is referenced by other prompts and cannot be deleted.",
+            ),
+        },
+    )
     @set_label.mapping.delete
     @llma_track_latency("llma_prompts_delete_label")
     @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
@@ -635,6 +673,17 @@ class LLMPromptViewSet(
             return Response(
                 {"detail": f"Label '{label_name}' not found on prompt '{prompt_name}'."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except LLMPromptReferencedError as err:
+            return Response(
+                {
+                    "detail": (
+                        f"This label is referenced by {', '.join(err.referencing_prompts)}. "
+                        "Remove those references before deleting the label."
+                    ),
+                    "referencing_prompts": err.referencing_prompts,
+                },
+                status=status.HTTP_409_CONFLICT,
             )
 
         report_user_action(
