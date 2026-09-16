@@ -5516,23 +5516,41 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
     Ok(())
 }
 
-/// Tests that $initial_ properties are populated from overrides only when DB doesn't have them.
+/// Tests where an `$initial_` property comes from when a request also supplies properties.
 ///
-/// When a request sends `$browser: "Chrome"` as an override:
-/// - If DB has `$initial_browser: "Safari"`, that value should be preserved
-/// - If DB has no `$initial_browser`, it should be populated from the override's `$browser`
+/// The persons table answers it whenever it can, so two devices of one person agree with each
+/// other and with server-side evaluation:
+/// - A stored `$initial_browser` wins, including over a request's own `$initial_browser`
+/// - With no stored `$initial_browser`, the row's `$browser` backfills it
+/// - Only when the row has neither does the request's `$browser` backfill it, which covers
+///   the first session, before ingestion has written the row
 #[rstest]
+#[case::override_initial_browser_does_not_replace_db(
+    // A browser sends its own device-local $initial_browser on every request. The row owns
+    // that value, so the request copy must lose.
+    Some(json!({"$initial_browser": "Safari"})),
+    json!({"$initial_browser": "Chrome"}),
+    true
+)]
+#[case::db_browser_backfills_initial_ahead_of_override(
+    // No stored $initial_browser, but the row has a $browser to derive it from. That
+    // derivation must win over the request's $browser, which differs per device.
+    Some(json!({"$browser": "Safari"})),
+    json!({"$browser": "Chrome"}),
+    true
+)]
 #[case::db_has_initial_browser_preserves_it(
     // DB has $initial_browser, override has $browser - DB value should win
     Some(json!({"$initial_browser": "Safari", "$browser": "Firefox"})),
     json!({"$browser": "Chrome"}),
     true       // Flag checking $initial_browser = Safari should match
 )]
-#[case::db_missing_initial_browser_populates_from_override(
-    // DB has no $initial_browser, override has $browser - should populate from override
+#[case::db_browser_backfills_initial_and_does_not_match(
+    // No stored $initial_browser, so the row's own $browser backfills it. Neither that nor
+    // the request's $browser is Safari.
     Some(json!({"$browser": "Firefox"})),
     json!({"$browser": "Chrome"}),
-    false      // Flag checking $initial_browser = Safari should NOT match
+    false
 )]
 #[case::db_empty_populates_from_override(
     // DB has nothing, override has $browser - should populate from override

@@ -37,6 +37,7 @@ use crate::{
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
         FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK, FLAG_HASH_KEY_RETRIES_COUNTER,
         FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
+        REQUEST_INITIAL_PROPERTIES_DISCARDED_COUNTER,
     },
     properties::property_models::{OperatorType, PropertyFilter},
 };
@@ -131,6 +132,34 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     // as was done in the previous implementation, ensuring consistent feature flag distribution
     let hash_val: u64 = u64::from_be_bytes(hash_value[..8].try_into().unwrap()) >> 4;
     Ok(hash_val as f64 / LONG_SCALE as f64)
+}
+
+/// The prefix ingestion uses for the person properties it writes once, on first sight.
+const INITIAL_PROPERTY_PREFIX: &str = "$initial_";
+
+/// Returns true for a person property the persons table owns exclusively.
+///
+/// Ingestion writes every `$initial_` property with `$set_once`, so the row holds one value
+/// for the whole person. A browser SDK keeps its own copy in per-device persistence and sends
+/// it on every `/flags` request, which gives a person with two devices two different copies.
+/// Neither copy can stand in for the row, so flag matching reads these keys from the DB.
+///
+/// The prefix test is deliberately wider than `INITIAL_PROPERTY_MAP`: the map only lists the
+/// keys this file can derive from a counterpart, while ownership covers every `$initial_` key
+/// ingestion writes, including ones no derivation reaches.
+fn is_initial_person_property(key: &str) -> bool {
+    key.starts_with(INITIAL_PROPERTY_PREFIX)
+}
+
+/// Removes the `$initial_` properties a request supplied, so the persons table answers them.
+/// See `is_initial_person_property` for why a request copy is not an answer.
+pub fn discard_initial_person_properties(properties: &mut HashMap<String, Value>) {
+    let supplied = properties.len();
+    properties.retain(|key, _| !is_initial_person_property(key));
+    if properties.len() != supplied {
+        common_metrics::inc(REQUEST_INITIAL_PROPERTIES_DISCARDED_COUNTER, &[], 1);
+        with_canonical_log(|log| log.initial_person_properties_discarded = true);
+    }
 }
 
 /// Populates missing `$initial_` properties from their non-initial counterparts.

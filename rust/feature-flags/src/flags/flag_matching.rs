@@ -12,10 +12,10 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
-    get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
-    populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
-    should_write_hash_key_override,
+    calculate_hash, discard_initial_person_properties,
+    fetch_and_locally_cache_all_relevant_properties, get_feature_flag_hash_key_overrides,
+    match_flag_value_to_flag_filter, populate_missing_initial_properties, populate_os_aliases,
+    set_feature_flag_hash_key_overrides, should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -559,10 +559,17 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        let person_property_overrides = Some(merge_distinct_id_into_person_properties(
-            &self.distinct_id,
-            person_property_overrides,
-        ));
+        let mut person_property_overrides =
+            merge_distinct_id_into_person_properties(&self.distinct_id, person_property_overrides);
+
+        // Drop the request's `$initial_` properties, so the persons table answers them. This is
+        // the single enforcement point: `requires_db_property` then asks for the fetch, and the
+        // merge in `get_person_properties` has nothing left to overwrite the stored value with.
+        // `only_use_override_person_properties` reads no persons row, so its callers keep theirs.
+        if !self.only_use_override_person_properties {
+            discard_initial_person_properties(&mut person_property_overrides);
+        }
+        let person_property_overrides = Some(person_property_overrides);
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, flag_keys.as_deref());
 
@@ -2023,12 +2030,22 @@ impl FeatureFlagMatcher {
             HashMap::new()
         } else {
             // Start with DB properties (clone only when we need a mutable copy)
-            self.get_person_properties_from_evaluation_state()
+            let mut db_properties = self
+                .get_person_properties_from_evaluation_state()
                 .cloned()
-                .unwrap_or_default()
+                .unwrap_or_default();
+
+            // Derive the row's own $initial_ values before any override joins the map, so a
+            // request can never manufacture an initial value the person row does not support.
+            populate_os_aliases(&mut db_properties);
+            populate_missing_initial_properties(&mut db_properties);
+            db_properties
         };
 
         // Merge in overrides (overrides take precedence).
+        //
+        // `$initial_` keys never reach here — `evaluate_all_feature_flags` drops them from the
+        // request, so the derivation above is what answers them.
         //
         // PersonMetadata fields are stored under sentinel-prefixed keys (see
         // `lookup_key_for` in property_matching.rs). A caller could override the canonical
@@ -2045,9 +2062,9 @@ impl FeatureFlagMatcher {
         // Runs before initial-property population so an aliased $os can backfill $initial_os.
         populate_os_aliases(&mut merged_properties);
 
-        // Populate missing $initial_ properties from their non-initial counterparts.
-        // DB $initial_ values are preserved; this only fills in missing ones from
-        // the merged properties (which may come from DB or request overrides).
+        // Populate the $initial_ properties still missing after the merge. The person row
+        // had no counterpart for these, so the request's value is the only one available —
+        // this is the first-session case, before ingestion has written the row.
         populate_missing_initial_properties(&mut merged_properties);
 
         Ok(merged_properties)
