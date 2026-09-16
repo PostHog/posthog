@@ -281,6 +281,10 @@ jobs:
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               shell: bash
+              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
+              # runner cannot start this step at all. The findings are warn-only, so losing them
+              # on such a PR is not worth failing the job for.
+              continue-on-error: true
               env:
                   # Space-separated, from paths-filter (list-files: escape) — the PR
                   # files API, so no git-diff plumbing to drift from what the PR changed.

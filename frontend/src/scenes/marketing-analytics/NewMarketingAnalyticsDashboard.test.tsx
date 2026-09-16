@@ -3,15 +3,16 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
-jest.mock('./Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
+jest.mock('scenes/marketing-analytics/Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
 
-jest.mock('./Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
+jest.mock('scenes/marketing-analytics/Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
 jest.mock('@posthog/lemon-ui', () => ({
     LemonBanner: () => null,
+    LemonCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
     LemonSelect: ({
         value,
         onChange,
@@ -60,7 +61,9 @@ jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ dataNodeLogic: () =
 jest.mock('~/queries/nodes/OverviewGrid/OverviewMetricCardGrid', () => ({ OverviewMetricCardGrid: () => null }))
 jest.mock('~/queries/nodes/WebOverview/WebOverview', () => ({ labelFromKey: () => '' }))
 jest.mock('~/queries/Query/Query', () => ({
-    Query: ({ query }: { query: unknown }) => <div data-attr="traffic-query">{JSON.stringify(query)}</div>,
+    Query: ({ query }: { query: { kind: string } }) => (
+        <div data-attr={query.kind === 'DataTableNode' ? 'traffic-query' : 'trend-query'}>{JSON.stringify(query)}</div>
+    ),
 }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/components/AttributionTab/AttributionTab', () => ({
     AttributionTab: () => <div>Attribution explorer</div>,
@@ -98,6 +101,7 @@ describe('NewMarketingAnalyticsDashboard', () => {
             responseLoading: false,
             setupPlan: {},
             visibleSuggestions: [],
+            trafficOrderBy: {},
         })
 
         render(<NewMarketingAnalyticsDashboard />)
@@ -108,6 +112,7 @@ describe('NewMarketingAnalyticsDashboard', () => {
         expect(screen.getByText('Engagement')).not.toBeNull()
         expect(screen.queryByText('Attribution explorer')).toBeNull()
         expect(screen.queryByText('Retention explorer')).toBeNull()
+        const trendBeforeBreakdown = screen.getByTestId('trend-query').textContent
         fireEvent.change(screen.getByLabelText('Traffic breakdown'), { target: { value: 'InitialUTMCampaign' } })
         expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}').source).toMatchObject({
             kind: 'WebStatsTableQuery',
@@ -116,6 +121,7 @@ describe('NewMarketingAnalyticsDashboard', () => {
             dateRange: { date_from: '-30d', date_to: null },
             compareFilter: { compare: false },
         })
+        expect(screen.getByTestId('trend-query').textContent).toBe(trendBeforeBreakdown)
         fireEvent.click(screen.getByText('Engagement'))
         expect(JSON.parse(screen.getByTestId('traffic-query').textContent || '{}')).toMatchObject({
             hiddenColumns: ['context.columns.views'],

@@ -198,6 +198,27 @@ describe("ReportVerdictBanner", () => {
     );
   });
 
+  it("removes the investigation spinner after an already-fixed dismissal", () => {
+    const { rerender } = render(
+      <ReportVerdictBanner report={{ ...report, status: "in_progress" }} />,
+    );
+    expect(screen.getByLabelText("Loading")).toBeInTheDocument();
+
+    rerender(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          status: "potential",
+          dismissal_reason: "already_fixed",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Dismissed until new signals")).toBeInTheDocument();
+    expect(screen.queryByText("Agent investigating")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading")).not.toBeInTheDocument();
+  });
+
   it("offers resolve in triage from both the button and shortcut", async () => {
     const user = userEvent.setup();
     render(
