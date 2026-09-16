@@ -237,18 +237,20 @@ function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.E
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
 
+    const isSelected = selectedRecordingsIds.some((s) => s === recording.id)
+
     return (
         <LemonCheckbox
-            checked={selectedRecordingsIds.some((s) => s === recording.id)}
+            checked={isSelected}
             data-attr="select-recording"
             aria-label="Select recording"
             disabledReason={
-                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                !isSelected && selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
                     ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
                     : undefined
             }
             onChange={() => {
-                if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                if (isSelected) {
                     setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
                 } else {
                     setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
@@ -276,7 +278,7 @@ const SessionRecordingPreviewBase = memo(
         const iconClassNames = 'text-secondary shrink-0'
 
         return (
-            <DraggableToNotebook href={urls.replaySingle(recording.id)}>
+            <DraggableToNotebook href={urls.replaySingle(recording.id)} onlyWithModifierKey>
                 <div
                     key={recording.id}
                     className={clsx(
