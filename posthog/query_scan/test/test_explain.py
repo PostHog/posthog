@@ -179,7 +179,8 @@ class TestExplainParsing(SimpleTestCase):
             ("the native-JSON table", "posthog.sharded_events_json", True, False),
             ("another table whose name ends in events", "posthog.ai_events", False, False),
             ("the persons table", "posthog.person", False, True),
-            ("a person override table", "posthog.person_distinct_id_overrides", False, True),
+            ("a person override table", "posthog.person_distinct_id_overrides", False, False),
+            ("the person distinct ID table", "posthog.person_distinct_id2", False, False),
         ]
     )
     def test_table_names_are_classified_by_the_description(

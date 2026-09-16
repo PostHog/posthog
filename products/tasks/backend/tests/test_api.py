@@ -3171,6 +3171,39 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.runs.count(), 1)
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("head_branch", {"head_branch": "posthog/work"}, None),
+            ("head_branches", {"head_branches": [{"repository": "posthog/posthog", "branch": "posthog/work"}]}, None),
+            ("reported_run_branch", {}, "posthog/work"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_resume_branch_the_previous_run_worked_on(
+        self, _name, output, stored_branch, mock_workflow
+    ):
+        task = self.create_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch=stored_branch,
+            output=output,
+            state={"pr_base_branch": "main"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id), "branch": "posthog/work"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(run.state["pr_base_branch"], "main")
+        self.assertEqual(run.branch, "main")
+        mock_workflow.assert_called_once()
+
     @parameterized.expand([({"pr_base_branch": None}, "release"), ({"pr_base_branch": None}, None), ({}, "release")])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_resume_ignores_mutable_run_branch(self, base_state, stored_branch, mock_workflow):
