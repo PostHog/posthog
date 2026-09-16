@@ -1,5 +1,6 @@
 import numpy as np
 from parameterized import parameterized
+from scipy import stats
 
 from products.apm.backend.logic.anomaly_detection.bands import (
     IQRBandModel,
@@ -36,13 +37,19 @@ class TestCountBands:
         band = ZScoreBandModel().compute(samples, 5.0, ALPHA)
         assert band.lower < 0.0
 
-    def test_negative_binomial_inflates_band_for_overdispersed_samples(self) -> None:
+    @parameterized.expand([(2.0,), (4.0,)])
+    def test_negative_binomial_inflates_band_for_overdispersed_samples(self, shape: float) -> None:
         mu = 50.0
-        overdispersed = make_rng().negative_binomial(2, 2 / (2 + mu), size=200).astype(float)
+        probability = shape / (shape + mu)
+        overdispersed = make_rng().negative_binomial(shape, probability, size=200).astype(float)
         nb_band = NegativeBinomialBandModel().compute(overdispersed, mu, ALPHA)
         poisson_band = PoissonBandModel().compute(overdispersed, mu, ALPHA)
         assert nb_band.upper > poisson_band.upper
         assert nb_band.lower <= poisson_band.lower
+        false_positive_probability = stats.nbinom.cdf(nb_band.lower - 1, shape, probability) + stats.nbinom.sf(
+            nb_band.upper, shape, probability
+        )
+        assert false_positive_probability < 0.005
 
     def test_negative_binomial_falls_back_to_poisson_when_not_overdispersed(self) -> None:
         samples = np.full(40, 100.0)
@@ -51,11 +58,43 @@ class TestCountBands:
         assert nb_band.lower == poisson_band.lower
         assert nb_band.upper == poisson_band.upper
 
-    def test_negative_binomial_one_outlier_does_not_collapse_the_band(self) -> None:
-        samples = np.append(np.full(14, 10.0), 10000.0)
+    @parameterized.expand([(6,), (9,), (15,)])
+    def test_negative_binomial_one_outlier_does_not_collapse_the_band(self, sample_count: int) -> None:
+        samples = np.append(np.full(sample_count - 1, 10.0), 10000.0)
         band = NegativeBinomialBandModel().compute(samples, 10.0, ALPHA)
         assert band.lower < 10.0 < band.upper
-        assert band.upper < 10000.0
+        assert band.expected == 10.0
+        assert band.upper < 30.0
+
+    def test_batched_negative_binomial_bands_match_individual_bands(self) -> None:
+        samples = [
+            np.zeros(6),
+            np.full(9, 100.0),
+            np.append(np.full(5, 10.0), 10000.0),
+            make_rng().negative_binomial(2, 0.04, size=40).astype(float),
+        ]
+        model = NegativeBinomialBandModel(rate_floor=12.0)
+        assert model.compute_many(samples, ALPHA) == [model.compute(sample, 0.0, ALPHA) for sample in samples]
+        assert model.compute_many([], ALPHA) == []
+
+    def test_intermittent_baseline_keeps_robust_silence_expectation(self) -> None:
+        samples = np.concatenate((np.zeros(90), np.full(10, 100.0)))
+        model = NegativeBinomialBandModel()
+        band = model.compute(samples, 0.0, ALPHA)
+        assert band.expected == 0.0
+        assert band.lower == 0.0
+        assert band.upper > 100.0
+        assert model.compute_many([samples], ALPHA) == [band]
+
+    def test_overdispersed_baseline_keeps_its_upper_tail(self) -> None:
+        samples = np.array([5.0, 10.0, 20.0, 40.0, 80.0, 1000.0])
+        mean = float(np.mean(samples))
+        variance = float(np.var(samples, ddof=1))
+        shape = mean**2 / (variance - mean)
+        probability = shape / (shape + mean)
+        band = NegativeBinomialBandModel().compute(samples, 100.0, ALPHA)
+        assert band.upper == stats.nbinom.ppf(1.0 - ALPHA, shape, probability)
+        assert band.expected == mean
 
     def test_flat_baseline_still_produces_nonzero_width_band(self) -> None:
         samples = np.full(40, 20.0)

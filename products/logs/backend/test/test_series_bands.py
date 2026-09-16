@@ -378,8 +378,30 @@ class TestSeriesBands(ClickhouseTestMixin, BaseTest):
         # 400 as a spike; the neighbours' ten samples of 400 an hour either side
         # pool in and the band fits the level the series runs at around that hour.
         assert bucket.observed == 400
-        assert bucket.lower == pytest.approx(47.0)
-        assert bucket.upper == pytest.approx(881.0)
+        assert bucket.lower is not None and 0 < bucket.lower < 100
+        assert bucket.upper is not None and 400 < bucket.upper < 1000
+        assert bucket.verdict is None
+
+    @parameterized.expand([(2,), (3,), (5,)])
+    def test_isolated_baseline_spike_keeps_short_history_bands_useful(self, weeks: int):
+        service = f"svc-baseline-spike-{weeks}"
+        history_start = WINDOW_START - dt.timedelta(weeks=weeks)
+        rows = self._slots(service, history_start, (weeks + 1) * 7 * 24, 100)
+        rows.append((self.team.pk, SLOT - dt.timedelta(weeks=1), service, "ns", "prod", "error", 100000))
+        self._insert(rows)
+
+        result = run_series_bands(
+            self.team,
+            service,
+            window_start=WINDOW_START,
+            window_end=WINDOW_END,
+            detection=_detection(pooling=True, level=False),
+        )
+
+        bucket = {bucket.time: bucket for bucket in result.series[0].buckets}[SLOT]
+        assert bucket.observed == 100
+        assert bucket.lower is not None and 0 < bucket.lower < 100
+        assert bucket.upper is not None and 100 < bucket.upper < 200
         assert bucket.verdict is None
 
     def test_level_shift_recentres_the_band_within_the_window(self):

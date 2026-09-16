@@ -457,11 +457,13 @@ def _build_series(
     window_end: dt.datetime,
     interval_minutes: int,
     detection: DetectionConfig,
+    *,
+    include_bands: bool = True,
 ) -> BandSeries:
     history = _FoldedHistory(series_rows, window_start, window_end, interval_minutes, detection)
     lifetime_start = series_rows.lifetime_start
     baseline_weeks, band_ready_at = _band_gate(window_start, window_end, lifetime_start)
-    banded = band_ready_at is None
+    banded = band_ready_at is None and include_bands
 
     grain = interval_minutes / BUCKET_MINUTES
     band_model = NegativeBinomialBandModel(
@@ -475,6 +477,7 @@ def _build_series(
     silence_min_expected = detection.silence_min_expected * grain
 
     buckets: list[BandBucket] = []
+    baseline_samples: list[np.ndarray] = []
     total_count = 0
     step = dt.timedelta(minutes=interval_minutes)
     slot = window_start
@@ -482,15 +485,16 @@ def _build_series(
         slot_ts = int(slot.timestamp())
         observed = history.observed(slot_ts)
         total_count += observed
-        lower: float | None = None
-        upper: float | None = None
         if banded:
-            samples = history.pooled_samples(slot_ts, pool_half_width) * history.level_factor(slot_ts)
-            band = band_model.compute(samples, float(observed), alpha)
-            lower = band.lower if band.expected >= silence_min_expected else 0.0
-            upper = band.upper
-        buckets.append(BandBucket(time=slot, observed=observed, lower=lower, upper=upper))
+            baseline_samples.append(history.pooled_samples(slot_ts, pool_half_width) * history.level_factor(slot_ts))
+        buckets.append(BandBucket(time=slot, observed=observed, lower=None, upper=None))
         slot += step
+
+    if banded:
+        buckets = [
+            replace(bucket, lower=band.lower if band.expected >= silence_min_expected else 0.0, upper=band.upper)
+            for bucket, band in zip(buckets, band_model.compute_many(baseline_samples, alpha), strict=True)
+        ]
 
     return BandSeries(
         namespace=key.namespace,
@@ -534,6 +538,7 @@ def _coarsen_sparse_series(
     interval_minutes: int,
     deadline: float,
     detection: DetectionConfig,
+    slot_rows: dict[_SeriesKey, _SeriesRows],
 ) -> list[BandSeries]:
     """Move each series that is too sparse at the requested grain up the ladder
     to the first rung where it is dense enough, or to the top rung.
@@ -579,9 +584,10 @@ def _coarsen_sparse_series(
                 settled.append(fallback)
                 continue
             candidate = replace(
-                _build_series(key, rows[key], rung_start, rung_end, rung, detection),
+                _build_series(key, rows[key], rung_start, rung_end, rung, detection, include_bands=False),
                 coarsened_reason=fallback.coarsened_reason,
             )
+            slot_rows[key] = rows[key]
             if _density_shortfall(candidate) is None:
                 settled.append(candidate)
             else:
@@ -692,14 +698,36 @@ def run_series_bands(
     deadline = time.monotonic() + MAX_EXECUTION_SECONDS
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [
-        _build_series(key, rows, window_start, window_end, interval_minutes, detection)
+        _build_series(key, rows, window_start, window_end, interval_minutes, detection, include_bands=False)
         for key, rows in slot_rows.items()
     ]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
     series_truncated = len(series) > MAX_SERIES
     series = _coarsen_sparse_series(
-        team, service_name, series[:MAX_SERIES], window_start, window_end, interval_minutes, deadline, detection
+        team,
+        service_name,
+        series[:MAX_SERIES],
+        window_start,
+        window_end,
+        interval_minutes,
+        deadline,
+        detection,
+        slot_rows,
     )
+    series = [
+        replace(
+            _build_series(
+                _series_key(candidate),
+                slot_rows[_series_key(candidate)],
+                floor_to_interval(window_start, candidate.interval_minutes),
+                floor_to_interval(window_end, candidate.interval_minutes),
+                candidate.interval_minutes,
+                detection,
+            ),
+            coarsened_reason=candidate.coarsened_reason,
+        )
+        for candidate in series
+    ]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
 
     return SeriesBandsResult(
