@@ -33,7 +33,7 @@ class TestLanguageServiceClient(SimpleTestCase):
         request.assert_called_once()
         call = request.call_args
         assert call.args == ("POST", "http://language-service:8091/teams/12/users/34/validate")
-        assert call.kwargs["json"] == {"query": "SELECT 1"}
+        assert call.kwargs["json"] == {"query": "SELECT 1", "positionEncoding": "utf-16"}
         assert call.kwargs["timeout"] == (0.25, 1)
         assert call.kwargs["headers"]["X-HogQL-Affinity-Key"] == (
             "a5c8d54c25064f11498a937f38591eba85a3e67cccc102e6c4f76bbf5377cc37"
