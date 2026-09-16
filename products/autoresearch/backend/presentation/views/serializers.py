@@ -162,10 +162,13 @@ class ObjectJSONField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Must be a JSON object.")
         try:
-            encoded = json.dumps(value, allow_nan=False)
+            # UTF-8 refuses the unpaired surrogate that a "\\ud800" escape parses to.
+            encoded = json.dumps(value, allow_nan=False, ensure_ascii=False).encode("utf-8")
         except ValueError as exc:
-            raise serializers.ValidationError("Must not contain NaN or infinite numbers.") from exc
-        if "\\u0000" in encoded:
+            raise serializers.ValidationError(
+                "Must not contain NaN, infinite numbers or unpaired surrogate characters."
+            ) from exc
+        if b"\\u0000" in encoded:
             raise serializers.ValidationError("Must not contain NUL characters.")
         if len(encoded) > OBJECT_JSON_MAX_BYTES:
             raise serializers.ValidationError(f"Must be at most {OBJECT_JSON_MAX_BYTES} bytes as JSON.")
@@ -180,6 +183,8 @@ class FiniteFloatField(serializers.FloatField):
     """
 
     def to_internal_value(self, data: Any) -> float:
+        if isinstance(data, bool):
+            raise serializers.ValidationError("Must be a number, not a boolean.")
         value = super().to_internal_value(data)
         if not math.isfinite(value):
             raise serializers.ValidationError("Must be a finite number.")
@@ -1251,7 +1256,10 @@ class RecordIterationSerializer(serializers.Serializer):
         help_text="Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.",
     )
     model_spec = ModelSpecField(
-        help_text="model_class (must be allowlisted) and model_params tried this iteration.",
+        help_text=(
+            "model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost "
+            "allowlist applies at completion, to a run that uploaded no bundle."
+        ),
     )
     status = serializers.ChoiceField(
         choices=["kept", "discarded", "crashed"],

@@ -704,7 +704,7 @@ export interface CompleteTrainingRunApi {
 export type RecordIterationApiRecipeSnapshot = { [key: string]: unknown }
 
 /**
- * model_class (must be allowlisted) and model_params tried this iteration.
+ * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
  */
 export type RecordIterationApiModelSpec = { [key: string]: unknown }
 
@@ -734,7 +734,7 @@ export interface RecordIterationApi {
     iteration_number: number
     /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
     recipe_snapshot: RecordIterationApiRecipeSnapshot
-    /** model_class (must be allowlisted) and model_params tried this iteration. */
+    /** model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle. */
     model_spec: RecordIterationApiModelSpec
     /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
      *

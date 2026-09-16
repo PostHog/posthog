@@ -578,6 +578,8 @@ class TestAgentWriteSerializers(SimpleTestCase):
                 "agent_description",
             ),
             ("nested_nan_in_spec", {"model_spec": {**VALID_SPEC, "model_params": {"C": float("nan")}}}, "model_spec"),
+            ("lone_surrogate_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "\ud800"}}, "recipe_snapshot"),
+            ("boolean_holdout", {"holdout_score": True}, "holdout_score"),
             ("nul_in_recipe", {"recipe_snapshot": {**VALID_RECIPE, "note": "a\x00b"}}, "recipe_snapshot"),
             (
                 "oversized_recipe",

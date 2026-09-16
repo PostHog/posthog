@@ -212,7 +212,9 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             ),
         model_spec: zod
             .looseObject({})
-            .describe('model_class (must be allowlisted) and model_params tried this iteration.'),
+            .describe(
+                'model_class and model_params tried this iteration. Any class is accepted here; the sklearn\/xgboost allowlist applies at completion, to a run that uploaded no bundle.'
+            ),
         status: zod
             .enum(['kept', 'discarded', 'crashed'])
             .describe('\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed')
