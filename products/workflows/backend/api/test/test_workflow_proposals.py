@@ -239,7 +239,6 @@ class TestWorkflowProposals(APIBaseTest):
                     "guardrails": [],
                 },
                 "base_version": 1,
-                "source_type": "scout",
             },
             format="json",
         )
@@ -274,7 +273,6 @@ class TestWorkflowProposals(APIBaseTest):
                     "guardrails": [],
                 },
                 "base_version": 1,
-                "source_type": "scout",
                 "source_id": "run-1",
             },
             format="json",
