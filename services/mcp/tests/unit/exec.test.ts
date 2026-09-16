@@ -1272,10 +1272,20 @@ describe('exec tool', () => {
             expect(result).not.toContain('name: three-tool')
         })
 
+        // The last row is sized to the request body ceiling the dispatcher allows.
+        // Asking whether the text before each separator parses as JSON re-reads the
+        // whole body once per separator, which stalls the shared Node instance for
+        // tens of seconds on this input and trips the suite timeout.
+        const separatorPerLine = '; search x '.repeat(95_000)
+
         it.each([
             ['a JSON body split over lines', 'call mock-tool {\n  "query": "SELECT 1"\n}'],
             ['a JSON body with a key named after a verb', 'call mock-tool {\n  "search": "flags"\n}'],
             ['a separator inside a JSON string', 'call mock-tool {"query": "SELECT 1; search x"}'],
+            [
+                'a separator on every line of a body at the size ceiling',
+                `call mock-tool {"query": "${separatorPerLine}"}`,
+            ],
         ])('runs a single call with %s', async (_label, command) => {
             const tool = makeMockTool({
                 schema: z.object({ query: z.string().optional(), search: z.string().optional() }),

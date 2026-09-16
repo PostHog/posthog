@@ -369,9 +369,40 @@ function splitBatchedCommands(command: string): string[] | undefined {
     const separators = /\n|&&|;/g
     const commands: string[] = []
     let start = 0
+    // Only a `call` carries a JSON body, and a separator nested inside one is data.
+    // This walk reads each character once and never goes back. Asking
+    // `isCompleteCommand` instead re-reads the whole body per separator, which a
+    // body holding one on every line turns into quadratic work.
+    let insideCall = firstToken(trimmed) === 'call'
+    let walked = 0
+    let inString = false
+    let depth = 0
+    const isNested = (index: number): boolean => {
+        for (; walked < index; walked++) {
+            const char = trimmed[walked]
+            if (inString) {
+                if (char === '\\') {
+                    walked++
+                } else if (char === '"') {
+                    inString = false
+                }
+            } else if (char === '"') {
+                inString = true
+            } else if (char === '{' || char === '[') {
+                depth++
+            } else if ((char === '}' || char === ']') && depth > 0) {
+                depth--
+            }
+        }
+        return inString || depth > 0
+    }
     for (let match = separators.exec(trimmed); match !== null; match = separators.exec(trimmed)) {
         const next = match.index + match[0].length
-        if (!EXEC_VERBS.has(firstToken(trimmed.slice(next, next + VERB_LOOKAHEAD_CHARS)))) {
+        const nextVerb = firstToken(trimmed.slice(next, next + VERB_LOOKAHEAD_CHARS))
+        if (!EXEC_VERBS.has(nextVerb)) {
+            continue
+        }
+        if (insideCall && isNested(match.index)) {
             continue
         }
         const head = trimmed.slice(start, match.index).trim()
@@ -381,13 +412,20 @@ function splitBatchedCommands(command: string): string[] | undefined {
             continue
         }
         if (!isCompleteCommand(head)) {
-            continue
+            // The head sits outside the body's strings and brackets, so no longer
+            // head completes it: each one holds this separator, and a JSON value
+            // carries none at the top level. No later separator can cut either.
+            break
         }
         // A blank line leaves nothing between two separators.
         if (head) {
             commands.push(head)
         }
         start = next
+        insideCall = nextVerb === 'call'
+        walked = next
+        inString = false
+        depth = 0
     }
     if (commands.length === 0) {
         return undefined
