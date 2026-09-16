@@ -78,25 +78,25 @@ describe("ScoutLinkService", () => {
       name: "emits OpenScout with the finding id from the query param",
       path: "error-tracking",
       search: "finding=abc-123",
-      expected: { skillSlug: "error-tracking", findingId: "abc-123" },
+      expected: { skillName: "error-tracking", findingId: "abc-123" },
     },
     {
       name: "emits OpenScout without a finding id when none is supplied",
       path: "error-tracking",
       search: "",
-      expected: { skillSlug: "error-tracking", findingId: undefined },
+      expected: { skillName: "error-tracking", findingId: undefined },
     },
     {
-      name: "takes only the first path segment as the skill slug",
+      name: "takes only the first path segment as the skill name",
       path: "error-tracking/extra/segments",
       search: "",
-      expected: { skillSlug: "error-tracking", findingId: undefined },
+      expected: { skillName: "error-tracking", findingId: undefined },
     },
     {
-      name: "decodes a percent-encoded skill slug",
+      name: "decodes a percent-encoded skill name",
       path: "error%2Dtracking",
       search: "",
-      expected: { skillSlug: "error-tracking", findingId: undefined },
+      expected: { skillName: "error-tracking", findingId: undefined },
     },
   ])("$name", ({ path, search, expected }) => {
     const listener = vi.fn();
@@ -112,7 +112,7 @@ describe("ScoutLinkService", () => {
     deepLinkService.trigger("scout", "web-analytics", "finding=f-1");
 
     const pending = service.consumePendingDeepLink();
-    expect(pending).toEqual({ skillSlug: "web-analytics", findingId: "f-1" });
+    expect(pending).toEqual({ skillName: "web-analytics", findingId: "f-1" });
 
     // Draining clears it
     expect(service.consumePendingDeepLink()).toBeNull();

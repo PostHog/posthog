@@ -2,7 +2,10 @@ import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import type { RootLogger } from "@posthog/di/logger";
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import type { AgentAuth } from "@posthog/workspace-server/services/agent/ports";
+import type {
+  AgentAuth,
+  AgentMcpApps,
+} from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopPiRpcClientFactory } from "./desktop-pi-rpc-client-factory";
@@ -93,10 +96,15 @@ describe("DesktopPiRpcClientFactory", () => {
         error: vi.fn(),
       }),
     } as unknown as RootLogger;
+    const mcpApps = {
+      addServerConfigs: vi.fn(),
+      handleDiscovery: vi.fn(async () => {}),
+    };
     const factory = new DesktopPiRpcClientFactory(
       auth,
       authProxy,
       mcpServerSource,
+      mcpApps as unknown as AgentMcpApps,
       rootLogger,
     );
 
@@ -121,6 +129,14 @@ describe("DesktopPiRpcClientFactory", () => {
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://app.dev.posthog.dev");
     expect(createLocalRuntimeMcpServers).toHaveBeenCalledWith("/workspace");
+    expect(mcpApps.addServerConfigs).toHaveBeenCalledWith([
+      {
+        name: "posthog",
+        url: "http://127.0.0.1:4321/posthog",
+        headers: { "x-posthog-project-id": "1" },
+      },
+    ]);
+    expect(mcpApps.handleDiscovery).toHaveBeenCalledWith(["posthog"]);
     expect(createPiRpcClient).toHaveBeenCalledWith({
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",

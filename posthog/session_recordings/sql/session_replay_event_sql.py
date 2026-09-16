@@ -93,10 +93,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- because we batch events we expect message_count to be lower than event_count
     event_count SimpleAggregateFunction(sum, Int64),
     -- which source the snapshots came from Mobile or Web. Web if absent
-    snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
     snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-    snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+    snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
     retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -151,16 +151,15 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
+def _session_replay_events_mv_sql(
+    *, view_name: str, source_table: str, on_cluster: bool, exclude_columns: list[str] | None
+) -> str:
     exclude_columns = exclude_columns or []
 
     target_table = "writable_session_replay_events"
     on_cluster_clause = ON_CLUSTER_CLAUSE(on_cluster)
     database = settings.CLICKHOUSE_DATABASE
 
-    # ClickHouse is incorrectly expanding the type of the snapshot source column
-    # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
-    # The column expansion picks only Nullable(String) and so we can't select it
     explictly_specify_columns = f"""(
 `session_id` String, `team_id` Int64, `distinct_id` String,
 `min_first_timestamp` DateTime64(6, 'UTC'),
@@ -175,7 +174,7 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 `console_log_count` Int64, `console_warn_count` Int64,
 `console_error_count` Int64, `size` Int64, `message_count` Int64,
 `event_count` Int64,
-`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`snapshot_source` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
 `_timestamp` Nullable(DateTime)
 {",`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))" if "retention_period_days" not in exclude_columns else ""}
@@ -184,11 +183,11 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 {",`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_freeform" not in exclude_columns else ""}
 {",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
 {",`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))" if "surfacing_score" not in exclude_columns else ""}
-{",`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
+{",`snapshot_mode_v2` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))" if "snapshot_mode_v2" not in exclude_columns else ""}
 )"""
 
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name} {on_cluster_clause}
 TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
 session_id,
@@ -221,7 +220,7 @@ sum(size) as size,
 -- we can count the number of kafka messages instead of sending it explicitly
 sum(message_count) as message_count,
 sum(event_count) as event_count,
-argMinState(snapshot_source, first_timestamp) as snapshot_source,
+argMinState(replay.snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
 max(_timestamp) as _timestamp
 {",max(retention_period_days) as retention_period_days" if "retention_period_days" not in exclude_columns else ""}
@@ -230,10 +229,19 @@ max(_timestamp) as _timestamp
 {",groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform" if "ai_tags_freeform" not in exclude_columns else ""}
 {",max(ai_highlighted) as ai_highlighted" if "ai_highlighted" not in exclude_columns else ""}
 {",max(surfacing_score) as surfacing_score" if "surfacing_score" not in exclude_columns else ""}
-{",argMinState(snapshot_mode, first_timestamp) as snapshot_mode" if "snapshot_mode" not in exclude_columns else ""}
-FROM {database}.kafka_session_replay_events
+{",argMinState(replay.snapshot_mode, first_timestamp) as snapshot_mode_v2" if "snapshot_mode_v2" not in exclude_columns else ""}
+FROM {database}.{source_table} AS replay
 group by session_id, team_id
 """
+
+
+def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster: bool = True, exclude_columns: list[str] | None = None) -> str:
+    return _session_replay_events_mv_sql(
+        view_name="session_replay_events_mv",
+        source_table="kafka_session_replay_events",
+        on_cluster=on_cluster,
+        exclude_columns=exclude_columns,
+    )
 
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -303,73 +311,10 @@ def KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE_SQL(on_cluster=False):
     )
 
 
-def SESSION_REPLAY_EVENTS_WS_MV_SQL(on_cluster=False, exclude_columns=None):
-    exclude_columns = exclude_columns or []
-
-    target_table = "writable_session_replay_events"
-    on_cluster_clause = ON_CLUSTER_CLAUSE(on_cluster)
-    database = settings.CLICKHOUSE_DATABASE
-
-    explictly_specify_columns = f"""(
-`session_id` String, `team_id` Int64, `distinct_id` String,
-`min_first_timestamp` DateTime64(6, 'UTC'),
-`max_last_timestamp` DateTime64(6, 'UTC'),
-`block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-`block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-`block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-`click_count` Int64, `keypress_count` Int64,
-`mouse_activity_count` Int64, `active_milliseconds` Int64,
-`console_log_count` Int64, `console_warn_count` Int64,
-`console_error_count` Int64, `size` Int64, `message_count` Int64,
-`event_count` Int64,
-`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-`snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
-{",`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))" if "retention_period_days" not in exclude_columns else ""}
-{",`is_deleted` SimpleAggregateFunction(max, UInt8)" if "is_deleted" not in exclude_columns else ""}
-{",`ai_tags_fixed` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_fixed" not in exclude_columns else ""}
-{",`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))" if "ai_tags_freeform" not in exclude_columns else ""}
-{",`ai_highlighted` SimpleAggregateFunction(max, UInt8)" if "ai_highlighted" not in exclude_columns else ""}
-{",`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))" if "surfacing_score" not in exclude_columns else ""}
-{",`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))" if "snapshot_mode" not in exclude_columns else ""}
-)"""
-
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {SESSION_REPLAY_EVENTS_WS_MV} {on_cluster_clause}
-TO {database}.{target_table} {explictly_specify_columns}
-AS SELECT
-session_id,
-team_id,
-any(distinct_id) as distinct_id,
-min(first_timestamp) AS min_first_timestamp,
-max(last_timestamp) AS max_last_timestamp,
-groupArray(if(block_url != '', first_timestamp, NULL)) AS block_first_timestamps,
-groupArray(if(block_url != '', last_timestamp, NULL)) AS block_last_timestamps,
-groupArray(block_url) AS block_urls,
-argMinState(first_url, first_timestamp) as first_url,
-groupUniqArrayArray(urls) as all_urls,
-sum(click_count) as click_count,
-sum(keypress_count) as keypress_count,
-sum(mouse_activity_count) as mouse_activity_count,
-sum(active_milliseconds) as active_milliseconds,
-sum(console_log_count) as console_log_count,
-sum(console_warn_count) as console_warn_count,
-sum(console_error_count) as console_error_count,
-sum(size) as size,
-sum(message_count) as message_count,
-sum(event_count) as event_count,
-argMinState(snapshot_source, first_timestamp) as snapshot_source,
-argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp
-{",max(retention_period_days) as retention_period_days" if "retention_period_days" not in exclude_columns else ""}
-{",max(is_deleted) as is_deleted" if "is_deleted" not in exclude_columns else ""}
-{",groupUniqArrayArray(ai_tags_fixed) as ai_tags_fixed" if "ai_tags_fixed" not in exclude_columns else ""}
-{",groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform" if "ai_tags_freeform" not in exclude_columns else ""}
-{",max(ai_highlighted) as ai_highlighted" if "ai_highlighted" not in exclude_columns else ""}
-{",max(surfacing_score) as surfacing_score" if "surfacing_score" not in exclude_columns else ""}
-{",argMinState(snapshot_mode, first_timestamp) as snapshot_mode" if "snapshot_mode" not in exclude_columns else ""}
-FROM {database}.{KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE}
-group by session_id, team_id
-"""
+def SESSION_REPLAY_EVENTS_WS_MV_SQL(on_cluster: bool = False, exclude_columns: list[str] | None = None) -> str:
+    return _session_replay_events_mv_sql(
+        view_name=SESSION_REPLAY_EVENTS_WS_MV,
+        source_table=KAFKA_SESSION_REPLAY_EVENTS_WS_TABLE,
+        on_cluster=on_cluster,
+        exclude_columns=exclude_columns,
+    )

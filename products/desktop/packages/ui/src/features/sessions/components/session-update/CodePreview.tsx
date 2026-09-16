@@ -1,6 +1,7 @@
 import { EditorView } from "@codemirror/view";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import { compactHomePath, parseImageDataUrl } from "@posthog/shared";
+import { DiffWorkerPool } from "@posthog/ui/features/code-review/DiffWorkerPool";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { Code } from "@radix-ui/themes";
 import { useEffect, useMemo, useRef } from "react";
@@ -173,7 +174,13 @@ function DiffPreview({
         className="scroll-mask-2"
         style={maxHeight ? { maxHeight, overflow: "auto" } : undefined}
       >
-        <MultiFileDiff oldFile={oldFile} newFile={newFile} options={options} />
+        <DiffWorkerPool>
+          <MultiFileDiff
+            oldFile={oldFile}
+            newFile={newFile}
+            options={options}
+          />
+        </DiffWorkerPool>
       </div>
     </div>
   );

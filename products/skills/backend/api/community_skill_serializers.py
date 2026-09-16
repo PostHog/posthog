@@ -56,7 +56,8 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
         child=serializers.CharField(),
         required=False,
         default=list,
-        help_text="Tools the skill declares it may use. Surface these to the user before install.",
+        help_text="Tools the skill asks to use. Surface these to the user before install. The list is a request, "
+        "not a grant: a harness that loads the installed skill over MCP ignores it until the user approves that grant.",
     )
     metadata = serializers.DictField(
         required=False,

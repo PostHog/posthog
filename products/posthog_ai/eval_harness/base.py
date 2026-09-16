@@ -266,17 +266,25 @@ class _BaseEvalRun:
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
-        # Emit evaluation events and trace roots to PostHog (after scoring)
-        if self.posthog_client and result.results:
+        evaluation_client = self.ctx.posthog_evaluation_client
+        if not self.no_send_logs and evaluation_client is not None and result.results:
             try:
                 emit_evaluation_events(
-                    self.posthog_client,
+                    evaluation_client,
                     self.experiment_id,
                     self.experiment_name,
                     result.results,
                     namespace=self.trace_namespace,
                     scorer_traces=self.scorer_traces,
                 )
+                await asyncio.to_thread(evaluation_client.flush)
+                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
+            except Exception:
+                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+
+        # Emit trace roots to PostHog (after scoring)
+        if self.posthog_client and result.results:
+            try:
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
@@ -298,10 +306,9 @@ class _BaseEvalRun:
                             scores=eval_result.scores,
                             token_usage=meta.get("token_usage"),
                         )
-                self.posthog_client.flush()
-                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
+                await asyncio.to_thread(self.posthog_client.flush)
             except Exception:
-                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+                logger.exception("Failed to emit trace roots for '%s'", self.experiment_name)
 
         # Hand the summary to the reporter: suites don't return their Braintrust
         # result up to the orchestrator, so this is the only place the final table

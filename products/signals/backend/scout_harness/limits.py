@@ -30,6 +30,11 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
+# Cap on the one-off steering note an on-demand ("Run now") dispatch carries. It renders verbatim
+# into that run's prompt, so it is held to the 1,000 characters `report_steering` cuts a durable
+# note to: steering meant for one run must not crowd out the run's own instructions.
+MAX_RUN_NOTE_CHARS = 1_000
+
 # Consecutive failed runs after which a scout config trips its circuit breaker and is
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the

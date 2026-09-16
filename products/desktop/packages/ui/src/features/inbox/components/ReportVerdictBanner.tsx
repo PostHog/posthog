@@ -12,13 +12,9 @@ import {
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
-import {
-  deriveReportVerdict,
-  type ReportVerdictTone,
-} from "@posthog/core/inbox/reportVerdict";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
   Button,
-  cn,
   Field,
   FieldDescription,
   FieldLabel,
@@ -30,6 +26,7 @@ import {
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -56,13 +53,6 @@ const isMac =
 
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
-
-const TONE_CLASS: Record<ReportVerdictTone, string> = {
-  decision: "border-(--amber-6) bg-(--amber-2)",
-  danger: "border-(--red-6) bg-(--red-2)",
-  progress: "border-(--gray-5) bg-(--gray-1)",
-  info: "border-(--gray-5) bg-(--gray-1)",
-};
 
 type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
 
@@ -636,19 +626,11 @@ export function ReportVerdictBanner({
   }
 
   return (
-    <div
-      className={cn(
-        "flex select-none flex-col gap-3 rounded-lg border p-4",
-        TONE_CLASS[verdict.tone],
-      )}
-    >
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 font-semibold text-[15px] text-gray-12">
-          {verdict.tone === "progress" && <Spinner />}
-          {verdict.title}
-        </span>
-        <span className="text-[14px] text-gray-11">{verdict.body}</span>
-        {mergedPr && report.implementation_pr_url && (
+    <ReportVerdictCallout
+      verdict={verdict}
+      details={
+        mergedPr &&
+        report.implementation_pr_url && (
           <a
             href={report.implementation_pr_url}
             target="_blank"
@@ -659,11 +641,11 @@ export function ReportVerdictBanner({
             An earlier fix (#{mergedPr.number}) merged, but evidence kept
             arriving afterwards
           </a>
-        )}
-      </div>
-
+        )
+      }
+    >
       {actionsRow}
       {dismissDialog}
-    </div>
+    </ReportVerdictCallout>
   );
 }

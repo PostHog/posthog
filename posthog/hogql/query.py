@@ -15,7 +15,7 @@ from posthog.schema import (
     HogQLVariable,
 )
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -31,7 +31,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     RangeTable,
 )
 from posthog.hogql.database.schema.information_schema import InformationSchemaTable
-from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
+from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
 from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
@@ -666,7 +666,9 @@ class HogQLQueryExecutor:
 
             if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
                 if settings.max_bytes_to_read is None:
-                    settings.max_bytes_to_read = HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
+                    settings.max_bytes_to_read = get_hogql_max_bytes_to_read_for_logs_user_queries(
+                        self.team.organization
+                    )
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
 
@@ -805,6 +807,10 @@ class HogQLQueryExecutor:
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
 
+            stats = query_stats.get_active()
+            # The rows are read back per thread after the run, so a run ClickHouse stops is still
+            # recorded with what it read, and a series running in another thread is not charged here.
+            query_stats.reset_last_rows_read()
             try:
                 try:
                     self.results, self.types = run_clickhouse_query()
@@ -821,6 +827,13 @@ class HogQLQueryExecutor:
                         self.error = "Unknown error"
                 else:
                     raise
+            finally:
+                if stats is not None and isinstance(self.clickhouse_prepared_ast, ast.Expr):
+                    stats.record_execution(
+                        tree=self.clickhouse_prepared_ast,
+                        context=clickhouse_context,
+                        rows_read=query_stats.last_rows_read(),
+                    )
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):

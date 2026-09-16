@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
@@ -152,6 +153,55 @@ describe('observationSearchLogic', () => {
         })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
+
+    it.each([
+        ['a failed', () => [500, { detail: 'embedding service down' }], { succeeded: false, error_status: 500 }],
+        ['a successful', undefined, { succeeded: true, result_count: 1 }],
+    ])('%s search is captured, so the failure rate is measurable', async (_name, mockResponse, expected) => {
+        if (mockResponse) {
+            searchSpy.mockImplementation(mockResponse as () => any)
+        }
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('rage clicks')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith(
+            'replay vision observation search completed',
+            expect.objectContaining({ ...expected, scope: 'cross-scanner' })
+        )
+        captureSpy.mockRestore()
+        logic.unmount()
+    })
+
+    it('a superseded failure is dropped, so the rate counts only the searches a person waited for', async () => {
+        searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+
+        logic.actions.setQuery('rage clicks')
+        logic.actions.search()
+        // The second search starts while the first request is in flight, which supersedes the first.
+        logic.actions.setQuery('coupon rejected at checkout')
+        logic.actions.search()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(2)
+        const outcomes = captureSpy.mock.calls.filter(
+            ([event]) => event === 'replay vision observation search completed'
+        )
+        expect(outcomes).toHaveLength(1)
+        expect(outcomes[0][1]).toMatchObject({ succeeded: false, error_status: 500 })
+        expect(toastSpy).toHaveBeenCalledTimes(1)
+        captureSpy.mockRestore()
+        toastSpy.mockRestore()
         logic.unmount()
     })
 

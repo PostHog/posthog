@@ -20,6 +20,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -97,7 +100,6 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                 return
 
             error_msg = str(e)
-
             # Every credential the integration service holds is PostHog's own (OAuth app secrets,
             # API keys), never the customer's, and none of its failure states are permanent — a
             # burned key gets re-provisioned, an unreachable service comes back. Unlike the skips
@@ -114,13 +116,45 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                     logger.warning(error_msg)
                 raise NonReportableError(error_msg) from e
 
+            # PostHog's own egress proxy throttled or refused the connection. Raise rather than
+            # skip so Temporal still retries this discovery run, and classify here rather than per
+            # source so every connector gets the same treatment.
+            if is_transient_egress_proxy_error(error_msg):
+                logger.warning(f"Transient egress-proxy error during schema discovery: {error_msg}")
+                raise NonReportableError(error_msg) from e
+
             non_retryable_errors = new_source.get_non_retryable_errors()
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
                 return
+            # Retryable source errors (a transient connect blip, a self-recovering HTTP status) reach
+            # us only after the source exhausted its own retries. Re-raise as NonReportableError so the
+            # activity interceptor suppresses the error-tracking report while Temporal still retries the
+            # activity, opening a fresh connection that usually succeeds. This mirrors import_data_sync's
+            # handling of the same get_retryable_errors set. Returning here instead would skip the whole
+            # discovery pass until the next ~6h run and waste the workflow's remaining retry attempts.
+            retryable_errors = new_source.get_retryable_errors()
+            if error_message_matches(error_msg, retryable_errors):
+                logger.warning(f"Retrying schema discovery after retryable source error: {error_msg}")
+                raise NonReportableError(error_msg) from e
             raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
+
+        try:
+            server_metadata = new_source.get_server_metadata(config, inputs.team_id)
+            if isinstance(server_metadata, dict) and server_metadata:
+                # `source` was read before schema discovery, which is a network call of its own, so
+                # the merge re-reads the row under a lock rather than trusting that snapshot.
+                source.merge_connection_metadata(server_metadata)
+        except Exception:
+            # Recording the version is incidental to schema discovery, and both steps here can fail
+            # on their own: the probe opens a connection to the customer's server, and the merge
+            # waits on a row lock that the backfill command can hold. Neither says anything about
+            # the schemas already discovered above, so a pass that otherwise succeeded stays
+            # successful. A real connection fault still reaches the user through the per-schema sync
+            # path, which has its own reporting.
+            logger.warning("Could not record source server metadata", exc_info=True)
     else:
         raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 

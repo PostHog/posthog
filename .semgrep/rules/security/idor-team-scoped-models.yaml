@@ -74,6 +74,7 @@ rules:
                               |AgentTransportBinding
                               |AgentUser
                               |AIObservabilityChecklistItemState
+                              |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -243,6 +244,7 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeLearningRun
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -257,6 +259,7 @@ rules:
                               |LoopTrigger
                               |LLMModelConfiguration
                               |LLMPrompt
+                              |LLMPromptDependency
                               |LLMPromptLabel
                               |LLMProviderKey
                               |LLMSkill
@@ -333,9 +336,13 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
+                              |SignalReportCheck
+                              |SignalReportGithubComment
+                              |SignalReportPullRequest
                               |SignalReportAssignment
                               |SignalReportRefund
                               |SignalReportTask
+                              |SignalReportTrackerIssue
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
@@ -353,6 +360,7 @@ rules:
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
+                              |SubscriptionContext
                               |SubscriptionDelivery
                               |Survey
                               |SurveyResponseArchive
@@ -376,6 +384,7 @@ rules:
                               |ChannelFeedMessage
                               |EmailChannel
                               |EvaluationReport
+                              |EvaluationBackfill
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -396,6 +405,7 @@ rules:
                               |UserRepoPreference
                               |VisionAlertConfiguration
                               |VisionAlertMatch
+                              |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -481,6 +491,7 @@ rules:
                         |AgentTransportBinding
                         |AgentUser
                         |AIObservabilityChecklistItemState
+                        |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -647,6 +658,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeLearningRun
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -656,6 +668,7 @@ rules:
                         |NotebookWidgetInstance
                         |LLMModelConfiguration
                         |LLMPrompt
+                        |LLMPromptDependency
                         |LLMPromptLabel
                         |LLMProviderKey
                         |LLMSkill
@@ -730,9 +743,13 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
+                        |SignalReportCheck
+                        |SignalReportGithubComment
+                        |SignalReportPullRequest
                         |SignalReportAssignment
                         |SignalReportRefund
                         |SignalReportTask
+                        |SignalReportTrackerIssue
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
@@ -750,6 +767,7 @@ rules:
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription
+                        |SubscriptionContext
                         |SubscriptionDelivery
                         |Survey
                         |SurveyResponseArchive
@@ -772,6 +790,7 @@ rules:
                         |ChannelFeedMessage
                         |EmailChannel
                         |EvaluationReport
+                        |EvaluationBackfill
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -792,6 +811,7 @@ rules:
                         |UserRepoPreference
                         |VisionAlertConfiguration
                         |VisionAlertMatch
+                        |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -1227,7 +1247,6 @@ rules:
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
-                              |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
                               |UserFacetSettings
@@ -1301,7 +1320,6 @@ rules:
                         |FileSystemViewLog
                         |InsightViewed
                         |KernelRuntime
-                        |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
                         |UserFacetSettings

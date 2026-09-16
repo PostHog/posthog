@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -304,7 +304,7 @@ class TestOffsetPagination:
 
 
 class TestEventsWindowPagination:
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_walks_weekly_windows_with_bounded_range(self):
         last_value = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1000)
         _rows, urls, manager = _run(
@@ -320,7 +320,7 @@ class TestEventsWindowPagination:
         # windows advance and checkpoint so a crash resumes at the next window
         assert manager.saved and manager.saved[-1].window_start_ms is not None
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_resumes_from_saved_window(self):
         resume_ms = int(datetime(2024, 1, 15, tzinfo=UTC).timestamp() * 1000)
         manager = FakeManager(ConcordResumeConfig(window_start_ms=resume_ms))
@@ -353,14 +353,14 @@ class TestEventsWindowPagination:
         emitted = [r["id"] for table in tables for r in table.to_pylist()]
         return emitted, manager
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_mid_window_flush_advances_row_offset_monotonically(self):
         _emitted, manager = self._iter_single_window()
         window_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
         # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
         assert [(s.window_start_ms, s.row_offset) for s in manager.saved] == [(window_ms, 2), (window_ms, 4)]
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_resume_skips_already_emitted_window_rows(self):
         emitted, _ = self._iter_single_window(start_row_offset=3)
         # rows 0–2 were committed last run; the resume must not re-emit them

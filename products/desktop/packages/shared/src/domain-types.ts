@@ -33,6 +33,16 @@ export type EffortLevel = z.infer<typeof effortLevelSchema>;
 /** All effort levels in ascending order of depth. */
 export const EFFORT_LEVELS = effortLevelSchema.options;
 
+/**
+ * OpenAI service tiers a Codex run can request. "flex" is the cheaper, slower
+ * queue; "priority" the faster one; "default" pins standard routing explicitly.
+ * Codex only sends a tier its model catalogue advertises for the model in use.
+ */
+export const serviceTierSchema = z.enum(["default", "priority", "flex"]);
+export type ServiceTier = z.infer<typeof serviceTierSchema>;
+
+export const SERVICE_TIERS = serviceTierSchema.options;
+
 export const EFFORT_LEVEL_LABELS: Record<EffortLevel, string> = {
   low: "Low",
   medium: "Medium",
@@ -76,6 +86,9 @@ export interface Task {
   title: string;
   title_manually_set?: boolean;
   description: string;
+  // First characters of the description, present instead of the full body when the
+  // list was fetched with basic=true. Absent on the full and single-task responses.
+  description_preview?: string;
   created_at: string;
   updated_at: string;
   /**
@@ -764,6 +777,12 @@ export interface SignalReport {
   implementation_pr_merged?: boolean;
   /** Latest known state of that PR, per the GitHub webhook. */
   implementation_pr_state?: SignalReportPrState | null;
+  /** Link to the tracker issue self-driving opened for this report's PR, when the project tracks issues. */
+  tracker_issue_url?: string | null;
+  /** How that issue reads in its provider, for example '#12' or 'ENG-123'. */
+  tracker_issue_reference?: string | null;
+  /** Why the tracker issue could not be opened, for a project that wants one. Null when it exists. */
+  tracker_issue_error?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
@@ -1013,7 +1032,10 @@ import type { AvailableSuggestedReviewer } from "./inbox-types";
 export type { AvailableSuggestedReviewer };
 
 export interface SuggestedReviewer {
-  github_login: string;
+  /** Null for a reviewer with no linked GitHub account — `user` identifies them instead. */
+  github_login: string | null;
+  /** Null on entries written before reviewers carried one; `user` still resolves from the login. */
+  user_uuid?: string | null;
   github_name: string | null;
   relevant_commits: SuggestedReviewerCommit[];
   user: SuggestedReviewerUser | null;

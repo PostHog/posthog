@@ -1,7 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -38,8 +36,9 @@ describe('maxSettingsLogic', () => {
     })
 
     it.each([403, 408, 502, 504])(
-        'falls back to null without throwing when the load responds with %s',
+        'surfaces a load error instead of masquerading as empty memory when the load responds with %s',
         async (status) => {
+            silenceKeaLoadersErrors()
             useMocks({
                 get: {
                     '/api/environments/:team_id/core_memory/': () => [status, { detail: 'nope' }],
@@ -48,24 +47,32 @@ describe('maxSettingsLogic', () => {
             logic = maxSettingsLogic()
             logic.mount()
 
-            // The loader catches non-OK responses so they resolve as success with a null value,
-            // rather than bubbling up as an uncaught frontend error.
+            // A failed load must not read as empty memory: it dispatches a failure and populates the
+            // error state so the UI can show a retry, not a blank editable textarea.
             await expectLogic(logic)
-                .toDispatchActions(['loadCoreMemorySuccess'])
-                .toNotHaveDispatchedActions(['loadCoreMemoryFailure'])
+                .toDispatchActions(['loadCoreMemoryFailure'])
                 .toMatchValues({ coreMemory: null, isLoading: false })
+            expect(logic.values.coreMemoryLoadError).toBeTruthy()
         }
     )
 
-    it('lets non-HTTP errors propagate so real regressions stay visible', async () => {
-        silenceKeaLoadersErrors()
-        // A programming error (not an ApiError) should surface as a failure, not be silently swallowed.
-        jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('boom'))
+    it('flags text over the character limit as over the limit', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/core_memory/': () => [
+                    200,
+                    { results: [{ id: 'mem-1', text: 'x'.repeat(15546) }] },
+                ],
+            },
+        })
         logic = maxSettingsLogic()
         logic.mount()
 
-        await expectLogic(logic)
-            .toDispatchActions(['loadCoreMemoryFailure'])
-            .toMatchValues({ coreMemory: null, isLoading: false })
+        await expectLogic(logic).toDispatchActions(['loadCoreMemorySuccess', 'setCoreMemoryFormValue'])
+        expect(logic.values.coreMemoryOverLimit).toBe(true)
+
+        logic.actions.trimCoreMemoryToFit()
+        expect(logic.values.coreMemoryForm.text).toHaveLength(10000)
+        expect(logic.values.coreMemoryOverLimit).toBe(false)
     })
 })
