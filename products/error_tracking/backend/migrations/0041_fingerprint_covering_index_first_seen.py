@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("error_tracking", "0039_drop_superseded_fingerprint_constraint"),
+        ("error_tracking", "0040_reset_timeouts_on_fingerprint_index_rollback"),
     ]
 
     operations = [
