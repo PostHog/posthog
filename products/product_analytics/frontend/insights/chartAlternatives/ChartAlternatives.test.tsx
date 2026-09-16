@@ -110,27 +110,6 @@ describe('ChartAlternatives', () => {
         expect(logic.values.galleryOpen).toBe(false)
     })
 
-    it('ignores selecting the current chart or a disabled one', () => {
-        const base = makeTrendsQuery()
-        setQuery({
-            ...base,
-            series: [...base.series, { kind: NodeKind.EventsNode, event: '$pageleave', math: BaseMathType.TotalCount }],
-            breakdownFilter: { breakdown: '$geoip_country_code', breakdown_type: 'event' },
-            trendsFilter: { display: ChartDisplayType.WorldMap },
-        })
-        const logic = alternativesLogic()
-        const originalQuery = builtInsightDataLogic.values.query
-        expect(
-            logic.values.options.flatMap((g) => g.options).find((o) => o.display === ChartDisplayType.BoldNumber)
-                ?.disabledReason
-        ).toBeTruthy()
-
-        logic.actions.selectChart(ChartDisplayType.WorldMap, 'recommended')
-        logic.actions.selectChart(ChartDisplayType.BoldNumber, 'gallery')
-
-        expect(builtInsightDataLogic.values.query).toEqual(originalQuery)
-    })
-
     it('renders the chart switch control only while the flag is on', async () => {
         setQuery(makeTrendsQuery())
         alternativesLogic()

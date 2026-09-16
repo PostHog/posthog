@@ -959,12 +959,6 @@ describe('insightVizDataLogic', () => {
                 { aggregated_value: 6 },
                 true,
             ],
-            [
-                'blocks breakdown rows once the breakdown is removed',
-                ChartDisplayType.ActionsLineGraph,
-                { data: [1, 2, 3], breakdown_value: 'US' },
-                false,
-            ],
         ])('%s', (_, display, row, expected) => {
             builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
             builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })

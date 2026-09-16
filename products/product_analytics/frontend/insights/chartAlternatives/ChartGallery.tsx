@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import type { InsightLogicProps } from '~/types'
 
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { chartPreviewsLogic } from './chartPreviewsLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
 export function ChartGallery({
@@ -20,11 +19,9 @@ export function ChartGallery({
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
-    const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
-    const { galleryOpen, selectionDisabledReason } = useValues(alternativesLogic)
-    const { selectChart } = useActions(alternativesLogic)
-    const { previewGroups } = useValues(useMountedLogic(chartPreviewsLogic(logicProps)))
+    const logic = useMountedLogic(chartAlternativesLogic({ editMode, embedded, inSharedMode, ...insightProps }))
+    const { galleryOpen, previewGroups, selectionDisabledReason } = useValues(logic)
+    const { selectChart } = useActions(logic)
 
     if (!galleryOpen) {
         return <>{children}</>

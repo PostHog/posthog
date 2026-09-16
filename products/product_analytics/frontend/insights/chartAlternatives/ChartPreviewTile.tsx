@@ -4,8 +4,8 @@ import { IconInfo } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import type { ChartPreview } from './chartAlternativesLogic'
 import { ChartDisplayIcon } from './ChartDisplayIcon'
-import type { ChartPreview } from './chartPreviewsLogic'
 
 export function ChartPreviewTile({
     disabledReason,
@@ -16,7 +16,7 @@ export function ChartPreviewTile({
     onSelect: () => void
     preview: ChartPreview
 }): JSX.Element {
-    const { option, warning } = preview
+    const { option } = preview
     const reason = disabledReason ?? option.disabledReason
     const disabled = !!reason
 
@@ -45,9 +45,6 @@ export function ChartPreviewTile({
                 </span>
                 {reason ? <span className="text-xs">{reason}</span> : null}
             </span>
-            {warning && !reason ? (
-                <span className="flex items-center border-t px-2 py-1 text-xs text-warning">{warning.title}</span>
-            ) : null}
         </button>
     )
 
