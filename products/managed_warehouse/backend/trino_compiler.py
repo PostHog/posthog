@@ -85,12 +85,17 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             "trino_target_not_ready", reason="invalid_response", response_type=type(response.data).__name__
         )
         return None
-    if response.data.get("enabled") is not True:
-        enabled = response.data.get("enabled")
+    enabled = response.data.get("enabled")
+    if not isinstance(enabled, bool):
+        readiness_logger.warning(
+            "trino_target_not_ready", reason="invalid_enabled", enabled_type=type(enabled).__name__
+        )
+        return None
+    if not enabled:
         readiness_logger.info(
             "trino_target_not_ready",
             reason="not_enabled",
-            enabled=enabled if isinstance(enabled, bool) else None,
+            enabled=enabled,
             enabled_type=type(enabled).__name__,
         )
         return None
@@ -113,9 +118,11 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     response_org = trino_status.get("org")
     if response_org is not None and str(response_org) != str(organization_id):
         readiness_logger.warning(
-            "trino_target_not_ready",
+            "refusing_trino_catalog_for_mismatched_organization",
             reason="organization_mismatch",
-            response_organization_id=str(response_org),
+            requested_organization_id=str(organization_id),
+            response_organization_id=response_org[:128] if isinstance(response_org, str) else None,
+            response_organization_id_type=type(response_org).__name__,
         )
         return None
 

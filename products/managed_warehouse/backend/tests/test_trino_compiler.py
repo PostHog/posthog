@@ -1,8 +1,10 @@
+import logging
 from uuid import UUID
 
 import pytest
 from unittest import mock
 
+import structlog
 from rest_framework.response import Response
 from structlog.testing import capture_logs
 
@@ -57,6 +59,13 @@ def _team() -> Team:
 
 
 class TestReadyTrinoCatalogName:
+    @pytest.fixture(autouse=True)
+    def isolated_logger(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "products.managed_warehouse.backend.trino_compiler.logger",
+            structlog.wrap_logger(logging.getLogger(__name__), context_class=dict),
+        )
+
     @pytest.mark.parametrize("catalog_key", ["trino_catalog_name", "catalog"])
     def test_reads_ready_catalog_and_supports_rolling_deploys(self, catalog_key: str) -> None:
         body = {
@@ -92,7 +101,12 @@ class TestReadyTrinoCatalogName:
             (
                 {},
                 200,
-                {"reason": "not_enabled", "enabled": None, "enabled_type": "NoneType", "log_level": "info"},
+                {"reason": "invalid_enabled", "enabled_type": "NoneType", "log_level": "warning"},
+            ),
+            (
+                {"enabled": "true"},
+                200,
+                {"reason": "invalid_enabled", "enabled_type": "str", "log_level": "warning"},
             ),
             (
                 {"enabled": True},
@@ -117,7 +131,38 @@ class TestReadyTrinoCatalogName:
             (
                 {"enabled": True, "status": {"org": "another-org", "state": "ready", "trino_catalog_name": "cat"}},
                 200,
-                {"reason": "organization_mismatch", "response_organization_id": "another-org", "log_level": "warning"},
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": "another-org",
+                    "response_organization_id_type": "str",
+                    "log_level": "warning",
+                },
+            ),
+            (
+                {"enabled": True, "status": {"org": {"token": "example-secret"}, "state": "ready"}},
+                200,
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": None,
+                    "response_organization_id_type": "dict",
+                    "log_level": "warning",
+                },
+            ),
+            (
+                {"enabled": True, "status": {"org": "x" * 256, "state": "ready"}},
+                200,
+                {
+                    "event": "refusing_trino_catalog_for_mismatched_organization",
+                    "reason": "organization_mismatch",
+                    "requested_organization_id": "org-1",
+                    "response_organization_id": "x" * 128,
+                    "response_organization_id_type": "str",
+                    "log_level": "warning",
+                },
             ),
             (
                 {"enabled": True, "status": {"org": "org-1", "state": "ready", "trino_catalog_name": " "}},
