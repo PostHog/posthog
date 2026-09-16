@@ -20,4 +20,27 @@ describe('prepareWorkflowDuplicate', () => {
             actions: [],
         })
     })
+
+    it.each([
+        ['under the legacy ceiling', 10080, '7d'],
+        ['above the legacy ceiling, clamped the way the worker clamps it', 259200, '90d'],
+        ['a whole number of hours but not of days', 120, '2h'],
+        ['not a whole number of hours', 100, '100m'],
+    ])('respells a conversion window %s as a duration string', (_name, windowMinutes, expected) => {
+        const workflow = {
+            name: 'Legacy workflow',
+            conversion: { window_minutes: windowMinutes, filters: [] },
+        } as unknown as HogFlow
+
+        expect(prepareWorkflowDuplicate(workflow).conversion).toEqual({ window: expected, filters: [] })
+    })
+
+    it.each([
+        ['a window is already set', { window: '7d', window_minutes: 200000, filters: [] }],
+        ['there is no usable window_minutes', { window_minutes: null, filters: [] }],
+    ])('leaves the conversion alone when %s', (_name, conversion) => {
+        const workflow = { name: 'Workflow', conversion } as unknown as HogFlow
+
+        expect(prepareWorkflowDuplicate(workflow).conversion).toEqual(conversion)
+    })
 })
