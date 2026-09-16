@@ -17,7 +17,13 @@ from requests import RequestException
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 
-from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import (
+    DeliveryDispatch,
+    DeliveryOwnership,
+    ProviderSpec,
+    WebhookConsumer,
+    WebhookDelivery,
+)
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.forward import HOST_IDENTIFYING_HEADERS, forward_to_secondary_region
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -49,7 +55,7 @@ RAISES = object()
 class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
-    forward_failure_status = 502
+    retry_status = 502
 
 
 class _ClaimsGitHubProvider(GitHubProvider):
@@ -95,6 +101,7 @@ class TestWebhookView(SimpleTestCase):
         self.factory = RequestFactory()
         self.dispatcher = Mock()
         self.dispatcher.ownership_of.return_value = (DeliveryOwnership.UNDECIDED, ())
+        self.dispatcher.dispatch.return_value = DeliveryDispatch()
         patcher = patch("posthog.ingress.views.get_dispatcher", return_value=self.dispatcher)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -364,7 +371,9 @@ def _consumer(
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
-class TestRegionalForwarding(SimpleTestCase):
+class _DispatchingViewTestCase(SimpleTestCase):
+    """A view driving the real dispatcher and registry, rather than a mocked one."""
+
     def setUp(self) -> None:
         cache.clear()
         self.factory = RequestFactory()
@@ -373,11 +382,6 @@ class TestRegionalForwarding(SimpleTestCase):
         secret = patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET)
         secret.start()
         self.addCleanup(secret.stop)
-
-        forward = patch("posthog.ingress.dispatch.forward.requests.request")
-        self.requests = forward.start()
-        self.requests.return_value = Mock(ok=True, status_code=202)
-        self.addCleanup(forward.stop)
 
     def _view(self, consumers: list[WebhookConsumer], *, provider: WebhookProvider | None = None):
         registry = ConsumerRegistry(providers=[GITHUB_SPEC, PANDADOC_SPEC], consumers=consumers)
@@ -398,6 +402,15 @@ class TestRegionalForwarding(SimpleTestCase):
                 "X-GitHub-Delivery": "delivery-1",
             },
         )
+
+
+class TestRegionalForwarding(_DispatchingViewTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        forward = patch("posthog.ingress.dispatch.forward.requests.request")
+        self.requests = forward.start()
+        self.requests.return_value = Mock(ok=True, status_code=202)
+        self.addCleanup(forward.stop)
 
     @parameterized.expand(
         [
@@ -485,6 +498,88 @@ class TestRegionalForwarding(SimpleTestCase):
 
         self.assertEqual(response.status_code, 202)
         self.assertEqual(self.requests.call_count, 1)
+        self.assertEqual(self.handler.call_count, 2)
+
+
+class TestUnacceptedDelivery(_DispatchingViewTestCase):
+    @parameterized.expand(
+        [
+            ("a_provider_that_redelivers_asks_for_one", _RedeliveringGitHubProvider, 502, "retry_requested", ["probe"]),
+            ("a_provider_that_does_not_keeps_the_receipt", GitHubProvider, 202, "accepted", None),
+        ]
+    )
+    def test_a_consumer_that_raised_costs_the_receipt_only_where_that_buys_a_redelivery(
+        self,
+        _name: str,
+        provider_class: type[GitHubProvider],
+        status: int,
+        outcome: str,
+        warned_about: list[str] | None,
+    ) -> None:
+        self.handler.side_effect = RuntimeError("the consumer's durable write failed")
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=self.handler)],
+            provider=provider_class("posthog"),
+        )
+
+        with (
+            patch("posthog.ingress.dispatch.dispatcher.capture_exception"),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, status)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], [outcome])
+        # The dispatcher already logged the consumer's own failure, so the view says only that
+        # the request is not receipted, and names what cost it.
+        warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
+        self.assertEqual(warnings.get("ingress_delivery_retry_requested", {}).get("consumers"), warned_about)
+
+    def test_a_consumer_the_budget_skipped_costs_the_receipt_the_same_way(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend_the_budget(delivery: WebhookDelivery) -> None:
+            elapsed["seconds"] += 30.0
+
+        skipped = Mock()
+        view = self._view(
+            [
+                _consumer(GITHUB_SPEC, name="alpha", handler=Mock(side_effect=spend_the_budget)),
+                _consumer(GITHUB_SPEC, name="zulu", handler=skipped),
+            ],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.views.logger") as logger,
+        ):
+            response = view(self._github_request())
+
+        self.assertEqual(response.status_code, 502)
+        skipped.assert_not_called()
+        warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
+        self.assertEqual(warnings["ingress_delivery_retry_requested"]["consumers"], ["zulu"])
+
+    def test_the_redelivery_reaches_only_the_consumer_that_did_not_accept(self) -> None:
+        accepted = Mock()
+        self.handler.side_effect = RuntimeError("the consumer's durable write failed")
+        view = self._view(
+            [
+                _consumer(GITHUB_SPEC, name="alpha", handler=accepted),
+                _consumer(GITHUB_SPEC, name="zulu", handler=self.handler),
+            ],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
+            self.assertEqual(view(self._github_request()).status_code, 502)
+            self.handler.side_effect = None
+            self.assertEqual(view(self._github_request()).status_code, 202)
+
+        # The one that accepted is deduped on the replay, so the retry costs it nothing.
+        accepted.assert_called_once()
         self.assertEqual(self.handler.call_count, 2)
 
 

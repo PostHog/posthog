@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from unittest.mock import Mock, patch
@@ -61,6 +62,23 @@ class TestWebhookDispatcher(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
+    @parameterized.expand(
+        [
+            ("an_app_no_incarnation_declares", "other", "pull_request"),
+            ("an_event_type_no_consumer_registered_for", "posthog", "issues"),
+        ]
+    )
+    def test_a_delivery_with_nothing_to_run_names_no_unaccepted_consumer(
+        self, _name: str, app: str, event_type: str
+    ) -> None:
+        dispatcher = _dispatcher([_consumer("alpha", Mock())])
+
+        dispatched = dispatcher.dispatch(replace(_delivery(), app=app, event_type=event_type))
+
+        # Nothing ran, so nothing failed: a provider that redelivers must not be asked to send
+        # an event no consumer wants all over again.
+        self.assertEqual(dispatched.unaccepted_consumers, ())
+
     def test_runs_consumers_in_name_order(self) -> None:
         ran: list[str] = []
         consumers = [
@@ -88,16 +106,19 @@ class TestWebhookDispatcher(SimpleTestCase):
         dispatcher = _dispatcher([_consumer("alpha", failing), _consumer("zulu", succeeding)])
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
+        self.assertEqual(dispatched.unaccepted_consumers, ("alpha",))
         self.assertIsNone(cache.get(DeliveryDedup.key(provider="github", consumer="alpha", delivery_id="delivery-1")))
         self.assertTrue(cache.get(DeliveryDedup.key(provider="github", consumer="zulu", delivery_id="delivery-1")))
 
         with patch("posthog.ingress.dispatch.dispatcher.capture_exception"):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
         self.assertEqual(failing.call_count, 2)
         self.assertEqual(succeeding.call_count, 1)
+        # The deduped one accepted the earlier delivery, so only the failure is named again.
+        self.assertEqual(dispatched.unaccepted_consumers, ("alpha",))
 
     def test_a_provider_without_a_delivery_id_skips_dedup(self) -> None:
         handler = Mock()
@@ -140,9 +161,10 @@ class TestWebhookDispatcher(SimpleTestCase):
             patch("time.monotonic", lambda: elapsed["seconds"]),
             patch("posthog.ingress.dispatch.dispatcher.observe_consumer_run") as observe,
         ):
-            dispatcher.dispatch(_delivery())
+            dispatched = dispatcher.dispatch(_delivery())
 
         skipped.assert_not_called()
+        self.assertEqual(dispatched.unaccepted_consumers, ("zulu",))
         self.assertIn(
             {"provider": "github", "consumer": "zulu", "outcome": "budget_exceeded"},
             [call.kwargs for call in observe.call_args_list],

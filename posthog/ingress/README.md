@@ -78,9 +78,17 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 
 **Ingress does not let a consumer decide the response.**
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
-A consumer that fails must not turn a verified delivery into a 500 the provider will replay against every other consumer too.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
-The one exception is a failed forward to the owning region, which is a transport failure rather than a consumer outcome — see [Regional forwarding](#regional-forwarding).
+
+What the transport does decide is whether it can vouch that the delivery was taken.
+It cannot when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran.
+A provider that redelivers on a non-2xx sets `retry_status` on its incarnation, and the view then answers that status with outcome `retry_requested` instead of the receipt, so the provider sends the delivery again.
+A provider that does not redeliver leaves it at `None` and keeps the receipt, because a non-2xx buys it nothing.
+That is still the transport deciding, on whether the work ran at all, rather than a consumer choosing an answer: a consumer cannot ask for a retry, and a delivery no consumer is registered for is accepted by construction.
+
+The cost is fan-out: a retry replays the delivery against every consumer on the endpoint, not only the one that failed.
+Dedup is what keeps that cheap — a consumer that already accepted the delivery is deduped on the redelivery, and only the one that raised or never started runs again.
+A consumer with `dedup=False` runs on every redelivery, so a sibling that keeps failing makes it repeat its work.
 
 **Ingress does not promise an order.**
 Consumers are independent by construction; anything that depends on another consumer's result belongs in one consumer.
@@ -124,6 +132,8 @@ A consumer that names a provider app nobody declares, reuses a name already take
 
 A handler takes one `WebhookDelivery` and returns nothing.
 It runs synchronously inside the request, isolated: raising is logged and captured, and it releases its own dedup mark so the provider's redelivery reaches it again.
+On a provider that sets `retry_status` a handler that raises also costs the request its receipt, so the provider redelivers rather than waiting for a sweeper to notice.
+That is what a consumer whose durable record is written inside the handler needs: nothing else is holding the delivery.
 
 `dedup=False` turns the mark off for one consumer.
 That is right when the consumer already keys its own recovery on the provider's delivery id, so a redelivery is how work that never finished gets picked up.
@@ -134,6 +144,7 @@ Leave it on everywhere else: without an idempotency key of its own, a consumer t
 Every request gets one wall-clock budget, `INGRESS_DELIVERY_BUDGET_SECONDS` (default 8).
 Consumers draw from it in turn, across every delivery the request carries, because a request that batches several events would otherwise hold the connection open for one budget per event.
 When it is spent, the consumers that have not started are skipped with outcome `budget_exceeded` and a warning that names them, and they are **not** marked in dedup — so the provider's redelivery reaches them.
+On a provider that sets `retry_status` a skipped consumer also costs the request its receipt, which is what makes that redelivery happen rather than waiting for the next event.
 
 The budget is a backstop, not a scheduler: it cannot interrupt a consumer that is already running.
 A consumer that touches the database on this path wraps its reads in `bounded_statement_timeout(ms, models=...)`, which installs `SET LOCAL statement_timeout` on each alias those models route to.
@@ -166,15 +177,15 @@ A lookup that reads the database must be bounded with `bounded_statement_timeout
 A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
 
 A failed forward keeps the receipt by default.
-A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `forward_failure_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
-That is the transport deciding the response, not a consumer.
+A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `retry_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
+The same attribute answers a delivery whose consumers did not accept it, under outcome `retry_requested`; see ["Ingress does not let a consumer decide the response"](#non-goals).
 
 ## Adding a provider
 
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Two more hooks are optional: `parse()`, which decodes the body, and `throttle_class`, which caps request volume. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Three more attributes are optional: `parse()`, which decodes the body, `throttle_class`, which caps request volume, and `retry_status`, which a provider that redelivers on a non-2xx sets so an unaccepted delivery is not receipted. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
@@ -218,7 +229,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.

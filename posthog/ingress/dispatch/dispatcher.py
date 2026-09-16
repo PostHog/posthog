@@ -5,7 +5,7 @@ import time
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ingress.contracts import DeliveryOwnership, WebhookConsumer, WebhookDelivery
+from posthog.ingress.contracts import DeliveryDispatch, DeliveryOwnership, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.dedup import DeliveryDedup
 from posthog.ingress.dispatch.registry import ConsumerRegistry
@@ -17,8 +17,9 @@ logger = structlog.get_logger(__name__)
 class WebhookDispatcher:
     """Runs the consumers registered for a delivery, in name order.
 
-    Each consumer is isolated: one raising is logged and captured but never stops another,
-    and never changes the response the provider already earned by signing the request.
+    Each consumer is isolated: one raising is logged and captured but never stops another.
+    The delivery reports which consumers did not accept it, so the transport can answer a
+    retryable status for a provider that redelivers, but no consumer picks that status.
     """
 
     def __init__(
@@ -32,7 +33,11 @@ class WebhookDispatcher:
         self._dedup = dedup if dedup is not None else DeliveryDedup()
         self._budget_seconds = budget_seconds
 
-    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> None:
+    def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> bool:
+        """Run one consumer, and answer whether it accepted the delivery.
+
+        A deduped consumer accepted it on the earlier delivery, so it answers True too.
+        """
         # A consumer that opted out of dedup claims and releases nothing, so a redelivery always
         # reaches it. Skipping is not an outcome of its own: it simply runs.
         delivery_id = delivery.delivery_id if consumer.dedup else None
@@ -47,7 +52,7 @@ class WebhookDispatcher:
                 delivery_id=delivery.delivery_id,
             )
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="deduped")
-            return
+            return True
 
         started = time.monotonic()
         try:
@@ -64,8 +69,10 @@ class WebhookDispatcher:
             if delivery_id:
                 self._dedup.release(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="failed")
+            return False
         else:
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="succeeded")
+            return True
         finally:
             observe_consumer_duration(
                 provider=delivery.provider, consumer=consumer.name, seconds=time.monotonic() - started
@@ -117,8 +124,8 @@ class WebhookDispatcher:
             return DeliveryOwnership.LOCAL, ()
         return DeliveryOwnership.UNDECIDED, ()
 
-    def dispatch(self, delivery: WebhookDelivery, *, budget: DeliveryBudget | None = None) -> None:
-        """Run this delivery's consumers.
+    def dispatch(self, delivery: WebhookDelivery, *, budget: DeliveryBudget | None = None) -> DeliveryDispatch:
+        """Run this delivery's consumers, and answer which of them did not accept it.
 
         The caller passes a budget when one request carries several deliveries, so the request
         is bounded rather than each delivery separately.
@@ -132,7 +139,7 @@ class WebhookDispatcher:
                 app=delivery.app,
                 event_type=delivery.event_type,
             )
-            return
+            return DeliveryDispatch()
 
         consumers = self._registry.consumers_for(
             provider=delivery.provider, app=delivery.app, event_type=delivery.event_type
@@ -144,7 +151,7 @@ class WebhookDispatcher:
                 app=delivery.app,
                 event_type=delivery.event_type,
             )
-            return
+            return DeliveryDispatch()
 
         logger.info(
             "ingress_delivery_dispatch",
@@ -159,10 +166,12 @@ class WebhookDispatcher:
             budget = DeliveryBudget(
                 self._budget_seconds if self._budget_seconds is not None else delivery_budget_seconds()
             )
+        unaccepted: list[str] = []
         for index, consumer in enumerate(consumers):
             if budget.is_spent():
                 skipped = consumers[index:]
-                # No dedup mark for these, so the provider's redelivery reaches them.
+                # The mark is claimed inside the run, so a consumer that never started holds none
+                # and the provider's redelivery reaches it.
                 logger.warning(
                     "ingress_delivery_budget_exceeded",
                     provider=delivery.provider,
@@ -173,5 +182,8 @@ class WebhookDispatcher:
                 )
                 for pending in skipped:
                     observe_consumer_run(provider=delivery.provider, consumer=pending.name, outcome="budget_exceeded")
-                return
-            self._run(consumer, delivery)
+                    unaccepted.append(pending.name)
+                return DeliveryDispatch(unaccepted_consumers=tuple(unaccepted))
+            if not self._run(consumer, delivery):
+                unaccepted.append(consumer.name)
+        return DeliveryDispatch(unaccepted_consumers=tuple(unaccepted))
