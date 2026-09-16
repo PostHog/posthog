@@ -778,6 +778,39 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn(expected, sql)
 
+    def test_insert_cohort_from_query_grouping_over_a_non_actor_column(self):
+        # A source query that groups over something other than the actor used to lose its SELECT
+        # list to a bare actor column while the GROUP BY stayed behind, so ClickHouse rejected the
+        # query ("not under aggregate function and not in GROUP BY keys") and the cohort never filled.
+        duplicate_a = _create_person(
+            team_id=self.team.pk, distinct_ids=["duplicate-a"], properties={"email": "shared@example.com"}
+        )
+        duplicate_b = _create_person(
+            team_id=self.team.pk, distinct_ids=["duplicate-b"], properties={"email": "shared@example.com"}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["only-one"], properties={"email": "single@example.com"})
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="duplicate emails",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT properties.email AS email, any(id) AS id FROM persons GROUP BY properties.email HAVING count() > 1",
+            },
+        )
+
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        # Only the shared email has more than one person, so the cohort holds one of that pair.
+        self.assertEqual(len(rows), 1)
+        self.assertIn(str(rows[0][0]), {str(duplicate_a.uuid), str(duplicate_b.uuid)})
+
     def test_print_cohort_hogql_query_source_without_id_column_still_raises_when_unresolvable(self):
         # When the source has no id column and its table isn't events/persons, the fallback
         # can't resolve an actor id — surface the clear "Could not find" error, not a crash
