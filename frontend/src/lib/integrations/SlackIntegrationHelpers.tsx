@@ -583,15 +583,17 @@ export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element 
                         const echoesSelection = isChannelId
                             ? values.some((value) => slackChannelId(value) === idCandidate)
                             : modifiedValues.includes(val)
-                        if (!echoesSelection) {
-                            if (isChannelId) {
-                                loadSlackChannelById(idCandidate)
-                                setPastedChannelId(idCandidate)
-                            } else {
-                                setPastedChannelId(null)
-                                loadAllSlackChannels(false, val)
-                                hasActiveSearchRef.current = true
-                            }
+                        if (echoesSelection) {
+                            // The input no longer holds the pasted id, so a by-id lookup still in
+                            // flight must not select its channel over the current selection.
+                            setPastedChannelId(null)
+                        } else if (isChannelId) {
+                            loadSlackChannelById(idCandidate)
+                            setPastedChannelId(idCandidate)
+                        } else {
+                            setPastedChannelId(null)
+                            loadAllSlackChannels(false, val)
+                            hasActiveSearchRef.current = true
                         }
                         hasUnselectedSearchRef.current = true
                         setBlurredWithoutSelection(false)
