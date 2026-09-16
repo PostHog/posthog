@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
@@ -810,6 +810,43 @@ class TestCohortUtils(BaseTest):
         # Only the shared email has more than one person, so the cohort holds one of that pair.
         self.assertEqual(len(rows), 1)
         self.assertIn(str(rows[0][0]), {str(duplicate_a.uuid), str(duplicate_b.uuid)})
+
+    def test_insert_cohort_from_query_grouping_with_group_by_all(self):
+        # `GROUP BY ALL` keeps no entries in `group_by`, so a guard that reads only `group_by` takes
+        # this query for an ungrouped one. Collapsing its SELECT list then drops both the grouping
+        # key and the `count()` alias the ORDER BY needs.
+        people = [_create_person(team_id=self.team.pk, distinct_ids=[f"browser-{i}"], properties={}) for i in range(3)]
+        for person_index, browser in enumerate(["Chrome", "Firefox", "Safari"]):
+            _create_event(
+                team=self.team,
+                distinct_id=f"browser-{person_index}",
+                event="$pageview",
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="one person per browser",
+            query={
+                "kind": "HogQLQuery",
+                "query": (
+                    "SELECT properties.$browser AS browser, any(person_id) AS person_id, count() AS c "
+                    "FROM events GROUP BY ALL ORDER BY c DESC LIMIT 100"
+                ),
+            },
+        )
+
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        # Each person used one browser, so the grouping holds all three. Losing it collapses the
+        # query to a single group and one arbitrary person.
+        self.assertEqual({str(row[0]) for row in rows}, {str(person.uuid) for person in people})
 
     def test_print_cohort_hogql_query_keeps_root_cte_for_later_union_branches(self):
         # HogQL gives later UNION branches the root WITH through the first branch's own CTEs, so a

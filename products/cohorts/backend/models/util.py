@@ -505,7 +505,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
         actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
         if actor_column is not None:
-            if select_query.group_by or select_query.having:
+            # `GROUP BY ALL` keeps no entries in `group_by`, so a check that reads only `group_by`
+            # takes an aggregating query for an ungrouped one. The `cube`, `rollup`, and
+            # `grouping_sets` modes do fill `group_by`, so `all` is the only mode to name here.
+            if select_query.group_by or select_query.having or select_query.group_by_mode == "all":
                 _wrap_aggregating_query(select_query, actor_column)
             else:
                 select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
