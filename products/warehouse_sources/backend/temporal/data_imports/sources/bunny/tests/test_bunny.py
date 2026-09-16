@@ -622,7 +622,6 @@ class TestPullZoneLogs:
 
         rows = _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
 
-        # The logs live on a third host, reached with the same account key.
         assert [s.url for s in sent[1:]] == [
             f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
             f"{BUNNY_LOG_BASE_URL}/v2/pullzones/3/logs",
@@ -633,7 +632,6 @@ class TestPullZoneLogs:
         # and the second zone starts over at the first offset rather than continuing the first's.
         assert [s.params["offset"] for s in sent[1:]] == [0, PER_PAGE, 0]
         assert all(s.params["limit"] == PER_PAGE for s in sent[1:])
-        # Offset pagination only stays stable while already-read rows keep their offset.
         assert sent[1].params["order"] == "asc"
         assert rows == [
             {"pullZoneId": 3, "requestId": "a", "statusCode": 200},

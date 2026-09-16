@@ -52,8 +52,8 @@ class BunnyEndpointConfig:
 DATE_FROM_PARAM = "dateFrom"
 
 # The Logging API names its own window start differently, and serves entries from a rolling
-# retention window only — a query that starts before it is rejected, so a run asks from the
-# later of the watermark and the oldest instant still retained.
+# retention window only. It rejects a query that starts before that window, so a run asks from
+# the later of the watermark and the oldest instant still retained.
 LOG_DATE_FROM_PARAM = "from"
 LOG_RETENTION = timedelta(days=3)
 # The window end defaults to the moment the API handles the request, so the start is held just
@@ -68,8 +68,7 @@ LOG_EXCLUDED_FIELDS = frozenset({"authorizationHeader"})
 # client-side scan of every page would cost the same as a full refresh — see the skill).
 # The statistics endpoints do filter on `dateFrom`, so their tables sync incrementally on the
 # chart timestamp — which is also how they keep history past the 30 days bunny.net returns by
-# default. The Logging API filters the same way, so its table keeps request-level history past
-# the few days bunny.net retains.
+# default. The Logging API filters the same way, on its own window start.
 BUNNY_ENDPOINTS: dict[str, BunnyEndpointConfig] = {
     "pull_zones": BunnyEndpointConfig(name="pull_zones", path="/pullzone"),
     "storage_zones": BunnyEndpointConfig(name="storage_zones", path="/storagezone"),
@@ -77,8 +76,8 @@ BUNNY_ENDPOINTS: dict[str, BunnyEndpointConfig] = {
     "dns_records": BunnyEndpointConfig(
         name="dns_records",
         path="/dnszone/{id}/records",
-        # A record id is only documented as unique inside its zone, so the zone id is part of the
-        # key — a fan-out child aggregates rows from every parent into one table.
+        # A record id is only documented as unique inside its zone, so the zone id is part of
+        # the key.
         primary_keys=["DnsZoneId", "Id"],
         parent=BunnyParentConfig(endpoint="dns_zones", id_field="Id", id_column="DnsZoneId"),
     ),
@@ -192,8 +191,6 @@ BUNNY_ENDPOINTS: dict[str, BunnyEndpointConfig] = {
     "video_collections": BunnyEndpointConfig(
         name="video_collections",
         path="/library/{id}/collections",
-        # `guid` is only documented as unique inside its library, so the library id is part of
-        # the key.
         primary_keys=["videoLibraryId", "guid"],
         stream_api=True,
         params={"orderBy": "date"},
