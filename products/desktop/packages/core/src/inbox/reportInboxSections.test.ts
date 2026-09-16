@@ -105,7 +105,121 @@ describe("reportInboxSections", () => {
     expect(states.get("input")).toBe("needs_input");
   });
 
-  it("checks completed PR output once per task version and client", async () => {
+  it.each([
+    [null, null, "no_pr"],
+    ["https://github.com/example/project/pull/1", "open", "in_review"],
+    ["https://github.com/example/project/pull/1", "draft", "in_review"],
+    ["https://github.com/example/project/pull/1", "unknown", "in_review"],
+    ["https://github.com/example/project/pull/1", "merged", "no_pr"],
+    ["https://github.com/example/project/pull/1", "closed", "no_pr"],
+  ])(
+    "loads completed tasks with PR state %s / %s without detail requests",
+    async (prUrl, prState, expected) => {
+      const summaries = Array.from({ length: 25 }, (_, index) => ({
+        id: `task-${index}`,
+        latest_run: {
+          id: `run-${index}`,
+          status: "completed",
+          pr_url: prUrl,
+          pr_state: prState,
+        },
+      }));
+      const reports = summaries.map((summary) =>
+        report({
+          id: summary.id,
+          assignee: { kind: "task", task_id: summary.id },
+        }),
+      );
+      const client = {
+        getTaskSummaries: vi.fn().mockResolvedValue(summaries),
+        getTask: vi.fn(),
+      };
+      const states = await new ReportImplementationService().loadStates(
+        client as unknown as PostHogAPIClient,
+        reports,
+      );
+      expect(client.getTaskSummaries).toHaveBeenCalledExactlyOnceWith(
+        summaries.map((summary) => summary.id),
+      );
+      expect(client.getTask).not.toHaveBeenCalled();
+      expect([...states.values()]).toEqual(reports.map(() => expected));
+    },
+  );
+
+  it("uses fresh summaries instead of cached details after a server upgrade", async () => {
+    const task = implementationTask("completed");
+    const summary = {
+      ...task,
+      latest_run: { id: "run-1", status: "completed" },
+    };
+    const client = {
+      getTaskSummaries: vi.fn().mockResolvedValue([summary]),
+      getTask: vi.fn().mockResolvedValue(task),
+    };
+    const reports = [report({ assignee: { kind: "task", task_id: task.id } })];
+    const service = new ReportImplementationService();
+    const load = () =>
+      service.loadStates(client as unknown as PostHogAPIClient, reports);
+    expect((await load()).get("r")).toBe("no_pr");
+    for (const [prState, expected] of [
+      ["open", "in_review"],
+      ["merged", "no_pr"],
+      ["open", "in_review"],
+      ["closed", "no_pr"],
+    ]) {
+      client.getTaskSummaries.mockResolvedValue([
+        {
+          ...summary,
+          latest_run: {
+            ...summary.latest_run,
+            pr_url: "https://github.com/example/project/pull/1",
+            pr_state: prState,
+          },
+        },
+      ]);
+      expect((await load()).get("r")).toBe(expected);
+    }
+    expect(client.getTaskSummaries).toHaveBeenCalledTimes(5);
+    expect(client.getTask).toHaveBeenCalledOnce();
+  });
+
+  it.each([{}, { pr_url: null }, { pr_state: null }])(
+    "loads details only for summaries with missing PR fields: %j",
+    async (fields) => {
+      const task = implementationTask("completed", {
+        pr_url: "https://github.com/example/project/pull/1",
+      });
+      const client = {
+        getTaskSummaries: vi.fn().mockResolvedValue([
+          {
+            id: task.id,
+            latest_run: { id: "run-1", status: "completed", ...fields },
+          },
+          {
+            id: "no-pr",
+            latest_run: {
+              id: "run-2",
+              status: "completed",
+              pr_url: null,
+              pr_state: null,
+            },
+          },
+        ]),
+        getTask: vi.fn().mockResolvedValue(task),
+      };
+      const states = await new ReportImplementationService().loadStates(
+        client as unknown as PostHogAPIClient,
+        [task.id, "no-pr"].map((id) =>
+          report({ id, assignee: { kind: "task", task_id: id } }),
+        ),
+      );
+      expect(states.get(task.id)).toBe("in_review");
+      expect(states.get("no-pr")).toBe("no_pr");
+      expect(client.getTask).toHaveBeenCalledExactlyOnceWith(task.id);
+    },
+  );
+
+  it("checks legacy completed PR output once per task version and client", async () => {
     const task = implementationTask("completed", {
       pr_url: "https://github.com/example/project/pull/1",
     });

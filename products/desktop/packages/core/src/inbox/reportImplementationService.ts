@@ -98,9 +98,25 @@ export class ReportImplementationService {
     const tasks = new Map<
       string,
       Parameters<typeof deriveReportImplementationState>[1]
-    >(summaries.map((summary) => [summary.id, summary]));
+    >(
+      summaries.map((summary) => [
+        summary.id,
+        {
+          latest_run: summary.latest_run && {
+            status: summary.latest_run.status,
+            output: {
+              pr_url: summary.latest_run.pr_url,
+              pr_state: summary.latest_run.pr_state,
+            },
+          },
+        },
+      ]),
+    );
     const completed = summaries.filter(
-      (summary) => summary.latest_run?.status === "completed",
+      (summary) =>
+        summary.latest_run?.status === "completed" &&
+        (summary.latest_run.pr_url === undefined ||
+          summary.latest_run.pr_state === undefined),
     );
     for (let offset = 0; offset < completed.length; offset += 10) {
       await Promise.all(

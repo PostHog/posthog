@@ -2237,6 +2237,25 @@ describe("PostHogAPIClient", () => {
       });
     });
 
+    it.each([
+      {},
+      { pr_url: null, pr_state: null },
+      {
+        pr_url: "https://github.com/example/project/pull/1",
+        pr_state: "merged",
+      },
+    ])("preserves optional PR fields in task summaries: %j", async (fields) => {
+      const summary = {
+        id: "task-1",
+        latest_run: { id: "run-1", status: "completed", ...fields },
+      };
+      const fetch = buildFetchForPages(page([summary]));
+      const summaries = await buildClient(fetch).getTaskSummaries([summary.id]);
+      expect(summaries).toEqual([summary]);
+      expect(summaries[0].latest_run?.pr_url).toBe(fields.pr_url);
+      expect(summaries[0].latest_run?.pr_state).toBe(fields.pr_state);
+    });
+
     it("fetches remaining pages by offset from count, not by walking next", async () => {
       const fetch = buildFetchForPages(
         page([{ id: "a" }], 250),

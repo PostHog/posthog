@@ -29,6 +29,9 @@ This uses the saved task assignment and survives reopening the app. It does not 
 A failed or stopped task, a task that finishes without a PR, or a report waiting for input returns to triage with a status message.
 If task status cannot be loaded, the report stays in triage. An attached PR remains available for review.
 Task status refreshes in batches while the list is open. Rows use the same status results as triage.
+The batch response supplies the latest run's PR URL and state, including changes after task completion.
+Completed tasks need no separate detail requests when these fields are present. Null fields mean that the run has no PR.
+Older servers that omit either field use cached task details instead. The cache expires after five minutes.
 The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
 A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
