@@ -4852,6 +4852,7 @@ const api = {
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
             data: {
+                reuse_results?: boolean
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
