@@ -455,7 +455,10 @@ export function InsightVizDisplay({
                             <Tooltip title="Export this table" placement="left">
                                 <ExportButton
                                     type="secondary"
-                                    columns={detailedResultsColumns}
+                                    // A reload in flight leaves the old result on screen while the
+                                    // export context already carries the new query, so the old
+                                    // column names would export as blank columns.
+                                    columns={insightDataLoading ? undefined : detailedResultsColumns}
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
