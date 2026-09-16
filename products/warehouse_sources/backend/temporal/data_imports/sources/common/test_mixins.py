@@ -25,11 +25,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    bracket_host,
     check_resolved_addresses,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
     resolve_safe_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import resolver
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -70,6 +72,7 @@ class TestIsHostSafe(SimpleTestCase):
             ("public_ip", "8.8.8.8"),
             ("public_ip_2", "1.1.1.1"),
             ("public_ip_3", "52.0.0.1"),
+            ("ipv6_public", "2606:4700:4700::1111"),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
@@ -274,6 +277,19 @@ class TestIsHostSafe(SimpleTestCase):
             assert kwargs["stage"] == "resolved_ip"
             assert kwargs["resolved_ips"] == ["52.1.2.3"]
             mock_logger.warning.assert_not_called()
+
+
+class TestBracketHost(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ipv6", "2606:4700:4700::1111", "[2606:4700:4700::1111]"),
+            ("ipv6_already_bracketed", "[2606:4700:4700::1111]", "[2606:4700:4700::1111]"),
+            ("ipv4", "93.184.216.34", "93.184.216.34"),
+            ("hostname", "db.example.com", "db.example.com"),
+        ]
+    )
+    def test_brackets_only_an_ipv6_address(self, _name: str, host: str, expected: str):
+        assert bracket_host(host) == expected
 
 
 class TestValidateDatabaseHostMixin(SimpleTestCase):
@@ -621,6 +637,18 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
         config = FakeConfig(host="db.example.com", ssh_tunnel=None)
         with (
             patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=self._resolves_to("169.254.169.254")),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(HostNotAllowedError, match="Database host not allowed"):
+                with self._connection_cm(entrypoint, config, 999):
+                    pass
+
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_bracketed_address_is_refused_because_the_driver_dials_the_host_as_written(self, entrypoint: str):
+        config = FakeConfig(host="[2606:4700:4700::1111]", ssh_tunnel=None)
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=resolver("2606:4700:4700::1111")),
             patch(f"{_MIXINS_MODULE}.logger"),
         ):
             with pytest.raises(HostNotAllowedError, match="Database host not allowed"):

@@ -18,6 +18,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
+    HogQLQueryModifiers,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
@@ -634,6 +635,34 @@ class TestTeamOomPin(BaseTest):
 
 
 class TestWebEnsurePrecomputed(BaseTest):
+    @parameterized.expand(
+        [
+            ("off", False, None),
+            ("on", True, "webAnalyticsEagerBaselineWarming"),
+            ("revalidation", True, REVALIDATION_TRIGGER),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_classification_context_matches_insert_modifiers(
+        self, _name: str, enabled: bool, trigger: str | None, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=enabled),
+        )
+        insert_modifiers = HogQLQueryModifiers(cookielessTrafficIsRegular=not enabled, sessionIdPushdown=True)
+        with tags_context(trigger=trigger):
+            web_ensure_precomputed(team=self.team, runner=runner, modifiers=insert_modifiers)
+        kwargs = mock_ensure.call_args.kwargs
+        assert kwargs["modifiers"].cookielessTrafficIsRegular is enabled
+        assert kwargs["modifiers"].sessionIdPushdown is True
+        assert insert_modifiers.cookielessTrafficIsRegular is not enabled
+        assert kwargs.get("cache_key_context") == (
+            {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
+        )
+
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))
         super().tearDown()
@@ -1141,6 +1170,7 @@ class TestServeLiveWarmBehind(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 
@@ -1224,6 +1254,7 @@ class TestPrecomputeShapeCapWiring(BaseTest):
         runner = mock.Mock()
         runner.team = self.team
         runner.query = _overview()
+        runner.modifiers = HogQLQueryModifiers()
         runner._test_account_filters = []
         return runner
 

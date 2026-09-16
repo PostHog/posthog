@@ -29,6 +29,7 @@ message Person {
 message DistinctIdWithVersion {
   string distinct_id = 1;
   optional int64 version = 2;
+  optional int64 id = 3;  // Row ID, usable as a pagination cursor.
 }
 
 // PersonWithDistinctIds pairs a lookup distinct_id with its resolved person
@@ -116,10 +117,12 @@ message GetDistinctIdsForPersonRequest {
   int64 person_id = 2;
   ReadOptions read_options = 3;
   optional int64 limit = 4;  // Max distinct IDs returned. 0 or absent = no limit.
+  optional int64 cursor_id = 5;  // Keyset cursor: return rows with id > cursor_id.
 }
 
 message GetDistinctIdsForPersonResponse {
   repeated DistinctIdWithVersion distinct_ids = 1;
+  optional int64 next_cursor_id = 2;  // Absent when no more pages.
 }
 
 message GetDistinctIdsForPersonsRequest {
@@ -209,6 +212,39 @@ message DeletePersonsBatchForTeamRequest {
 message DeletePersonsBatchForTeamResponse {
   // Number of persons deleted. 0 means no more persons to delete.
   int64 deleted_count = 1;
+}
+
+// DeleteTombstonedPersonsRequest deletes persons only while they are still
+// tombstoned, checking under the same row locks as the delete, so a racing
+// revival is either skipped or lands afterwards on a fresh row. One call does a
+// bounded amount of work: persons whose dependent rows (distinct ids, hash key
+// overrides, cohort memberships) fit the row budget are deleted whole; the first
+// person that does not fit gives up as many rows as the leftover allows and is
+// returned as pending, as is everything after the budget. Send pending uuids again
+// until none come back. Idempotent.
+message DeleteTombstonedPersonsRequest {
+  int64 team_id = 1;
+  // Person UUIDs to delete. Max 1000 per request.
+  repeated string person_uuids = 2;
+  // Dependent rows this call may delete. 0 means the server default; the server
+  // clamps the value to its own maximum (replica setting TOMBSTONED_DELETE_MAX_ROWS).
+  int64 max_rows = 3;
+}
+
+message DeleteTombstonedPersonsResponse {
+  // Persons hard-deleted together with their dependent rows.
+  int64 deleted_count = 1;
+  // Persons found with is_deleted = false: revived after the caller queued them.
+  // Nothing was deleted for them.
+  int64 skipped_live_count = 2;
+  // Persons still tombstoned but referenced by a live distinct id. Nothing was
+  // deleted for them; the caller must not treat them as cleaned.
+  repeated string blocked_person_uuids = 3;
+  // Persons not finished within max_rows: still tombstoned, some rows possibly
+  // gone. Send them again.
+  repeated string pending_person_uuids = 4;
+  // Dependent rows deleted by this call.
+  int64 rows_deleted = 5;
 }
 
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
@@ -310,6 +346,38 @@ message FencePersonResponse {
   Person sealed = 1;
 }
 
+// FencePersonsRequest freezes many persons of one op in one call (see
+// PersonHogLeader.FencePersons). The saga sends one call per partition
+// of the op, routed by one of the persons like a single fence.
+message FencePersonsRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  LifecycleOpType op_type = 3;
+  repeated int64 person_ids = 4;
+}
+
+// Every requested person id lands in exactly one of the two lists; a
+// failure any single FencePerson reports through its status, other than
+// NOT_FOUND, fails the whole call the same way.
+message FencePersonsResponse {
+  // The sealed scalars of every person fenced: what the delete saga reads
+  // from a seal. Full documents would not fit a batch, and the merge saga,
+  // which folds the document, fences one person at a time.
+  repeated FencedPersonSeal sealed = 1;
+  // The persons a single FencePerson answers NOT_FOUND for: destroyed, so
+  // no fence was installed.
+  repeated int64 not_found = 2;
+}
+
+message FencedPersonSeal {
+  int64 person_id = 1;
+  // See FencePersonResponse.sealed: the version the fence made final.
+  int64 version = 2;
+  // The person's creation time in epoch milliseconds, as the death
+  // document carries it (see ReleaseFenceRequest.created_at).
+  int64 created_at = 3;
+}
+
 // ReleaseFenceRequest closes a fence (see PersonHogLeader.ReleaseFence).
 // person_uuid, sealed_version, and created_at travel in the request so a
 // leader with no cache entry — after a restart — re-derives the death
@@ -346,6 +414,27 @@ enum ReleaseOutcome {
 }
 
 message ReleaseFenceResponse {}
+
+// ReleaseFencesRequest closes many fences of one op in one call (see
+// PersonHogLeader.ReleaseFences), one call per partition of the op.
+// Per-person fields carry what ReleaseFenceRequest carries.
+message ReleaseFencesRequest {
+  int64 team_id = 1;
+  string op_id = 2;
+  ReleaseOutcome outcome = 3;
+  repeated ReleaseFenceItem persons = 4;
+}
+
+message ReleaseFenceItem {
+  int64 person_id = 1;
+  string person_uuid = 2;
+  // See ReleaseFenceRequest.sealed_version.
+  optional int64 sealed_version = 3;
+  // See ReleaseFenceRequest.created_at.
+  int64 created_at = 4;
+}
+
+message ReleaseFencesResponse {}
 
 // A sealed source snapshot paired with its precedence ordinal — the
 // pair order the saga recorded in lifecycle_op_person. The fold sorts

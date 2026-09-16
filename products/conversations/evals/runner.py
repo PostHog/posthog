@@ -107,6 +107,10 @@ def _mocked_draft(fixture: SupportReplyFixture, seed: SeededCase) -> DraftOutput
         confidence=draft.confidence,
         sources=sources,
         sandbox_seconds=0.0,
+        verdict=draft.verdict,
+        clarifying_questions=list(draft.clarifying_questions),
+        investigation_summary=draft.investigation_summary,
+        unknowns=list(draft.unknowns),
     )
 
 
@@ -119,6 +123,7 @@ def _mocked_validate(fixture: SupportReplyFixture) -> ValidateOutput:
         coverage=validate.coverage,
         confidence=validate.confidence,
         missing=list(validate.missing),
+        blocker=validate.blocker,
     )
 
 

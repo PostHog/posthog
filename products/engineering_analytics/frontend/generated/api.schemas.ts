@@ -866,6 +866,13 @@ export interface WorkflowRunDetailApi {
     is_merge_queue: boolean
 }
 
+export interface PRTimelinePushApi {
+    /** The pushed head commit. */
+    head_sha: string
+    /** When the commit's first workflow run was created, which is when the commit arrived. */
+    pushed_at: string
+}
+
 /**
  * * `draft` - DRAFT
  * * `waiting_for_review` - WAITING_FOR_REVIEW
@@ -923,6 +930,8 @@ export interface PRTimelineSegmentApi {
 export interface PRTimelineApi {
     /** The repository the pull request belongs to. */
     repo: RepoRefApi
+    /** Distinct head commits that triggered CI, oldest first, merge-queue gate runs excluded. A PR listed for an author or a team misses pushes from more than 30 days before the window. */
+    pushes: PRTimelinePushApi[]
     /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
     segments: PRTimelineSegmentApi[]
     /** Pull request number. */
@@ -948,8 +957,6 @@ export interface PRTimelineApi {
      * @nullable
      */
     merged_at: string | null
-    /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
-    pushes: number
     /**
      * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
      * @nullable
@@ -1186,9 +1193,10 @@ export interface QuarantineFileApi {
  * * `extend` - EXTEND
  * * `remove` - REMOVE
  */
-export type OperationEnumApi = (typeof OperationEnumApi)[keyof typeof OperationEnumApi]
+export type QuarantineRequestOperationEnumApi =
+    (typeof QuarantineRequestOperationEnumApi)[keyof typeof QuarantineRequestOperationEnumApi]
 
-export const OperationEnumApi = {
+export const QuarantineRequestOperationEnumApi = {
     Quarantine: 'quarantine',
     Extend: 'extend',
     Remove: 'remove',
@@ -1214,7 +1222,7 @@ export interface QuarantineRequestApi {
      * * `quarantine` - QUARANTINE
      * * `extend` - EXTEND
      * * `remove` - REMOVE */
-    operation: OperationEnumApi
+    operation: QuarantineRequestOperationEnumApi
     /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
     selector: string
     /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
