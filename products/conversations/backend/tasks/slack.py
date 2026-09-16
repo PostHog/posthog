@@ -15,7 +15,12 @@ from celery.exceptions import MaxRetriesExceededError
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
-from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
+from posthog.event_usage import report_team_action
+from posthog.helpers.slack_identity import (
+    resolve_posthog_user_for_slack,
+    resolve_slack_avatar_by_email,
+    resolve_slack_user,
+)
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
@@ -49,6 +54,7 @@ from products.conversations.backend.services.inbound_events import (
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
+    TICKET_VIEW_ACTION,
     NudgeClassifierVerdict,
     NudgeFunnelVerdict,
     SlackConfirmationNeedsRetry,
@@ -63,7 +69,9 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
     nudge_event_properties,
+    ticket_created_blocks,
     ticket_created_text,
+    ticket_deep_link,
 )
 
 from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_missing_file_scopes
@@ -261,8 +269,13 @@ def _slack_api_error_code(exc: Exception) -> str | None:
     return error if isinstance(error, str) else None
 
 
-def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> PromptUpdateResult:
-    """Replace the "open a ticket?" prompt in place with a new status line (buttons removed).
+def _update_supporthog_prompt(
+    team: Team, channel: str, message_ts: str, text: str, *, blocks: list[dict] | None = None
+) -> PromptUpdateResult:
+    """Replace the "open a ticket?" prompt in place with a new status line.
+
+    The prompt's own buttons go away unless the caller passes replacement ``blocks`` — a
+    resolved prompt carries the confirmation's "View ticket" button, nothing else.
 
     Never raises. Callers retry only a ``transient`` result. A missing or deleted prompt
     cannot recover, so those must not sit in the inbound retry queue.
@@ -274,7 +287,7 @@ def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: s
             channel=channel,
             ts=message_ts,
             text=text,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+            blocks=blocks or [{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
         )
         return "updated"
     except Exception as exc:
@@ -305,6 +318,64 @@ def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts:
         )
     except Exception:
         logger.warning("supporthog_interactivity_dismiss_ack_failed", exc_info=True)
+
+
+def _post_ticket_link(
+    team: Team,
+    *,
+    slack_team_id: str,
+    channel: str,
+    thread_ts: str,
+    clicker: str,
+    ticket_number: Any,
+) -> None:
+    """Answer a "View ticket" click with an ephemeral link, so only the clicker sees the URL.
+
+    The button rides on a public confirmation, so anyone in the channel can click it. Two checks
+    gate the link: the clicker belongs to the workspace the app is installed in, and their Slack
+    profile email matches a member of the team's organization. The workspace check is what makes
+    the email check worth anything — an external (Slack Connect) participant's profile email is
+    set by their own workspace, so it can claim a teammate's address.
+
+    Best-effort: a failure leaves the click unanswered rather than retrying.
+    """
+    if not channel or not clicker:
+        return
+    try:
+        number = int(ticket_number)
+    except (TypeError, ValueError):
+        number = 0
+    try:
+        client = get_slack_client(team)
+        ticket = Ticket.objects.filter(team=team, ticket_number=number).first() if number > 0 else None
+        if ticket is None:
+            logger.warning("supporthog_ticket_link_unknown_ticket", team_id=team.pk, ticket_number=number)
+            client.chat_postEphemeral(
+                channel=channel,
+                user=clicker,
+                thread_ts=thread_ts or None,
+                text="That ticket isn't available any more.",
+            )
+            return
+        slack_user = resolve_slack_user(client, clicker, workspace=slack_team_id)
+        in_workspace = bool(slack_team_id) and slack_user.get("team_id") == slack_team_id
+        is_org_member = in_workspace and resolve_posthog_user_for_slack(slack_user.get("email"), team) is not None
+        if is_org_member:
+            link = ticket_deep_link(ticket, team)
+            text = f"<{link}|Ticket #{ticket.ticket_number}> — only you can see this message."
+        else:
+            text = (
+                f"Ticket #{ticket.ticket_number} opens in PostHog, which only the support team can reach. "
+                "Reply in this thread and they'll see it."
+            )
+        client.chat_postEphemeral(channel=channel, user=clicker, thread_ts=thread_ts or None, text=text)
+        report_team_action(
+            team,
+            "support slack ticket link clicked",
+            {"slack_team_id": slack_team_id, "slack_channel_id": channel, "is_org_member": is_org_member},
+        )
+    except Exception:
+        logger.warning("supporthog_ticket_link_failed", exc_info=True)
 
 
 def _raise_if_retry_allowed(allow_retry: bool) -> None:
@@ -347,6 +418,18 @@ def _handle_supporthog_interactivity(
             value = json.loads(action.get("value") or "{}")
         except (json.JSONDecodeError, TypeError):
             value = {}
+
+        if action_id == TICKET_VIEW_ACTION:
+            _post_ticket_link(
+                team,
+                slack_team_id=slack_team_id,
+                channel=prompt_channel,
+                thread_ts=(payload.get("message") or {}).get("thread_ts") or "",
+                clicker=clicker,
+                ticket_number=value.get("ticket_number"),
+            )
+            return True
+
         source_channel = value.get("channel", "")
         source_message_ts = value.get("message_ts", "")
         # Echoed back from the prompt's button value, normalized at the trust boundary: the
@@ -407,7 +490,13 @@ def _handle_supporthog_interactivity(
             else:
                 emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
-            final_update = _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            final_update = _update_supporthog_prompt(
+                team,
+                prompt_channel,
+                prompt_ts,
+                text,
+                blocks=ticket_created_blocks(ticket, team) if ticket else None,
+            )
             prompt_can_be_updated = bool(prompt_channel and prompt_ts)
             if final_update == "transient" and prompt_can_be_updated:
                 # The progress placeholder must never be the prompt's last word. Retry a
