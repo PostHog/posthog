@@ -229,7 +229,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "campaign_recipients": {
-        "description": "Recipients a sent campaign was delivered to — one row per recipient per list, the denominator for every open, click, and bounce rate.",
+        "description": "Subscribers a campaign was sent to — one row per recipient per list, the denominator for every open, click, and bounce rate.",
         "docs_url": "https://www.campaignmonitor.com/api/v3-3/campaigns/#campaign-recipients",
         "columns": {
             "CampaignID": "Unique identifier for the campaign the recipient was sent.",

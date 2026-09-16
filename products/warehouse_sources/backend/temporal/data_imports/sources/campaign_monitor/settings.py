@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class CampaignMonitorEndpointConfig:
     name: str
     # Path relative to the API base URL. May contain `{client_id}` (filled from the
@@ -58,7 +58,9 @@ class CampaignMonitorEndpointConfig:
 # incremental mechanism for this API. It is documented but could not be verified against a live
 # account here (no credentials), so every endpoint currently ships as full refresh. Enabling incremental is a
 # matter of populating `incremental_fields`, flipping `supports_incremental`, and mapping the
-# user's cursor value into the `date` param in `campaign_monitor.py` once verified live.
+# user's cursor value into the `date` param in `campaign_monitor.py` once verified live. That is
+# worth prioritizing: the API serves no journey reporting data older than a year, so a full
+# refresh drops rows once they age out of that window, where a merge would keep them.
 CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
     "clients": CampaignMonitorEndpointConfig(
         name="clients",
