@@ -96,7 +96,8 @@ def classify_flag(
             key,
             reference,
             summary=(
-                f"Flag checked by {enrollment.users} users in {FLAG_ENROLLMENT_LOOKBACK_DAYS} days and enabled for none"
+                f"Flag checked by at least {FLAG_ENROLLMENT_MIN_USERS} users in {FLAG_ENROLLMENT_LOOKBACK_DAYS} days "
+                "and enabled for none of them"
             ),
             evidence=evidence,
         )

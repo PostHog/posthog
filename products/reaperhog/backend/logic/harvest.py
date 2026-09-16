@@ -16,6 +16,7 @@ from products.reaperhog.backend.logic.constants import (
     MAX_OPEN_REAPER_PRS,
 )
 from products.reaperhog.backend.logic.github import parse_pr_number, pull_request_state
+from products.reaperhog.backend.logic.redaction import public_evidence
 from products.reaperhog.backend.logic.verification import ClusterView, cluster_view
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 from products.tasks.backend.facade import api as tasks_facade
@@ -110,7 +111,9 @@ def render_pr_body(candidate: HarvestCandidate) -> str:
     ]
     for hit in view.hits:
         lines.append(f"- **{hit.scout.value}**: {hit.summary}")
-        detail = ", ".join(f"{key}={value}" for key, value in hit.evidence.items() if value not in (None, ""))
+        detail = ", ".join(
+            f"{key}={value}" for key, value in public_evidence(hit.evidence).items() if value not in (None, "")
+        )
         if detail:
             lines.append(f"  - {detail}")
     if view.owner:
