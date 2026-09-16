@@ -1,6 +1,6 @@
 // The delivery sections for one scope, meant to sit inside a page's ScopePanel: CI spend, getting merged,
-// lead time to deploy, and the pull requests day view, each figure against the repository. The author
-// page renders them for one author; a team page renders the same sections for one GitHub team.
+// and lead time to deploy, each figure against the repository. The author page renders them for one
+// author; a team page renders the same sections for one GitHub team.
 
 import { useActions, useValues } from 'kea'
 
@@ -10,15 +10,12 @@ import { pluralize } from 'lib/utils/strings'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { LeadTimeComparisonCard } from '../components/LeadTimeComparisonCard'
 import { PullRequestCountsCard } from '../components/PullRequestCountsCard'
-import { PullRequestDayView } from '../components/PullRequestDayView'
 import { ReadyToMergeCard } from '../components/ReadyToMergeCard'
-import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { ScopeComparisonCard } from '../components/ScopeComparisonCard'
 import { Section } from '../components/Section'
 import { DeliveryScope } from '../lib/deliveryScope'
 import { compactMinutes, compactUsd, percent } from '../lib/format'
 import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { pullRequestTimelinesLogic } from './pullRequestTimelinesLogic'
 
 // Relative presets only: the backend caps a window at a year, and every preset here stays inside it.
 export const DELIVERY_DATE_OPTIONS = dateMapping.filter(({ key }) =>
@@ -39,22 +36,11 @@ export function DeliverySections({
     sourceId: string | null
 }): JSX.Element {
     const summaryLogic = deliverySummaryLogic({ scope, sourceId })
-    const timelinesLogic = pullRequestTimelinesLogic({ scope, sourceId })
     const { summary, summaryLoading, summaryFailed } = useValues(summaryLogic)
     const { loadSummary } = useActions(summaryLogic)
-    const { timelines, timelinesLoading, timelinesFailed, dayViewAlignment, dayViewGroups, dayViewAxisDays, redTime } =
-        useValues(timelinesLogic)
-    const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    if (summaryFailed || timelinesFailed) {
-        return (
-            <CIAnalyticsLoadError
-                onRetry={() => {
-                    loadSummary()
-                    loadTimelines()
-                }}
-            />
-        )
+    if (summaryFailed) {
+        return <CIAnalyticsLoadError onRetry={loadSummary} />
     }
 
     const summaryPending = summaryLoading && !summary
@@ -158,26 +144,6 @@ export function DeliverySections({
                     scopeLabel={scopeLabel}
                     loading={summaryPending}
                 />
-            </Section>
-
-            <Section id="delivery-pull-requests" title="Pull requests">
-                <div className="flex flex-col gap-2">
-                    <RedTimeByCauseCard
-                        redTime={redTime}
-                        loading={timelinesLoading && !timelines}
-                        jobsAvailable={!!timelines?.jobs_available}
-                    />
-                    <PullRequestDayView
-                        timelines={timelines}
-                        groups={dayViewGroups}
-                        days={dayViewAxisDays}
-                        alignment={dayViewAlignment}
-                        onAlignmentChange={setDayViewAlignment}
-                        loading={timelinesLoading}
-                        sourceId={sourceId}
-                        showAuthor={scope.kind === 'github_team'}
-                    />
-                </div>
             </Section>
         </>
     )

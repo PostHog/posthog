@@ -32,20 +32,17 @@ function DayViewRowItem({
     days,
     generatedAt,
     sourceId,
-    showAuthor,
 }: {
     row: DayViewRow
     alignment: DayViewAlignment
     days: number
     generatedAt: string
     sourceId: string | null
-    showAuthor: boolean
 }): JSX.Element {
     const { pr } = row
     const highlight = SEGMENT_KIND_STYLES[row.highlightKind]
     const hover = [
         pr.title,
-        showAuthor ? `by ${pr.author.handle}` : null,
         `timeline from ${dayjs(pr.started_at).format('ddd D MMM HH:mm')}`,
         pluralize(pr.pushes, 'push', 'pushes'),
         pr.estimated_cost_usd != null ? `CI cost ${compactUsd(pr.estimated_cost_usd)}` : null,
@@ -91,7 +88,6 @@ export function PullRequestDayView({
     onAlignmentChange,
     loading,
     sourceId,
-    showAuthor = false,
 }: {
     timelines: PullRequestTimelinesApi | null
     groups: DayViewGroup[]
@@ -100,8 +96,6 @@ export function PullRequestDayView({
     onAlignmentChange: (alignment: DayViewAlignment) => void
     loading: boolean
     sourceId: string | null
-    /** Name each pull request's author on hover, for scopes that list several authors (a team). */
-    showAuthor?: boolean
 }): JSX.Element {
     const step = days > 7 ? 2 : 1
     const ticks = Array.from({ length: Math.ceil(days / step) }).map((_, index) => index * step)
@@ -178,7 +172,6 @@ export function PullRequestDayView({
                                     days={days}
                                     generatedAt={timelines?.generated_at ?? ''}
                                     sourceId={sourceId}
-                                    showAuthor={showAuthor}
                                 />
                             ))}
                         </div>

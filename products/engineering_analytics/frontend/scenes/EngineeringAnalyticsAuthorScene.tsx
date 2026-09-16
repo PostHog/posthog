@@ -13,7 +13,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
+import { PullRequestDayView } from '../components/PullRequestDayView'
+import { RedTimeByCauseCard } from '../components/RedTimeByCauseCard'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
@@ -37,9 +40,18 @@ export const scene: SceneExport<AuthorLogicProps> = {
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
-    const { timelines, timelinesLoading, repoSlugs } = useValues(
-        pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
-    )
+    const timelinesLogic = pullRequestTimelinesLogic({ scope: deliveryScope, sourceId })
+    const {
+        timelines,
+        timelinesLoading,
+        timelinesFailed,
+        repoSlugs,
+        dayViewAlignment,
+        dayViewGroups,
+        dayViewAxisDays,
+        redTime,
+    } = useValues(timelinesLogic)
+    const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
     const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
@@ -101,6 +113,29 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 }
             >
                 <DeliverySections scope={deliveryScope} scopeLabel="This author" sourceId={sourceId} />
+
+                <Section id="delivery-pull-requests" title="Pull requests">
+                    {timelinesFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadTimelines} />
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <RedTimeByCauseCard
+                                redTime={redTime}
+                                loading={timelinesLoading && !timelines}
+                                jobsAvailable={!!timelines?.jobs_available}
+                            />
+                            <PullRequestDayView
+                                timelines={timelines}
+                                groups={dayViewGroups}
+                                days={dayViewAxisDays}
+                                alignment={dayViewAlignment}
+                                onAlignmentChange={setDayViewAlignment}
+                                loading={timelinesLoading}
+                                sourceId={sourceId}
+                            />
+                        </div>
+                    )}
+                </Section>
 
                 <Section id="author-cost" title="Where their CI minutes go">
                     {workflowCostsLoading ? (

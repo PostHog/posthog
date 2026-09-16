@@ -6,17 +6,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type {
-    DeliverySummaryApi,
-    DurationDistributionApi,
-    PRTimelineApi,
-    PullRequestTimelinesApi,
-    TeamCIHealthListApi,
-} from '../generated/api.schemas'
+import type { DeliverySummaryApi, DurationDistributionApi, TeamCIHealthListApi } from '../generated/api.schemas'
 
 const HOUR = 3600
 const TEAM = 'team-replay'
-const NOW = '2026-07-02T12:00:00Z'
 
 function distribution(p50Hours: number, count: number): DurationDistributionApi {
     return {
@@ -66,91 +59,6 @@ const SUMMARY: DeliverySummaryApi = {
         open_to_merge: { scope: distribution(15, 33), repo: distribution(10, 640) },
         merge_to_deploy: { scope: distribution(1.2, 33), repo: distribution(1.1, 640) },
     },
-}
-
-function timeline(
-    number: number,
-    title: string,
-    handle: string,
-    startedAt: string,
-    steps: [PRTimelineApi['segments'][number]['kind'], number][],
-    options: { merged?: boolean } = {}
-): PRTimelineApi {
-    let cursor = Date.parse(startedAt)
-    const segments = steps.map(([kind, hours]) => {
-        const start = cursor
-        cursor += hours * HOUR * 1000
-        return { kind, started_at: new Date(start).toISOString(), ended_at: new Date(cursor).toISOString() }
-    })
-    const end = new Date(cursor).toISOString()
-    return {
-        number,
-        title,
-        author: { handle, display_name: handle, avatar_url: '', is_bot: false },
-        repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
-        state: options.merged ? 'merged' : 'open',
-        is_draft: false,
-        created_at: startedAt,
-        started_at: startedAt,
-        merged_at: options.merged ? end : null,
-        pushes: steps.filter(([kind]) => kind === 'ci_running').length,
-        estimated_cost_usd: 3.1,
-        billable_minutes: 45,
-        segments,
-    }
-}
-
-// Several authors, because a team's day view names the author on each row.
-const TIMELINES: PullRequestTimelinesApi = {
-    scope_kind: 'github_team',
-    scope: TEAM,
-    has_membership_data: true,
-    review_data_available: true,
-    jobs_available: true,
-    merge_queue_state_available: true,
-    generated_at: NOW,
-    truncated: false,
-    limit: 200,
-    items: [
-        timeline(5201, 'fix(replay): keep the scrubber on a resumed session', 'ana-dev', '2026-07-01T08:30:00Z', [
-            ['ci_running', 0.5],
-            ['waiting_for_review', 26.5],
-            ['approved_not_enqueued', 0.5],
-        ]),
-        timeline(5202, 'feat(replay): jump to the first console error', 'bo-dev', '2026-06-30T11:00:00Z', [
-            ['ci_running', 0.6],
-            ['red_passed_on_rerun', 1.9],
-            ['ci_running', 0.5],
-            ['waiting_for_review', 45],
-        ]),
-        timeline(
-            5180,
-            'chore(replay): drop the legacy snapshot reader',
-            'ana-dev',
-            '2026-06-24T09:00:00Z',
-            [
-                ['ci_running', 0.5],
-                ['waiting_for_review', 20],
-                ['changes_requested', 15],
-                ['ci_running', 0.6],
-                ['approved_not_enqueued', 1.4],
-                ['merge_queue', 1],
-            ],
-            { merged: true }
-        ),
-        timeline(
-            5188,
-            'fix(replay): stop double-counting a rage click',
-            'cyril-dev',
-            '2026-06-27T13:20:00Z',
-            [
-                ['ci_running', 0.4],
-                ['waiting_for_review', 9],
-                ['merge_queue', 0.7],
-            ],
-            { merged: true }
-        ),
-    ],
 }
 
 const TEAM_CI_HEALTH: TeamCIHealthListApi = {
@@ -218,14 +126,13 @@ const meta: Meta = {
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         pageUrl: urls.engineeringAnalyticsTeam(TEAM),
         testOptions: {
-            waitForSelector: '[data-attr="engineering-analytics-day-view"]',
+            waitForSelector: '[data-attr="engineering-analytics-team-tests-table"]',
         },
     },
     decorators: [
         mswDecorator({
             get: {
                 'api/projects/:team_id/engineering_analytics/delivery_summary/': SUMMARY,
-                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': TIMELINES,
                 'api/projects/:team_id/engineering_analytics/team_ci_health/': TEAM_CI_HEALTH,
                 'api/projects/:team_id/engineering_analytics/team_ci_activity/': TEAM_CI_ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/team_merge_trend/': TEAM_MERGE_TREND,
@@ -309,11 +216,6 @@ export const TeamWithoutMembership: Story = {
                         open_to_merge: { scope: null, repo: distribution(10, 640) },
                         merge_to_deploy: { scope: null, repo: distribution(1.1, 640) },
                     },
-                },
-                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': {
-                    ...TIMELINES,
-                    has_membership_data: false,
-                    items: [],
                 },
                 'api/projects/:team_id/engineering_analytics/team_merge_trend/': {
                     has_membership_data: false,
