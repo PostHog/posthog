@@ -2509,6 +2509,74 @@ describe('exec tool', () => {
                 expect(message).toMatch(/\.\.\. \(\d+ accepted values\)/)
             })
 
+            // A property filter splits one contract across five variants, so a
+            // rejection reported from one variant reads as the whole contract
+            // and sends the caller back with a different wrong guess.
+            describe('the property filter contract', () => {
+                const filterFor = (filter: unknown): unknown =>
+                    GENERATED_TOOL_MAP['query-trends']!().schema.safeParse(
+                        { series: [{ kind: 'EventsNode', event: '$pageview' }], properties: [filter] },
+                        { reportInput: true }
+                    )
+
+                it.each([
+                    ['a single value', 'Safari'],
+                    ['several values', ['Safari', 'Chrome']],
+                ])('takes %s on an exact match', (_label, value) => {
+                    expect(filterFor({ key: '$browser', type: 'event', operator: 'exact', value })).toMatchObject({
+                        success: true,
+                    })
+                })
+
+                it('names every operator, not the variant the guess landed in', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: '$browser', type: 'event', operator: 'equals', value: 'Safari' }],
+                    })
+
+                    // `exact` is what the caller meant, and `is_set` sits in a
+                    // variant the string operators never reach.
+                    expect(message).toContain('parameter "properties.0.operator" must be one of:')
+                    expect(message).toContain('exact')
+                    expect(message).toContain('is_set')
+                })
+
+                it('names every type the operator takes, not the first that failed', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: 'plan_seats', type: 'event', operator: 'exact', value: [1, 2] }],
+                    })
+
+                    expect(message).toContain(
+                        'parameter "properties.0.value" must be one of these types: string, number, array of strings'
+                    )
+                })
+
+                // Naming one of two wrong fields costs the round trip the
+                // merged contract exists to save.
+                it('names every field the caller has to change', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: '$browser', type: 'nonsense', operator: 'equals', value: 'Safari' }],
+                    })
+
+                    expect(message).toContain('parameter "properties.0.operator" must be one of:')
+                    expect(message).toContain('parameter "properties.0.type" must be one of: event, person')
+                })
+
+                // The array only reaches `exact` and `is_not`, so a contains
+                // filter hears the one type it takes rather than all three.
+                it('holds the types to the operator the caller chose', () => {
+                    const message = formatFor({
+                        series: [{ kind: 'EventsNode', event: '$pageview' }],
+                        properties: [{ key: '$browser', type: 'event', operator: 'icontains', value: ['Safari'] }],
+                    })
+
+                    expect(message).toContain('parameter "properties.0.value"')
+                    expect(message).not.toContain('number')
+                })
+            })
+
             // A variant can pin a second field to one value without that field
             // selecting the variant, so the shortest-branch guess reported the
             // `type` the caller got right as the field to rewrite.

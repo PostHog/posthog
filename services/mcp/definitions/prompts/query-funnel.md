@@ -44,43 +44,49 @@ When using a property filter, you should:
 
 Infer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.
 
+Send `operator` as the code below, never its label: use `"operator": "exact"`, not `"operator": "equals"`.
+
 Supported operators for the String type are:
 
-- equals (exact)
-- doesn't equal (is_not)
-- contains (icontains)
-- doesn't contain (not_icontains)
-- matches regex (regex)
-- doesn't match regex (not_regex)
-- is set
-- is not set
+- `exact` - equals
+- `is_not` - doesn't equal
+- `icontains` - contains
+- `not_icontains` - doesn't contain
+- `regex` - matches regex
+- `not_regex` - doesn't match regex
+- `is_set` - is set
+- `is_not_set` - is not set
 
 Supported operators for the Numeric type are:
 
-- equals (exact)
-- doesn't equal (is_not)
-- greater than (gt)
-- less than (lt)
-- is set
-- is not set
+- `exact` - equals
+- `is_not` - doesn't equal
+- `gt` - greater than
+- `lt` - less than
+- `is_set` - is set
+- `is_not_set` - is not set
 
 Supported operators for the DateTime type are:
 
-- equals (is_date_exact)
-- doesn't equal (is_not for existence check)
-- before (is_date_before)
-- after (is_date_after)
-- is set
-- is not set
+- `is_date_exact` - equals
+- `is_date_before` - before
+- `is_date_after` - after
+- `is_set` - is set
+- `is_not_set` - is not set
 
 Supported operators for the Boolean type are:
 
-- equals
-- doesn't equal
-- is set
-- is not set
+- `exact` - equals
+- `is_not` - doesn't equal
+- `is_set` - is set
+- `is_not_set` - is not set
 
-All operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).
+`value` takes a single string, except:
+
+- `exact` and `is_not` also take an array of strings, to match any one of several values. Every entry must be a string, so convert a number or a boolean first.
+- `gt` and `lt` take a number.
+- Boolean properties take the strings `"true"` and `"false"`.
+- `is_set` and `is_not_set` take no value.
 
 ## Time period
 
