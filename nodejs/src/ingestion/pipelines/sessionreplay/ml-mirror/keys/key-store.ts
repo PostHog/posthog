@@ -94,6 +94,8 @@ export class MlKeyBatch {
     private readonly candidates = new Map<string, MlDataKey>()
     private readonly keys = new Map<string, MlDataKey>()
     private committed = false
+    // persist re-reads the batch after its writes and on every retry, so a row is reported the first time this batch meets it and not on each pass.
+    private readonly reportedUnusable = new Set<string>()
 
     constructor(
         private readonly db: MlKeyDynamoDB,
@@ -138,7 +140,10 @@ export class MlKeyBatch {
                 }
                 if (item) {
                     if (!item.wrapped_key?.B) {
-                        unusable.push({ id, teamId: identity.teamId })
+                        if (!this.reportedUnusable.has(id)) {
+                            this.reportedUnusable.add(id)
+                            unusable.push({ id, teamId: identity.teamId })
+                        }
                         return
                     }
                     // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
@@ -160,8 +165,8 @@ export class MlKeyBatch {
             MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
             logger.error('🔑', 'ml_key_stored_key_unusable', {
                 count: unusable.length,
-                teamIds: [...new Set(unusable.map((entry) => entry.teamId))].slice(0, 20),
-                sample: unusable.slice(0, 5),
+                teamIds: [...new Set(unusable.map((entry) => entry.teamId))],
+                rows: unusable.map((entry) => entry.id),
             })
         }
     }

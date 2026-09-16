@@ -15,6 +15,7 @@ import { ok } from '~/ingestion/framework/results'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { MlKeyBatchController } from './batch-controller'
@@ -322,17 +323,26 @@ describe('ML session key batches', () => {
         expect(boundary.items.get(location)).toEqual(legacy)
     })
 
-    it('drops the sessions behind a stored key that has no wrapped key and no tombstone', async () => {
-        const first = await store.prepare([session])
-        await first.commit()
-        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
-        const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
-        boundary.items.set(location, stored)
-        const next = await store.prepare([session])
-        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
-        await next.commit()
-        expect(boundary.items.get(location)).toEqual(stored)
-    })
+    it.each([
+        ['session', () => sessionKeyId(session.teamId, session.sessionId)],
+        ['monthly image', () => imageKeyId(session.teamId, '2025-09')],
+    ])(
+        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, reporting it once',
+        async (_kind, keyId) => {
+            const first = await store.prepare([session])
+            await first.commit()
+            const location = tableKeyString(keyId())
+            const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
+            boundary.items.set(location, stored)
+            const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+            const next = await store.prepare([session])
+            expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+            await next.commit()
+            expect(boundary.items.get(location)).toEqual(stored)
+            expect(unusable).toHaveBeenCalledTimes(1)
+            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', 1)
+        }
+    )
 
     it('adopts a competing writer key', async () => {
         const first = await store.prepare([session])
