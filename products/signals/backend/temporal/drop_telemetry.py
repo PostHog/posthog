@@ -31,7 +31,7 @@ _MIXED_BATCH_VALUE = "mixed"
 _MAX_ERROR_LENGTH = 500
 
 
-@dataclass
+@dataclass(frozen=False)
 class CaptureSignalDroppedInput:
     team_id: int
     source_product: str
