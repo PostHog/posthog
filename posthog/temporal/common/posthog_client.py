@@ -33,8 +33,17 @@ logger = get_write_only_logger()
 # expected control flow, not a defect.
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+# "GoogleWorkspaceTransientError" is raised by the calendar/gmail sync activities on a Google
+# 429/5xx; Temporal retries it and the sync recovers, so it is not a defect. The literal string
+# is kept here (not the product constant) so this shared module stays product-free.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {
+        "trace_not_settled",
+        "TransientRepartitionError",
+        "EmbeddingServiceUnavailable",
+        "AIFeaturesCloudOnly",
+        "GoogleWorkspaceTransientError",
+    }
 )
 
 
