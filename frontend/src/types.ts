@@ -53,7 +53,6 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
-    ExternalDataSourceType,
     FileSystemIconType,
     FileSystemImport,
     EndpointQueryNode,
@@ -66,6 +65,7 @@ import type {
     NodeKind,
     ProductItemCategory,
     ProductKey,
+    QueryScanSummary,
     QuerySchema,
     QueryStatus,
     QuickFilterContext,
@@ -94,6 +94,7 @@ import type { CommentSlackThreadRefApi } from 'products/platform_features/fronte
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -2653,6 +2654,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     alerts?: AlertType[]
     query?: Node | null
     query_status?: QueryStatus
+    query_scan?: QueryScanSummary
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
     resolved_date_range?: ResolvedDateRangeResponse | null
@@ -6435,7 +6437,7 @@ export interface ExternalDataSourceRevenueAnalyticsConfig {
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6467,7 +6469,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     prefix: string | null
     description: string | null
     access_method?: 'warehouse' | 'direct'
@@ -6691,7 +6693,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceType
+    source_type: ExternalDataSourceTypeEnumApi
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
