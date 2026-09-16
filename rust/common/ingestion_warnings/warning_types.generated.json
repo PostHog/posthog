@@ -302,6 +302,18 @@
       "captureProduced": false
     },
     {
+      "type": "replay_session_rate_limited",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "replay_session_retention_unresolved",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "schema_validation_failed",
       "category": "event",
       "severity": "error",

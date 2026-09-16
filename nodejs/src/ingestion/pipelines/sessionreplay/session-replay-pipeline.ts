@@ -88,9 +88,12 @@ export interface SessionReplayPipelineConfig {
  * layer above), and the per-message sub-pipeline processes messages through these phases:
  * 1. Restrictions - Parse headers and apply event ingestion restrictions (drop/overflow)
  * 2. Team Filter - Validate team ownership and enrich with team context
- * 3. Parse - Parse Kafka messages into structured session recording data (inside teamAware for warning handling)
- * 4. Version Monitor - Check library version and emit warnings for old versions
- * 5. Record - Record parsed messages to the batch's recorder
+ * 3. Session Resolution - Resolve retention, rate-limit new sessions, resolve keys, mark seen
+ * 4. Parse - Parse Kafka messages into structured session recording data
+ * 5. Version Monitor - Check library version and emit warnings for old versions
+ * 6. Record - Record parsed messages to the batch's recorder
+ *
+ * Phases 3 to 6 run inside teamAware, so any of them can return a customer-visible ingestion warning.
  */
 export function createSessionReplayPipeline(config: SessionReplayPipelineConfig): SessionReplayPipeline {
     const { outputs, promiseScheduler, topHog, isDebugLoggingEnabled, usageBatch } = config
@@ -117,16 +120,13 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         (batch) =>
             batch
                 .messageAware((b) =>
-                    addSessionReplaySessionResolution(
-                        b
-                            .sequentially((b) => addSessionReplayPreprocessing(b, config))
-                            // Resolve retention for the whole batch in one call, before the message is parsed and
-                            // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
-                            // retention are dropped before any parse or write.
-                            .gather(),
-                        config
-                    )
-                        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
+                    b
+                        .sequentially((b) => addSessionReplayPreprocessing(b, config))
+                        .gather()
+                        // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings. It
+                        // sits immediately after the team filter, the first point where a team is known,
+                        // so every later drop can carry a customer-visible warning. A warning returned
+                        // above this line has no team to attribute and is discarded.
                         .filterMap(
                             (element) => ({
                                 result: element.result,
@@ -138,7 +138,10 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                             (b) =>
                                 b
                                     .teamAware((b) =>
-                                        b
+                                        // Resolve retention for the whole batch in one call, before the message is
+                                        // parsed and recorded — keyed on the (validated) session_id header. Sessions
+                                        // with unresolvable retention are dropped before any parse or write.
+                                        addSessionReplaySessionResolution(b, config)
                                             .sequentially((b) =>
                                                 b
                                                     // Parse message content

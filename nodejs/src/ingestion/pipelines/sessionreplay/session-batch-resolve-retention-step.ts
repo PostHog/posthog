@@ -21,9 +21,11 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * guarantees is present. A session whose retention can't be resolved because its team is unknown or
  * deleted is dropped; a corrupt/invalid stored value instead throws (crashes) rather than recording
  * against a wrong retention. A transient failure (e.g. Redis) is thrown by the service so the
- * pipeline's retry wrapper can re-run the step. A dropped message still commits its offset — the
- * drop result flows out of the pipeline carrying its source message, so the single offset-tracking
- * stage picks it up (see {@link runSessionReplayPipeline}).
+ * pipeline's retry wrapper can re-run the step. A drop also raises the customer-visible
+ * `replay_session_retention_unresolved` warning, so a lost recording is not silent.
+ * A dropped message still commits its offset — the drop result flows out of the pipeline carrying
+ * its source message, so the single offset-tracking stage picks it up
+ * (see {@link runSessionReplayPipeline}).
  */
 export function createResolveRetentionStep<
     T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
@@ -57,7 +59,19 @@ export function createResolveRetentionStep<
                 sessionId: value.headers.session_id,
                 teamId: value.team.teamId,
             })
-            return drop('retention_unresolved')
+            // Debounced per team: the cause is team-wide (the team is unknown or deleted), so every
+            // one of its sessions fails together.
+            return drop(
+                'retention_unresolved',
+                [],
+                [
+                    {
+                        type: 'replay_session_retention_unresolved',
+                        details: { sessionId: value.headers.session_id },
+                        key: String(value.team.teamId),
+                    },
+                ]
+            )
         })
     }
 }

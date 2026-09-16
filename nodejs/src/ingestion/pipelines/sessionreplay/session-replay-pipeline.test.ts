@@ -29,6 +29,13 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
     createApplyEventRestrictionsStep: jest.fn(),
 }))
 
+// The warning debouncer is a module-level token bucket keyed by team:type:key, so warnings of the
+// same type for one team leak across tests. Always allow, and let each test assert its own warnings.
+jest.mock('~/common/utils/token-bucket', () => ({
+    ...jest.requireActual('~/common/utils/token-bucket'),
+    IngestionWarningLimiter: { consume: jest.fn().mockReturnValue(true) },
+}))
+
 function createMockBatchRecorder(): jest.Mocked<SessionBatchRecorder> {
     return {
         record: jest.fn().mockResolvedValue(undefined),
@@ -1159,6 +1166,76 @@ describe('session-replay-pipeline', () => {
             const messageValue = parseJSON(warningMessages[0].value!.toString())
             expect(messageValue.team_id).toBe(1)
             expect(messageValue.type).toBe('message_timestamp_diff_too_large')
+        })
+
+        // Both drops discard a whole session, and both run in the session-resolution phase. They
+        // reach the warnings output only while that phase stays inside the team-aware scope; move it
+        // out and a lost recording goes back to leaving no customer-visible trace.
+        it.each([
+            {
+                name: 'rate-limited new session',
+                warningType: 'replay_session_rate_limited',
+                arrange: () => {
+                    const blocked = new SessionSet()
+                    blocked.add(1, 'session-1')
+                    jest.mocked(sessionFilter.isBlocked).mockResolvedValueOnce(blocked)
+                },
+            },
+            {
+                name: 'unresolved retention',
+                warningType: 'replay_session_retention_unresolved',
+                arrange: () => {
+                    jest.mocked(retentionService.resolveSessionRetentions).mockImplementationOnce(
+                        (sessions: SessionSet) => {
+                            const resolutions = new SessionMap<RetentionResolution>()
+                            for (const s of sessions) {
+                                resolutions.set(s.teamId, s.sessionId, { resolved: false })
+                            }
+                            return Promise.resolve(resolutions)
+                        }
+                    )
+                },
+            },
+        ])('sends ingestion warning when a whole session is dropped: $name', async ({ warningType, arrange }) => {
+            arrange()
+
+            const pipeline = createSessionReplayPipeline({
+                outputs,
+                eventIngestionRestrictionManager: mockRestrictionManager,
+                overflowMode: 'redirect',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled,
+            })
+
+            const messages = [createMessage(0, 1, 'session-1', { token: 'test-token' })]
+
+            const { maxOffsets } = await runSessionReplayPipeline(
+                pipeline,
+                messages,
+                mockBatchRecorder,
+                promiseScheduler
+            )
+
+            expect(recordedSessionIds()).toEqual([])
+            expect(maxOffsets).toEqual(new Map([[0, 1]]))
+            expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
+
+            const warningMessages = outputs.queueMessages.mock.calls[0][1]
+            const messageValue = parseJSON(warningMessages[0].value!.toString())
+            expect(messageValue.team_id).toBe(1)
+            expect(messageValue.type).toBe(warningType)
+            expect(parseJSON(messageValue.details)).toEqual({
+                sessionId: 'session-1',
+                category: 'replay',
+                severity: 'error',
+            })
         })
 
         it('records messages to session batch', async () => {

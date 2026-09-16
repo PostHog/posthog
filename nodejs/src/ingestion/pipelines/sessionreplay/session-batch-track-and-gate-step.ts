@@ -31,6 +31,10 @@ type TrackAndGateStepInput = {
  * every batch. A session that trips its own budget in this batch is caught by unioning the newly-blocked
  * set that handleNewSessions returns with the earlier block read.
  *
+ * A blocked session loses its whole recording, so the drop raises the customer-visible
+ * `replay_session_rate_limited` warning, debounced per team because the budget is per team: every
+ * session it blocks shares one cause. The log line carries the per-session identity.
+ *
  * Blocked sessions are dropped right here. They carry no key, so nothing downstream acts on them — key
  * resolution would skip them and the mark-seen step would only drop them — and, crucially, a blocked
  * session is never marked seen: the block key alone keeps it out of the budget and out of recording, so
@@ -78,12 +82,17 @@ export function createTrackAndGateStep<T extends TrackAndGateStepInput>(
             const isNewSession = !seen.get(teamId, sessionId)
 
             if (alreadyBlocked.has(teamId, sessionId) || newlyBlocked.has(teamId, sessionId)) {
-                logger.debug('🔁', 'session_replay_session_dropped_before_record', {
+                // Info, not debug: the only per-session record of which drop hit a given recording.
+                logger.info('🔁', 'session_replay_session_dropped_before_record', {
                     sessionId,
                     teamId,
                     reason: 'session_blocked',
                 })
-                return drop<Allowed<T & NewSessionFlag>>('session_blocked')
+                return drop<Allowed<T & NewSessionFlag>>(
+                    'session_blocked',
+                    [],
+                    [{ type: 'replay_session_rate_limited', details: { sessionId }, key: String(teamId) }]
+                )
             }
             return ok({ ...value, isNewSession, status: 'allowed' as const })
         })
