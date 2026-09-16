@@ -181,8 +181,6 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
             "schedule-all-subscriptions",
             {
                 "buffer_minutes": ScheduleAllSubscriptionsWorkflowInputs().buffer_minutes,
-                "subscriptions_page_size": ScheduleAllSubscriptionsWorkflowInputs().subscriptions_page_size,
-                "subscriptions_max_concurrent": ScheduleAllSubscriptionsWorkflowInputs().subscriptions_max_concurrent,
             },
             id="schedule-all-subscriptions-schedule",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,

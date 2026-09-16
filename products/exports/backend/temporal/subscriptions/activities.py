@@ -5,15 +5,13 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
-from django.db.models import Count, F, Q, Window
-from django.db.models.functions import RowNumber
+from django.db.models import Q
 from django.utils import timezone as tz
 
 import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
-from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -30,7 +28,6 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
 )
-from products.exports.backend.temporal.subscriptions.metrics import record_scheduler_fetch
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -46,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
+    ScheduledSubscriptionOccurrenceInputs,
     SubscriptionSchedulerCursor,
     UpdateDeliveryRecordInputs,
 )
@@ -76,13 +74,6 @@ NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline 
 NO_ASSETS_HUMAN_READABLE_REASON = (
     "Nothing could be generated to send this time. We'll try again on the next scheduled run."
 )
-
-
-@frozen
-class _FetchedDueSubscriptions:
-    subscriptions: list[DueSubscription]
-    oldest_due_at: datetime | None
-    has_more: bool
 
 
 class NoExportableInsightsError(Exception):
@@ -200,46 +191,12 @@ async def _persist_content_snapshot(
 
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
-    if inputs.max_subscriptions_per_run < 1:
-        raise ApplicationError(
-            f"Subscription scheduler fetch limit must be at least 1, received {inputs.max_subscriptions_per_run}",
-            non_retryable=True,
-        )
-
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> _FetchedDueSubscriptions:
-        due_subscriptions = (
-            Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
-            .exclude(dashboard__deleted=True)
-            .exclude(insight__deleted=True)
-            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
-            .exclude(
-                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
-            )
-            .annotate(
-                _team_rank=Window(
-                    expression=RowNumber(),
-                    partition_by=[F("team_id")],
-                    order_by=[F("next_delivery_date").asc(nulls_first=True), F("id").asc()],
-                )
-            )
-            .order_by(
-                "_team_rank",
-                F("next_delivery_date").asc(nulls_first=True),
-                "team_id",
-                "id",
-            )
-            .values(
-                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
-            )[: inputs.max_subscriptions_per_run + 1]
-        )
-        rows = list(due_subscriptions)
-        has_more = len(rows) > inputs.max_subscriptions_per_run
-        selected_rows = rows[: inputs.max_subscriptions_per_run]
-        subscriptions = [
+    def get_subscriptions() -> list[DueSubscription]:
+        return [
             DueSubscription(
                 subscription_id=sub["id"],
                 team_id=sub["team_id"],
@@ -249,32 +206,22 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
                 resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
             )
-            for sub in selected_rows
+            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+            # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
+            .exclude(
+                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+            )
+            .values(
+                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
+            )
         ]
-        oldest_due_at = selected_rows[0]["next_delivery_date"] if selected_rows else None
-        fetched = _FetchedDueSubscriptions(
-            subscriptions=subscriptions,
-            oldest_due_at=oldest_due_at,
-            has_more=has_more,
-        )
-        record_scheduler_fetch(
-            selected_count=len(fetched.subscriptions),
-            oldest_due_at=fetched.oldest_due_at,
-            now=dt.datetime.now(dt.UTC),
-            has_more=fetched.has_more,
-        )
-        return fetched
 
-    fetched = await get_subscriptions()
-    await LOGGER.ainfo(
-        "Fetched due subscriptions",
-        count=len(fetched.subscriptions),
-        max_subscriptions_per_run=inputs.max_subscriptions_per_run,
-        has_more=fetched.has_more,
-        oldest_due_at=fetched.oldest_due_at,
-    )
+    subscriptions = await get_subscriptions()
+    await LOGGER.ainfo("Fetched due subscriptions", count=len(subscriptions))
 
-    return fetched.subscriptions
+    return subscriptions
 
 
 @temporalio.activity.defn
@@ -314,27 +261,17 @@ async def fetch_due_subscriptions_page_activity(
                 | Q(next_delivery_date=cursor_date, id__gt=inputs.cursor.subscription_id)
             )
 
-        value_fields: tuple[str, ...] = (
-            "id",
-            "team_id",
-            "created_by__distinct_id",
-            "next_delivery_date",
-            "insight_id",
-            "dashboard_id",
-            "prompt",
-        )
-        if inputs.cursor is None:
-            subscriptions_query = subscriptions_query.annotate(_cohort_total=Window(expression=Count("id")))
-            value_fields = (*value_fields, "_cohort_total")
-
         fetched_rows = list(
-            subscriptions_query.order_by("next_delivery_date", "id").values(*value_fields)[: inputs.page_size + 1]
+            subscriptions_query.order_by("next_delivery_date", "id").values(
+                "id",
+                "team_id",
+                "created_by__distinct_id",
+                "next_delivery_date",
+                "insight_id",
+                "dashboard_id",
+                "prompt",
+            )[: inputs.page_size + 1]
         )
-        cohort_total = (
-            typing.cast(int, fetched_rows[0]["_cohort_total"]) if inputs.cursor is None and fetched_rows else None
-        )
-        if inputs.cursor is None and not fetched_rows:
-            cohort_total = 0
         rows = fetched_rows[: inputs.page_size]
         subscriptions = [
             DueSubscription(
@@ -348,7 +285,6 @@ async def fetch_due_subscriptions_page_activity(
             )
             for sub in rows
         ]
-        remaining_after_page = max(0, cohort_total - len(subscriptions)) if cohort_total is not None else None
         has_more = len(fetched_rows) > inputs.page_size
         last_row = rows[-1] if rows else None
         next_cursor = (
@@ -362,15 +298,6 @@ async def fetch_due_subscriptions_page_activity(
         page = FetchDueSubscriptionsPageActivityResult(
             subscriptions=subscriptions,
             next_cursor=next_cursor,
-            total_count=cohort_total,
-            remaining_count=remaining_after_page,
-        )
-        record_scheduler_fetch(
-            selected_count=len(page.subscriptions),
-            oldest_due_at=rows[0]["next_delivery_date"] if rows else None,
-            now=dt.datetime.now(dt.UTC),
-            has_more=page.next_cursor is not None,
-            record_oldest_due_age=inputs.cursor is None,
         )
         return page
 
@@ -379,11 +306,25 @@ async def fetch_due_subscriptions_page_activity(
         "Fetched due subscriptions page",
         count=len(page.subscriptions),
         page_size=inputs.page_size,
-        total_count=page.total_count,
-        remaining_count=page.remaining_count,
         has_more=page.next_cursor is not None,
     )
     return page
+
+
+@temporalio.activity.defn
+async def is_scheduled_subscription_occurrence_current(inputs: ScheduledSubscriptionOccurrenceInputs) -> bool:
+    """Return whether a scheduled child still represents the subscription's current due occurrence."""
+    scheduled_at = dt.datetime.fromisoformat(inputs.scheduled_at)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def get_current_delivery_date() -> datetime | None:
+        return (
+            Subscription.objects.filter(pk=inputs.subscription_id, deleted=False, enabled=True)
+            .values_list("next_delivery_date", flat=True)
+            .first()
+        )
+
+    return await get_current_delivery_date() == scheduled_at
 
 
 @temporalio.activity.defn

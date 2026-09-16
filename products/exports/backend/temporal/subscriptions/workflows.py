@@ -4,7 +4,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Callable, Coroutine
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any, Literal
 
 import temporalio.common
 import temporalio.workflow
@@ -43,12 +43,12 @@ from products.exports.backend.temporal.subscriptions.activities import (
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     fetch_due_subscriptions_page_activity,
+    is_scheduled_subscription_occurrence_current,
     notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
-from products.exports.backend.temporal.subscriptions.metrics import record_scheduler_progress
 from products.exports.backend.temporal.subscriptions.retry_policy import (
     SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -73,6 +73,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
+    ScheduledSubscriptionOccurrenceInputs,
     SnapshotInsightsInputs,
     SubscriptionSchedulerCursor,
     SubscriptionTriggerType,
@@ -178,6 +179,23 @@ def _tracked_subscription_inputs(subscription: DueSubscription) -> TrackedSubscr
     )
 
 
+async def _is_current_scheduled_occurrence(inputs: TrackedSubscriptionInputs) -> bool:
+    if inputs.trigger_type != SubscriptionTriggerType.SCHEDULED or inputs.scheduled_at is None:
+        return True
+    if not temporalio.workflow.patched("subscription-scheduled-occurrence-validation-2026-09"):
+        return True
+
+    return await temporalio.workflow.execute_activity(
+        is_scheduled_subscription_occurrence_current,
+        ScheduledSubscriptionOccurrenceInputs(
+            subscription_id=inputs.subscription_id,
+            scheduled_at=inputs.scheduled_at,
+        ),
+        start_to_close_timeout=dt.timedelta(minutes=1),
+        retry_policy=SUBSCRIPTION_VALIDATE_RETRY_POLICY,
+    )
+
+
 def _summarize_export_failure_details(errors: list[ExportError]) -> dict[str, str | int | list[str]]:
     """Summarize per-asset failure dimensions onto one subscription SLO event."""
 
@@ -244,9 +262,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             await self._run_legacy(inputs)
             return
 
-        if inputs.subscriptions_max_concurrent <= 0:
-            raise ApplicationError("subscriptions_max_concurrent must be greater than zero", non_retryable=True)
-
         due_before = (
             inputs.due_before or (temporalio.workflow.now() + dt.timedelta(minutes=inputs.buffer_minutes)).isoformat()
         )
@@ -266,99 +281,76 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        failed_ids: list[int] = []
-        completed_count = 0
+        started_count = 0
         already_running_count = 0
-        semaphore = asyncio.Semaphore(inputs.subscriptions_max_concurrent)
+        failed_start_count = 0
 
-        async def execute_subscription(sub: DueSubscription) -> None:
+        async def start_subscription(sub: DueSubscription) -> Literal["started", "already_running", "failed"]:
             workflow, child_id = _subscription_child_workflow(sub)
-            async with semaphore:
-                await temporalio.workflow.execute_child_workflow(
+            try:
+                await temporalio.workflow.start_child_workflow(
                     workflow,
                     _tracked_subscription_inputs(sub),
                     id=child_id,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
                 )
-
-        child_results = await asyncio.gather(
-            *(execute_subscription(sub) for sub in page.subscriptions), return_exceptions=True
-        )
-        for sub, result in zip(page.subscriptions, child_results):
-            if isinstance(result, WorkflowAlreadyStartedError):
-                already_running_count += 1
+            except WorkflowAlreadyStartedError:
                 temporalio.workflow.logger.info(
                     "process_subscription.already_running",
                     extra={"subscription_id": sub.subscription_id},
                 )
-            elif isinstance(result, BaseException):
-                failed_ids.append(sub.subscription_id)
+                return "already_running"
+            except Exception as error:
                 temporalio.workflow.logger.warning(
-                    "process_subscription.child_workflow_error",
-                    extra={"subscription_id": sub.subscription_id, "error": str(result)},
+                    "process_subscription.child_workflow_start_error",
+                    extra={"subscription_id": sub.subscription_id, "error": str(error)},
                 )
-            else:
-                completed_count += 1
+                return "failed"
+            return "started"
 
-        total_count = inputs.total_count if inputs.total_count is not None else page.total_count
-        if total_count is None:
-            raise ApplicationError("Subscription scheduler lost its first-page total", non_retryable=True)
-        processed_count = inputs.processed_count + len(page.subscriptions) - len(failed_ids)
-        page_number = inputs.page_number + 1
-        completed = page.next_cursor is None and not failed_ids
-        remaining_count = 0 if completed else max(0, total_count - processed_count)
-        completed_at = temporalio.workflow.now() if completed else None
-        record_scheduler_progress(
-            total_count=total_count,
-            processed_count=processed_count,
-            remaining_count=remaining_count,
-            page_number=page_number,
-            completed_count=completed_count,
-            already_running_count=already_running_count,
-            failed_count=len(failed_ids),
-            completed=completed,
-            completed_at=completed_at,
-        )
+        start_results = await asyncio.gather(*(start_subscription(sub) for sub in page.subscriptions))
+        for result in start_results:
+            if result == "started":
+                started_count += 1
+            elif result == "already_running":
+                already_running_count += 1
+            else:
+                failed_start_count += 1
 
         temporalio.workflow.logger.info(
-            "subscription_scheduler.page_processed",
+            "subscription_scheduler.page_dispatched",
             extra={
-                "total_count": total_count,
-                "processed_count": processed_count,
-                "remaining_count": remaining_count,
-                "page_number": page_number,
-                "completed_count": completed_count,
+                "selected_count": len(page.subscriptions),
+                "started_count": started_count,
                 "already_running_count": already_running_count,
-                "failed_count": len(failed_ids),
-                "completed": completed,
+                "failed_start_count": failed_start_count,
+                "has_more": page.next_cursor is not None,
             },
         )
 
-        if failed_ids:
-            raise ApplicationError(
-                f"Subscription deliveries failed for IDs: {failed_ids}",
-                non_retryable=True,
-            )
-
+        cohort_failed_start_count = inputs.failed_start_count + failed_start_count
         if page.next_cursor is not None:
             temporalio.workflow.continue_as_new(
                 ScheduleAllSubscriptionsWorkflowInputs(
                     buffer_minutes=inputs.buffer_minutes,
                     subscriptions_page_size=inputs.subscriptions_page_size,
-                    subscriptions_max_concurrent=inputs.subscriptions_max_concurrent,
                     due_before=due_before,
                     cursor=page.next_cursor,
-                    total_count=total_count,
-                    processed_count=processed_count,
-                    page_number=page_number,
+                    failed_start_count=cohort_failed_start_count,
                 )
+            )
+
+        if cohort_failed_start_count:
+            raise ApplicationError(
+                f"{cohort_failed_start_count} subscription delivery workflows failed to start",
+                non_retryable=True,
             )
 
     async def _run_legacy(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
         subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
-            cast(FetchDueSubscriptionsActivityInputs, {"buffer_minutes": inputs.buffer_minutes}),
+            FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -416,6 +408,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        if not await _is_current_scheduled_occurrence(inputs):
+            temporalio.workflow.logger.info(
+                "process_subscription.stale_scheduled_occurrence",
+                extra={"subscription_id": inputs.subscription_id, "scheduled_at": inputs.scheduled_at},
+            )
+            return
+
         assets_with_content = 0
         total_assets = 0
         asset_errors: list[ExportError] = []
@@ -769,6 +768,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: TrackedSubscriptionInputs) -> None:
+        if not await _is_current_scheduled_occurrence(inputs):
+            temporalio.workflow.logger.info(
+                "process_ai_subscription.stale_scheduled_occurrence",
+                extra={"subscription_id": inputs.subscription_id, "scheduled_at": inputs.scheduled_at},
+            )
+            return
+
         delivery_id: uuid.UUID | None = None
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []

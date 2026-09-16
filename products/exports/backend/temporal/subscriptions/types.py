@@ -8,9 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.slo.types import SloConfig
 
 # Leaves headroom below Temporal's recommendation of at most 1,000 children per parent.
-DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN = 500
 DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE = 500
-DEFAULT_SUBSCRIPTIONS_SCHEDULER_MAX_CONCURRENT = 100
 
 # Type names of these failures never appear in recipient-facing copy. When a safe code and message
 # exist, they are available to query-access owners; this mask only governs the legacy fallback that
@@ -170,21 +168,23 @@ class FetchDueSubscriptionsPageActivityInputs:
 class FetchDueSubscriptionsPageActivityResult:
     subscriptions: list[DueSubscription]
     next_cursor: SubscriptionSchedulerCursor | None
-    total_count: int | None
-    remaining_count: int | None
 
 
 @frozen
 class FetchDueSubscriptionsActivityInputs:
     buffer_minutes: int = 15
-    max_subscriptions_per_run: int = DEFAULT_MAX_DUE_SUBSCRIPTIONS_PER_RUN
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
-            "max_subscriptions_per_run": self.max_subscriptions_per_run,
         }
+
+
+@frozen
+class ScheduledSubscriptionOccurrenceInputs:
+    subscription_id: int
+    scheduled_at: str
 
 
 @dataclasses.dataclass
@@ -426,24 +426,19 @@ class SnapshotInsightsResult:
 @frozen
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
+    # Internal pagination configuration and Continue-As-New state. The persisted
+    # Schedule payload only sets buffer_minutes for compatibility with older workers.
     subscriptions_page_size: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_PAGE_SIZE
-    subscriptions_max_concurrent: int = DEFAULT_SUBSCRIPTIONS_SCHEDULER_MAX_CONCURRENT
-    # Internal Continue-As-New state. The Schedule action only sets the public fields above.
     due_before: str | None = None
     cursor: SubscriptionSchedulerCursor | None = None
-    total_count: int | None = None
-    processed_count: int = 0
-    page_number: int = 0
+    failed_start_count: int = 0
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "buffer_minutes": self.buffer_minutes,
             "subscriptions_page_size": self.subscriptions_page_size,
-            "subscriptions_max_concurrent": self.subscriptions_max_concurrent,
             "due_before": self.due_before,
             "cursor": dataclasses.asdict(self.cursor) if self.cursor else None,
-            "total_count": self.total_count,
-            "processed_count": self.processed_count,
-            "page_number": self.page_number,
+            "failed_start_count": self.failed_start_count,
         }
