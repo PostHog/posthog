@@ -95,19 +95,23 @@ def test_reciprocal_rank_is_one_over_the_first_hit():
 
 
 def test_repeated_renders_of_one_list_count_once():
-    # The impression event fires on every render, so scrolling a list back into view re-sends it.
-    # Left alone, one person's scrolling outweighs everyone else's reading.
+    # Toggling a filter back and forth is a fresh ranking context to the client, so it re-sends
+    # the same ranking within a minute. Left alone, one person's toggling outweighs everyone
+    # else's reading.
     rows = _lists(
         [
             *_served("first", [UUID_A, UUID_B]),
             *_served("second", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(minutes=1)),
             *_served("reordered", [UUID_B, UUID_A], at=SERVED_AT + datetime.timedelta(minutes=2)),
+            # Hours later the same order is a second visit, not a repeat: an open that follows it
+            # lands outside the morning render's attribution window and would be lost with it.
+            *_served("revisit", [UUID_A, UUID_B], at=SERVED_AT + datetime.timedelta(hours=5)),
         ]
     )
 
     kept = deduplicate_lists(rows)
 
-    assert sorted(kept["impression_id"].unique()) == ["first", "reordered"]
+    assert sorted(kept["impression_id"].unique()) == ["first", "reordered", "revisit"]
 
 
 def test_an_engagement_counts_for_the_list_that_preceded_it():

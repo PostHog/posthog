@@ -146,13 +146,35 @@ def score_available_at(snapshot_date: pd.Series) -> pd.Series:
     return pd.to_datetime(snapshot_date, utc=True) + SCORE_AVAILABLE_AFTER
 
 
-def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
-    """One row per (list, report), keeping the earliest render of each distinct list.
+def _first_render_of_each_visit(per_list: pd.DataFrame) -> set[str]:
+    """The earliest render of each visit. A render repeats the last kept one when the same list
+    came back inside an attribution window of it."""
+    keep: set[str] = set()
+    last_kept: dict[tuple[Any, ...], pd.Timestamp] = {}
+    for impression_id, render in per_list.sort_values("impressed_at").iterrows():
+        key = (render["distinct_id"], render["tab"], render["scope"], render["reports"], render["ranks"])
+        previous = last_kept.get(key)
+        if previous is not None and render["impressed_at"] - previous < ATTRIBUTION_WINDOW:
+            continue
+        last_kept[key] = render["impressed_at"]
+        keep.add(str(impression_id))
+    return keep
 
-    The impression event fires on every render, so scrolling a list back into view re-sends the
-    same ranking. Left alone, one person's scrolling outweighs everyone else's reading, and the
-    orders are all graded on the same duplicated lists. Two renders are the same list when the same
-    person saw the same reports at the same ranks in the same place.
+
+def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
+    """One row per (list, report), collapsing repeats of the same list into their first render.
+
+    Coming back to a query the person already ran is a fresh ranking context to the client, so
+    toggling a filter back and forth re-sends the same ranking within a minute. Left alone, one
+    person's toggling outweighs everyone else's reading. Two renders are the same list when the
+    same person saw the same reports at the same ranks in the same place.
+
+    The attribution window is what makes a repeat a repeat, and it is why this is not a plain
+    drop-duplicates over the day. Renders closer together than that window compete for the same
+    engagements, so they are one viewing. A person who comes back hours later and opens something
+    has made a second observation, and folding it into the morning's render loses the open
+    entirely: the engagement falls outside that render's window, and the render is then dropped
+    for having no outcome at all.
     """
     if impressions.empty:
         return impressions
@@ -168,12 +190,7 @@ def deduplicate_lists(impressions: pd.DataFrame) -> pd.DataFrame:
             ranks=("served_rank", tuple),
         )
     )
-    keep = set(
-        per_list.sort_values("impressed_at")
-        .drop_duplicates(subset=["distinct_id", "tab", "scope", "reports", "ranks"])
-        .index
-    )
-    return impressions.loc[impressions["impression_id"].isin(keep)]
+    return impressions.loc[impressions["impression_id"].isin(_first_render_of_each_visit(per_list))]
 
 
 def with_outcomes(impressions: pd.DataFrame, outcomes: pd.DataFrame) -> pd.DataFrame:
