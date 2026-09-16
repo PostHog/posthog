@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -78,6 +78,14 @@ pub struct TestReplicaService {
     pub upsert_inserted_count: i64,
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
+    /// Number of `get_groups_batch` calls still to be refused with
+    /// UNAVAILABLE, the shape of the server's load-shed reply.
+    pub groups_batch_sheds: Arc<AtomicUsize>,
+    /// Whether those refusals carry the load-shed marker. A real shed does;
+    /// a handler that answers UNAVAILABLE after it ran does not.
+    pub groups_batch_sheds_marked: bool,
+    /// Every `get_groups_batch` call the replica received, shed or served.
+    pub groups_batch_calls: Arc<AtomicUsize>,
 }
 
 impl TestReplicaService {
@@ -90,6 +98,9 @@ impl TestReplicaService {
             upsert_inserted_count: 0,
             groups: vec![],
             group_type_mappings: vec![],
+            groups_batch_sheds: Arc::new(AtomicUsize::new(0)),
+            groups_batch_sheds_marked: true,
+            groups_batch_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -132,6 +143,27 @@ impl TestReplicaService {
         self.group_type_mappings = mappings;
         self
     }
+
+    /// Refuse the next `sheds` calls the way the capacity layer does, marker
+    /// included. `marked = false` is the other UNAVAILABLE a replica can
+    /// send: one its handler returned after it started work.
+    pub fn shedding_groups_batch(mut self, sheds: usize, marked: bool) -> Self {
+        self.groups_batch_sheds = Arc::new(AtomicUsize::new(sheds));
+        self.groups_batch_sheds_marked = marked;
+        self
+    }
+}
+
+/// The capacity layer's refusal, carrying the same marker header it stamps.
+/// Tonic copies a status's metadata into the trailers-only response headers,
+/// which is where the router reads it.
+fn load_shed_status() -> Status {
+    let mut metadata = tonic::metadata::MetadataMap::new();
+    metadata.insert(
+        personhog_common::grpc::LOAD_SHED_HEADER,
+        "1".parse().unwrap(),
+    );
+    Status::with_metadata(tonic::Code::Unavailable, "Server at capacity", metadata)
 }
 
 #[tonic::async_trait]
@@ -318,6 +350,18 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
+        self.groups_batch_calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .groups_batch_sheds
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(if self.groups_batch_sheds_marked {
+                load_shed_status()
+            } else {
+                Status::unavailable("Database unavailable")
+            });
+        }
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
     }
 

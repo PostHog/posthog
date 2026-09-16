@@ -16,6 +16,14 @@ import { Group as DomainGroup, GroupTypeIndex } from '~/types'
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
 const PERSONHOG_BATCH_SIZE = 100
+
+/**
+ * Retry policy applied to one batch request. It wraps the single request
+ * rather than the whole loop, so a retry does not re-send the batches the
+ * server already answered. Replaying them puts load back onto a server
+ * that is already refusing work.
+ */
+export type RetryChunk = <T>(fn: () => Promise<T>) => Promise<T>
 const VALID_GROUP_TYPE_INDEXES = new Set<number>([0, 1, 2, 3, 4])
 
 function toGroupTypeIndex(value: number): GroupTypeIndex {
@@ -64,7 +72,8 @@ export class PersonHogGroupOperations {
         teamIds: number[],
         groupTypeIndexes: number[],
         groupKeys: string[],
-        callerTag?: string
+        callerTag?: string,
+        retryChunk: RetryChunk = (fn) => fn()
     ): Promise<
         {
             team_id: number
@@ -93,18 +102,20 @@ export class PersonHogGroupOperations {
             const batchGroupTypeIndexes = groupTypeIndexes.slice(i, i + PERSONHOG_BATCH_SIZE)
             const batchGroupKeys = groupKeys.slice(i, i + PERSONHOG_BATCH_SIZE)
 
-            const response = await this.client.getGroupsBatch(
-                create(GetGroupsBatchRequestSchema, {
-                    keys: batchTeamIds.map((teamId, j) =>
-                        create(GroupKeySchema, {
-                            teamId: BigInt(teamId),
-                            groupTypeIndex: batchGroupTypeIndexes[j],
-                            groupKey: batchGroupKeys[j],
-                        })
-                    ),
-                    readOptions: eventualReadOptions(),
-                }),
-                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            const response = await retryChunk(() =>
+                this.client.getGroupsBatch(
+                    create(GetGroupsBatchRequestSchema, {
+                        keys: batchTeamIds.map((teamId, j) =>
+                            create(GroupKeySchema, {
+                                teamId: BigInt(teamId),
+                                groupTypeIndex: batchGroupTypeIndexes[j],
+                                groupKey: batchGroupKeys[j],
+                            })
+                        ),
+                        readOptions: eventualReadOptions(),
+                    }),
+                    callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+                )
             )
 
             for (const result of response.results) {

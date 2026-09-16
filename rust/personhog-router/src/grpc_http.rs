@@ -5,6 +5,7 @@
 use bytes::Bytes;
 use http::HeaderValue;
 use http_body_util::{BodyExt, Empty};
+use personhog_common::grpc::LOAD_SHED_HEADER;
 use tonic::body::BoxBody;
 use tonic::Code;
 
@@ -38,6 +39,15 @@ pub(crate) fn is_grpc_error_response(response: &http::Response<BoxBody>) -> bool
         .get("grpc-status")
         .and_then(|v| v.to_str().ok())
         .is_some_and(|s| s != "0")
+}
+
+/// Whether a response is a backend load-shed refusal: the capacity layer's
+/// marker plus its `UNAVAILABLE` status. A bare `UNAVAILABLE` does not prove
+/// the same thing — tonic gives a handler error the identical trailers-only
+/// shape, and a handler that already ran may have applied a write.
+pub(crate) fn is_load_shed_response(response: &http::Response<BoxBody>) -> bool {
+    response.headers().contains_key(LOAD_SHED_HEADER)
+        && grpc_status_code(response) == Some(Code::Unavailable as i32)
 }
 
 /// The `grpc-status` code carried in a response's HTTP headers, if any.

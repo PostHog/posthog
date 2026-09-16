@@ -504,12 +504,23 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
 // Load shedding layer
 // ============================================================
 
+/// Marks a response as this layer's capacity refusal. A refusal here happens
+/// before the handler runs, so the request is definitively unapplied and
+/// another pod can serve it. A handler that answers `UNAVAILABLE` after it
+/// started — a database connection drop, say — may already have applied its
+/// write, and replaying it would apply the write twice. Nothing else
+/// separates the two: tonic gives a handler error the same trailers-only
+/// shape, with `grpc-status` in the headers and an empty body. The router
+/// keys its retry on this marker for that reason.
+pub const LOAD_SHED_HEADER: &str = "personhog-load-shed";
+
 /// Tower layer that sheds gRPC requests when the server is at capacity.
 ///
 /// Tracks in-flight requests with an atomic counter shared across all
 /// connections on the pod. When the count exceeds `max_requests`,
-/// immediately returns gRPC `UNAVAILABLE` so the router retries on
-/// another pod. When `max_requests` is 0, the layer is a pass-through.
+/// immediately returns gRPC `UNAVAILABLE` marked with [`LOAD_SHED_HEADER`],
+/// so the router retries on another pod. When `max_requests` is 0, the
+/// layer is a pass-through.
 #[derive(Clone)]
 pub struct GrpcLoadShedLayer {
     max_requests: usize,
@@ -582,6 +593,7 @@ where
                 .header("content-type", "application/grpc")
                 .header("grpc-status", "14") // UNAVAILABLE
                 .header("grpc-message", "Server at capacity")
+                .header(LOAD_SHED_HEADER, "1")
                 .body(ResBody::default())
                 .unwrap();
 
@@ -736,6 +748,8 @@ mod tests {
             resp.headers().get("grpc-message").unwrap(),
             "Server at capacity"
         );
+        // The marker is what tells the router this refusal is replayable.
+        assert_eq!(resp.headers().get(LOAD_SHED_HEADER).unwrap(), "1");
         // Shed path: increment then immediate decrement, net zero change
         assert_eq!(in_flight.load(Ordering::Relaxed), 2);
     }
