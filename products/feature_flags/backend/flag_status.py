@@ -187,17 +187,15 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     return queryset.filter(usage_based_stale) | config_based_queryset
 
 
-def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
+def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
 
     Rollout completeness is not staleness. `filter_stale_flags` keeps that job and nothing
     user-visible reads this.
 
-    The predicate also filters on flag age and call recency. Both narrow the result to what the
-    only caller wants rather than to what the name says: a flag younger than the threshold is not
-    a cleanup candidate, and a flag that went cold is already a `filter_stale_flags` row. A caller
-    that wants rollout completeness on its own must not reuse this filter unchanged.
+    The predicate reads configuration only. Which of these flags is a cleanup candidate is the
+    caller's policy, so flag age, call recency and `active` all stay with the caller.
 
     This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
     with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
@@ -215,24 +213,11 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold
     although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
     matching it would report every flag in a project that nobody has configured.
 
-    Pass `stale_threshold` to hold one detection run to one cutoff. Without it the function reads
-    the clock itself, and a caller that reads the clock again later can classify a flag on the
-    boundary against a different instant than the one that selected it.
-
     See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
+    `.filter()` chained onto the result ANDs cleanly and keeps the raw text at the top level.
     """
-    if stale_threshold is None:
-        stale_threshold = stale_flag_threshold()
-    # A flag that is fully rolled out and cold is already a `filter_stale_flags` candidate, so
-    # leave those rows to that query rather than fetch and discard them once per batch. Spelled
-    # as a positive filter because `exclude(last_called_at__lt=...)` on a nullable column is a
-    # known footgun, and a flag with no call data must stay in.
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-    return queryset.filter(
-        Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
-        active=True,
-        created_at__lt=stale_threshold,
-    ).extra(
+    return queryset.extra(
         where=[
             f"""
             EXISTS (

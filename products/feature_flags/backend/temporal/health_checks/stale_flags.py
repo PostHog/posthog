@@ -1,6 +1,7 @@
 from collections.abc import Collection
 from datetime import datetime
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -150,12 +151,20 @@ class StaleFeatureFlagsCheck(HealthCheck):
         # The ids go in as a bound list. A subquery looks tidier and is wrong here: the inner
         # `.extra(where=...)` hard-codes `posthog_featureflag`, the subquery aliases that table,
         # and the raw text then tests the outer row instead of the inner one.
-        # The prefilter returns a superset, so the checker settles each remaining row.
+        # The prefilter reads configuration only and returns a superset, so the policy that makes
+        # one of those flags a cleanup candidate is applied here, and the checker settles each
+        # remaining row. A flag younger than the threshold has not had its chance yet, and one
+        # that went cold is already a `filter_stale_flags` row. Call recency is spelled as a
+        # positive filter because `exclude(last_called_at__lt=...)` on a nullable column drops the
+        # rows with no call data, which have to stay in.
         full_rollout_candidates = [
             flag
-            for flag in filter_effectively_full_rollout_flags(
-                reportable_flags, stale_threshold=stale_threshold
-            ).exclude(pk__in=stale_ids)
+            for flag in filter_effectively_full_rollout_flags(reportable_flags)
+            .filter(
+                Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
+                created_at__lt=stale_threshold,
+            )
+            .exclude(pk__in=stale_ids)
             if not _serves_more_than_one_result(flag)
             and FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag).effectively_full_rollout
         ]
