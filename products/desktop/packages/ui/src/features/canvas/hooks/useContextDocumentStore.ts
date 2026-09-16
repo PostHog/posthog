@@ -73,12 +73,14 @@ export function useWikiContextDocumentStore(
   const refetch = page.refetch;
   const mutateAsync = mutation.mutateAsync;
 
+  // A path CONTEXT.md lists but nobody has saved yet reads as an empty page,
+  // and the first save creates it, so there is no head to check against.
   const save = useCallback(
     async (content: string) => {
-      if (!head) throw new Error("The page has not loaded yet.");
-      await mutateAsync({ path, content, baseHead: head });
+      if (page.isLoading) throw new Error("The page has not loaded yet.");
+      await mutateAsync({ path, content, baseHead: head ?? undefined });
     },
-    [mutateAsync, path, head],
+    [mutateAsync, path, head, page.isLoading],
   );
 
   return {

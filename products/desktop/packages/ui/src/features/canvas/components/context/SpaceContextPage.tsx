@@ -5,6 +5,7 @@ import {
   parseContextDocument,
   serializeContextDocument,
 } from "@posthog/core/canvas/contextDocument";
+import { spaceFilesFolder } from "@posthog/core/canvas/contextFiles";
 import { Button, Text } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
@@ -29,17 +30,19 @@ import {
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsList } from "./GoalsList";
 import { KnowledgeList } from "./KnowledgeList";
+import { MarkdownFileDialog } from "./MarkdownFileDialog";
 import { SignalsMargin } from "./SignalsMargin";
 
 interface SpaceContextPageProps {
   channelId: string;
   channelName: string;
   store: ContextDocumentStore;
+  /** The document's path in the context wiki; null when it lives in folder instructions. */
+  wikiPath: string | null;
   /** Shown when the document lives in the context wiki. */
   onOpenInWiki?: () => void;
 }
@@ -57,10 +60,11 @@ export function SpaceContextPage({
   channelId,
   channelName,
   store,
+  wikiPath,
   onOpenInWiki,
 }: SpaceContextPageProps) {
-  const navigate = useNavigate();
   const [agentOpen, setAgentOpen] = useState(false);
+  const [editingContextFile, setEditingContextFile] = useState(false);
   const [measureTask, setMeasureTask] = useState<{
     goal: string;
     task: Task;
@@ -211,13 +215,7 @@ export function SpaceContextPage({
               <ContextEmptyHero
                 channelName={channelName}
                 onAskAgent={() => setAgentOpen(true)}
-                onWrite={() =>
-                  void navigate({
-                    to: "/spaces/$channelId/context/document",
-                    params: { channelId },
-                    search: { edit: true },
-                  })
-                }
+                onWrite={() => setEditingContextFile(true)}
               />
             ) : (
               <div className="flex min-w-0 flex-col gap-10">
@@ -230,10 +228,12 @@ export function SpaceContextPage({
                 <div className="grid @4xl:grid-cols-[minmax(0,1fr)_300px] grid-cols-1 @4xl:gap-14 gap-10">
                   <div className="@4xl:order-none order-last min-w-0">
                     <KnowledgeList
-                      channelId={channelId}
+                      channelName={channelName}
                       knowledge={doc.knowledge}
                       links={doc.links}
                       objects={doc.objects}
+                      filesFolder={wikiPath ? spaceFilesFolder(wikiPath) : null}
+                      onOpenContextFile={() => setEditingContextFile(true)}
                       onLinksChange={(links) => saveDoc({ ...doc, links })}
                       onObjectsChange={(objects) =>
                         saveDoc({ ...doc, objects })
@@ -258,6 +258,16 @@ export function SpaceContextPage({
         onOpenChange={setAgentOpen}
         existingContext={{ channelId, channelName }}
       />
+
+      {editingContextFile ? (
+        <MarkdownFileDialog
+          fileName="CONTEXT.md"
+          description={`Every agent working in ${channelName} reads this first.`}
+          store={store}
+          template={`# ${channelName}\n\n`}
+          onClose={() => setEditingContextFile(false)}
+        />
+      ) : null}
     </div>
   );
 }

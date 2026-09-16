@@ -173,7 +173,7 @@ export function useContextWikiPageMutation() {
   return useAuthenticatedMutation<
     { head_sha: string },
     Error,
-    { path: string; content: string; baseHead: string }
+    { path: string; content: string; baseHead?: string }
   >((client, input) => client.putContextWikiPage(input), {
     retry: shouldRetryWikiWrite,
     retryDelay: wikiWriteRetryDelay,

@@ -4,7 +4,6 @@ import {
   FileMdIcon,
   FileTextIcon,
   LinkIcon,
-  PencilSimpleIcon,
   PlusIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -14,6 +13,10 @@ import {
   type ContextObject,
   isHttpUrl,
 } from "@posthog/core/canvas/contextDocument";
+import {
+  fileDisplayName,
+  isSpaceFile,
+} from "@posthog/core/canvas/contextFiles";
 import { parseContextSourceInput } from "@posthog/core/canvas/contextSources";
 import { Button, cn, Text } from "@posthog/quill";
 import {
@@ -21,52 +24,65 @@ import {
   useContextSources,
 } from "@posthog/ui/features/canvas/hooks/useContextSources";
 import { useWatchedObjectPreview } from "@posthog/ui/features/canvas/hooks/useWatchedObjectPreview";
+import { useContextWikiPageMutation } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { AddContextDialog } from "./AddContextDialog";
-import { connectLabel, unconnectedWarning } from "./addContextRows";
-import { sectionHeadings } from "./briefingSections";
 import { KIND_ICONS } from "./kindIcons";
+import { SpaceFileDialog } from "./SpaceFileDialog";
+import { connectLabel, unconnectedWarning } from "./sourceStatus";
 
 interface KnowledgeListProps {
-  channelId: string;
+  channelName: string;
   knowledge: string;
   links: ContextLink[];
   objects: ContextObject[];
+  /** Where this space's extra Markdown files live; null without the context wiki. */
+  filesFolder: string | null;
+  onOpenContextFile: () => void;
   onLinksChange: (links: ContextLink[]) => Promise<void>;
   onObjectsChange: (objects: ContextObject[]) => Promise<void>;
   isSaving: boolean;
 }
 
 /**
- * Everything a person told this space, as one flat list: the briefing first,
- * then the docs and files, then the objects the space owns. Every row leads
- * somewhere; the briefing opens on its own page, the rest open where they
- * live. Nothing here is inferred; what agents find about these rows shows up
- * under Signals.
+ * Everything a person told this space, as one flat list: CONTEXT.md first,
+ * then its other Markdown files, links and objects. Markdown opens in an
+ * editor; everything else opens where it lives. Nothing here is inferred;
+ * what agents find about these rows shows up under Signals.
  */
 export function KnowledgeList({
-  channelId,
+  channelName,
   knowledge,
   links,
   objects,
+  filesFolder,
+  onOpenContextFile,
   onLinksChange,
   onObjectsChange,
   isSaving,
 }: KnowledgeListProps) {
-  const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
+  const [openFile, setOpenFile] = useState<string | null>(null);
   const sources = useContextSources();
+  const { mutateAsync: writePage } = useContextWikiPageMutation();
   const hasKnowledge = knowledge.trim().length > 0;
-  const sections = useMemo(() => sectionHeadings(knowledge), [knowledge]);
-  const openDocument = (edit: boolean) =>
-    void navigate({
-      to: "/spaces/$channelId/context/document",
-      params: { channelId },
-      search: { edit: edit ? true : undefined },
-    });
+
+  // CONTEXT.md is saved first so its head moves before the file is written;
+  // the file is new, so it has no head to check and is created on the way in.
+  const addFile = async (path: string, content: string | null) => {
+    await onLinksChange([
+      ...links,
+      { title: fileDisplayName(path), target: path, note: "" },
+    ]);
+    if (content !== null) {
+      await writePage({ path, content });
+    } else {
+      setOpenFile(path);
+    }
+  };
 
   return (
     <section className="flex flex-col gap-1">
@@ -90,41 +106,42 @@ export function KnowledgeList({
           <KnowledgeRow
             icon={<FileMdIcon size={15} />}
             title="CONTEXT.md"
+            mono
             meta={
-              sections.length > 0
-                ? sections.join(" · ")
-                : hasKnowledge
-                  ? firstLine(knowledge)
-                  : "Nothing written yet. What this is, how to work here, key files, gotchas."
+              hasKnowledge
+                ? firstLine(knowledge)
+                : "Nothing written yet. What this is, how to work here, key files, gotchas."
             }
-            onOpen={() => openDocument(!hasKnowledge)}
-            actions={
-              <Button
-                variant="default"
-                size="icon-xs"
-                aria-label="Edit CONTEXT.md"
-                title="Edit CONTEXT.md"
-                disabled={isSaving}
-                onClick={() => openDocument(true)}
-                className="text-muted-foreground"
-              >
-                <PencilSimpleIcon size={13} />
-              </Button>
-            }
+            onOpen={onOpenContextFile}
             trailing={<CaretRightIcon size={13} />}
           />
         </li>
 
         {links.map((link, index) => (
           <li key={`${link.target}-${index}`}>
-            <LinkRow
-              link={link}
-              sources={sources}
-              onRemove={() =>
-                onLinksChange(links.filter((_, i) => i !== index))
-              }
-              disabled={isSaving}
-            />
+            {isSpaceFile(link, filesFolder) ? (
+              <KnowledgeRow
+                icon={<FileMdIcon size={15} />}
+                title={fileDisplayName(link.target)}
+                mono
+                meta={link.note || "Markdown file, saved beside CONTEXT.md"}
+                onOpen={() => setOpenFile(link.target)}
+                onRemove={() =>
+                  onLinksChange(links.filter((_, i) => i !== index))
+                }
+                trailing={<CaretRightIcon size={13} />}
+                disabled={isSaving}
+              />
+            ) : (
+              <LinkRow
+                link={link}
+                sources={sources}
+                onRemove={() =>
+                  onLinksChange(links.filter((_, i) => i !== index))
+                }
+                disabled={isSaving}
+              />
+            )}
           </li>
         ))}
 
@@ -143,10 +160,22 @@ export function KnowledgeList({
 
       {adding ? (
         <AddContextDialog
-          isSaving={isSaving}
+          channelName={channelName}
+          sources={sources}
+          filesFolder={filesFolder}
+          existingTargets={links.map((link) => link.target)}
           onAddLink={(link) => onLinksChange([...links, link])}
           onAddObject={(object) => onObjectsChange([...objects, object])}
+          onAddFile={addFile}
           onClose={() => setAdding(false)}
+        />
+      ) : null}
+
+      {openFile ? (
+        <SpaceFileDialog
+          path={openFile}
+          channelName={channelName}
+          onClose={() => setOpenFile(null)}
         />
       ) : null}
     </section>
@@ -154,9 +183,10 @@ export function KnowledgeList({
 }
 
 /**
- * A doc, a file, or a link. A link from a known source shows that source's
- * icon and what it is; when the source's server is not connected, the row
- * offers to connect it, because agents cannot read the link until then.
+ * A link. One from a known source shows that source's icon and what it is;
+ * when the source's server is not connected, the row offers to connect it,
+ * because agents cannot read the link until then. Anything else is a plain
+ * link to its host.
  */
 function LinkRow({
   link,
@@ -303,6 +333,7 @@ function KnowledgeRow({
   icon: ReactNode;
   title: string;
   meta: ReactNode;
+  /** File names read as code; a link's title reads as prose. */
   mono?: boolean;
   onOpen: (() => void) | null;
   onRemove?: () => void;
@@ -317,16 +348,16 @@ function KnowledgeRow({
         {icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-medium text-foreground text-xs">
+        <span
+          className={cn(
+            "truncate font-medium text-foreground text-xs",
+            mono && "font-mono",
+          )}
+        >
           {title}
         </span>
         {meta ? (
-          <span
-            className={cn(
-              "truncate text-muted-foreground text-xxs",
-              mono && "font-mono",
-            )}
-          >
+          <span className="truncate text-muted-foreground text-xxs">
             {meta}
           </span>
         ) : null}

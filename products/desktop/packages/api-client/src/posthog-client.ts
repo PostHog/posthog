@@ -3751,7 +3751,8 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    baseHead: string;
+    /** Omitted when creating a page: there is no saved copy to be stale against. */
+    baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
     try {
@@ -3763,7 +3764,7 @@ export class PostHogAPIClient {
           body: JSON.stringify({
             path: input.path,
             content: input.content,
-            base_head: input.baseHead,
+            ...(input.baseHead ? { base_head: input.baseHead } : {}),
           }),
         },
       });

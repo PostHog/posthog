@@ -24,6 +24,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           channelId={channelId}
           channelName={channelName}
           store={store}
+          wikiPath={wikiPath}
           onOpenInWiki={
             wikiPath ? () => navigateToSpacesContext(wikiPath) : undefined
           }
