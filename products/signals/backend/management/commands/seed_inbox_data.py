@@ -55,6 +55,17 @@ _FINAL_STATES = [
     SignalReport.Status.RESOLVED,
 ]
 
+_REVIEWER_COMMIT_REASONS = [
+    "Changed the backend path involved in this report.",
+    "Recently updated the affected UI component.",
+    "Built the API behavior used by this report.",
+    "Changed tests around the affected behavior.",
+    "Recently worked in the owning product area.",
+    "Updated the related task workflow.",
+    "Changed the nearest shared dependency.",
+    "Maintains the code path where this issue occurs.",
+]
+
 
 class Command(BaseCommand):
     help = "Seed the Signals inbox with realistic reports and task runs (DEBUG only)."
@@ -244,7 +255,7 @@ class Command(BaseCommand):
                 github_name=logins[i % len(logins)].title(),
                 relevant_commits=[
                     RelevantCommit(
-                        reason="Authored the most relevant code path for this report.",
+                        reason=_REVIEWER_COMMIT_REASONS[(index + i) % len(_REVIEWER_COMMIT_REASONS)],
                         sha=f"{(index + i + 1) * 2468013:07x}",
                         url=f"https://github.com/{repository}/commit/{(index + i + 1) * 2468013:07x}",
                     )
