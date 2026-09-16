@@ -478,6 +478,10 @@
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
          "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -1111,6 +1115,10 @@
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
          "posthog_taggeditem"."experiment_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
