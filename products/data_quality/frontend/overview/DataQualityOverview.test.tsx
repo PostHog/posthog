@@ -49,8 +49,6 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() },
 }))
 
-jest.mock('./DataQualityGateToggle', () => ({ DataQualityGateToggle: () => null }))
-
 jest.mock('products/data_quality/frontend/generated/api', () => ({
     dataQualityChecksList: jest.fn(),
     dataQualityChecksHealthList: jest.fn(),
