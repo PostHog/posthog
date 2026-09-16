@@ -15,7 +15,6 @@ from celery.exceptions import MaxRetriesExceededError
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import extract_images_from_rich_content, rich_content_to_slack_payload
-from posthog.event_usage import report_team_action
 from posthog.helpers.slack_identity import (
     resolve_posthog_user_for_slack,
     resolve_slack_avatar_by_email,
@@ -59,6 +58,7 @@ from products.conversations.backend.slack import (
     NudgeFunnelVerdict,
     SlackConfirmationNeedsRetry,
     capture_nudge_event,
+    capture_support_event,
     create_ticket_from_confirmation,
     get_bot_user_id,
     get_safe_ticket_emoji,
@@ -327,7 +327,7 @@ def _post_ticket_link(
     channel: str,
     thread_ts: str,
     clicker: str,
-    ticket_number: Any,
+    ticket_number: int | str | None,
 ) -> None:
     """Answer a "View ticket" click with an ephemeral link, so only the clicker sees the URL.
 
@@ -342,37 +342,38 @@ def _post_ticket_link(
     if not channel or not clicker:
         return
     try:
-        number = int(ticket_number)
+        number = int(ticket_number) if ticket_number is not None else 0
     except (TypeError, ValueError):
         number = 0
     try:
         client = get_slack_client(team)
         ticket = Ticket.objects.filter(team=team, ticket_number=number).first() if number > 0 else None
+        is_org_member = False
         if ticket is None:
             logger.warning("supporthog_ticket_link_unknown_ticket", team_id=team.pk, ticket_number=number)
-            client.chat_postEphemeral(
-                channel=channel,
-                user=clicker,
-                thread_ts=thread_ts or None,
-                text="That ticket isn't available any more.",
-            )
-            return
-        slack_user = resolve_slack_user(client, clicker, workspace=slack_team_id)
-        in_workspace = bool(slack_team_id) and slack_user.get("team_id") == slack_team_id
-        is_org_member = in_workspace and resolve_posthog_user_for_slack(slack_user.get("email"), team) is not None
-        if is_org_member:
-            link = ticket_deep_link(ticket, team)
-            text = f"<{link}|Ticket #{ticket.ticket_number}> — only you can see this message."
+            text = "That ticket isn't available any more."
         else:
-            text = (
-                f"Ticket #{ticket.ticket_number} opens in PostHog, which only the support team can reach. "
-                "Reply in this thread and they'll see it."
-            )
+            slack_user = resolve_slack_user(client, clicker, workspace=slack_team_id)
+            in_workspace = bool(slack_team_id) and slack_user.get("team_id") == slack_team_id
+            is_org_member = in_workspace and resolve_posthog_user_for_slack(slack_user.get("email"), team) is not None
+            if is_org_member:
+                link = ticket_deep_link(ticket, team)
+                text = f"<{link}|Ticket #{ticket.ticket_number}>. Only you can see this message."
+            else:
+                text = (
+                    f"Ticket #{ticket.ticket_number} opens in PostHog, which only the support team can reach. "
+                    "Reply in this thread and they'll see it."
+                )
         client.chat_postEphemeral(channel=channel, user=clicker, thread_ts=thread_ts or None, text=text)
-        report_team_action(
+        capture_support_event(
             team,
             "support slack ticket link clicked",
-            {"slack_team_id": slack_team_id, "slack_channel_id": channel, "is_org_member": is_org_member},
+            {
+                "slack_team_id": slack_team_id,
+                "slack_channel_id": channel,
+                "ticket_found": ticket is not None,
+                "is_org_member": is_org_member,
+            },
         )
     except Exception:
         logger.warning("supporthog_ticket_link_failed", exc_info=True)

@@ -1150,6 +1150,9 @@ class TestSupporthogInteractivity(BaseTest):
         capture_patcher = patch(f"{TASKS_MODULE}.capture_nudge_event")
         self.mock_capture_event = capture_patcher.start()
         self.addCleanup(capture_patcher.stop)
+        support_capture_patcher = patch(f"{TASKS_MODULE}.capture_support_event")
+        self.mock_capture_support_event = support_capture_patcher.start()
+        self.addCleanup(support_capture_patcher.stop)
 
     def _payload(self, action_id: str, value: dict) -> dict:
         return {
@@ -1374,12 +1377,14 @@ class TestSupporthogInteractivity(BaseTest):
             slack_thread_ts=MESSAGE_TS,
         )
 
-    @patch(f"{TASKS_MODULE}.report_team_action")
+    def _link_click_properties(self) -> dict:
+        _team, event_name, event_props = self.mock_capture_support_event.call_args.args
+        assert event_name == "support slack ticket link clicked"
+        return event_props
+
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_sends_the_link_to_an_org_member_only_they_can_see(
-        self, mock_get_client, mock_resolve_user, mock_report
-    ):
+    def test_view_sends_the_link_to_an_org_member_only_they_can_see(self, mock_get_client, mock_resolve_user):
         ticket = self._open_ticket()
         mock_resolve_user.return_value = {"name": "Teammate", "email": self.user.email, "team_id": "T123"}
 
@@ -1391,17 +1396,13 @@ class TestSupporthogInteractivity(BaseTest):
         assert kwargs["user"] == "U_CLICKER"
         assert kwargs["thread_ts"] == MESSAGE_TS
         assert ticket_deep_link(ticket, self.team) in kwargs["text"]
-        # Nothing public: the link never reaches the channel.
         client.chat_postMessage.assert_not_called()
         client.chat_update.assert_not_called()
-        _team, event_name, event_props = mock_report.call_args.args
-        assert event_name == "support slack ticket link clicked"
-        assert event_props["is_org_member"] is True
+        assert self._link_click_properties()["is_org_member"] is True
 
-    @patch(f"{TASKS_MODULE}.report_team_action")
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_withholds_the_link_from_a_non_member(self, mock_get_client, mock_resolve_user, mock_report):
+    def test_view_withholds_the_link_from_a_non_member(self, mock_get_client, mock_resolve_user):
         ticket = self._open_ticket()
         mock_resolve_user.return_value = {"name": "Customer", "email": "customer@example.com", "team_id": "T123"}
 
@@ -1410,13 +1411,11 @@ class TestSupporthogInteractivity(BaseTest):
         text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
         assert ticket_deep_link(ticket, self.team) not in text
         assert "reply in this thread" in text.lower()
-        _team, _event_name, event_props = mock_report.call_args.args
-        assert event_props["is_org_member"] is False
+        assert self._link_click_properties()["is_org_member"] is False
 
-    @patch(f"{TASKS_MODULE}.report_team_action")
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
     @patch(f"{TASKS_MODULE}.get_slack_client")
-    def test_view_withholds_the_link_from_an_external_workspace(self, mock_get_client, mock_resolve_user, _mock_report):
+    def test_view_withholds_the_link_from_an_external_workspace(self, mock_get_client, mock_resolve_user):
         # A Slack Connect participant's profile email is set by their own workspace, so an
         # email that matches a teammate is not proof of membership on its own.
         ticket = self._open_ticket()
@@ -1426,6 +1425,7 @@ class TestSupporthogInteractivity(BaseTest):
 
         text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
         assert ticket_deep_link(ticket, self.team) not in text
+        assert self._link_click_properties()["is_org_member"] is False
 
     @parameterized.expand([("unknown_number", 4242), ("malformed_value", None)])
     @patch(f"{TASKS_MODULE}.resolve_slack_user")
@@ -1438,6 +1438,9 @@ class TestSupporthogInteractivity(BaseTest):
         text = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs["text"]
         assert "isn't available" in text
         assert "http" not in text
+        properties = self._link_click_properties()
+        assert properties["ticket_found"] is False
+        assert properties["is_org_member"] is False
 
 
 class TestTicketConfirmationBlocks(BaseTest):
