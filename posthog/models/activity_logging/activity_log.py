@@ -888,6 +888,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
+        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
+        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",

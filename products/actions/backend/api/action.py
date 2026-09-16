@@ -3,8 +3,9 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import connection
-from django.db.models import Count
+from django.db.models import Count, F
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
@@ -291,6 +292,27 @@ class ActionReferenceSerializer(serializers.Serializer):
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
 
 
+class ActionSelectorMatchChangesQuerySerializer(serializers.Serializer):
+    action_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=100,
+        help_text="Action IDs used by the insight whose selector changes should be returned.",
+    )
+
+
+class ActionSelectorMatchChangeSerializer(serializers.Serializer):
+    action_id = serializers.IntegerField(help_text="ID of an affected action.")
+    action_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the affected action, or null when it has no name.",
+    )
+    selectors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="CSS selectors whose matching behavior changed, in action step order.",
+    )
+
+
 _ACTION_JSONPATH = (
     '$.** ? ((@.kind == "ActionsNode" && (@.id == $id || @.id == $id_str))'
     " || (@.actionId == $id || @.actionId == $id_str)"
@@ -553,6 +575,48 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "action_ids",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                many=True,
+                description="Action IDs used by the insight. Accepts repeated or comma-separated values.",
+            )
+        ],
+        responses={200: ActionSelectorMatchChangeSerializer(many=True)},
+    )
+    @drf_action(methods=["GET"], detail=False, required_scopes=["action:read"], pagination_class=None)
+    def selector_match_changes(self, request: request.Request, **kwargs: Any) -> Response:
+        raw_action_ids = [
+            part.strip()
+            for value in request.query_params.getlist("action_ids")
+            for part in value.split(",")
+            if part.strip()
+        ]
+        query = ActionSelectorMatchChangesQuerySerializer(data={"action_ids": raw_action_ids})
+        query.is_valid(raise_exception=True)
+        action_ids = list(dict.fromkeys(query.validated_data["action_ids"]))
+
+        visible_actions = self.user_access_control.filter_queryset_by_access_level(
+            Action.objects.filter(team_id=self.team_id, id__in=action_ids, deleted=False),
+            resource="action",
+        )
+        changes = (
+            visible_actions.filter(selector_match_changes__isnull=False)
+            .values(action_id=F("id"), action_name=F("name"))
+            .annotate(
+                selectors=ArrayAgg(
+                    "selector_match_changes__selector",
+                    order_by="selector_match_changes__step_index",
+                ),
+            )
+            .order_by("action_id")
+        )
+        return Response(ActionSelectorMatchChangeSerializer(changes, many=True).data)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
     @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)

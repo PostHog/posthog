@@ -2829,6 +2829,18 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
+    export interface ActionSelectorMatchChange {
+      /** ID of an affected action. */
+      action_id: number;
+      /**
+         * Name of the affected action, or null when it has no name.
+         * @nullable
+         */
+      action_name: string | null;
+      /** CSS selectors whose matching behavior changed, in action step order. */
+      selectors: string[];
+    }
+
     /**
      * * `immediately_actionable` - immediately_actionable
      * * `requires_human_input` - requires_human_input
@@ -96699,6 +96711,22 @@ export namespace Schemas {
 
 
     export const ActionsBulkUpdateTagsCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type ActionsSelectorMatchChangesListParams = {
+    /**
+     * Action IDs used by the insight. Accepts repeated or comma-separated values.
+     */
+    action_ids: number[];
+    format?: ActionsSelectorMatchChangesListFormat;
+    };
+
+    export type ActionsSelectorMatchChangesListFormat = typeof ActionsSelectorMatchChangesListFormat[keyof typeof ActionsSelectorMatchChangesListFormat];
+
+
+    export const ActionsSelectorMatchChangesListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
