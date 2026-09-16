@@ -1,8 +1,6 @@
 {% comment %}
 Rendered as a readonly field inside the admin's team change form, so the controls sit in that
 outer form (no <form> of their own, which the browser would drop) and submit through formaction.
-The recompute confirmation is a data-confirm marker because the admin CSP drops an inline
-onclick; admin/base_site.html carries the delegated listener that reads it.
 {% endcomment %}
 <div class="email-sending-tier-widget" style="margin: 10px 0;">
     <div style="display: flex;

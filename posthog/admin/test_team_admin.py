@@ -709,7 +709,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
 
         assert "onclick=" not in html
         assert "onsubmit=" not in html
-        assert "data-confirm=" in html
+        assert 'data-confirm="Recompute' in html
 
     def test_recompute_message_names_the_hold_reason(self) -> None:
         # A held recompute used to report a canned guess ("pinned or does not meet the promotion

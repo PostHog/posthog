@@ -934,7 +934,6 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/email_sending_suspension_actions.html",
                 {
-                    "team": team,
                     "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
                     "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
                     "team_name": team.name,
@@ -1228,7 +1227,6 @@ class TeamAdmin(admin.ModelAdmin):
             render_to_string(
                 "admin/posthog/team/ai_gateway_actions.html",
                 {
-                    "team": team,
                     "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
                     "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
                     "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
