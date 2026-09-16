@@ -413,15 +413,14 @@ SELECT
     countIf(
         outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
     ) AS wrong_dismissal_count,
-    -- Paired with the count on exactly the same predicate, so a time-to-outcome read never takes a
-    -- moment from a bucket the count itself excluded. Stable as the window grows: a min over a
-    -- window that only extends forward cannot move.
-    nullIf(
-        minIf(
-            first_timestamp,
-            outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
-        ),
-        fromUnixTimestamp(0)
+    -- Restricted to the count's own tenant, so a time-to-outcome read never takes a moment from a
+    -- bucket the count itself excluded. Reads the bucket's first *wrong* dismissal, not its
+    -- first_timestamp: a bucket that collapses a plain dismissal, a restore and a wrong dismissal
+    -- starts with the plain one. Buckets holding no wrong reason carry NULL and min skips them.
+    -- Stable as the window grows: a min over a window that only extends forward cannot move.
+    minIf(
+        bucket_first_wrong_dismissed_at,
+        outcome = 'dismissed' AND event_team_id = latest_event_team_id
     ) AS first_wrong_dismissed_at,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
@@ -480,6 +479,9 @@ FROM (
         max(toString(properties.dismissal_reason) IN ("""
     + _WRONG_DISMISSAL_REASONS_SQL
     + """)) AS bucket_wrong_dismissal,
+        nullIf(minIf(events.timestamp, toString(properties.dismissal_reason) IN ("""
+    + _WRONG_DISMISSAL_REASONS_SQL
+    + """)), fromUnixTimestamp(0)) AS bucket_first_wrong_dismissed_at,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(toString(properties.team_id), '') AS event_team_id

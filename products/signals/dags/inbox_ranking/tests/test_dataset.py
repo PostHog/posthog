@@ -451,6 +451,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["first_dismissed_server_at"] == T1
         assert row["first_wrong_dismissed_at"] == T1
 
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_first_wrong_dismissed_at_skips_an_earlier_plain_dismissal(self, gap):
+        # dismissed as already_fixed, restored, then dismissed as analysis_wrong. The bucket's own
+        # first timestamp is the plain dismissal, so a time-to-outcome read would date the wrong
+        # dismissal to a moment it did not happen. The one-minute variant puts all three in one
+        # ten-minute dedupe bucket.
+        self._transition(T1, "ready", "suppressed", "already_fixed")
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "analysis_wrong")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_dismissed_server_at"] == T1
+        assert row["first_wrong_dismissed_at"] == T1 + 2 * gap
+
     @parameterized.expand(
         [
             ("later_bucket", T2, "ready", "resolved", None),
