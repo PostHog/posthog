@@ -94,7 +94,7 @@ describe('survey utils', () => {
         ])
         expect(query.source).toMatchObject({ kind: 'HogQLQuery' })
         const sql = (query.source as { query: string }).query
-        expect(sql).toContain('arrayStringConcat(q1_answer')
+        expect(sql).toContain("arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), q1_answer), ', ')")
         expect(sql).toContain("'Thumbs up'")
         expect(sql).toContain("'Thumbs down'")
         expect(sql).toContain('GROUP BY submission_key')

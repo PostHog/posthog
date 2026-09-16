@@ -933,7 +933,7 @@ export function buildSurveyResponsesExportQuery(
         const answer = mergedAnswerAlias(index)
         expressions.push(
             question.type === SurveyQuestionType.MultipleChoice
-                ? `arrayStringConcat(${answer}, ', ')`
+                ? `arrayStringConcat(arrayMap(choice -> JSONExtractString(choice), ${answer}), ', ')`
                 : isScaleTwoRating(question)
                   ? `multiIf(${answer} = '1', 'Thumbs up', ${answer} = '2', 'Thumbs down', ${answer})`
                   : answer
