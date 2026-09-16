@@ -384,6 +384,7 @@ def _discovery_timed_out_response(source: AnySource, team_id: int) -> Response:
         team_id=team_id,
         timeout_seconds=DISCOVERY_DEADLINE_SECONDS,
     )
+    # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
     return Response(
         status=status.HTTP_400_BAD_REQUEST,
         data={"message": source.discovery_timeout_message()},
@@ -3605,6 +3606,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except FutureTimeoutError:
             return _discovery_timed_out_response(source, self.team_id)
         except Exception as e:
+            # A probe that raises instead of returning `(False, message)` is a discovery failure too.
+            # Counted here rather than in the helper, which non-discovery credential flows also use.
+            _record_discovery_failure(source, "unexpected")
             credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return Response(
