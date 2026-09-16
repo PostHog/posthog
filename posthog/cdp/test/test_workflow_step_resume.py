@@ -61,8 +61,21 @@ def test_emits_the_internal_event_until_the_key_is_provisioned() -> None:
     assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
 
 
+def test_the_wake_falls_back_to_the_internal_event_when_the_queue_refuses_it() -> None:
+    with patch(_SEND_TASK, side_effect=RuntimeError("broker down")), patch(_PRODUCE) as produce:
+        emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={"pr_urls": ["u"]})
+
+    produce.assert_called_once()
+    event = produce.call_args.kwargs["event"]
+    assert event.event == "$workflow_step_resume"
+    assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
+
+
 def test_a_failed_emit_does_not_raise() -> None:
-    with patch(_SEND_TASK, side_effect=RuntimeError("broker down")):
+    with (
+        patch(_SEND_TASK, side_effect=RuntimeError("broker down")),
+        patch(_PRODUCE, side_effect=RuntimeError("kafka down")),
+    ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="failed")
 
 
@@ -87,7 +100,8 @@ def test_result_fits_the_serialized_byte_budget(result) -> None:
 def test_delivery_activities_can_retry_a_failed_emit() -> None:
     with (
         patch(_SEND_TASK, side_effect=RuntimeError("broker down")),
-        pytest.raises(RuntimeError, match="broker down"),
+        patch(_PRODUCE, side_effect=RuntimeError("kafka down")),
+        pytest.raises(RuntimeError, match="kafka down"),
     ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="failed", raise_on_error=True)
 

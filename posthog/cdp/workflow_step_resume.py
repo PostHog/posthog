@@ -80,18 +80,26 @@ def emit_workflow_step_resume(
 
     The wake is asynchronous. This call returns once the delivery is queued, not once the step
     resumes. With the step resume key provisioned, a Celery task posts the wake to the engine's
-    API and retries until the parked job takes it; until then the wake is a `$workflow_step_resume`
-    internal event the subscription matcher consumes. Delivery activities can opt into retries
-    with `raise_on_error`.
+    API and retries until the parked job takes it; until then, and whenever the queue refuses the
+    task, the wake is a `$workflow_step_resume` internal event the subscription matcher consumes.
+    Delivery activities can opt into retries with `raise_on_error`, which fires once both
+    transports have failed.
     """
     capped = cap_value(result or {}, RESULT_BYTE_CAP)
     try:
         if WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
-            current_app.send_task(
-                STEP_RESUME_DELIVERY_TASK,
-                kwargs={"team_id": team_id, "origin_key": origin_key, "status": status, "result": capped},
-            )
-            return
+            try:
+                current_app.send_task(
+                    STEP_RESUME_DELIVERY_TASK,
+                    kwargs={"team_id": team_id, "origin_key": origin_key, "status": status, "result": capped},
+                )
+                return
+            except Exception:
+                # Celery stops publish retries after well under a second, and the wake exists
+                # nowhere yet, so hand it to Kafka while the matcher still consumes that path.
+                logger.exception(
+                    "workflow_step_resume_enqueue_failed", team_id=team_id, origin_key=origin_key, status=status
+                )
         produce_step_resume_event(team_id=team_id, origin_key=origin_key, status=status, result=capped)
     except Exception:
         logger.exception("workflow_step_resume_emit_failed", team_id=team_id, origin_key=origin_key, status=status)
