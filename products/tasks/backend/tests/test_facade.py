@@ -732,6 +732,21 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_run_task_refuses_when_a_start_guard_objects(self):
+        task = self._make_task()
+        guards = {"test": lambda task_id, team_id, user_id: "Not yet"}
+
+        with (
+            patch.dict("products.tasks.backend.facade.task_run_signals._task_run_start_guards", guards, clear=True),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "interactive"})
+
+        assert result is not None and result.error is not None
+        self.assertEqual(result.error.detail, "Not yet")
+        trigger.assert_not_called()
+        assert not task.runs.exists()
+
     def test_run_task_resume_exposes_pending_prompt_to_agent(self):
         task = self._make_task()
         previous_run = TaskRun.objects.create(

@@ -56,7 +56,9 @@ class ConversationStateResult:
     interrupt_payloads: dict[str, dict[str, Any]]
 
 
-async def aget_conversation_state(conversation: Conversation, team: Any, user: Any) -> ConversationStateResult:
+async def aget_conversation_state(
+    conversation: Conversation, team: Any, user: Any, *, raise_on_error: bool = False
+) -> ConversationStateResult:
     """Compile the LangGraph graph, replay the checkpoint, and validate the typed state.
 
     Single source of truth for the LangGraph history read path — both the conversation
@@ -66,6 +68,8 @@ async def aget_conversation_state(conversation: Conversation, team: Any, user: A
     Returns a ConversationStateResult. `state` is None for born-sandbox
     conversations (no checkpoint) and on any read/validation error — errors degrade gracefully
     and are captured rather than raised so a bad checkpoint can't 500 a conversation load.
+    `raise_on_error` re-raises read errors instead, for a caller that retries (the copy activity);
+    unsupported content still comes back as a result, since a retry cannot fix it.
     """
     # Born-sandbox conversations have no LangGraph checkpoint — skip the graph compile entirely.
     # A conversation moved from LangGraph keeps its checkpoint, but its history is in the task's
@@ -110,6 +114,8 @@ async def aget_conversation_state(conversation: Conversation, team: Any, user: A
         )
         return ConversationStateResult(state=None, has_unsupported_content=True, interrupt_payloads={})
     except Exception as e:
+        if raise_on_error:
+            raise
         # Broad exception handler to gracefully degrade UI instead of 500s.
         # Captures all errors (context access, graph compilation, validation, etc.) to PostHog.
         capture_exception(
@@ -302,9 +308,10 @@ class ConversationSerializer(ConversationMinimalSerializer):
         read_only=True,
         help_text=(
             "Runtime that owns this conversation. 'langgraph' conversations return their messages "
-            "in the `messages` field; born-'sandbox' conversations return an empty `messages` array "
-            "and load history from the products/tasks logs endpoint. A converted conversation is "
-            "'sandbox' but still returns its legacy thread in `messages`."
+            "in the `messages` field. 'sandbox' conversations return an empty `messages` array and "
+            "load history from the products/tasks logs endpoint; a conversation copied into a task "
+            "carries its legacy thread in that task's import run. Only a conversion that predates "
+            "the copy still returns its legacy thread in `messages`."
         ),
     )
     messages = serializers.SerializerMethodField()

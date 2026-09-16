@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,9 +13,12 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, ContextMessage, HumanMessage
 
+from posthog.models import User
+
 from products.posthog_ai.backend.conversation_mirror import (
     LAST_MESSAGE_ID_KEY,
     MESSAGES_COPIED_KEY,
+    CopyConflict,
     CopyProgress,
     amirror_conversation,
     origin_key_for_conversation,
@@ -208,7 +212,9 @@ class TestMirrorConversation(APIBaseTest):
             p.start()
             self.addCleanup(p.stop)
 
-    async def _aget_state(self, conversation: Conversation, team: Any, user: Any) -> ConversationStateResult:
+    async def _aget_state(
+        self, conversation: Conversation, team: Any, user: Any, **kwargs: Any
+    ) -> ConversationStateResult:
         return ConversationStateResult(
             state=AssistantState(messages=self.state_messages), has_unsupported_content=False, interrupt_payloads={}
         )
@@ -232,6 +238,7 @@ class TestMirrorConversation(APIBaseTest):
         assert task.origin_key == origin_key_for_conversation(self.conversation.id)
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
         assert task.title == "Pageviews chat"
+        assert task.title_manually_set is False
         assert task.channel_id is not None
         assert task.created_at == started_at
         self.conversation.refresh_from_db()
@@ -323,15 +330,54 @@ class TestMirrorConversation(APIBaseTest):
         assert self._log_methods().count("session/update:user_message_chunk") == 2
         assert TaskRun.objects.get(id=second.run_id).state[LAST_MESSAGE_ID_KEY] == "a4"
 
-    def test_a_concurrent_copy_that_already_moved_the_run_on_is_not_appended_again(self):
+    def test_a_concurrent_copy_that_already_moved_the_run_on_raises_so_the_activity_retries(self):
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        self._mirror()
+        # A second copier that read the run before the first one wrote it sees nothing copied yet.
+        with (
+            patch(f"{MIRROR}._read_copy_progress", return_value=CopyProgress(message_count=0, last_message_id=None)),
+            pytest.raises(CopyConflict),
+        ):
+            self._mirror()
+        assert len(self._log_methods()) == 4
+
+    def test_a_title_the_user_set_on_the_task_survives_later_copies(self) -> None:
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
         first = self._mirror()
-        # A second copier that read the run before the first one wrote it sees nothing copied yet.
-        with patch(f"{MIRROR}._read_copy_progress", return_value=CopyProgress(message_count=0, last_message_id=None)):
-            second = self._mirror()
-        assert second.skipped_reason == "state_mismatch"
-        assert second.run_id == first.run_id
-        assert len(self._log_methods()) == 4
+        Task.objects.filter(id=first.task_id).update(title="My renamed task", title_manually_set=True)
+        self.state_messages += [HumanMessage(content="more", id="h2"), AssistantMessage(content="ok", id="a2")]
+
+        self._mirror()
+
+        assert Task.objects.get(id=first.task_id).title == "My renamed task"
+
+    def test_read_failure_raises_so_the_activity_retries(self) -> None:
+        ConversationCheckpoint.objects.create(thread=self.conversation)
+        with (
+            patch(f"{SERIALIZERS}.CONVERSATION_TYPE_MAP", {}),
+            patch(f"{SERIALIZERS}.capture_exception") as capture,
+        ):
+            lenient = async_to_sync(real_aget_conversation_state)(self.conversation, self.team, self.user)
+            with pytest.raises(KeyError):
+                async_to_sync(real_aget_conversation_state)(
+                    self.conversation, self.team, self.user, raise_on_error=True
+                )
+        assert lenient.state is None
+        capture.assert_called_once()
+
+    def test_unsupported_content_is_a_named_skip(self) -> None:
+        unsupported = ConversationStateResult(state=None, has_unsupported_content=True, interrupt_payloads={})
+        with patch(f"{SERIALIZERS}.aget_conversation_state", return_value=unsupported):
+            result = self._mirror()
+        assert result.skipped_reason == "unsupported_content"
+        assert not Task.objects.filter(team=self.team).exists()
+
+    def test_skips_a_copy_requested_by_someone_other_than_the_owner(self) -> None:
+        self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        result = async_to_sync(amirror_conversation)(self.conversation.id, self.team.id, other.id)
+        assert result.skipped_reason == "owner_mismatch"
+        assert not Task.objects.filter(team=self.team).exists()
 
     def test_retry_after_a_failed_state_write_does_not_copy_the_turn_twice(self):
         self.state_messages = [HumanMessage(content="hello", id="h1"), AssistantMessage(content="hi", id="a1")]

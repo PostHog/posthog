@@ -61,6 +61,10 @@ class CopyProgress:
     last_message_id: str | None
 
 
+class CopyConflict(Exception):
+    """Another copy of the same conversation moved the run on first; the caller retries."""
+
+
 @frozen
 class MirrorResult:
     skipped_reason: str | None
@@ -240,13 +244,19 @@ def project_legacy_messages(
     return frames
 
 
-async def _aload_messages(conversation: Conversation, team: Team, user: User) -> list[dict[str, Any]]:
+async def _aload_messages(conversation: Conversation, team: Team, user: User) -> list[dict[str, Any]] | None:
+    """The conversation's completed turns, or None when the checkpoint holds content this copy cannot read.
+
+    A read error raises so the activity retries; unsupported content does not change on retry.
+    """
     # Deferred: keeps the LangGraph graph compile off this module's import path; only the mirror pays for it.
     from ee.hogai.api.serializers import aget_conversation_state  # noqa: PLC0415 — keeps LangGraph off the import path
     from ee.hogai.artifacts.manager import ArtifactManager  # noqa: PLC0415 — same
     from ee.hogai.utils.helpers import should_output_assistant_message  # noqa: PLC0415 — same
 
-    state_result = await aget_conversation_state(conversation, team, user)
+    state_result = await aget_conversation_state(conversation, team, user, raise_on_error=True)
+    if state_result.has_unsupported_content:
+        return None
     if state_result.state is None:
         return []
     enriched = await ArtifactManager(team, user).aenrich_messages(list(state_result.state.messages))
@@ -348,11 +358,16 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
     if conversation.agent_runtime != Conversation.AgentRuntime.LANGGRAPH:
         # Sandbox conversations already are tasks; a converted one continues natively from here on.
         return MirrorResult(skipped_reason="runtime", task_id=None, run_id=None, appended_frames=0)
+    if conversation.user_id != user_id:
+        # The copy runs as the chat's owner: only the owner can send it messages, and the task is theirs.
+        return MirrorResult(skipped_reason="owner_mismatch", task_id=None, run_id=None, appended_frames=0)
 
     team = await Team.objects.aget(id=team_id)
     user = await User.objects.aget(id=user_id)
 
     messages = await _aload_messages(conversation, team, user)
+    if messages is None:
+        return MirrorResult(skipped_reason="unsupported_content", task_id=None, run_id=None, appended_frames=0)
     if not messages:
         return MirrorResult(skipped_reason="no_messages", task_id=None, run_id=None, appended_frames=0)
 
@@ -388,8 +403,9 @@ async def amirror_conversation(conversation_id: UUID | str, team_id: int, user_i
     )
     if not appended:
         # The run's copied count is no longer what this copy read: another copy of the same
-        # conversation moved it on, and its frames cover ours. Nothing is appended.
-        return MirrorResult(skipped_reason="state_mismatch", task_id=task_id, run_id=run.id, appended_frames=0)
+        # conversation moved it on. It may have copied fewer turns than this one saw, so the retry
+        # re-reads the run and appends whatever is still missing.
+        raise CopyConflict(f"conversation {conversation.id}: copied count moved past {progress.message_count}")
     await sync_to_async(tasks_facade.touch_imported_task)(
         task_id, team_id, title=conversation.title, last_activity_at=updated_at
     )

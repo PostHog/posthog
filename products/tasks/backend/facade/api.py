@@ -147,6 +147,7 @@ from products.tasks.backend.visibility import (
 )
 
 from . import contracts
+from .task_run_signals import task_run_start_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -3068,22 +3069,22 @@ def create_imported_task(
 ) -> contracts.TaskDetailDTO:
     """Create the task that hosts a transcript imported from elsewhere.
 
-    Backdated to the source's creation time so the task list keeps the order the user remembers;
-    ``create_task`` stamps "now" and the list sorts on it.
+    Backdated to the source's creation time so the task list keeps the order the user remembers.
+    The title comes from the source, not the user, so a later rename of the task must win over it.
     """
-    created = create_task(
+    return create_task(
         team_id,
         user_id,
         validated_data={
             "title": title,
+            "title_manually_set": False,
             "description": "",
             "origin_product": Task.OriginProduct.POSTHOG_AI,
             "origin_key": origin_key,
             "internal": internal,
+            "created_at": created_at,
         },
     )
-    Task.objects.filter(id=created.id, team_id=team_id).update(created_at=created_at)
-    return created
 
 
 def create_imported_task_run(
@@ -3159,10 +3160,11 @@ def append_imported_task_run_log(
 
 def touch_imported_task(task_id: str | UUID, team_id: int, *, title: str | None, last_activity_at: datetime) -> None:
     """Keep an imported task's list row in step with its source conversation."""
-    updates: dict[str, Any] = {"last_activity_at": last_activity_at}
+    tasks = Task.objects.filter(id=task_id, team_id=team_id)
+    tasks.update(last_activity_at=last_activity_at)
     if title:
-        updates["title"] = title
-    Task.objects.filter(id=task_id, team_id=team_id).update(**updates)
+        # A title the user set on the task outranks the source's generated one.
+        tasks.filter(title_manually_set=False).update(title=title)
 
 
 def clear_task_run_conversation(
@@ -7464,6 +7466,11 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    # Another product may need to finish something before this task runs, for example a chat that
+    # is copied into the task a few seconds behind each turn.
+    refusal = task_run_start_refusal(str(task.id), team_id, user_id)
+    if refusal is not None:
+        return contracts.TaskRunResult(error=contracts.TaskValidationError(kind="detail", detail=refusal))
     report_id_for_slot_check = (
         str(task.signal_report_id)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
