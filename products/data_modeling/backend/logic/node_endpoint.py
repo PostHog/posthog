@@ -40,7 +40,12 @@ def link_endpoint_nodes(*, team_id: int, saved_query_id: UUID, endpoint_name: st
 
 
 def endpoint_link(properties: dict[str, Any] | None) -> EndpointLink | None:
+    """`properties` is an unvalidated JSON blob, so a malformed stamp reads as "not an endpoint"
+    rather than failing the node serializer and with it the whole list response."""
     link = (properties or {}).get(ENDPOINT_PROPERTY)
     if not isinstance(link, dict):
         return None
-    return EndpointLink(name=link["name"], version=link["version"])
+    name, version = link.get("name"), link.get("version")
+    if not isinstance(name, str) or not isinstance(version, int) or isinstance(version, bool):
+        return None
+    return EndpointLink(name=name, version=version)
