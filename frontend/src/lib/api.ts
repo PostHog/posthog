@@ -207,6 +207,7 @@ import {
 } from '~/types'
 
 import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from 'products/alerts/frontend/types'
+import type { PaginatedTicketListApi } from 'products/conversations/frontend/generated/api.schemas'
 import type { CustomerJourneyApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import type {
     ErrorTrackingRule,
@@ -6982,7 +6983,7 @@ const api = {
                 limit?: number
                 offset?: number
             } = {}
-        ): Promise<CountedPaginatedResponse<any>> {
+        ): Promise<CountedPaginatedResponse<any> & Pick<PaginatedTicketListApi, 'count_capped'>> {
             return await new ApiRequest().conversationsTickets().withQueryString(params).get()
         },
 

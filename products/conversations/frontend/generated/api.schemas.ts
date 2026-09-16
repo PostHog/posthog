@@ -223,6 +223,8 @@ export interface PaginatedTicketListApi {
     /** @nullable */
     previous?: string | null
     results: TicketApi[]
+    /** True when more tickets match than `count` reports, because the count stopped at its ceiling. */
+    count_capped?: boolean
 }
 
 /**
