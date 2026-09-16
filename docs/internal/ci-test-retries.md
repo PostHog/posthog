@@ -8,13 +8,13 @@ An upload failure does not turn a failed test command into a pass.
 
 ## Suites connected to Trunk
 
-| Suite                                           | Retry budget                                 | Failed-attempt report                                                                                             |
-| ----------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Backend pytest: core, Temporal, products        | One in CI                                    | Final result; failed-attempt reporting is tracked in [PR #101493](https://github.com/PostHog/posthog/pull/101493) |
-| Frontend Jest, Node.js Jest, replay-shared Jest | One in CI                                    | Shared setup enables error recording; patched `jest-junit` emits retry children                                   |
-| Storybook                                       | Two, as configured by its test runner        | Patched `jest-junit` emits retry children                                                                         |
-| Playwright E2E                                  | One in normal CI; zero in the audit workflow | Built-in JUnit reporter with `includeRetries: true`                                                               |
-| Rust nextest                                    | One in the CI profile                        | Built-in JUnit retry children                                                                                     |
+| Suite                                           | Retry budget                                 | Failed-attempt report                                                                                           |
+| ----------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Backend pytest: core, Temporal, products        | One in CI                                    | Separate JUnit reports retain failed attempts; see [PR #101493](https://github.com/PostHog/posthog/pull/101493) |
+| Frontend Jest, Node.js Jest, replay-shared Jest | One in CI                                    | Shared setup enables error recording; patched `jest-junit` emits retry children                                 |
+| Storybook                                       | Two, as configured by its test runner        | Patched `jest-junit` emits retry children                                                                       |
+| Playwright E2E                                  | One in normal CI; zero in the audit workflow | Built-in JUnit reporter with `includeRetries: true`                                                             |
+| Rust nextest                                    | One in the CI profile                        | Built-in JUnit retry children                                                                                   |
 
 Jest 30 retries immediately through `retryImmediately`.
 Jest 29 retries after the other tests in the file.
