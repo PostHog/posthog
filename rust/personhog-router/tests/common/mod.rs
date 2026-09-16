@@ -81,6 +81,9 @@ pub struct TestReplicaService {
     /// Number of `get_groups_batch` calls still to be refused with
     /// UNAVAILABLE, the shape of the server's load-shed reply.
     pub groups_batch_sheds: Arc<AtomicUsize>,
+    /// Whether those refusals carry the load-shed marker. A real shed does;
+    /// a handler that answers UNAVAILABLE after it ran does not.
+    pub groups_batch_sheds_marked: bool,
     /// Every `get_groups_batch` call the replica received, shed or served.
     pub groups_batch_calls: Arc<AtomicUsize>,
 }
@@ -96,6 +99,7 @@ impl TestReplicaService {
             groups: vec![],
             group_type_mappings: vec![],
             groups_batch_sheds: Arc::new(AtomicUsize::new(0)),
+            groups_batch_sheds_marked: true,
             groups_batch_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -140,10 +144,26 @@ impl TestReplicaService {
         self
     }
 
-    pub fn shedding_groups_batch(mut self, sheds: usize) -> Self {
+    /// Refuse the next `sheds` calls the way the capacity layer does, marker
+    /// included. `marked = false` is the other UNAVAILABLE a replica can
+    /// send: one its handler returned after it started work.
+    pub fn shedding_groups_batch(mut self, sheds: usize, marked: bool) -> Self {
         self.groups_batch_sheds = Arc::new(AtomicUsize::new(sheds));
+        self.groups_batch_sheds_marked = marked;
         self
     }
+}
+
+/// The capacity layer's refusal, carrying the same marker header it stamps.
+/// Tonic copies a status's metadata into the trailers-only response headers,
+/// which is where the router reads it.
+fn load_shed_status() -> Status {
+    let mut metadata = tonic::metadata::MetadataMap::new();
+    metadata.insert(
+        personhog_common::grpc::LOAD_SHED_HEADER,
+        "1".parse().unwrap(),
+    );
+    Status::with_metadata(tonic::Code::Unavailable, "Server at capacity", metadata)
 }
 
 #[tonic::async_trait]
@@ -336,7 +356,11 @@ impl PersonHogReplica for TestReplicaService {
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok()
         {
-            return Err(Status::unavailable("Server at capacity"));
+            return Err(if self.groups_batch_sheds_marked {
+                load_shed_status()
+            } else {
+                Status::unavailable("Database unavailable")
+            });
         }
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
     }

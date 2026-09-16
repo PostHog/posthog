@@ -19,7 +19,9 @@ use tower::{Service, ServiceExt};
 
 use crate::backend::{ChannelBackend, LeaderBackend};
 use crate::config::RetryConfig;
-use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
+use crate::grpc_http::{
+    grpc_error_response, grpc_status_code, is_grpc_error_response, is_load_shed_response,
+};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -510,14 +512,16 @@ impl RawProxyInner {
             match ready_channel.call(req).await {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
-                    // A trailers-only UNAVAILABLE is the backend's load-shed
-                    // reply. The pod refused the request before the handler
-                    // ran, so nothing was applied and no response bytes
-                    // reached the client. Another pod can serve it. Only a
-                    // transport failure used to retry here, so every shed
-                    // escaped to the caller instead of moving to a pod that
-                    // has capacity.
-                    let shed = grpc_status_code(&response) == Some(Code::Unavailable as i32);
+                    // A marked UNAVAILABLE is the backend's load-shed reply.
+                    // The pod refused the request before the handler ran, so
+                    // nothing was applied and no response bytes reached the
+                    // client. Another pod can serve it. Only a transport
+                    // failure used to retry here, so every shed escaped to
+                    // the caller instead of moving to a pod that has
+                    // capacity. The marker is load-bearing: an unmarked
+                    // UNAVAILABLE can come from a handler that already ran,
+                    // and replaying that would apply its write twice.
+                    let shed = is_load_shed_response(&response);
                     let retrying = shed && attempt < self.retry_config.max_retries;
                     let outcome = match (shed, retrying) {
                         (true, true) => "shed",

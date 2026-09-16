@@ -1033,15 +1033,23 @@ async fn raw_proxy_identity_without_backend_returns_unimplemented() {
     );
 }
 
-/// A pod at capacity answers with a trailers-only UNAVAILABLE before the
-/// handler runs. The router must spend its retry budget on another pod
+/// A pod at capacity answers with a marked, trailers-only UNAVAILABLE before
+/// the handler runs. The router must spend its retry budget on another pod
 /// rather than hand that refusal to the caller, which turned a local
 /// capacity blip into a client-visible error for every request in flight.
+///
+/// An unmarked UNAVAILABLE must not be replayed. A handler returns that one
+/// after it started work — a dropped database connection maps to it — so the
+/// request may already be applied, and a second attempt would apply it again.
 #[tokio::test]
 async fn raw_proxy_retries_a_shed_replica_reply() {
     // The test router allows one retry, so two attempts in total.
-    for (sheds, expect_ok) in [(1, true), (2, false)] {
-        let replica_service = TestReplicaService::new().shedding_groups_batch(sheds);
+    for (sheds, marked, expect_ok, expected_calls) in [
+        (1, true, true, 2),
+        (2, true, false, 2),
+        (1, false, false, 1),
+    ] {
+        let replica_service = TestReplicaService::new().shedding_groups_batch(sheds, marked);
         let calls = replica_service.groups_batch_calls.clone();
 
         let replica_addr = start_test_replica(replica_service).await;
@@ -1062,14 +1070,18 @@ async fn raw_proxy_retries_a_shed_replica_reply() {
             ))
             .await;
 
-        assert_eq!(result.is_ok(), expect_ok, "sheds={sheds}");
+        assert_eq!(result.is_ok(), expect_ok, "sheds={sheds} marked={marked}");
         if let Err(status) = &result {
-            assert_eq!(status.code(), tonic::Code::Unavailable, "sheds={sheds}");
+            assert_eq!(
+                status.code(),
+                tonic::Code::Unavailable,
+                "sheds={sheds} marked={marked}"
+            );
         }
         assert_eq!(
             calls.load(std::sync::atomic::Ordering::SeqCst),
-            2,
-            "sheds={sheds}"
+            expected_calls,
+            "sheds={sheds} marked={marked}"
         );
     }
 }
