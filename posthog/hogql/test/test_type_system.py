@@ -1,5 +1,6 @@
 from datetime import date
 from typing import Optional, cast
+from uuid import UUID
 
 import pytest
 
@@ -1243,6 +1244,8 @@ class TestHogQLTypeSystem:
                     "accurateCast('42', 'Int64') AS number, "
                     "toFloat(1) AS score, "
                     "toBool('true') AS flag, "
+                    "accurateCast('2024-01-01', 'Date') AS day, "
+                    "accurateCast('00000000-0000-0000-0000-000000000001', 'UUID') AS identifier, "
                     "ifNull(NULL, 4) AS if_null, "
                     "ifNull(5, NULL) AS if_not_null, "
                     "coalesce(NULL, NULL, 6) AS coalesced, "
@@ -1260,7 +1263,19 @@ class TestHogQLTypeSystem:
         )
 
         values = [cast(ast.Constant, cast(ast.Alias, select_expr).expr).value for select_expr in simplified.select]
-        assert values == [42, 1.0, True, 4, 5, 6, 2.5, 1, '{"a":1}']
+        assert values == [
+            42,
+            1.0,
+            True,
+            date(2024, 1, 1),
+            UUID("00000000-0000-0000-0000-000000000001"),
+            4,
+            5,
+            6,
+            2.5,
+            1,
+            '{"a":1}',
+        ]
 
         types: list[ast.ConstantType] = []
         for select_expr in simplified.select:
@@ -1272,12 +1287,54 @@ class TestHogQLTypeSystem:
             ast.IntegerType(nullable=False),
             ast.FloatType(nullable=False),
             ast.BooleanType(nullable=False),
+            ast.DateType(nullable=False),
+            ast.UUIDType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.FloatType(nullable=False),
             ast.IntegerType(nullable=False),
             ast.StringType(nullable=False),
+        ]
+
+    def test_type_aware_simplification_folds_literal_json_helper_variants(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT "
+                    "JSONExtractString('{\"users\": [{\"name\": \"Ada\"}]}', 'users', 0, 'name') AS name, "
+                    "JSONExtractInt('{\"count\": 2}', 'count') AS count, "
+                    "JSONExtractFloat('{\"score\": 2}', 'score') AS score, "
+                    "JSONExtractBool('{\"active\": true}', 'active') AS active, "
+                    "JSONLength('{\"items\": [1, 2]}', 'items') AS length, "
+                    "JSONExtract('{\"tags\": [\"a\"]}', 'tags', 'Array(String)') AS tags, "
+                    "JSONExtract('{\"labels\": {\"a\": \"b\"}}', 'labels', 'Map(String, String)') AS labels"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+        )
+
+        expressions = [cast(ast.Alias, select_expr).expr for select_expr in simplified.select]
+
+        assert [cast(ast.Constant, expr).value for expr in expressions] == ["Ada", 2, 2.0, True, 2, ["a"], {"a": "b"}]
+        assert [cast(ast.Constant, expr).type for expr in expressions] == [
+            ast.StringType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.FloatType(nullable=False),
+            ast.BooleanType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.StringType(nullable=False),
+            ),
         ]
 
     def test_type_aware_simplification_keeps_unsafe_casts(self) -> None:
@@ -1330,6 +1387,14 @@ class TestHogQLTypeSystem:
             expr = _simplified_expr(query)
             assert isinstance(expr, ast.Call)
             assert expr.name.lower() == "accuratecast"
+
+        for query, function_name in (
+            ("SELECT JSONExtractString('{\"count\": 1}', 'count') AS x", "jsonextractstring"),
+            ("SELECT JSONLength('{\"count\": 1}', 'count') AS x", "jsonlength"),
+        ):
+            expr = _simplified_expr(query)
+            assert isinstance(expr, ast.Call)
+            assert expr.name.lower() == function_name
 
         # A nullable input keeps its null-fallback / null-assertion wrapper.
         if_null_expr = _simplified_expr("SELECT ifNull(nullIf(5, 3), 0) AS x")
