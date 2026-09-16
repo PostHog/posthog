@@ -18,6 +18,12 @@ pub struct CaptureResponse {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>,
+
+    /// How many events this request handed to ingestion. A batch that was
+    /// dropped before ingestion reports 0. Handlers that process no payload,
+    /// such as CORS preflight, omit the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events_accepted: Option<u64>,
 }
 
 impl IntoResponse for CaptureResponse {
@@ -209,6 +215,7 @@ mod tests {
         let response = CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: None,
+            events_accepted: None,
         };
         let response = response.into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -220,6 +227,7 @@ mod tests {
         let response = CaptureResponse {
             status: CaptureResponseCode::NoContent,
             quota_limited: None,
+            events_accepted: None,
         };
         let response = response.into_response();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);

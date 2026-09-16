@@ -259,6 +259,10 @@ async fn it_captures_a_batch() -> Result<()> {
     });
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
+    assert_json_include!(
+        actual: res.json::<serde_json::Value>().await?,
+        expected: json!({"events_accepted": 2})
+    );
 
     assert_json_include!(
         actual: main_topic.next_event()?,
