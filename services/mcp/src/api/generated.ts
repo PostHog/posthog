@@ -23766,7 +23766,6 @@ export namespace Schemas {
     /**
      * * `tiered` - tiered
      * * `managed_viewset` - managed_viewset
-     * * `legacy` - legacy
      * * `no_node` - no_node
      */
     export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
@@ -23775,7 +23774,6 @@ export namespace Schemas {
     export const FrequencyModeEnum = {
       Tiered: 'tiered',
       ManagedViewset: 'managed_viewset',
-      Legacy: 'legacy',
       NoNode: 'no_node',
     } as const;
 
@@ -23856,11 +23854,10 @@ export namespace Schemas {
     }
 
     export interface SyncFrequencyBounds {
-      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
        * * `tiered` - tiered
        * * `managed_viewset` - managed_viewset
-       * * `legacy` - legacy
        * * `no_node` - no_node */
       frequency_mode: FrequencyModeEnum;
       /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
