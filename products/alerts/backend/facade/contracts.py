@@ -8,6 +8,7 @@ contract check watches this file to decide whether they must retest.
 from __future__ import annotations
 
 from dataclasses import field
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
@@ -78,6 +79,70 @@ class SourceEvaluationInputs:
     source: SourceKind
     cutoff: str
     batch_key: AlertBatchKey
+
+
+@frozen
+class WIPAlertCheck:
+    """One configuration and its runtime state, as a source adapter reads it.
+
+    Flat rather than nested, because a source never holds the rows and has nothing to do with
+    the split between what belongs to the configuration and what belongs to the instance.
+    """
+
+    id: UUID
+    team_id: int
+    name: str
+    source_config: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    schedule_restriction: dict[str, Any] | None
+    next_check_at: datetime | None
+    consecutive_failures: int
+    legacy_configuration_id: UUID | None
+    state: str
+    last_notified_at: datetime | None
+    snooze_until: datetime | None
+
+    @property
+    def filters(self) -> dict[str, Any]:
+        """Satisfies the logs query layer, which names this field `filters`."""
+        return self.source_config
+
+
+@frozen
+class WIPAlertUpsert:
+    """One configuration a source wants copied into the shared tables."""
+
+    legacy_configuration_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    source_kind: SourceKind
+    source_config: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    schedule_restriction: dict[str, Any] | None
+    next_check_at: datetime | None
+
+
+@frozen
+class WIPAlertOutcome:
+    """What one check decided. The platform turns this into rows."""
+
+    configuration_id: UUID
+    new_state: str
+    notified: bool
+    consecutive_failures: int
 
 
 @frozen
