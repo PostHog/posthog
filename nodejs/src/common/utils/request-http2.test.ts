@@ -281,18 +281,21 @@ describe('secure HTTP/2 requests', () => {
             attribution = (require('./fetch-attribution') as typeof import('./fetch-attribution')).fetchAttribution
         }
 
-        // A team of undefined is a CDP caller with no invocation. No attribution at all is a caller outside CDP,
-        // such as the session replay image lane, which keeps the proxy on every request.
-        const fetchAs = (teamId: number | undefined, url: string, options = {}): Promise<FetchResponseLike> => {
+        // A caller outside CDP sets no attribution at all, such as the session replay image lane, and keeps the proxy
+        // on every request. A team of undefined is a CDP caller that has attribution but no invocation.
+        const OUTSIDE_CDP = 'outside-cdp'
+        type Caller = number | undefined | typeof OUTSIDE_CDP
+
+        const fetchAs = (caller: Caller, url: string, options = {}): Promise<FetchResponseLike> => {
             const run = (): Promise<FetchResponseLike> => requestModule.fetch(url, { timeoutMs: 2000, ...options })
-            return teamId === null ? run() : attribution.run({ teamId }, run)
+            return caller === OUTSIDE_CDP ? run() : attribution.run({ teamId: caller }, run)
         }
 
         afterEach(() => {
             delete process.env.EXTERNAL_REQUEST_PROXY_TEAMS
         })
 
-        it.each([
+        it.each<[string, Caller, boolean]>([
             ['', 2, false],
             ['2', 2, true],
             ['2', 3, false],
@@ -300,14 +303,14 @@ describe('secure HTTP/2 requests', () => {
             ['*', 3, true],
             ['', undefined, false],
             ['*:1', undefined, true],
-            ['2', null, true],
+            ['2', OUTSIDE_CDP, true],
         ])(
-            'with EXTERNAL_REQUEST_PROXY_TEAMS=%j and team %s, proxied: %s',
-            async (proxyTeams, teamId, expectProxied) => {
-                loadWithProxyTeams(proxyTeams as string)
+            'with EXTERNAL_REQUEST_PROXY_TEAMS=%j and caller %s, proxied: %s',
+            async (proxyTeams, caller, expectProxied) => {
+                loadWithProxyTeams(proxyTeams)
                 const authority = `127.0.0.1:${serverPort(plainOrigin)}`
 
-                const response = await fetchAs(teamId as number | undefined, `http://${authority}/routing`)
+                const response = await fetchAs(caller, `http://${authority}/routing`)
 
                 expect(await response.text()).toBe('/routing')
                 expect(proxyAuthorities).toEqual(expectProxied ? [authority] : [])
