@@ -545,7 +545,8 @@ class ActionViewSet(
     )
     queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
-    ordering = ["-last_calculated_at", "name"]
+    # `id` last: without a unique term, offset pages repeat or skip rows inside a tied group.
+    ordering = ["-last_calculated_at", "name", "-id"]
 
     def safely_get_queryset(self, queryset):
         if self.action == "list":
@@ -588,7 +589,8 @@ class ActionViewSet(
         else:
             ordering = [f"{prefix}{field}"]
         if field != "name":
-            ordering.append("name")  # stable tiebreak within equal values
+            ordering.append("name")
+        ordering.append(f"{prefix}id")
         return ordering
 
     @extend_schema(

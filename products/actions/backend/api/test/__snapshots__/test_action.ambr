@@ -458,7 +458,8 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC
+           "posthog_action"."name" ASC,
+           "posthog_action"."id" DESC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.16
@@ -1091,7 +1092,8 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC
+           "posthog_action"."name" ASC,
+           "posthog_action"."id" DESC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.25
@@ -1348,7 +1350,8 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC
+           "posthog_action"."name" ASC,
+           "posthog_action"."id" DESC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.8
