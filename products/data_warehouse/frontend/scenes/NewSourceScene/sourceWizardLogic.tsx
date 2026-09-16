@@ -423,6 +423,7 @@ export interface sourceWizardLogicValues {
     } | null
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
+    connectError: string | null
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
