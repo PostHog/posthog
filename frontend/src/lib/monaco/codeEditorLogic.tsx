@@ -378,7 +378,14 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 (_, props: CodeEditorLogicProps) => analyzedQueryFor(props),
                 (_, props: CodeEditorLogicProps) => props.query,
             ],
-            areMarkersStale,
+            // Inline rather than passing areMarkersStale directly, because kea-typegen infers this
+            // selector's type from the literal and drops the value when it cannot.
+            (
+                metadata: [string, HogQLMetadataResponse] | null,
+                analyzedDocument: string,
+                currentQuery: string,
+                currentDocument: string
+            ) => areMarkersStale(metadata, analyzedDocument, currentQuery, currentDocument),
         ],
         hasErrors: [
             (s) => [s.modelMarkers],
