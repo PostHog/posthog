@@ -82,6 +82,15 @@ export interface ActiveDreamRunApi {
     started_at: string
 }
 
+export interface UnpublishedDreamRunApi {
+    /** Task URL in its project for the unpublished dream outcome and logs. */
+    task_url: string
+    /** The terminal task-run state, such as completed, failed, or cancelled. */
+    run_status: string
+    /** When the unpublished dream task was created. */
+    started_at: string
+}
+
 /**
  * One dreaming run: the merge commit it landed as, plus what it changed.
  */
@@ -110,6 +119,8 @@ export interface DreamRunListApi {
     head_sha: string
     /** The organization's active dreaming task, or null when no dream is running. */
     active_run: ActiveDreamRunApi | null
+    /** The latest finished dream when no update was published after it started, or null otherwise. */
+    unpublished_run: UnpublishedDreamRunApi | null
     /** Every landed dream run, newest first. */
     dreams: DreamRunApi[]
 }
