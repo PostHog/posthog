@@ -125,12 +125,12 @@ def test_business_knowledge_credentials_do_not_fall_back_to_default(monkeypatch)
         get_clickhouse_creds(ClickHouseUser.BUSINESS_KNOWLEDGE)
 
 
-def test_data_deletion_request_executor_credentials_do_not_fall_back_to_default(monkeypatch):
+def test_deletion_executor_credentials_do_not_fall_back_to_default(monkeypatch):
     default_creds = ClickHouseCredentials(user="default", password="default-password")
     monkeypatch.setattr(connection, "__user_dict", {ClickHouseUser.DEFAULT: default_creds})
 
     with pytest.raises(RuntimeError, match="CLICKHOUSE_DATA_DELETION_REQUEST_EXECUTOR_USER"):
-        get_clickhouse_creds(ClickHouseUser.DATA_DELETION_REQUEST_EXECUTOR)
+        get_clickhouse_creds(ClickHouseUser.DELETION_EXECUTOR)
 
 
 def test_file_backed_pool_is_stable_across_credential_rotation(settings, monkeypatch, tmp_path):

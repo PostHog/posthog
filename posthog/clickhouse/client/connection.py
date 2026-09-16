@@ -98,7 +98,7 @@ class ClickHouseUser(StrEnum):
     REPLAY_VISION = "replay_vision"
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
-    DATA_DELETION_REQUEST_EXECUTOR = "data_deletion_request_executor"
+    DELETION_EXECUTOR = "data_deletion_request_executor"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -187,7 +187,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
             "Business Knowledge ClickHouse credentials are missing; set "
             "CLICKHOUSE_BUSINESS_KNOWLEDGE_USER and CLICKHOUSE_BUSINESS_KNOWLEDGE_PASSWORD"
         )
-    if user == ClickHouseUser.DATA_DELETION_REQUEST_EXECUTOR:
+    if user == ClickHouseUser.DELETION_EXECUTOR:
         raise RuntimeError(
             "Data deletion request executor ClickHouse credentials are missing; set "
             "CLICKHOUSE_DATA_DELETION_REQUEST_EXECUTOR_USER and "

@@ -522,7 +522,7 @@ class HogQLEventDeletionExecutor:
             user_access_control=UserAccessControl(user=user, team=team),
             variables=variables,
             workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.DATA_DELETION_REQUEST_EXECUTOR,
+            ch_user=ClickHouseUser.DELETION_EXECUTOR,
             pretty=False,
         )
         selected = compiler.generate_clickhouse_subquery_sql()
@@ -548,7 +548,7 @@ class HogQLEventDeletionExecutor:
             },
             workload=Workload.OFFLINE,
             team_id=request.team_id,
-            ch_user=ClickHouseUser.DATA_DELETION_REQUEST_EXECUTOR,
+            ch_user=ClickHouseUser.DELETION_EXECUTOR,
             settings=selected.settings,
             external_tables=list(selected.context.external_tables.values()) or None,
         )
