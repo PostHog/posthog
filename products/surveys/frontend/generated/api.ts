@@ -95,6 +95,21 @@ export const desktopFeedbackCreate = async (
     })
 }
 
+export const getDesktopFeedbackAttachmentsRetrieveUrl = (mediaId: string) => {
+    return `/api/desktop_feedback/attachments/${mediaId}/`
+}
+
+/**
+ * Returns an unexpired attachment to a user with access to the internal feedback project.
+ * @summary Download a Desktop feedback attachment
+ */
+export const desktopFeedbackAttachmentsRetrieve = async (mediaId: string, options?: RequestInit): Promise<Blob> => {
+    return apiMutator<Blob>(getDesktopFeedbackAttachmentsRetrieveUrl(mediaId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSurveysListUrl = (projectId: string, params?: SurveysListParams) => {
     const normalizedParams = new URLSearchParams()
 

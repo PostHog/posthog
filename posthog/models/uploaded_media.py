@@ -29,6 +29,11 @@ MEDIA_PURPOSE_EMAIL = "email"
 MEDIA_PURPOSE_CANVAS = "canvas"
 MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS]
 
+# These uploads must never be served through the unauthenticated /uploaded_media route.
+# Their owning product provides an authenticated download endpoint instead.
+MEDIA_PURPOSE_DESKTOP_FEEDBACK = "desktop_feedback"
+PRIVATE_MEDIA_PURPOSES = frozenset({MEDIA_PURPOSE_DESKTOP_FEEDBACK})
+
 # A pending row older than this is abandoned: the presigned URL it was created for expires in
 # minutes, so nothing can complete it, and nothing else revisits it. Generous because the only
 # cost of waiting is one unlisted row and its staged bytes.
@@ -105,6 +110,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         file_name: str,
         content_type: str,
         content: bytes,
+        purpose: str | None = None,
     ) -> Optional["UploadedMedia"]:
         try:
             media = UploadedMedia.objects.create(
@@ -112,6 +118,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
                 created_by=created_by,
                 file_name=file_name,
                 content_type=content_type,
+                purpose=purpose,
             )
             if settings.OBJECT_STORAGE_ENABLED:
                 save_content_to_object_storage(media, content)

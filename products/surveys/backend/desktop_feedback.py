@@ -1,16 +1,20 @@
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any
+from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
+from django.utils import timezone
 
 import structlog
 
 from posthog.api.uploaded_media import sniff_image_content_type
 from posthog.models import Team, UploadedMedia, User
+from posthog.models.uploaded_media import MEDIA_PURPOSE_DESKTOP_FEEDBACK
 from posthog.ph_client import PH_EU_API_KEY, PH_US_API_KEY, get_client
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-from posthog.utils import get_instance_region
+from posthog.utils import absolute_uri, get_instance_region
 
 FEEDBACK_SURVEY_ID = "019ee235-2e3b-0000-64b3-5f2efa487452"
 FEEDBACK_SURVEY_QUESTION_ID = "68648b23-caaf-4080-ae5f-051513d3097f"
@@ -23,13 +27,23 @@ MEDIA_PROPERTY_BY_FIELD = {
     "image_1": "feedback_image_1_url",
     "image_2": "feedback_image_2_url",
 }
+DESKTOP_FEEDBACK_MEDIA_RETENTION = timedelta(days=30)
+MEDIA_SWEEP_BATCH_SIZE = 1000
 
 
 class DesktopFeedbackUnavailable(Exception):
     pass
 
 
-def _discard_media(media: UploadedMedia) -> None:
+def _feedback_media_team() -> Team:
+    media_api_key = PH_EU_API_KEY if get_instance_region() == "EU" else PH_US_API_KEY
+    try:
+        return Team.objects.get(api_token=media_api_key)
+    except Team.DoesNotExist as error:
+        raise DesktopFeedbackUnavailable("Feedback attachments are unavailable on this PostHog instance") from error
+
+
+def _discard_media(media: UploadedMedia) -> bool:
     media.pending = True
     media.save(update_fields=["pending"])
     try:
@@ -41,19 +55,69 @@ def _discard_media(media: UploadedMedia) -> None:
             media_id=str(media.id),
             exc_info=True,
         )
-        return
+        return False
     media.delete()
+    return True
+
+
+def _media_url(media: UploadedMedia) -> str:
+    return absolute_uri(f"/api/desktop_feedback/attachments/{media.id}/")
+
+
+def read_desktop_feedback_media(*, user: User, media_id: UUID) -> tuple[bytes, str] | None:
+    media_team = _feedback_media_team()
+    if not media_team.all_users_with_access().filter(pk=user.pk).exists():
+        return None
+
+    media = (
+        UploadedMedia.objects.filter(
+            pk=media_id,
+            team=media_team,
+            purpose=MEDIA_PURPOSE_DESKTOP_FEEDBACK,
+            pending=False,
+            created_at__gte=timezone.now() - DESKTOP_FEEDBACK_MEDIA_RETENTION,
+        )
+        .only("content_type", "media_location")
+        .first()
+    )
+    if media is None or media.media_location is None:
+        return None
+
+    try:
+        content = object_storage.read_bytes(media.media_location, missing_ok=True)
+    except ObjectStorageError as error:
+        raise DesktopFeedbackUnavailable("Feedback attachment is unavailable") from error
+    if content is None:
+        return None
+    return content, media.content_type or "application/octet-stream"
+
+
+def sweep_expired_desktop_feedback_media() -> int:
+    try:
+        media_team = _feedback_media_team()
+    except DesktopFeedbackUnavailable:
+        return 0
+
+    cutoff = timezone.now() - DESKTOP_FEEDBACK_MEDIA_RETENTION
+    expired_media = list(
+        UploadedMedia.objects.filter(
+            team=media_team,
+            purpose=MEDIA_PURPOSE_DESKTOP_FEEDBACK,
+            pending=False,
+            created_at__lt=cutoff,
+        ).order_by("created_at")[:MEDIA_SWEEP_BATCH_SIZE]
+    )
+    swept = sum(_discard_media(media) for media in expired_media)
+    if swept:
+        logger.info("desktop_feedback.media_retention_sweep_completed", swept=swept)
+    return swept
 
 
 def _save_media(*, user: User, files: Mapping[str, UploadedFile]) -> tuple[dict[str, str], list[UploadedMedia]]:
     if not files:
         return {}, []
 
-    try:
-        media_api_key = PH_EU_API_KEY if get_instance_region() == "EU" else PH_US_API_KEY
-        media_team = Team.objects.get(api_token=media_api_key)
-    except Team.DoesNotExist as error:
-        raise DesktopFeedbackUnavailable("Feedback attachments are unavailable on this PostHog instance") from error
+    media_team = _feedback_media_team()
 
     uploaded: list[UploadedMedia] = []
     try:
@@ -69,6 +133,7 @@ def _save_media(*, user: User, files: Mapping[str, UploadedFile]) -> tuple[dict[
                 file_name=file.name or "desktop-feedback-image",
                 content_type=content_type,
                 content=content,
+                purpose=MEDIA_PURPOSE_DESKTOP_FEEDBACK,
             )
             if media is None:
                 raise DesktopFeedbackUnavailable("Could not store feedback attachment")
@@ -82,7 +147,7 @@ def _save_media(*, user: User, files: Mapping[str, UploadedFile]) -> tuple[dict[
 
     return (
         {
-            MEDIA_PROPERTY_BY_FIELD[field_name]: media.get_absolute_url()
+            MEDIA_PROPERTY_BY_FIELD[field_name]: _media_url(media)
             for field_name, media in zip(files.keys(), uploaded, strict=True)
         },
         uploaded,

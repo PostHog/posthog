@@ -124,6 +124,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
@@ -525,6 +526,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="15"),
         sweep_abandoned_media_uploads_task.s(),
         name="sweep abandoned media uploads",
+    )
+
+    # Desktop feedback attachments are private diagnostic data with a fixed retention period.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="20"),
+        sweep_expired_desktop_feedback_media_task.s(),
+        name="sweep expired desktop feedback media",
     )
 
     # Team metadata cache verification - hourly at minute 20

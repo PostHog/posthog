@@ -1,22 +1,34 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models
+from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import APIException
+from rest_framework.decorators import action
+from rest_framework.exceptions import (
+    APIException,
+    NotFound as DRFNotFound,
+)
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.uploaded_media import sniff_image_content_type
 from posthog.models import User
 
-from products.surveys.backend.facade.api import DesktopFeedbackUnavailable, submit_desktop_feedback
+from products.surveys.backend.facade.api import (
+    DesktopFeedbackUnavailable,
+    read_desktop_feedback_media,
+    submit_desktop_feedback,
+)
 
 MAX_FEEDBACK_IMAGE_BYTES = 512 * 1024
 
@@ -37,7 +49,22 @@ class DesktopFeedbackThrottle(UserRateThrottle):
 
 @extend_schema_field(OpenApiTypes.BINARY)
 class DesktopFeedbackImageField(serializers.ImageField):
-    pass
+    def to_internal_value(self, data: Any) -> UploadedFile:
+        image = cast(UploadedFile, super().to_internal_value(data))
+        content = image.read(MAX_FEEDBACK_IMAGE_BYTES + 1)
+        image.seek(0)
+        if len(content) > MAX_FEEDBACK_IMAGE_BYTES:
+            raise serializers.ValidationError(
+                "Feedback images must be smaller than 512 KB.",
+                code="file_too_large",
+            )
+
+        if sniff_image_content_type(content) is None:
+            raise serializers.ValidationError(
+                "Feedback images must be PNG, JPEG, GIF, WebP, AVIF, or BMP.",
+                code="invalid_image",
+            )
+        return image
 
 
 class DesktopFeedbackRequestSerializer(serializers.Serializer):
@@ -94,13 +121,6 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
         help_text="Second image that the user attached.",
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        for field_name in ("screenshot", "image_1", "image_2"):
-            file = attrs.get(field_name)
-            if file is not None and file.size > MAX_FEEDBACK_IMAGE_BYTES:
-                raise serializers.ValidationError({field_name: "Feedback images must be smaller than 512 KB."})
-        return attrs
-
 
 class DesktopFeedbackResponseSerializer(serializers.Serializer):
     accepted = serializers.BooleanField(help_text="Whether the feedback response was accepted.")
@@ -121,6 +141,58 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     parser_classes = [MultiPartParser, FormParser]
     serializer_class = DesktopFeedbackRequestSerializer
     pagination_class = None
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="media_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="Feedback attachment identifier.",
+            )
+        ],
+        responses={
+            (200, "image/*"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Feedback attachment image.",
+            ),
+            404: OpenApiResponse(
+                response=DesktopFeedbackErrorSerializer,
+                description="The attachment does not exist or the user cannot access it.",
+            ),
+            503: OpenApiResponse(
+                response=DesktopFeedbackErrorSerializer,
+                description="The attachment could not be read.",
+            ),
+        },
+        summary="Download a Desktop feedback attachment",
+        description="Returns an unexpired attachment to a user with access to the internal feedback project.",
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"attachments/(?P<media_id>[^/.]+)",
+        throttle_classes=[],
+    )
+    def attachment(self, request: Request, media_id: str | None = None, *args: Any, **kwargs: Any) -> HttpResponse:
+        try:
+            parsed_media_id = UUID(media_id or "")
+        except ValueError as error:
+            raise DRFNotFound from error
+
+        try:
+            media = read_desktop_feedback_media(user=cast(User, request.user), media_id=parsed_media_id)
+        except DesktopFeedbackUnavailable as error:
+            raise DesktopFeedbackServiceUnavailable from error
+        if media is None:
+            raise DRFNotFound
+
+        content, content_type = media
+        return HttpResponse(
+            content,
+            content_type=content_type,
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     @validated_request(
         request_serializer=DesktopFeedbackRequestSerializer,
