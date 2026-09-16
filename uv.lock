@@ -1940,6 +1940,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-modern-csrf"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/84/f6/bb760a2b01f77f3b4004578f69787267e113c8bae19ff3af647724df852f/django_modern_csrf-1.0.1.tar.gz", hash = "sha256:6d13bf8eb887457f676d6f70987e9670353ef495e81d695d27c26e71e727a7f7", size = 5520, upload-time = "2025-10-28T13:33:48.196Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/3e/7aedb5a679da43ac01e421956b45bf97d3d7f48db30c55f093c0a28ddb64/django_modern_csrf-1.0.1-py3-none-any.whl", hash = "sha256:fce69521d2a832a6f3243fc5985cbd61a925fc782e7308e0f3b9ad0b4d219e11", size = 6705, upload-time = "2025-10-28T13:33:47.292Z" },
+]
+
+[[package]]
 name = "django-oauth-toolkit"
 version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5576,6 +5588,7 @@ dependencies = [
     { name = "django-extensions" },
     { name = "django-filter" },
     { name = "django-loginas" },
+    { name = "django-modern-csrf" },
     { name = "django-oauth-toolkit" },
     { name = "django-prometheus" },
     { name = "django-redis" },
@@ -5858,6 +5871,7 @@ requires-dist = [
     { name = "django-extensions", specifier = "~=4.1.0" },
     { name = "django-filter", specifier = "~=26.1" },
     { name = "django-loginas", specifier = "==0.3.14" },
+    { name = "django-modern-csrf", specifier = "~=1.0.1" },
     { name = "django-oauth-toolkit", specifier = "~=3.2.0" },
     { name = "django-prometheus", specifier = "~=2.5.0" },
     { name = "django-redis", specifier = "==7.0.0" },
