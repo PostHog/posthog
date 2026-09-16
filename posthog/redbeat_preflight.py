@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
-from redis.exceptions import NoPermissionError, RedisError
+from redis.exceptions import ExecAbortError, NoPermissionError, RedisError
 
 from posthog.dataclasses import frozen
 
@@ -68,19 +68,23 @@ class Probe:
 
 
 def _probes(client: Any, statics_key: str, scratch: ScratchKeys, lock_key: str | None) -> list[Probe]:
-    def save_entry() -> None:
-        # RedBeat saves an entry in a MULTI/EXEC pipeline, so this probe covers those too.
-        with client.pipeline() as pipe:
-            pipe.hset(scratch.entry, "definition", "preflight")
-            pipe.hsetnx(scratch.entry, "meta", "preflight")
-            pipe.zadd(scratch.schedule, {scratch.entry: 0})
-            pipe.execute()
+    def empty_transaction() -> None:
+        # RedBeat saves an entry inside MULTI/EXEC. The pair is probed with nothing queued so that
+        # each refusal stays separate and keeps its own reason: Redis answers a denied MULTI with
+        # NOPERM, and a denied EXEC with EXECABORT that quotes the NOPERM. A pipeline of the real
+        # writes reports neither, because redis-py drops the MULTI reason when it reads the EXEC
+        # reply, and one refused write would name every command in the pipeline.
+        client.execute_command("MULTI")
+        client.execute_command("EXEC")
 
     probes = [
         Probe(commands=("smembers",), run=lambda: client.smembers(statics_key)),
         Probe(commands=("sadd",), run=lambda: client.sadd(scratch.statics, "preflight")),
         Probe(commands=("srem",), run=lambda: client.srem(scratch.statics, "preflight")),
-        Probe(commands=("hset", "hsetnx", "zadd", "multi", "exec"), run=save_entry),
+        Probe(commands=("hset",), run=lambda: client.hset(scratch.entry, "definition", "preflight")),
+        Probe(commands=("hsetnx",), run=lambda: client.hsetnx(scratch.entry, "meta", "preflight")),
+        Probe(commands=("zadd",), run=lambda: client.zadd(scratch.schedule, {scratch.entry: 0})),
+        Probe(commands=("multi", "exec"), run=empty_transaction),
         Probe(commands=("hget",), run=lambda: client.hget(scratch.entry, "definition")),
         Probe(commands=("zrangebyscore",), run=lambda: client.zrangebyscore(scratch.schedule, 0, 0)),
         Probe(commands=("zrem",), run=lambda: client.zrem(scratch.schedule, scratch.entry)),
@@ -114,7 +118,9 @@ def find_denials(client: Any, statics_key: str, key_prefix: str, lock_key: str |
         for probe in _probes(client, statics_key, scratch, lock_key):
             try:
                 probe.run()
-            except NoPermissionError as exc:
+            except (NoPermissionError, ExecAbortError) as exc:
+                # A refused EXEC aborts the transaction instead of answering NOPERM, so its
+                # refusal arrives as EXECABORT. Nothing else in these probes opens a transaction.
                 denials.append(Denial(commands=probe.commands, reason=str(exc)))
         return denials
     finally:

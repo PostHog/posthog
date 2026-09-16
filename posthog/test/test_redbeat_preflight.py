@@ -1,36 +1,11 @@
 from parameterized import parameterized
-from redis.exceptions import NoPermissionError
+from redis.exceptions import ExecAbortError, NoPermissionError
 
 from posthog.redbeat_preflight import Denial, find_denials, report
 
 KEY_PREFIX = "redbeat:"
 STATICS_KEY = "redbeat::statics"
 LOCK_KEY = "redbeat::lock"
-
-
-class FakePipeline:
-    def __init__(self, client: "FakeRedis") -> None:
-        self.client = client
-        self.queued: list[str] = []
-
-    def __enter__(self) -> "FakePipeline":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
-
-    def hset(self, *args: object) -> None:
-        self.queued.append("hset")
-
-    def hsetnx(self, *args: object) -> None:
-        self.queued.append("hsetnx")
-
-    def zadd(self, *args: object) -> None:
-        self.queued.append("zadd")
-
-    def execute(self) -> None:
-        for command in self.queued:
-            self.client.run(command)
 
 
 class FakeRedis:
@@ -44,8 +19,23 @@ class FakeRedis:
         if command in self.denied:
             raise NoPermissionError(f"User posthog has no permissions to run the '{command}' command")
 
-    def pipeline(self) -> FakePipeline:
-        return FakePipeline(self)
+    def execute_command(self, command: str) -> None:
+        # Redis refuses EXEC by aborting the transaction, and quotes the refusal in that reply.
+        if command == "EXEC" and "exec" in self.denied:
+            self.attempted.append("exec")
+            raise ExecAbortError(
+                "Transaction discarded because of: NOPERM User posthog has no permissions to run the 'exec' command"
+            )
+        self.run(command.lower())
+
+    def hset(self, *args: object) -> None:
+        self.run("hset")
+
+    def hsetnx(self, *args: object) -> None:
+        self.run("hsetnx")
+
+    def zadd(self, *args: object) -> None:
+        self.run("zadd")
 
     def smembers(self, key: str) -> None:
         self.run("smembers")
@@ -118,6 +108,23 @@ class TestRedbeatPreflight:
         denials = find_denials(client, STATICS_KEY, KEY_PREFIX, LOCK_KEY)
 
         assert [denial.commands for denial in denials] == [("smembers",), ("eval", "get", "pttl", "pexpire")]
+
+    @parameterized.expand(
+        [
+            ({"hset"}, [("hset",)]),
+            ({"multi"}, [("multi", "exec")]),
+            ({"exec"}, [("multi", "exec")]),
+            ({"smembers", "multi"}, [("smembers",), ("multi", "exec")]),
+        ]
+    )
+    def test_a_refusal_names_only_the_commands_its_own_probe_needs(
+        self, denied: set[str], expected: list[tuple[str, ...]]
+    ):
+        client = FakeRedis(denied=denied)
+
+        denials = find_denials(client, STATICS_KEY, KEY_PREFIX, LOCK_KEY)
+
+        assert [denial.commands for denial in denials] == expected
 
     def test_the_lock_commands_are_not_required_when_the_lock_is_disabled(self):
         client = FakeRedis(denied={"set", "eval"})
