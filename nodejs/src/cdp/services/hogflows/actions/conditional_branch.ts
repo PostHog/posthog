@@ -77,9 +77,8 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         // The person the worker read at dequeue can predate a write this wait is waiting for, and a
         // wait that parks on that read is stuck: the write already happened, so no person message
-        // follows to wake it. Re-read before the first evaluation of each wait — including a wait
-        // reached later in the same dequeue. Re-checks of a wait that already parked run an hour
-        // apart, by when the cache has expired, so they keep the cheaper read.
+        // follows to wake it. Re-read before every evaluation of a wait: on entry, and on each
+        // matcher wake, where the person the wake refers to is the point of the re-check.
         if (action.type === 'wait_until_condition') {
             const refreshed = await invocation.refreshPerson?.()
             // A refresh that finds no person keeps the dequeue's read. The refresh exists to make a
