@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
@@ -267,7 +267,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         )
 
         failed_ids: list[int] = []
-        started_count = 0
+        completed_count = 0
         already_running_count = 0
         semaphore = asyncio.Semaphore(inputs.subscriptions_max_concurrent)
 
@@ -286,9 +286,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             *(execute_subscription(sub) for sub in page.subscriptions), return_exceptions=True
         )
         for sub, result in zip(page.subscriptions, child_results):
-            if isinstance(result, BaseException) and is_cancelled_exception(result):
-                raise result
-            elif isinstance(result, WorkflowAlreadyStartedError):
+            if isinstance(result, WorkflowAlreadyStartedError):
                 already_running_count += 1
                 temporalio.workflow.logger.info(
                     "process_subscription.already_running",
@@ -301,7 +299,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     extra={"subscription_id": sub.subscription_id, "error": str(result)},
                 )
             else:
-                started_count += 1
+                completed_count += 1
 
         total_count = inputs.total_count if inputs.total_count is not None else page.total_count
         if total_count is None:
@@ -316,8 +314,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             processed_count=processed_count,
             remaining_count=remaining_count,
             page_number=page_number,
-            started_count=started_count,
+            completed_count=completed_count,
             already_running_count=already_running_count,
+            failed_count=len(failed_ids),
             completed=completed,
             completed_at=completed_at,
         )
@@ -329,8 +328,9 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                 "processed_count": processed_count,
                 "remaining_count": remaining_count,
                 "page_number": page_number,
-                "started_count": started_count,
+                "completed_count": completed_count,
                 "already_running_count": already_running_count,
+                "failed_count": len(failed_ids),
                 "completed": completed,
             },
         )

@@ -1,18 +1,23 @@
-import time
 from datetime import datetime
 
+from prometheus_client import Gauge
+
+from posthog.metrics import pushed_metrics_registry
 from posthog.temporal.common.metrics import get_metric_meter
 
 SCHEDULER_RUNS = "subscriptions_scheduler_runs"
 SCHEDULER_SELECTED = "subscriptions_scheduler_selected"
-SCHEDULER_OLDEST_DUE_AGE_SECONDS = "subscriptions_scheduler_oldest_due_age_seconds"
-SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS = "subscriptions_scheduler_last_successful_fetch_timestamp_seconds"
+SCHEDULER_OLDEST_DUE_AGE_SECONDS = "posthog_subscriptions_scheduler_oldest_due_age_seconds"
+SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS = (
+    "posthog_subscriptions_scheduler_last_successful_fetch_timestamp_seconds"
+)
 SCHEDULER_COHORT_TOTAL = "subscriptions_scheduler_cohort_total"
 SCHEDULER_COHORT_PROCESSED = "subscriptions_scheduler_cohort_processed"
 SCHEDULER_COHORT_REMAINING = "subscriptions_scheduler_cohort_remaining"
 SCHEDULER_COHORT_PAGE = "subscriptions_scheduler_cohort_page"
 SCHEDULER_PAGES = "subscriptions_scheduler_pages"
-SCHEDULER_CHILDREN_STARTED = "subscriptions_scheduler_children_started"
+SCHEDULER_CHILDREN_COMPLETED = "subscriptions_scheduler_children_completed"
+SCHEDULER_CHILDREN_FAILED = "subscriptions_scheduler_children_failed"
 SCHEDULER_CHILDREN_ALREADY_RUNNING = "subscriptions_scheduler_children_already_running"
 SCHEDULER_COHORTS_STARTED = "subscriptions_scheduler_cohorts_started"
 SCHEDULER_COHORTS_COMPLETED = "subscriptions_scheduler_cohorts_completed"
@@ -39,15 +44,17 @@ def record_scheduler_fetch(
     ).add(selected_count)
     if record_oldest_due_age:
         oldest_due_age_seconds = max(0.0, (now - oldest_due_at).total_seconds()) if oldest_due_at is not None else 0.0
-        meter.create_gauge_float(
-            SCHEDULER_OLDEST_DUE_AGE_SECONDS,
-            "Age in seconds of the oldest due subscription selected by a scheduler run.",
-            "s",
-        ).set(oldest_due_age_seconds)
-    meter.create_gauge_float(
-        SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS,
-        "Unix timestamp of the last successful subscription scheduler fetch.",
-    ).set(time.time())
+        with pushed_metrics_registry("temporal_subscriptions_scheduler") as registry:
+            Gauge(
+                SCHEDULER_OLDEST_DUE_AGE_SECONDS,
+                "Age in seconds of the oldest due subscription selected by a scheduler run.",
+                registry=registry,
+            ).set(oldest_due_age_seconds)
+            Gauge(
+                SCHEDULER_LAST_SUCCESSFUL_FETCH_TIMESTAMP_SECONDS,
+                "Unix timestamp of the last successful subscription scheduler fetch.",
+                registry=registry,
+            ).set(now.timestamp())
 
 
 def record_scheduler_progress(
@@ -56,8 +63,9 @@ def record_scheduler_progress(
     processed_count: int,
     remaining_count: int,
     page_number: int,
-    started_count: int,
+    completed_count: int,
     already_running_count: int,
+    failed_count: int,
     completed: bool,
     completed_at: datetime | None = None,
 ) -> None:
@@ -84,13 +92,17 @@ def record_scheduler_progress(
         "Subscription scheduler pages processed.",
     ).add(1)
     meter.create_counter(
-        SCHEDULER_CHILDREN_STARTED,
-        "Subscription child workflows accepted for dispatch.",
-    ).add(started_count)
+        SCHEDULER_CHILDREN_COMPLETED,
+        "Subscription child workflows that completed successfully.",
+    ).add(completed_count)
     meter.create_counter(
         SCHEDULER_CHILDREN_ALREADY_RUNNING,
         "Subscription child workflows skipped because that subscription was already running.",
     ).add(already_running_count)
+    meter.create_counter(
+        SCHEDULER_CHILDREN_FAILED,
+        "Subscription child workflows that failed or were canceled.",
+    ).add(failed_count)
     if page_number == 1:
         meter.create_counter(
             SCHEDULER_COHORTS_STARTED,

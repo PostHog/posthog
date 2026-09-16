@@ -308,8 +308,9 @@ async def test_scheduler_uses_sliding_child_concurrency_before_continuing_with_p
         processed_count=5,
         remaining_count=2,
         page_number=1,
-        started_count=5,
+        completed_count=5,
         already_running_count=0,
+        failed_count=0,
         completed=False,
         completed_at=None,
     )
@@ -393,8 +394,9 @@ async def test_scheduler_completes_after_final_page() -> None:
         processed_count=1,
         remaining_count=0,
         page_number=1,
-        started_count=1,
+        completed_count=1,
         already_running_count=0,
+        failed_count=0,
         completed=True,
         completed_at=completed_at,
     )
@@ -463,15 +465,16 @@ async def test_scheduler_does_not_overlap_an_already_running_subscription() -> N
         processed_count=1,
         remaining_count=0,
         page_number=1,
-        started_count=0,
+        completed_count=0,
         already_running_count=1,
+        failed_count=0,
         completed=True,
         completed_at=completed_at,
     )
 
 
 @pytest.mark.asyncio
-async def test_scheduler_preserves_cancellation_from_child_execution() -> None:
+async def test_scheduler_records_cancelled_child_as_failure() -> None:
     due_subscription = DueSubscription(
         subscription_id=123,
         team_id=42,
@@ -512,13 +515,25 @@ async def test_scheduler_preserves_cancellation_from_child_execution() -> None:
             "products.exports.backend.temporal.subscriptions.workflows.record_scheduler_progress",
             new=record_progress,
         ),
+        patch("products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.logger.warning"),
+        patch("products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.logger.info"),
     ):
-        with pytest.raises(CancelledError):
+        with pytest.raises(ApplicationError, match="Subscription deliveries failed for IDs: \\[123\\]"):
             await ScheduleAllSubscriptionsWorkflow().run(
                 ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
             )
 
-    record_progress.assert_not_called()
+    record_progress.assert_called_once_with(
+        total_count=1,
+        processed_count=0,
+        remaining_count=1,
+        page_number=1,
+        completed_count=0,
+        already_running_count=0,
+        failed_count=1,
+        completed=False,
+        completed_at=None,
+    )
     start_child.assert_not_awaited()
 
 
