@@ -9,6 +9,9 @@ feature: health_issues
 url_prefix: /health
 ui_apps: {}
 tools:
+    health-issues-checks-retrieve:
+        operation: health_issues_checks_retrieve
+        enabled: false
     health-issues-get:
         operation: health_issues_retrieve
         enabled: true
