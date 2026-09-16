@@ -15,6 +15,12 @@ from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 
 from posthog.dataclasses import frozen
 
+from products.signals.dags.inbox_ranking.training.calibration import (
+    CalibrationBucket,
+    bucket_rows,
+    calibration_buckets,
+    expected_calibration_error,
+)
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
 
@@ -57,6 +63,11 @@ class HeadMetrics:
     holdout_average_precision: float | None = None
     holdout_logloss: float | None = None
     holdout_positive_rate: float | None = None
+    # The mean predicted score on the holdout, next to `holdout_positive_rate`, the rate it was
+    # predicting, and the row-weighted decile error between them. At the same example grain this
+    # error should agree with the unseen grade's; a gap there is holdout optimism.
+    holdout_mean_score: float | None = None
+    holdout_expected_calibration_error: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -74,6 +85,8 @@ class HeadMetrics:
             "holdout_average_precision": self.holdout_average_precision,
             "holdout_logloss": self.holdout_logloss,
             "holdout_positive_rate": self.holdout_positive_rate,
+            "holdout_mean_score": self.holdout_mean_score,
+            "holdout_expected_calibration_error": self.holdout_expected_calibration_error,
         }
 
 
@@ -85,6 +98,9 @@ class TrainedHead:
     # model on its own holdout; None when there were no holdout rows.
     holdout_booster_ubj: bytes | None
     metrics: HeadMetrics
+    # The holdout score deciles, carried next to the metrics rather than inside them: the metrics
+    # go on one event per head, and a decile table needs one event per bucket.
+    calibration: tuple[CalibrationBucket, ...]
 
 
 def _ubj(model: xgb.XGBClassifier) -> bytes:
@@ -149,6 +165,7 @@ def train_head(
             null_auc_std = float(np.std(null_aucs))
 
     readable = _head_readable(holdout_auc, null_auc, int(y_test.sum()), min_positives=head.min_holdout_positives)
+    calibration = calibration_buckets(y_test.astype(bool), holdout_scores)
     metrics = HeadMetrics(
         head=head.name,
         train_rows=int(len(y_train)),
@@ -166,6 +183,8 @@ def train_head(
         # Logloss is defined on a single-class holdout, unlike AUC and average precision.
         holdout_logloss=float(log_loss(y_test, holdout_scores, labels=[0, 1])) if len(y_test) else None,
         holdout_positive_rate=float(y_test.mean()) if len(y_test) else None,
+        holdout_mean_score=float(holdout_scores.mean()) if len(y_test) else None,
+        holdout_expected_calibration_error=expected_calibration_error(calibration),
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)
@@ -174,7 +193,14 @@ def train_head(
         booster_ubj=_ubj(final),
         holdout_booster_ubj=_ubj(model) if len(y_test) else None,
         metrics=metrics,
+        calibration=calibration,
     )
+
+
+def holdout_calibration_rows(trained: Sequence[TrainedHead]) -> list[dict[str, object]]:
+    """One dict per (head, decile) of the candidate's holdout, in the shape the unseen calibration
+    rows use, so one insight can read the holdout line and the unseen line side by side."""
+    return [row for model in trained for row in bucket_rows(model.calibration, {"head": model.head})]
 
 
 def booster_holdout_auc(

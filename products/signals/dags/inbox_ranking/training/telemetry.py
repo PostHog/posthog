@@ -34,6 +34,8 @@ PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
 UNSEEN_REPORT_SCORED_EVENT = "inbox_ranking_unseen_report_scored"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
+UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
+HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -165,6 +167,27 @@ def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> li
     return [
         TrainingEvent(event=UNSEEN_HEAD_GRADED_EVENT, properties={**grade.as_dict(), "run_id": run_id})
         for grade in grades
+    ]
+
+
+def unseen_calibration_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
+    """One event per (model, head, score decile) of the unseen grade: how much the decile predicted
+    against how often the outcome happened. One event per bucket because a decile table on the head
+    event would be a JSON array, which no insight can break down."""
+    return [TrainingEvent(event=UNSEEN_CALIBRATION_EVENT, properties={**row, "run_id": run_id}) for row in rows]
+
+
+def holdout_calibration_events(
+    *, partition_key: str, run_id: str, model_name: str, rows: Sequence[Mapping[str, Any]]
+) -> list[TrainingEvent]:
+    """The same read on the candidate's holdout. The properties match the unseen event, so one
+    insight holds both lines and the gap between them is the holdout optimism."""
+    return [
+        TrainingEvent(
+            event=HOLDOUT_CALIBRATION_EVENT,
+            properties={"model_name": model_name, "model_version": partition_key, "run_id": run_id, **row},
+        )
+        for row in rows
     ]
 
 

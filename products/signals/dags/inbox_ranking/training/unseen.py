@@ -32,6 +32,12 @@ from products.signals.backend.ranking.features import (
     feature_set_by_name,
 )
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.training.calibration import (
+    CalibrationBucket,
+    bucket_rows,
+    calibration_buckets,
+    expected_calibration_error,
+)
 from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask, state_rows
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 
@@ -138,6 +144,9 @@ class HeadGrade:
     # outcome landed on the report's own birth day, which is where most outcomes land.
     birth_day_positives: int
     base_rate: float | None
+    # The mean of the scores themselves, next to `base_rate`, the rate they were predicting. AUC
+    # cannot see a gap between the two, and the composite score the heads exist for needs it closed.
+    mean_score: float | None
     auc: float | None
     # AUC of "newest first" on the same outcomes. A model that does not beat it has learned
     # nothing the inbox could not do by sorting on age.
@@ -145,6 +154,10 @@ class HeadGrade:
     # The chance line on the same rows (see ChanceBand): the band a per-day AUC has to clear.
     null_auc: float | None
     null_auc_std: float | None
+    # The score deciles the calibration events carry, and the error read over them. The deciles are
+    # a table, so they stay off the head event and go out one event per bucket.
+    calibration: tuple[CalibrationBucket, ...]
+    expected_calibration_error: float | None
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -152,6 +165,9 @@ class HeadGrade:
             "positives": self.positives,
             "birth_day_positives": self.birth_day_positives,
             "base_rate": self.base_rate,
+            "mean_score": self.mean_score,
+            "expected_calibration_error": self.expected_calibration_error,
+            "calibration_buckets": len(self.calibration),
             "auc": self.auc,
             "recency_auc": self.recency_auc,
             "null_auc": self.null_auc,
@@ -159,7 +175,8 @@ class HeadGrade:
             "null_permutations": NULL_PERMUTATIONS,
         }
 
-    def as_dict(self) -> dict[str, object]:
+    def identity(self) -> dict[str, object]:
+        """What was graded, without the numbers: the properties every event of this grade carries."""
         return {
             "head": self.head,
             "horizon_days": self.horizon_days,
@@ -168,8 +185,10 @@ class HeadGrade:
             "model_name": self.model_name,
             "model_version": self.model_version,
             "model_role": self.model_role,
-            **self.metrics(),
         }
+
+    def as_dict(self) -> dict[str, object]:
+        return {**self.identity(), **self.metrics()}
 
 
 def _auc(outcomes: np.ndarray, scores: np.ndarray) -> float | None:
@@ -470,6 +489,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
         scores = rows["score"].to_numpy(dtype=float)
         at_scoring = rows["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
         band = chance_band(outcomes, scores)
+        buckets = calibration_buckets(outcomes, scores)
         grades.append(
             HeadGrade(
                 head=head.name,
@@ -483,13 +503,25 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
                 positives=int(outcomes.sum()),
                 birth_day_positives=int((outcomes & at_scoring).sum()),
                 base_rate=float(outcomes.mean()) if len(rows) else None,
+                mean_score=float(scores.mean()) if len(rows) else None,
                 auc=_auc(outcomes, scores),
                 recency_auc=_auc(outcomes, -rows["age_hours"].to_numpy(dtype=float)),
                 null_auc=band.auc,
                 null_auc_std=band.auc_std,
+                calibration=buckets,
+                expected_calibration_error=expected_calibration_error(buckets),
             )
         )
     return grades
+
+
+def calibration_rows(grades: Sequence[HeadGrade]) -> list[dict[str, object]]:
+    """One dict per (model, head, decile): the grade's identity plus that bucket's counts.
+
+    One event per bucket rather than a table on the head event, because a JSON array cannot be
+    charted: a reliability read is `mean_score` against `realized_rate` broken down by `bucket`.
+    """
+    return [row for grade in grades for row in bucket_rows(grade.calibration, grade.identity())]
 
 
 def report_grade_rows(
