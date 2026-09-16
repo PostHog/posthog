@@ -290,6 +290,21 @@ describe('ML session key batches', () => {
         expect((await reader.read(locations)).size).toBe(0)
     })
 
+    it.each<[string, (item: DynamoItem) => DynamoItem]>([
+        ['names another organization', (item) => ({ ...item, organization_id: { S: 'organization-other' } })],
+        ['has no wrapped key and no tombstone', ({ wrapped_key: _wrapped, ...item }) => item],
+    ])('drops the sessions behind a stored key that %s instead of failing the batch', async (_label, corrupt) => {
+        const first = await store.prepare([session])
+        await first.commit()
+        const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
+        const stored = corrupt(boundary.items.get(location)!)
+        boundary.items.set(location, stored)
+        const next = await store.prepare([session])
+        expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+        await next.commit()
+        expect(boundary.items.get(location)).toEqual(stored)
+    })
+
     it('adopts a competing writer key', async () => {
         const first = await store.prepare([session])
         const second = await store.prepare([session])

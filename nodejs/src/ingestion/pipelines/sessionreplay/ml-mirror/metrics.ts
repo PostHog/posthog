@@ -67,6 +67,10 @@ export class MlMirrorMetrics {
         name: 'recording_blob_ingestion_v2_ml_legacy_envelopes_dropped_total',
         help: 'Kafka records still in the sealed envelope shape the ML lanes wrote before they switched to cleartext records. The consumers drop them without dead-lettering, so this counter is the only trace of the backlog draining; once it stays at zero after a rollout, nothing else reads that shape',
     })
+    private static readonly mlKeyIdentityMismatch = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
+        help: 'Stored ML keys the mirror refused to use because the row names another organization than the team does now, or has no wrapped key and no tombstone. Each one drops the sessions behind it; the ml_key_stored_identity_mismatch log line names the rows',
+    })
     private static readonly mlProducedVersion = new Counter({
         name: 'recording_blob_ingestion_v2_ml_produced_version_total',
         help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
@@ -177,6 +181,10 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlKeyIdentityMismatch(count: number): void {
+        this.mlKeyIdentityMismatch.inc(count)
     }
 
     public static incrementMlLegacyEnvelopesDropped(count: number): void {

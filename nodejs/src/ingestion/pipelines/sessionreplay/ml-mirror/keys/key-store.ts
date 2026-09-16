@@ -1,4 +1,5 @@
 import { logger } from '~/common/utils/logger'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
@@ -54,6 +55,14 @@ function commitRetryDelayMs(attempt: number): number {
 export interface MlSessionKeys {
     session: MlDataKey
     image: MlDataKey
+}
+
+interface MlStoredKeyMismatch {
+    id: string
+    teamId: number
+    expectedOrganizationId: string
+    storedOrganizationId?: string
+    hasWrappedKey: boolean
 }
 
 function storedKeyId(identity: MlKeyIdentity): TableKey {
@@ -124,6 +133,7 @@ export class MlKeyBatch {
         for (const [id, item] of await this.db.read(remaining, deadline)) {
             this.state.set(id, item)
         }
+        const mismatched: MlStoredKeyMismatch[] = []
         await Promise.all(
             [...keyIdentities].map(async ([id, identity]) => {
                 const item = this.state.get(id)
@@ -132,7 +142,14 @@ export class MlKeyBatch {
                 }
                 if (item) {
                     if (!item.wrapped_key?.B || item.organization_id?.S !== identity.organizationId) {
-                        throw new Error('Invalid stored ML key identity')
+                        mismatched.push({
+                            id,
+                            teamId: identity.teamId,
+                            expectedOrganizationId: identity.organizationId,
+                            storedOrganizationId: item.organization_id?.S,
+                            hasWrappedKey: Boolean(item.wrapped_key?.B),
+                        })
+                        return
                     }
                     this.keys.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
                 } else {
@@ -145,6 +162,15 @@ export class MlKeyBatch {
                 }
             })
         )
+        // A stored key that names another organization, or has lost its wrapped key without a tombstone, cannot serve this batch. The sessions behind it are dropped like blocked ones so one bad row cannot stop the lane, and the log names the row so the data can be repaired.
+        if (mismatched.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch(mismatched.length)
+            logger.error('🔑', 'ml_key_stored_identity_mismatch', {
+                count: mismatched.length,
+                teamIds: [...new Set(mismatched.map((entry) => entry.teamId))].slice(0, 20),
+                sample: mismatched.slice(0, 5),
+            })
+        }
     }
 
     public get(teamId: number, sessionId: string): MlSessionKeys | undefined {
