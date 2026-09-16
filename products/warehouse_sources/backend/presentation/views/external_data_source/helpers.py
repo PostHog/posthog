@@ -7,17 +7,6 @@ from typing import Any
 
 from django.db.models import Q, QuerySet
 
-from posthog.schema import (
-    SourceFieldFileUploadConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
@@ -29,6 +18,16 @@ from products.data_warehouse.backend.facade.api import (
     source_namespace_is_blank,
 )
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     AnySource,

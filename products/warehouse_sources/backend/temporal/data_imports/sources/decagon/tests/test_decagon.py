@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.decagon import (
     DECAGON_BASE_URL,
+    DECAGON_PAGE_SIZE,
     DecagonContractError,
     DecagonResumeConfig,
     _to_epoch_seconds,
@@ -42,7 +43,11 @@ def _conversation(conversation_id: str) -> dict[str, Any]:
 
 
 def _drive_rows(
-    manager: MagicMock, responses: list[Response], endpoint: str = "conversations", **incremental_kwargs: Any
+    manager: MagicMock,
+    responses: list[Response],
+    endpoint: str = "conversations",
+    logger: Optional[MagicMock] = None,
+    **incremental_kwargs: Any,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     sent_params: list[dict[str, Any]] = []
     response_iter = iter(responses)
@@ -60,7 +65,7 @@ def _drive_rows(
             get_rows(
                 api_key="key",
                 endpoint=endpoint,
-                logger=MagicMock(),
+                logger=logger or MagicMock(),
                 resumable_source_manager=manager,
                 **incremental_kwargs,
             )
@@ -198,6 +203,17 @@ class TestGetRows:
         sent_params, yielded_ids = self._drive(manager, responses)
         assert sent_params == [{}, {"cursor": "cur-1"}]
         assert yielded_ids == [["c1"]]
+
+    def test_full_page_without_a_cursor_warns_that_the_walk_may_be_truncated(self) -> None:
+        # Reading only a renamed cursor field already truncated this export once. A full
+        # page that ends the walk is the one symptom left, so it has to reach the log.
+        manager = self._fresh_manager()
+        logger = MagicMock()
+        page = [_conversation(f"c{i}") for i in range(DECAGON_PAGE_SIZE)]
+        _drive_rows(manager, [_make_response({"conversations": page})], logger=logger)
+
+        assert logger.warning.call_count == 1
+        assert "ended on a full page" in logger.warning.call_args.args[0]
 
     def test_incremental_walk_sends_window_on_every_page_and_saves_it(self) -> None:
         manager = self._fresh_manager()
@@ -722,6 +738,16 @@ class TestAdminLogs:
             {"offset": "2", "limit": "100", "start": "2026-01-15T12:00:05+00:00"},
         ]
         assert [len(b) for b in batches] == [2, 1]
+
+    def test_offset_walk_without_a_total_stops_on_a_short_page(self) -> None:
+        # Without `total` the only end signal is a page shorter than the requested limit.
+        # Missing it would re-request the same short page until the server complained.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [{"id": "a1"}]})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="admin_logs")
+
+        assert len(sent_params) == 1
+        assert [[r["id"] for r in b] for b in batches] == [["a1"]]
 
     @parameterized.expand(
         [

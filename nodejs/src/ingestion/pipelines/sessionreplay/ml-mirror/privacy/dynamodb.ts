@@ -1,11 +1,13 @@
 import {
     AttributeValue,
     BatchGetItemCommand,
+    ConditionalCheckFailedException,
     DynamoDBClient,
-    TransactWriteItem,
-    TransactWriteItemsCommand,
+    PutItemCommand,
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
+
+import { MlMirrorMetrics, MlPrivacyRequest } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { TableKey, tableKeyString } from './schema'
 
@@ -24,6 +26,7 @@ export function decodeKey(item: DynamoItem): TableKey {
 
 export class MlPrivacyDynamoDB {
     private readonly concurrency = pLimit(4)
+    private readonly writeConcurrency = pLimit(32)
 
     constructor(
         private readonly client: Pick<DynamoDBClient, 'send'>,
@@ -32,7 +35,7 @@ export class MlPrivacyDynamoDB {
         private readonly attempts = 5
     ) {}
 
-    public async read(keys: TableKey[]): Promise<Map<string, DynamoItem>> {
+    public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
         const chunks: TableKey[][] = []
@@ -44,11 +47,13 @@ export class MlPrivacyDynamoDB {
                 this.concurrency(async () => {
                     let pending = chunk.map(encodeKey)
                     for (let attempt = 0; pending.length && attempt < this.attempts; attempt++) {
-                        const response = await this.client.send(
-                            new BatchGetItemCommand({
-                                RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
-                            }),
-                            { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) }
+                        const response = await this.timed('dynamodb_read', () =>
+                            this.client.send(
+                                new BatchGetItemCommand({
+                                    RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
+                                }),
+                                { abortSignal: this.requestSignal(deadline) }
+                            )
                         )
                         for (const item of response.Responses?.[this.tableName] ?? []) {
                             result.set(tableKeyString(decodeKey(item)), item)
@@ -67,33 +72,55 @@ export class MlPrivacyDynamoDB {
         return result
     }
 
-    public async write(transactions: TransactWriteItem[][]): Promise<void> {
-        await Promise.all(
-            transactions.map((items) =>
-                this.concurrency(async () => {
-                    if (!items.length || items.length > 100) {
-                        throw new Error('Invalid ML privacy transaction size')
+    public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {
+        return this.writeConcurrency(() =>
+            this.timed('dynamodb_put_if_absent', async () => {
+                try {
+                    await this.client.send(
+                        new PutItemCommand({
+                            TableName: this.tableName,
+                            Item: { ...encodeKey(key), ...attributes },
+                            ConditionExpression: 'attribute_not_exists(pk)',
+                        }),
+                        { abortSignal: this.requestSignal(deadline) }
+                    )
+                    return true
+                } catch (error) {
+                    if (error instanceof ConditionalCheckFailedException) {
+                        return false
                     }
-                    await this.client.send(new TransactWriteItemsCommand({ TransactItems: items }), {
-                        abortSignal: AbortSignal.timeout(this.requestTimeoutMs),
-                    })
-                })
+                    throw error
+                }
+            })
+        )
+    }
+
+    public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
+        await this.writeConcurrency(() =>
+            this.timed('dynamodb_put', () =>
+                this.client.send(
+                    new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
+                    { abortSignal: this.requestSignal(deadline) }
+                )
             )
         )
     }
 
-    public async backoff(attempt: number): Promise<void> {
-        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, 50 * 2 ** attempt) + Math.random() * 50))
+    private async timed<T>(request: MlPrivacyRequest, operation: () => Promise<T>): Promise<T> {
+        const startedAt = performance.now()
+        try {
+            return await operation()
+        } finally {
+            MlMirrorMetrics.observeMlPrivacyRequest(request, performance.now() - startedAt)
+        }
     }
 
-    public check(key: TableKey, condition: string, values?: DynamoItem): TransactWriteItem {
-        return {
-            ConditionCheck: {
-                TableName: this.tableName,
-                Key: encodeKey(key),
-                ConditionExpression: condition,
-                ...(values ? { ExpressionAttributeValues: values } : {}),
-            },
-        }
+    private requestSignal(deadline?: AbortSignal): AbortSignal {
+        const timeout = AbortSignal.timeout(this.requestTimeoutMs)
+        return deadline ? AbortSignal.any([deadline, timeout]) : timeout
+    }
+
+    public async backoff(attempt: number): Promise<void> {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000, 50 * 2 ** attempt) + Math.random() * 50))
     }
 }

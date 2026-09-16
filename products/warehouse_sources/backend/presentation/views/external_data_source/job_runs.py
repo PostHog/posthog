@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
@@ -179,6 +180,7 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
                 ),
             )
         ],
+        responses={200: SourceConfigMapResponse},
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
