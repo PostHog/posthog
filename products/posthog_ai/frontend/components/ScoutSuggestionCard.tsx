@@ -9,7 +9,7 @@ import { SlackDestinationPicker } from 'lib/components/Comments/SlackDestination
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
-import { turnSuggestionLogic } from '../logics/turnSuggestionLogic'
+import { scoutSuggestionLogic } from '../logics/scoutSuggestionLogic'
 import { CADENCE_OPTIONS, cadenceLabel, slackChannelDisplayName } from '../utils/turnSuggestions'
 
 export interface ScoutSuggestionCardProps {
@@ -23,7 +23,7 @@ export interface ScoutSuggestionCardProps {
  * create the scout the classifier drafted, without leaving the conversation.
  */
 export function ScoutSuggestionCard({ streamKey, turnIndex, sessionId }: ScoutSuggestionCardProps): JSX.Element | null {
-    const logic = turnSuggestionLogic({ streamKey, turnIndex, sessionId })
+    const logic = scoutSuggestionLogic({ streamKey, turnIndex, sessionId })
     const {
         suggestion,
         cadence,

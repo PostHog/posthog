@@ -8,13 +8,18 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.posthog_ai.backend.turn_suggestions.classifier import (
+    NotebookDraft,
     ScoutCadence,
     ScoutDraft,
     TurnIntent,
     TurnVerdict,
     render_turn_prompt,
 )
-from products.posthog_ai.backend.turn_suggestions.service import TURN_SUGGESTION_METHOD, generate_turn_suggestion
+from products.posthog_ai.backend.turn_suggestions.service import (
+    TURN_SUGGESTION_METHOD,
+    TurnSuggestionOutcome,
+    generate_turn_suggestion,
+)
 from products.posthog_ai.backend.turn_suggestions.transcript import build_turn_transcript
 from products.tasks.backend.models import Task
 
@@ -89,6 +94,11 @@ def _verdict(recurring: bool = True, intent: TurnIntent = TurnIntent.METRIC_STAT
             cadence=ScoutCadence.WEEKLY,
         )
         if recurring
+        else None,
+        notebook=NotebookDraft(
+            title="Why signups dropped on Tuesday", summary="A checkout error cut Tuesday's signups by a third."
+        )
+        if intent == TurnIntent.DIAGNOSTIC
         else None,
     )
 
@@ -225,16 +235,40 @@ class TestGenerateTurnSuggestion(BaseTest):
         transcript = self.mocks["classify"].call_args.args[0]
         assert transcript.last_human_message == "How many signups did we get this week?"
 
-    def test_non_recurring_verdict_is_recorded_but_not_published(self):
+    def test_diagnostic_verdict_publishes_a_notebook_suggestion(self):
         self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.DIAGNOSTIC)
 
         outcome = generate_turn_suggestion(str(self.task_run.id))
 
+        assert outcome == TurnSuggestionOutcome(status="emitted", reason="notebook")
+        _, _, params = self.mocks["publish"].call_args.args
+        assert params["kind"] == "notebook"
+        assert "scout" not in params
+        assert params["notebook"] == {
+            "title": "Why signups dropped on Tuesday",
+            "summary": "A checkout error cut Tuesday's signups by a third.",
+        }
+
+    def test_diagnostic_turn_without_tool_calls_is_not_offered_a_notebook(self):
+        self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.DIAGNOSTIC)
+        self.mocks["stream"].return_value = [_user_message("Why did signups drop?"), _agent_text("Hard to say.")]
+
+        outcome = generate_turn_suggestion(str(self.task_run.id))
+
+        assert outcome.reason == "no_offer:diagnostic"
+        self.mocks["publish"].assert_not_called()
+
+    def test_verdict_without_an_offer_is_recorded_but_not_published(self):
+        self.mocks["classify"].return_value = _verdict(recurring=False, intent=TurnIntent.KNOWLEDGE)
+
+        outcome = generate_turn_suggestion(str(self.task_run.id))
+
         assert outcome.status == "skipped"
-        assert outcome.reason == "not_recurring:diagnostic"
+        assert outcome.reason == "no_offer:knowledge"
         self.mocks["publish"].assert_not_called()
         capture = self.mocks["capture"].return_value.__enter__.return_value
         assert capture.call_args.kwargs["properties"]["emitted"] is False
+        assert capture.call_args.kwargs["properties"]["offer"] is None
 
     def test_follow_up_turns_never_reach_the_classifier(self):
         self.mocks["stream"].return_value = [*_metric_turn(), _user_message("And last month?"), _agent_text("1,600.")]

@@ -82,25 +82,42 @@ def _claim_turn(task_run: TaskRun, turn_index: int) -> bool:
         return True
 
 
-def _suggestion_params(verdict: TurnVerdict, turn_index: int) -> dict:
-    assert verdict.scout is not None
-    return {
+def _turn_has_substance(transcript: TurnTranscript) -> bool:
+    """A notebook is only worth saving when the assistant actually queried something and answered."""
+    return bool(transcript.tool_calls) and bool(transcript.assistant_text)
+
+
+def _suggestion_params(verdict: TurnVerdict, transcript: TurnTranscript, turn_index: int) -> dict | None:
+    base = {
         "turnIndex": turn_index,
-        "kind": "scout",
         "intent": verdict.intent.value,
         "confidence": verdict.confidence,
         "title": verdict.title,
         "description": verdict.description,
-        "scout": {
-            "displayName": verdict.scout.display_name,
-            "description": verdict.scout.description,
-            "body": verdict.scout.body,
-            "cadence": verdict.scout.cadence.value,
-        },
     }
+    if verdict.offers_scout and verdict.scout is not None:
+        return {
+            **base,
+            "kind": "scout",
+            "scout": {
+                "displayName": verdict.scout.display_name,
+                "description": verdict.scout.description,
+                "body": verdict.scout.body,
+                "cadence": verdict.scout.cadence.value,
+            },
+        }
+    if verdict.offers_notebook and verdict.notebook is not None and _turn_has_substance(transcript):
+        return {
+            **base,
+            "kind": "notebook",
+            "notebook": {"title": verdict.notebook.title, "summary": verdict.notebook.summary},
+        }
+    return None
 
 
-def _capture_classified(task_run: TaskRun, verdict: TurnVerdict | None, *, emitted: bool, turn_index: int) -> None:
+def _capture_classified(
+    task_run: TaskRun, verdict: TurnVerdict | None, *, offer: str | None, emitted: bool, turn_index: int
+) -> None:
     user = task_run.task.created_by
     if user is None:
         return
@@ -117,6 +134,7 @@ def _capture_classified(task_run: TaskRun, verdict: TurnVerdict | None, *, emitt
                 "intent": verdict.intent.value if verdict else None,
                 "recurring": verdict.recurring if verdict else None,
                 "confidence": verdict.confidence if verdict else None,
+                "offer": offer,
                 "emitted": emitted,
             },
         )
@@ -149,15 +167,17 @@ def generate_turn_suggestion(run_id: str) -> TurnSuggestionOutcome:
 
     verdict = classify_turn(transcript, team_id=task_run.team_id, today=datetime.now(UTC).date())
     if verdict is None:
-        _capture_classified(task_run, None, emitted=False, turn_index=turn_index)
+        _capture_classified(task_run, None, offer=None, emitted=False, turn_index=turn_index)
         return TurnSuggestionOutcome(status="failed", reason="classifier_failed")
 
-    emitted = verdict.offers_scout and publish_task_run_stream_notification(
-        str(task_run.id), TURN_SUGGESTION_METHOD, _suggestion_params(verdict, turn_index)
+    params = _suggestion_params(verdict, transcript, turn_index)
+    emitted = params is not None and publish_task_run_stream_notification(
+        str(task_run.id), TURN_SUGGESTION_METHOD, params
     )
-    _capture_classified(task_run, verdict, emitted=emitted, turn_index=turn_index)
-    if not verdict.offers_scout:
-        return _skipped(f"not_recurring:{verdict.intent.value}")
+    offer = str(params["kind"]) if params is not None else None
+    _capture_classified(task_run, verdict, offer=offer, emitted=emitted, turn_index=turn_index)
+    if params is None:
+        return _skipped(f"no_offer:{verdict.intent.value}")
     if not emitted:
         return TurnSuggestionOutcome(status="failed", reason="publish_failed")
-    return TurnSuggestionOutcome(status="emitted", reason="scout")
+    return TurnSuggestionOutcome(status="emitted", reason=offer or "unknown")

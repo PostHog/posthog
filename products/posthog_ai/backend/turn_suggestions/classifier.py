@@ -57,6 +57,12 @@ class ScoutDraft:
 
 
 @frozen
+class NotebookDraft:
+    title: str
+    summary: str
+
+
+@frozen
 class TurnVerdict:
     intent: TurnIntent
     recurring: bool
@@ -64,6 +70,7 @@ class TurnVerdict:
     title: str
     description: str
     scout: ScoutDraft | None
+    notebook: NotebookDraft | None
 
     @property
     def offers_scout(self) -> bool:
@@ -73,6 +80,10 @@ class TurnVerdict:
             and self.confidence >= MIN_CONFIDENCE
             and self.scout is not None
         )
+
+    @property
+    def offers_notebook(self) -> bool:
+        return self.intent == TurnIntent.DIAGNOSTIC and self.confidence >= MIN_CONFIDENCE and self.notebook is not None
 
 
 class _VerdictReply(BaseModel):
@@ -85,11 +96,15 @@ class _VerdictReply(BaseModel):
     scout_description: str
     scout_prompt: str
     cadence: ScoutCadence
+    notebook_title: str
+    notebook_summary: str
 
 
 SYSTEM_PROMPT = """You review one finished turn of PostHog AI, the in-app analytics agent, and decide whether the user would benefit from turning that turn into a scout.
 
 A scout is a scheduled agent. It runs a markdown prompt on a cadence (daily or weekly), has the same PostHog tools the assistant used (trend, funnel, retention and SQL queries over the project's events), and posts a short report to a Slack channel and the project's inbox. A scout is worth offering when the user asked about the current state of a metric that stays useful when re-asked later: a growth rate, a conversion rate for a cohort, weekly active users, top pages, revenue this month. It is not worth offering for one-off work.
+
+A diagnostic turn gets a different offer: saving the conversation to a notebook, with the question, the queries the assistant ran and the findings, so the investigation can be shared and revisited. For those turns you draft the notebook instead of a scout.
 
 Classify the turn into exactly one intent:
 - metric_state: the question asks what a metric or breakdown is right now or over a relative window (last 7 days, this month, week over week).
@@ -108,7 +123,13 @@ When recurring is true, draft the scout:
 - title: the card headline, at most 60 characters, sentence case. Example: Get this every week in Slack.
 - description: one sentence, at most 140 characters, why a scout helps here.
 
-When recurring is false, still fill title and description with a short neutral explanation and leave the scout fields empty. Reply with the JSON object only."""
+When the intent is diagnostic, draft the notebook:
+- notebook_title: at most 80 characters, sentence case, names what was investigated. Example: Why checkout conversion dropped last week.
+- notebook_summary: one or two sentences with the finding, at most 300 characters, written so it reads well above the saved conversation.
+- title: the card headline, at most 60 characters, sentence case. Example: Save this investigation to a notebook.
+- description: one sentence, at most 140 characters, why saving helps here.
+
+Fields that do not apply to the intent stay empty strings. When neither offer applies, still fill title and description with a short neutral explanation. Reply with the JSON object only."""
 
 
 def _response_format() -> ResponseFormatJSONSchema:
@@ -131,6 +152,8 @@ def _response_format() -> ResponseFormatJSONSchema:
                     "scout_description": {"type": "string"},
                     "scout_prompt": {"type": "string"},
                     "cadence": {"type": "string", "enum": [cadence.value for cadence in ScoutCadence]},
+                    "notebook_title": {"type": "string"},
+                    "notebook_summary": {"type": "string"},
                 },
                 "required": [
                     "intent",
@@ -142,6 +165,8 @@ def _response_format() -> ResponseFormatJSONSchema:
                     "scout_description",
                     "scout_prompt",
                     "cadence",
+                    "notebook_title",
+                    "notebook_summary",
                 ],
                 "additionalProperties": False,
             },
@@ -174,6 +199,11 @@ def _verdict_from_reply(reply: _VerdictReply) -> TurnVerdict:
         if reply.recurring and reply.scout_prompt.strip() and reply.scout_display_name.strip()
         else None
     )
+    notebook = (
+        NotebookDraft(title=reply.notebook_title.strip()[:80], summary=reply.notebook_summary.strip()[:300])
+        if reply.intent == TurnIntent.DIAGNOSTIC and reply.notebook_title.strip()
+        else None
+    )
     return TurnVerdict(
         intent=reply.intent,
         recurring=reply.recurring,
@@ -181,6 +211,7 @@ def _verdict_from_reply(reply: _VerdictReply) -> TurnVerdict:
         title=reply.title.strip()[:60],
         description=reply.description.strip()[:140],
         scout=scout,
+        notebook=notebook,
     )
 
 
