@@ -12,6 +12,7 @@ import { TestTlsIdentity, createTestTlsIdentity } from '~/tests/helpers/tls'
 type RequestModule = typeof import('./request')
 type Client = import('undici').Client
 type FetchResponseLike = Awaited<ReturnType<RequestModule['fetch']>>
+type LegacyResponseLike = Awaited<ReturnType<RequestModule['legacyFetch']>>
 
 const proxyEnvironmentNames = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'] as const
 
@@ -321,6 +322,26 @@ describe('secure HTTP/2 requests', () => {
                 // to prevent.
                 expect(() => loadWithProxyTeams(proxyTeams)).toThrow(/takes a fraction between 0 and 1/)
             }
+        )
+
+        // legacyFetch picks its own dispatcher instead of taking one from `fetch`, so it needs its own coverage.
+        // A shared agent assigned there directly would pin the helper to one route whatever the rollout says.
+        it.each([
+            [null, true],
+            [3, false],
+        ])(
+            'routes legacyFetch for team %s through the proxy: %s',
+            async (teamId, expectProxied) => {
+                loadWithProxyTeams('2')
+                const authority = `127.0.0.1:${serverPort(plainOrigin)}`
+                const run = (): Promise<LegacyResponseLike> => requestModule.legacyFetch(`http://${authority}/legacy`)
+
+                const response = await (teamId === null ? run() : attribution.run({ teamId }, run))
+
+                expect(await response.text()).toBe('/legacy')
+                expect(proxyAuthorities).toEqual(expectProxied ? [authority] : [])
+            },
+            10000
         )
 
         it('keeps the two routes on separate HTTP/2 dispatchers for one idle timeout', async () => {
