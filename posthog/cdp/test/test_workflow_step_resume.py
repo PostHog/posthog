@@ -8,6 +8,7 @@ from django.test import override_settings
 
 import jwt
 import requests
+from celery.utils.time import get_exponential_backoff_interval
 
 from posthog.cdp.workflow_step_resume import (
     RESULT_BYTE_CAP,
@@ -60,8 +61,21 @@ def test_emits_the_internal_event_until_the_key_is_provisioned() -> None:
     assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
 
 
+def test_the_wake_falls_back_to_the_internal_event_when_the_queue_refuses_it() -> None:
+    with patch(_SEND_TASK, side_effect=RuntimeError("broker down")), patch(_PRODUCE) as produce:
+        emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={"pr_urls": ["u"]})
+
+    produce.assert_called_once()
+    event = produce.call_args.kwargs["event"]
+    assert event.event == "$workflow_step_resume"
+    assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
+
+
 def test_a_failed_emit_does_not_raise() -> None:
-    with patch(_SEND_TASK, side_effect=RuntimeError("broker down")):
+    with (
+        patch(_SEND_TASK, side_effect=RuntimeError("broker down")),
+        patch(_PRODUCE, side_effect=RuntimeError("kafka down")),
+    ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="failed")
 
 
@@ -86,7 +100,8 @@ def test_result_fits_the_serialized_byte_budget(result) -> None:
 def test_delivery_activities_can_retry_a_failed_emit() -> None:
     with (
         patch(_SEND_TASK, side_effect=RuntimeError("broker down")),
-        pytest.raises(RuntimeError, match="broker down"),
+        patch(_PRODUCE, side_effect=RuntimeError("kafka down")),
+        pytest.raises(RuntimeError, match="kafka down"),
     ):
         emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="failed", raise_on_error=True)
 
@@ -121,3 +136,38 @@ def test_the_delivery_task_posts_the_wake_with_a_scoped_jwt() -> None:
 def test_the_delivery_task_raises_so_celery_retries_when(status_code: int) -> None:
     with patch(_POST, return_value=_response(status_code)), pytest.raises(requests.HTTPError):
         deliver_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={})
+
+
+def test_the_delivery_task_falls_back_to_kafka_when_its_worker_has_no_key() -> None:
+    with (
+        override_settings(WORKFLOWS_STEP_RESUME_JWT_SECRETS=[]),
+        patch(_POST) as post,
+        patch(_PRODUCE) as produce,
+    ):
+        deliver_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={"pr_urls": ["u"]})
+
+    post.assert_not_called()
+    produce.assert_called_once()
+    event = produce.call_args.kwargs["event"]
+    assert event.event == "$workflow_step_resume"
+    assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
+
+
+def test_the_delivery_task_outlives_the_loss_of_its_worker() -> None:
+    assert deliver_workflow_step_resume.acks_late is True
+    assert deliver_workflow_step_resume.reject_on_worker_lost is True
+
+
+def test_the_delivery_task_retries_for_about_twelve_minutes() -> None:
+    task = deliver_workflow_step_resume
+    delays = [
+        get_exponential_backoff_interval(
+            factor=int(max(1.0, float(task.retry_backoff))),
+            retries=retry,
+            maximum=task.retry_backoff_max,
+            full_jitter=task.retry_jitter,
+        )
+        for retry in range(task.max_retries)
+    ]
+
+    assert sum(delays) == 727

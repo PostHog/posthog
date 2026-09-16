@@ -40,6 +40,10 @@ A step that reaches its deadline without a wake fails with a timeout.
 The wake is keyed on the step's idempotency key, so any template that dispatches a run its owner can report on can use the same path.
 With `WORKFLOWS_STEP_RESUME_JWT_SECRET` provisioned on Django and the plugin server, a Celery task posts the wake to the CDP API's `workflow_steps/resume` route with a scoped JWT and retries with backoff for about twelve minutes.
 Without the key, the wake is the `$workflow_step_resume` internal event, consumed by the subscription matcher.
+The Celery worker reads the key again before it posts, and a worker that does not hold it yet sends the internal event instead.
+A wake queued during the key rollout is therefore delivered, not dropped.
+Provision the key only after the release that carries the delivery task is live on every Celery worker.
+A worker from an older release does not know the task, so it discards the wake instead of running it.
 `CDP_HOGFLOW_AWAITED_STEPS_ENABLED` on the plugin server enables new waits. Existing waits still receive their results when this flag is off.
 A wake that lands while the step is still dispatching cannot be applied, because the worker owns the job state until it parks. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
 Over the API the route answers 409 and the Celery task retries; over the internal event the wake is dropped and the step fails at its own deadline.
