@@ -1,21 +1,22 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconCornerDownRight } from '@posthog/icons'
-
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
+import { notebookCodeCellLogic } from 'products/notebooks/frontend/notebookCodeCellLogic'
+
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
+import { NotebookCellOutputNameFooter } from './components/NotebookCellOutputNameFooter'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 // The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
@@ -55,20 +56,13 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const {
         isRunning,
         runError,
+        isRestoringResult,
+        resultRestoreUnavailable,
         page,
         pageSize,
         pageResult,
@@ -79,10 +73,11 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
-    const result = attributes.result ?? null
+    const result = runResult ?? attributes.result ?? null
     const dataframeResult = useMemo(() => {
         if (pageResult) {
             return toDataframeResult({
@@ -176,13 +171,18 @@ const Component = ({
                         ))}
                     </div>
                 ) : null}
+                {resultRestoreUnavailable ? (
+                    <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
+                ) : isRestoringResult ? (
+                    <div className="p-2 text-xs text-muted">Loading saved results…</div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult ? (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <NotebookDataframeTable
                             result={dataframeResult}
-                            loading={isRunning || pageLoading}
+                            loading={isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length)}
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
@@ -205,30 +205,10 @@ const Component = ({
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
             </div>
-            <div
-                // Translucent overlay, not a surface token: the shell is surface-primary in light
-                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
-                onClick={(event) => event.stopPropagation()}
-                onMouseDown={(event) => event.stopPropagation()}
-            >
-                <span className="font-mono mt-0.5">
-                    <IconCornerDownRight />
-                </span>
-                <input
-                    type="text"
-                    // The dataframe name this cell's result is exposed as to later cells.
-                    // Optional: left empty, the cell binds nothing and later cells can't read it.
-                    // Wide enough for the placeholder to sit on one line without clipping. The name
-                    // carries weight through size and a faintly warm near-black rather than a hue —
-                    // a saturated color here competes with the accent the app spends on links.
-                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
-                    value={attributes.returnVariable ?? ''}
-                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                    placeholder="Output dataframe name"
-                    spellCheck={false}
-                />
-            </div>
+            <NotebookCellOutputNameFooter
+                returnVariable={attributes.returnVariable ?? ''}
+                onChange={(returnVariable) => updateAttributes({ returnVariable })}
+            />
         </div>
     )
 }
@@ -239,17 +219,8 @@ const Settings = ({
 }: NotebookNodeAttributeProperties<NotebookNodePythonV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
-    const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeSQLV2Logic({
-        nodeId,
-        notebookShortId,
-        updateAttributes,
-        runId: attributes.runId ?? null,
-        hasResult: !!attributes.result,
-        getContent: () => notebookLogic.values.content ?? null,
-        getVariables: () => notebookLogic.values.runnableVariables,
-    })
+    const dataLogic = notebookCodeCellLogic(nodeId, notebookLogic, attributes, updateAttributes)
     const { runNode } = useActions(dataLogic)
 
     // Read the run state imperatively: Monaco binds Cmd+Enter once at editor mount, so a captured
@@ -294,10 +265,8 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
-        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
-        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: '',
+            default: 'df',
         },
         runId: {
             default: null,

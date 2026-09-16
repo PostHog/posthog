@@ -26,11 +26,10 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectStatus, SubjectType, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation, SubjectRef
-from .notifications import notify_check_started_failing
 from .run_records import record_check_run
 from .staged_audit import StagedSubjectOverride, build_staged_database
 from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
@@ -57,7 +56,6 @@ class CheckOutcome:
     observed_value: float | None = None
     compiled_query: str = ""
     error: str = ""
-    became_failing: bool = False
     referenced_subjects: list[dict[str, str]] | None | _ReferenceState = _ReferenceState.NOT_SUPPLIED
 
 
@@ -84,24 +82,11 @@ def run_check(
         outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=str(err))
 
     duration_ms = int((time.monotonic() - monotonic_start) * 1000)
+    finished_at = datetime.now(UTC)
     with team_scope(team.id):
-        _record_run(check, suite_run, outcome, started_at, duration_ms)
-        became_failing = (
-            outcome.status is CheckRunStatus.FAILED
-            and check.severity == CheckSeverity.ERROR
-            and _claim_failing_transition(check)
-        )
-        _update_check(check, outcome)
-
-    if became_failing:
-        notify_check_started_failing(
-            check,
-            outcome.failed_row_count,
-            executed_references=None
-            if outcome.referenced_subjects is _ReferenceState.NOT_SUPPLIED
-            else outcome.referenced_subjects,
-        )
-    return replace(outcome, became_failing=became_failing)
+        _record_run(check, suite_run, outcome, started_at, finished_at, duration_ms)
+        _update_check(check, outcome, finished_at)
+    return outcome
 
 
 def record_unrunnable_check(
@@ -112,27 +97,11 @@ def record_unrunnable_check(
 ) -> CheckOutcome:
     """A check with no run row reads, in the health state and the API, exactly like one that passed."""
     outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason)
+    finished_at = datetime.now(UTC)
     with team_scope(team.id):
-        _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)
-        _update_check(check, outcome)
+        _record_run(check, suite_run, outcome, finished_at, finished_at, duration_ms=0)
+        _update_check(check, outcome, finished_at)
     return outcome
-
-
-def _claim_failing_transition(check: DataQualityCheck) -> bool:
-    """Whether this run is the one that moved the check into failing.
-
-    Runs of the same check can overlap -- a manual run alongside the scheduled one -- and comparing
-    against a status read in Python lets both of them see the same passing value and notify. The
-    conditional update lets exactly one flip the row, so the pass-to-fail edge notifies once. Must
-    run before ``_update_check`` writes the new status, or there is nothing left to claim.
-    """
-    return (
-        DataQualityCheck.objects.for_team(check.team_id)
-        .filter(id=check.id)
-        .exclude(last_status=CheckRunStatus.FAILED)
-        .update(last_status=CheckRunStatus.FAILED)
-        == 1
-    )
 
 
 @dataclass(frozen=True)
@@ -352,6 +321,7 @@ def _record_run(
     suite_run: DataQualitySuiteRun,
     outcome: CheckOutcome,
     started_at: datetime,
+    finished_at: datetime,
     duration_ms: int,
 ) -> None:
     if check.subject_uuid is None:
@@ -385,17 +355,17 @@ def _record_run(
         error=outcome.error,
         duration_ms=duration_ms,
         started_at=started_at,
-        finished_at=datetime.now(UTC),
+        finished_at=finished_at,
     )
 
 
-def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
-    ran_at = datetime.now(UTC)
+def _update_check(check: DataQualityCheck, outcome: CheckOutcome, finished_at: datetime) -> None:
+    """Stamps the check with the instant its run row carries, so failing_since matches the opening run's finished_at."""
     check.last_status = outcome.status
-    check.last_run_at = ran_at
+    check.last_run_at = finished_at
     updated = ["last_status", "last_run_at", "subject_name", "subject_status", "updated_at"]
     if outcome.status is CheckRunStatus.PASSED:
-        check.last_succeeded_at = ran_at
+        check.last_succeeded_at = finished_at
         # Written only by the run that earned it. A failing run holds whatever this row said when its
         # batch loaded it, so listing the column unconditionally would let it overwrite a success a
         # concurrent run committed in between.
@@ -414,7 +384,7 @@ def _update_check(check: DataQualityCheck, outcome: CheckOutcome) -> None:
     with transaction.atomic():
         check.save(update_fields=updated)
         if outcome.status in FAILING_STATUSES:
-            _claim_failing_streak(check, ran_at)
+            _claim_failing_streak(check, finished_at)
 
 
 def _claim_failing_streak(check: DataQualityCheck, failed_at: datetime) -> None:

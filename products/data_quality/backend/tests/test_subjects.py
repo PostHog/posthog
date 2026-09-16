@@ -165,7 +165,7 @@ class TestReadableSubjectSnapshot(BaseTest):
 
         assert backing_table.id not in readable.table_ids
 
-    def test_backing_table_map_includes_soft_deleted_views_in_one_query(self) -> None:
+    def test_backing_table_map_includes_soft_deleted_views_and_narrows_to_the_tables_asked_about(self) -> None:
         view, backing_table = self._materialized_view()
         view.deleted = True
         view.save(update_fields=["deleted"])
@@ -182,6 +182,16 @@ class TestReadableSubjectSnapshot(BaseTest):
             backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(self.team.id)
 
         assert backing_tables == {backing_table.id: view.id}
+        with self.assertNumQueries(1):
+            assert data_modeling_facade.backing_table_ids_by_saved_query(
+                self.team.id, table_ids={backing_table.id}
+            ) == {backing_table.id: view.id}
+        with self.assertNumQueries(1):
+            assert (
+                data_modeling_facade.backing_table_ids_by_saved_query(self.team.id, table_ids={source_table.id}) == {}
+            )
+        with self.assertNumQueries(0):
+            assert data_modeling_facade.backing_table_ids_by_saved_query(self.team.id, table_ids=set()) == {}
 
     def test_shared_metadata_keeps_recipient_permissions_separate(self) -> None:
         allowed = self._table("allowed")

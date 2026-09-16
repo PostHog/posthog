@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,10 +44,10 @@ class OpenAIAdsSource(ResumableSource[OpenAIAdsSourceConfig, OpenAIAdsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_AI_ADS,
+            name=ExternalDataSourceType.OPENAIADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="OpenAI Ads",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenAI Ads API key to pull your campaigns, ad groups, ads, and performance insights into the PostHog Data warehouse.
 
 Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai.com). Each key is scoped to a single ad account — to import more than one ad account, connect one source per account.""",

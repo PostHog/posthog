@@ -1,5 +1,6 @@
 ---
 name: signals-scout-tasks
+scout-display-name: Tasks
 description: >
   Signals scout for PostHog Tasks. Watches delivery health — failing runs clustered by
   repository and error class, retry storms — and, on a slower rotation, recurring demand across
@@ -214,7 +215,8 @@ Author / edit / remember / skip, against the four-states classifier:
   Cite task and run ids inline.
 - **Actionability and repo.**
   A failure localized to a component the project owns, with a concrete fix, is `immediately_actionable` with `repository="owner/repo"`.
-  A break in the task platform itself, or one whose cause you could only name as a hypothesis, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
+  A cause you could only name as a hypothesis keeps the same call, as long as the failing component sits in a repo the project owns: checking the hypothesis is the work.
+  A break in the task platform itself, or a cluster whose next step is a call only a person can make, is `requires_human_input` with `repository=NO_REPO` — `NO_REPO` is what stops a pointless repo-selection sandbox from spawning.
 - **Routing.**
   Resolve a reviewer from the `reviewer:tasks:<repo>` cache, then inbox precedent (`inbox-report-artefacts-list` on a comparable report), then `tasks-retrieve` on a representative task in the cluster for its `created_by.uuid`, then `scout-members-list`.
   Pass reviewer objects (`{github_login}` or `{user_uuid}`), never bare strings.

@@ -423,6 +423,44 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
 
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
+class DeleteTombstonedPersonsRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids", "max_rows")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    MAX_ROWS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    max_rows: int
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_uuids: _Optional[_Iterable[str]] = ...,
+        max_rows: _Optional[int] = ...,
+    ) -> None: ...
+
+class DeleteTombstonedPersonsResponse(_message.Message):
+    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    PENDING_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    ROWS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+    skipped_live_count: int
+    blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    rows_deleted: int
+
+    def __init__(
+        self,
+        deleted_count: _Optional[int] = ...,
+        skipped_live_count: _Optional[int] = ...,
+        blocked_person_uuids: _Optional[_Iterable[str]] = ...,
+        pending_person_uuids: _Optional[_Iterable[str]] = ...,
+        rows_deleted: _Optional[int] = ...,
+    ) -> None: ...
+
 class SplitPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "distinct_ids_to_split")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -534,6 +572,51 @@ class FencePersonResponse(_message.Message):
 
     def __init__(self, sealed: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
 
+class FencePersonsRequest(_message.Message):
+    __slots__ = ("team_id", "op_id", "op_type", "person_ids")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    PERSON_IDS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    op_id: str
+    op_type: LifecycleOpType
+    person_ids: _containers.RepeatedScalarFieldContainer[int]
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        op_id: _Optional[str] = ...,
+        op_type: _Optional[_Union[LifecycleOpType, str]] = ...,
+        person_ids: _Optional[_Iterable[int]] = ...,
+    ) -> None: ...
+
+class FencePersonsResponse(_message.Message):
+    __slots__ = ("sealed", "not_found")
+    SEALED_FIELD_NUMBER: _ClassVar[int]
+    NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
+    sealed: _containers.RepeatedCompositeFieldContainer[FencedPersonSeal]
+    not_found: _containers.RepeatedScalarFieldContainer[int]
+
+    def __init__(
+        self,
+        sealed: _Optional[_Iterable[_Union[FencedPersonSeal, _Mapping]]] = ...,
+        not_found: _Optional[_Iterable[int]] = ...,
+    ) -> None: ...
+
+class FencedPersonSeal(_message.Message):
+    __slots__ = ("person_id", "version", "created_at")
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    person_id: int
+    version: int
+    created_at: int
+
+    def __init__(
+        self, person_id: _Optional[int] = ..., version: _Optional[int] = ..., created_at: _Optional[int] = ...
+    ) -> None: ...
+
 class ReleaseFenceRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "person_uuid", "op_id", "outcome", "sealed_version", "created_at")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -563,6 +646,49 @@ class ReleaseFenceRequest(_message.Message):
     ) -> None: ...
 
 class ReleaseFenceResponse(_message.Message):
+    __slots__ = ()
+
+    def __init__(self) -> None: ...
+
+class ReleaseFencesRequest(_message.Message):
+    __slots__ = ("team_id", "op_id", "outcome", "persons")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    OP_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    PERSONS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    op_id: str
+    outcome: ReleaseOutcome
+    persons: _containers.RepeatedCompositeFieldContainer[ReleaseFenceItem]
+
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        op_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[ReleaseOutcome, str]] = ...,
+        persons: _Optional[_Iterable[_Union[ReleaseFenceItem, _Mapping]]] = ...,
+    ) -> None: ...
+
+class ReleaseFenceItem(_message.Message):
+    __slots__ = ("person_id", "person_uuid", "sealed_version", "created_at")
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    SEALED_VERSION_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    person_id: int
+    person_uuid: str
+    sealed_version: int
+    created_at: int
+
+    def __init__(
+        self,
+        person_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        sealed_version: _Optional[int] = ...,
+        created_at: _Optional[int] = ...,
+    ) -> None: ...
+
+class ReleaseFencesResponse(_message.Message):
     __slots__ = ()
 
     def __init__(self) -> None: ...

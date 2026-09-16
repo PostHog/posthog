@@ -1,5 +1,6 @@
 ---
 name: signals-scout-web-vitals
+scout-display-name: Web vitals
 description: >
   Signals scout for Core Web Vitals (`$web_vitals`). Watches each page's p75 LCP / INP / CLS /
   FCP against Google's thresholds and its own history — poor-band pages, band crossings, sharp
