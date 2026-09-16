@@ -2606,23 +2606,26 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("slack_customer", {"author_type": "customer", "from_slack": True}, False, "slack"),
+            ("widget_customer", Channel.WIDGET, {"author_type": "customer"}, False, "widget"),
+            ("widget_team_reply", Channel.WIDGET, {"author_type": "support"}, True, "posthog"),
+            ("slack_customer", Channel.SLACK, {"author_type": "customer", "from_slack": True}, False, "slack"),
             # A team member replying in the Slack thread is linked to their PostHog user,
-            # but the message still came from Slack.
-            ("slack_team_member", {"author_type": "support", "from_slack": True}, True, "slack"),
-            ("teams", {"author_type": "customer", "from_teams": True}, False, "teams"),
-            ("github", {"author_type": "customer", "from_github": True}, False, "github"),
-            ("email", {"author_type": "customer", "from_email": True}, False, "email"),
-            ("zendesk_import", {"author_type": "customer", "from_zendesk": True}, False, "zendesk"),
-            ("widget", {"author_type": "customer", "distinct_id": "user-1"}, False, "widget"),
-            ("posthog_reply", {"author_type": "support", "is_private": False}, True, "posthog"),
-            ("posthog_note", {"author_type": "support", "is_private": True}, True, "posthog"),
-            ("ai", {"author_type": "AI", "is_private": True}, False, "posthog"),
-            ("string_flag_ignored", {"author_type": "customer", "from_slack": "true"}, False, None),
-            ("unknown", {"author_type": "customer"}, False, None),
+            # but wrote the message in Slack.
+            ("slack_team_in_thread", Channel.SLACK, {"author_type": "support", "from_slack": True}, True, "slack"),
+            ("slack_team_from_posthog", Channel.SLACK, {"author_type": "support"}, True, "posthog"),
+            ("email_team_emailed_in", Channel.EMAIL, {"author_type": "support", "from_email": True}, True, "email"),
+            ("compose_outbound_email", Channel.EMAIL, {"author_type": "human"}, True, "posthog"),
+            ("private_note", Channel.SLACK, {"author_type": "support", "is_private": True}, True, "posthog"),
+            ("ai", Channel.SLACK, {"author_type": "AI"}, False, "posthog"),
+            # Imported team messages aren't linked to a PostHog user.
+            ("imported_team_message", Channel.EMAIL, {"author_type": "support"}, False, "email"),
+            # Only the ticket's own channel flag counts, the same flag outbound delivery checks.
+            ("other_channel_flag", Channel.SLACK, {"author_type": "support", "from_email": True}, True, "posthog"),
         ]
     )
-    def test_messages_message_source(self, mock_on_commit, _name, item_context, by_user, expected):
+    def test_messages_message_source(self, mock_on_commit, _name, channel, item_context, by_user, expected):
+        self.ticket.channel_source = channel
+        self.ticket.save(update_fields=["channel_source"])
         Comment.objects.create(
             team=self.team,
             created_by=self.user if by_user else None,

@@ -88,8 +88,9 @@ from products.conversations.backend.models import (
     TicketAssignment,
     TicketView,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, MessageSource, Status
+from products.conversations.backend.models.constants import MESSAGE_SOURCE_POSTHOG, Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.messages import message_source
 
 from .. import reply_dedupe
 
@@ -140,41 +141,16 @@ class TicketMessageSerializer(serializers.Serializer):
         read_only=True, help_text="True when the complete inbound email body can be retrieved."
     )
     message_source = serializers.ChoiceField(
-        choices=MessageSource.choices,
+        choices=[*Channel.choices, (MESSAGE_SOURCE_POSTHOG, "PostHog")],
         read_only=True,
-        allow_null=True,
         help_text=(
-            "Where the message was written: the external channel it arrived from (widget, email, slack, "
-            "teams, github), a Zendesk import, or posthog for replies, notes and AI messages created in "
-            "PostHog. Can differ from the ticket's channel. Null when the origin wasn't recorded."
+            "Where the message was written: the ticket's channel, or posthog for team replies, notes and "
+            "AI messages written in PostHog. A team member replying from inside the channel (e.g. in the "
+            "Slack thread) gets the channel."
         ),
     )
     version = serializers.IntegerField(read_only=True, help_text="Edit count. 0 means never edited.")
     created_at = serializers.DateTimeField(read_only=True)
-
-
-# Ingestion paths stamp their own flag on the comment's item_context; order doesn't
-# matter since a comment only ever carries one of them.
-_MESSAGE_SOURCE_FLAGS: tuple[tuple[str, MessageSource], ...] = (
-    ("from_slack", MessageSource.SLACK),
-    ("from_teams", MessageSource.TEAMS),
-    ("from_github", MessageSource.GITHUB),
-    ("from_email", MessageSource.EMAIL),
-    ("from_zendesk", MessageSource.ZENDESK),
-)
-
-
-def _message_source(comment: Comment, item_context: dict) -> MessageSource | None:
-    for flag, source in _MESSAGE_SOURCE_FLAGS:
-        if item_context.get(flag) is True:
-            return source
-    # The widget is the only inbound path that stores the sender's distinct_id.
-    if item_context.get("distinct_id"):
-        return MessageSource.WIDGET
-    # Checked after the flags: Slack/Teams/email messages from team members link created_by too.
-    if comment.created_by_id is not None or item_context.get("author_type") == "AI":
-        return MessageSource.POSTHOG
-    return None
 
 
 class TicketFullEmailSerializer(serializers.Serializer):
@@ -1450,7 +1426,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_email": comment.created_by.email if comment.created_by else None,
             "is_private": item_context.get("is_private") is True,
             "has_full_email_content": item_context.get("has_full_email_content") is True,
-            "message_source": _message_source(comment, item_context),
+            "message_source": message_source(item_context, comment.created_by_id, ticket.channel_source),
             "version": comment.version,
             "created_at": comment.created_at,
         }

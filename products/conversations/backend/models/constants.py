@@ -9,18 +9,8 @@ class Channel(models.TextChoices):
     GITHUB = "github", "GitHub"
 
 
-class MessageSource(models.TextChoices):
-    """Where a single ticket message was written, which can differ from the ticket's channel:
-    on a Slack ticket, a reply typed in the Slack thread is ``slack`` while one sent from the
-    PostHog app is ``posthog``."""
-
-    WIDGET = "widget", "Widget"
-    EMAIL = "email", "Email"
-    SLACK = "slack", "Slack"
-    TEAMS = "teams", "Microsoft Teams"
-    GITHUB = "github", "GitHub"
-    ZENDESK = "zendesk", "Zendesk"
-    POSTHOG = "posthog", "PostHog"
+# A ticket message's source is its ticket's Channel, or this for messages written inside PostHog.
+MESSAGE_SOURCE_POSTHOG = "posthog"
 
 
 class ChannelDetail(models.TextChoices):

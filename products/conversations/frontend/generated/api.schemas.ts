@@ -387,7 +387,6 @@ export interface AiFeedbackRequestApi {
  * * `slack` - Slack
  * * `teams` - Microsoft Teams
  * * `github` - GitHub
- * * `zendesk` - Zendesk
  * * `posthog` - PostHog
  */
 export type MessageSourceEnumApi = (typeof MessageSourceEnumApi)[keyof typeof MessageSourceEnumApi]
@@ -398,7 +397,6 @@ export const MessageSourceEnumApi = {
     Slack: 'slack',
     Teams: 'teams',
     Github: 'github',
-    Zendesk: 'zendesk',
     Posthog: 'posthog',
 } as const
 
@@ -425,16 +423,15 @@ export interface TicketMessageApi {
     readonly is_private: boolean
     /** True when the complete inbound email body can be retrieved. */
     readonly has_full_email_content: boolean
-    /** Where the message was written: the external channel it arrived from (widget, email, slack, teams, github), a Zendesk import, or posthog for replies, notes and AI messages created in PostHog. Can differ from the ticket's channel. Null when the origin wasn't recorded.
+    /** Where the message was written: the ticket's channel, or posthog for team replies, notes and AI messages written in PostHog. A team member replying from inside the channel (e.g. in the Slack thread) gets the channel.
      *
      * * `widget` - Widget
      * * `email` - Email
      * * `slack` - Slack
      * * `teams` - Microsoft Teams
      * * `github` - GitHub
-     * * `zendesk` - Zendesk
      * * `posthog` - PostHog */
-    readonly message_source: MessageSourceEnumApi | null
+    readonly message_source: MessageSourceEnumApi
     /** Edit count. 0 means never edited. */
     readonly version: number
     readonly created_at: string

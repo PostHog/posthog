@@ -21,7 +21,7 @@ from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache,
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
-from .services.messages import visible_ticket_messages
+from .services.messages import is_team_authored, originated_in_channel, visible_ticket_messages
 from .tasks.email import send_email_reply
 from .tasks.github import post_reply_to_github
 from .tasks.slack import post_reply_to_slack
@@ -49,16 +49,7 @@ def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> 
     This includes human team replies (has created_by, non-customer, non-private) and
     public AI replies (author_type == "AI" with is_private == False).
     """
-    if not isinstance(item_context, dict):
-        return False
-    if _is_private_message(item_context):
-        return False
-    author_type = item_context.get("author_type")
-    if created_by_id and author_type != "customer":
-        return True
-    if author_type == "AI":
-        return True
-    return False
+    return not _is_private_message(item_context) and is_team_authored(item_context, created_by_id)
 
 
 AI_BOT_DISPLAY_NAME = "AI assistant"
@@ -320,7 +311,7 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Don't echo messages that originated from Slack back to Slack
-    if isinstance(item_context, dict) and item_context.get("from_slack"):
+    if originated_in_channel(item_context, Channel.SLACK):
         return
 
     # Capture values for the deferred callback
@@ -394,7 +385,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Don't echo messages that originated from email back via email
-    if isinstance(item_context, dict) and item_context.get("from_email"):
+    if originated_in_channel(item_context, Channel.EMAIL):
         return
 
     team_id = instance.team_id
@@ -468,7 +459,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     # Don't echo messages that originated from Teams back to Teams
-    if isinstance(item_context, dict) and item_context.get("from_teams"):
+    if originated_in_channel(item_context, Channel.TEAMS):
         return
 
     team_id = instance.team_id
@@ -556,7 +547,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
     if not _is_outbound_reply(item_context, created_by_id):
         return
 
-    if isinstance(item_context, dict) and item_context.get("from_github"):
+    if originated_in_channel(item_context, Channel.GITHUB):
         return
 
     team_id = instance.team_id
