@@ -1712,7 +1712,13 @@ class EditReportResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
-    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    note_appended = serializers.BooleanField(
+        help_text=(
+            "Whether the edit included a note. True for a collapsed corroboration too, where the "
+            "report's count moves and no work-log entry is written. Read `corroboration_collapsed` "
+            "to tell the two apart."
+        ),
+    )
     evidence_appended = serializers.IntegerField(
         help_text="How many observations this edit added to the report's evidence rail; 0 if none."
     )

@@ -32414,7 +32414,7 @@ export namespace Schemas {
       report_id: string;
       /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
       updated_fields: string[];
-      /** Whether a note artefact was appended. */
+      /** Whether the edit included a note. True for a collapsed corroboration too, where the report's count moves and no work-log entry is written. Read `corroboration_collapsed` to tell the two apart. */
       note_appended: boolean;
       /** How many observations this edit added to the report's evidence rail; 0 if none. */
       evidence_appended: number;
