@@ -25,6 +25,7 @@ from django.core.management.commands.migrate import Command as DjangoMigrateComm
 from django.db import DEFAULT_DB_ALIAS
 from django.db.migrations.recorder import MigrationRecorder
 
+from posthog.cloud_utils import is_ci
 from posthog.management.migration_profiling.profiler import profile_migrations
 
 from common.migration_utils import (
@@ -229,7 +230,11 @@ class Command(DjangoMigrateCommand):
         profile_operations = options.get("profile_operations", False)
         # When profiling, the assumption is a fresh-DB run — both code paths
         # below assume migrations were previously applied, which fights that.
-        skip_caching = production_mode or test_mode or profile_operations
+        # The cache and the orphan check exist to roll a local worktree back
+        # when you switch branches. A CI runner never switches branch, and its
+        # from-scratch run would log one line per applied migration, so the
+        # whole squashed history scrolls past on a cache miss.
+        skip_caching = production_mode or test_mode or profile_operations or is_ci()
         skip_orphan_check = options.get("skip_orphan_check", False) or skip_caching
 
         # Get connection for orphan check

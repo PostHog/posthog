@@ -9,6 +9,8 @@ from typing import Any
 from django.contrib.auth.models import Group as AuthGroup
 from django.core.management.base import BaseCommand
 
+from oauth2_provider.settings import oauth2_settings
+
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.oauth import OAuthApplication
 
@@ -318,6 +320,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         created_items: list[str] = []
+        skipped_items: list[str] = []
 
         for group_name in _AUTH_GROUPS:
             _, created = AuthGroup.objects.get_or_create(name=group_name)
@@ -350,7 +353,13 @@ class Command(BaseCommand):
             ai_pilled.save(update_fields=["is_active"])
             created_items.append("Growth enrichment prompt config: ai_pilled")
 
-        if not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
+        # OAuthApplication.clean() rejects RS256 when no OIDC RSA private key is
+        # configured, and an uncaught error here skips every seed below it. Where the
+        # key is absent, skip this one seed instead: the CI schema-cache restore runs
+        # this command, and a failure makes it fall back to a full migrate from zero.
+        if not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+            skipped_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME} (no OIDC_RSA_PRIVATE_KEY configured)")
+        elif not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
             OAuthApplication.objects.create(
                 name=_STREAMLIT_OAUTH_APP_NAME,
                 client_id=_STREAMLIT_OAUTH_CLIENT_ID,
@@ -376,3 +385,6 @@ class Command(BaseCommand):
             self.stdout.write("Created defaults:\n- " + "\n- ".join(created_items))
         else:
             self.stdout.write("Default migration data already present.")
+
+        if skipped_items:
+            self.stdout.write("Skipped defaults:\n- " + "\n- ".join(skipped_items))
