@@ -398,6 +398,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                                 'Only table results are exportable'
                                             }
                                             type="secondary"
+                                            columns={columns.map((column) => ({ name: column.name }))}
                                             items={[
                                                 {
                                                     export_format: ExporterFormat.CSV,
