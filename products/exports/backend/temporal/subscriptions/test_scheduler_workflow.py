@@ -247,6 +247,7 @@ async def test_scheduler_does_not_overlap_an_already_running_subscription() -> N
             ScheduleAllSubscriptionsWorkflowInputs(due_before="2026-09-11T12:15:00+00:00")
         )
 
+    assert start_child.await_args is not None
     assert start_child.await_args.kwargs["id"] == "process-subscription-123"
     record_progress.assert_called_once_with(
         total_count=1,

@@ -2625,6 +2625,27 @@ def _ai_delivery_inputs(subscription_id: int, delivery_id) -> DeliverSubscriptio
     )
 
 
+async def _run_ai_subscription_schedule(subscription_id: int) -> None:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+            await env.client.get_workflow_handle(f"process-ai-subscription-{subscription_id}").result()
+
+
 async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team, user):
     await _set_ai_consent(team, False)
     sub = await _create_ai_subscription(team, user)
@@ -3008,24 +3029,7 @@ async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
         next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
-            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,
-        ):
-            await env.client.execute_workflow(
-                ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
-            await env.client.get_workflow_handle(f"process-ai-subscription-{sub.id}").result()
+    await _run_ai_subscription_schedule(sub.id)
 
     mock_generate.assert_not_called()  # no LLM spend while over budget
     mock_send_report.assert_not_called()  # delivery skipped
@@ -3061,24 +3065,7 @@ async def test_schedule_routes_ai_subscription_through_full_workflow(
         next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
-            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
-            interceptors=[SloInterceptor()],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,
-        ):
-            await env.client.execute_workflow(
-                ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
-            await env.client.get_workflow_handle(f"process-ai-subscription-{sub.id}").result()
+    await _run_ai_subscription_schedule(sub.id)
 
     # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
     mock_generate.assert_called_once()
