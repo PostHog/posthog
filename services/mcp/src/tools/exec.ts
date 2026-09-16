@@ -343,9 +343,12 @@ const BATCH_SECTION_JOINER = '\n\n'
  *  command happened to run last. */
 const BATCH_VERB = 'batch'
 
+/** The verb a command opens with. A separator flush against the word ends it too,
+ *  because shell style writes `tools; info x` rather than `tools ; info x`, and
+ *  `tools` is the one batchable verb with no argument to absorb the separator. */
 function firstToken(line: string): string {
     const trimmed = line.trim()
-    const idx = trimmed.search(/\s/)
+    const idx = trimmed.search(/\s|&&|;/)
     return idx === -1 ? trimmed : trimmed.slice(0, idx)
 }
 

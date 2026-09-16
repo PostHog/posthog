@@ -1232,6 +1232,21 @@ describe('exec tool', () => {
             expect(result).toContain('name: other-tool')
         })
 
+        // `tools` takes no argument, so it is the only batchable verb that can sit
+        // flush against a separator. Mid-batch that used to hand the whole fragment
+        // to `info`, which named it back as an unknown tool.
+        it.each([
+            ['opening a semicolon chain', 'tools; info mock-tool'],
+            ['opening an && chain', 'tools&&info mock-tool'],
+            ['sitting mid-chain', 'info other-tool; tools; info mock-tool'],
+        ])('batches a bare tools command %s', async (_label, command) => {
+            const exec = createExec([makeMockTool(), makeMockTool({ name: 'other-tool' })])
+            const result = (await exec.handler(mockContext, { command })) as string
+            expect(result).toContain('$ tools')
+            expect(result).toContain('name: mock-tool')
+            expect(result).not.toContain('Unknown')
+        })
+
         it('returns the error in place so the rest of the batch still comes back', async () => {
             const exec = createExec()
             const result = (await exec.handler(mockContext, {
