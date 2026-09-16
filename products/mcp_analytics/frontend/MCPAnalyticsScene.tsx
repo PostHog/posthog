@@ -138,19 +138,9 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                 description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
-                    <>
-                        <LemonButton
-                            id="mcp-analytics-feedback-button"
-                            data-attr="mcp-analytics-feedback-button"
-                            size="small"
-                            tooltip="Have any questions or feedback?"
-                        >
-                            Feedback
-                        </LemonButton>
-                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
-                            Documentation
-                        </LemonButton>
-                    </>
+                    <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
+                        Documentation
+                    </LemonButton>
                 }
             />
 
