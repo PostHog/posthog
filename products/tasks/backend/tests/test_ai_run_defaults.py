@@ -1,7 +1,10 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
 
@@ -17,6 +20,7 @@ from products.tasks.backend.logic.services.ai_run_defaults import (
     resolve_ai_run_selection,
     update_team_ai_run_preferences,
     update_user_ai_run_preferences,
+    validate_ai_run_preferences,
 )
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.presentation.serializers import TaskRunCreateRequestSerializer
@@ -87,6 +91,13 @@ class TestResolveAIRunDefaults(APIBaseTest):
         with pi_harness():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
+
+    def test_a_pi_row_with_no_model_falls_through_to_the_team(self):
+        self._set_team(TEAM_TRIPLE)
+        self._set_user({"runtime": "pi", "runtime_adapter": None, "model": None, "reasoning_effort": "high"})
+        with pi_harness():
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert (resolved.source, resolved.runtime, resolved.model) == ("team", "acp", "claude-opus-4-8")
 
     def test_a_pi_preference_leaves_an_acp_run_with_no_default(self):
         self._set_team(TEAM_TRIPLE)
@@ -185,6 +196,35 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "claude-opus-4-8",
             "low",
         )
+
+
+class TestValidateAIRunPreferences:
+    """The write-path guard. The config endpoints reject most of this at the serializer, so
+    these call it directly: the admin form and any future writer reach it with no serializer
+    in front."""
+
+    @parameterized.expand(
+        [
+            ("pi_with_an_adapter", "pi", "codex", "gpt-5.6-terra", None),
+            ("pi_without_a_model", "pi", None, None, "high"),
+            ("pi_with_a_value_that_is_not_a_depth", "pi", None, "gpt-5.6-terra", "deep"),
+            ("acp_with_a_value_that_is_not_a_depth", None, "codex", "gpt-5.6-terra", "deep"),
+            ("acp_with_a_model_and_no_adapter", None, None, "gpt-5.6-terra", None),
+        ]
+    )
+    def test_rejects(self, _name, runtime, runtime_adapter, model, reasoning_effort):
+        with pytest.raises(ValidationError):
+            validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime=runtime)
+
+    @parameterized.expand(
+        [
+            ("a_pi_pair", "pi", None, "gpt-5.6-terra", "off"),
+            ("an_acp_triple", None, "codex", "gpt-5.6-terra", "high"),
+            ("an_all_null_clear", None, None, None, None),
+        ]
+    )
+    def test_accepts(self, _name, runtime, runtime_adapter, model, reasoning_effort):
+        validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime=runtime)
 
 
 class TestRunCreateSerializerModeWithoutAdapter(APIBaseTest):
