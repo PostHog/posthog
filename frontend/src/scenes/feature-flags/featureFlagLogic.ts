@@ -983,6 +983,7 @@ export interface featureFlagLogicValues {
         ValidationErrorType
     >
     flagIntent: FlagIntent | null
+    flagMutationCount: number
     flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
@@ -2303,6 +2304,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     reducers({
+        // Read by the refresh loader, which samples it around its request to tell whether newer
+        // state landed while the request was open.
+        flagMutationCount: [
+            0,
+            {
+                loadFeatureFlagSuccess: (state) => state + 1,
+                saveFeatureFlagSuccess: (state) => state + 1,
+                updateFeatureFlagActiveSuccess: (state) => state + 1,
+                updateFeatureFlagArchivedSuccess: (state) => state + 1,
+            },
+        ],
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
@@ -3249,6 +3261,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
+                    const mutationsBefore = values.flagMutationCount
                     let retrievedFlag: FeatureFlagType
                     try {
                         retrievedFlag = await api.featureFlags.get(props.id)
@@ -3262,6 +3275,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // baseline and its list entry, as the status loader below does for its verdict.
                     // The breakpoint sits after the catch, which would otherwise swallow it.
                     breakpoint()
+                    // `breakpoint` only supersedes another refresh. A mutation that lands while this
+                    // request is open leaves newer state that this response would roll back,
+                    // `version` included, which makes the next save read as a stale write.
+                    if (values.flagMutationCount !== mutationsBefore) {
+                        return null
+                    }
                     return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                 },
             },

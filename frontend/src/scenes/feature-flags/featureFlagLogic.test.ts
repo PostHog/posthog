@@ -401,6 +401,47 @@ describe('featureFlagLogic', () => {
             expect(logic.values.featureFlag.name).toBe('second agent change')
             expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
         })
+
+        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
+        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
+        it.each([
+            ['a toggle', (flag: FeatureFlagType) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
+            ['a full reload', (flag: FeatureFlagType) => logic.actions.loadFeatureFlagSuccess(flag)],
+        ])('discards a refresh response that %s superseded', async (_label, mutate) => {
+            let releaseResponse: () => void = () => {}
+            const responseHeld = new Promise<void>((resolve) => {
+                releaseResponse = resolve
+            })
+            let markRequestStarted: () => void = () => {}
+            // The loader samples the mutation count before it calls the API, so mutating before the
+            // request is open would pass without exercising the guard.
+            const requestStarted = new Promise<void>((resolve) => {
+                markRequestStarted = resolve
+            })
+
+            useMocks({
+                get: {
+                    [FLAG_URL]: async () => {
+                        markRequestStarted()
+                        await responseHeld
+                        return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
+                    },
+                },
+            })
+
+            logic.actions.refreshFeatureFlagAfterAgentChange()
+            await requestStarted
+
+            mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+            expect(logic.values.featureFlag.active).toBe(false)
+
+            releaseResponse()
+            await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
+
+            expect(logic.values.featureFlag.active).toBe(false)
+            expect(logic.values.featureFlag.name).toBe('test-name')
+            expect(logic.values.featureFlag.version).toBe(7)
+        })
     })
 
     describe('saveFeatureFlag error handling', () => {
