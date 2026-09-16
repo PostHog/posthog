@@ -193,10 +193,10 @@ export interface oauthAuthorizeLogicValues {
     user: UserType | null // userLogic
     adjustableScopeRows: OAuthScopeRow[]
     allOrganizations: OrganizationBasicType[]
-    appName: string
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    appName: string
     authorizationComplete: boolean
     consentResourceScopes: string[]
     effectiveScopes: string[]
