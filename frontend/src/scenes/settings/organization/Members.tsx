@@ -202,8 +202,12 @@ function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.
     if (projectAccessLoading) {
         return <LemonSkeleton className="h-5 w-32" />
     }
+    // A failed load must not read as "this member has no projects"
+    if (!projectAccess) {
+        return <span className="text-muted">–</span>
+    }
 
-    const projects = accessibleProjects(projectAccess?.[member.id] ?? [])
+    const projects = accessibleProjects(projectAccess[member.id] ?? [])
     if (projects.length === 0) {
         return <span className="text-muted">No projects</span>
     }
