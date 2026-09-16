@@ -270,6 +270,37 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                 ),
             }
         })
+        .with({ activity: 'reset' }, ({ item_id, detail }) => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<ActivityLogUserName logItem={logItem} />}
+                        listParts={['reset experiment:']}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'variant_shipped' }, ({ item_id, detail }) => {
+            const variantKey = detail.changes?.find((change) => change.field === 'shipped_variant')?.after
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<ActivityLogUserName logItem={logItem} />}
+                        listParts={[
+                            typeof variantKey === 'string' ? (
+                                <span>
+                                    shipped variant <strong>{variantKey}</strong> for
+                                </span>
+                            ) : (
+                                'shipped a variant for'
+                            ),
+                        ]}
+                        suffix={nameOrLinkToExperiment(detail.name, item_id)}
+                    />
+                ),
+            }
+        })
         .with({ activity: 'exposure_frozen' }, ({ item_id, detail }) => {
             return {
                 description: (

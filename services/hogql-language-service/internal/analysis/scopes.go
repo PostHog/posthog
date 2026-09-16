@@ -43,6 +43,7 @@ type queryScope struct {
 	budget   *projectionBudget
 	ctes     []*cteBinding
 	cteRoot  bool
+	aliases  map[string]selectAlias
 }
 
 var tableReferencePattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)`)
@@ -95,18 +96,21 @@ func addBinding(scope *queryScope, name, alias string, binding Relation) {
 	}
 }
 
+func (s *queryScope) visibleCTEs(position int) []*cteBinding {
+	for index, cte := range s.ctes {
+		if contains(cte.query, position, position) {
+			return s.ctes[:index]
+		}
+	}
+	return s.ctes
+}
+
 func resolveCTE(scope *queryScope, name string, position int) *cteBinding {
 	for current := scope; current != nil; current = current.parent {
-		limit := len(current.ctes)
-		for index, cte := range current.ctes {
-			if contains(cte.query, position, position) {
-				limit = index
-				break
-			}
-		}
-		for index := limit - 1; index >= 0; index-- {
-			if strings.EqualFold(current.ctes[index].name, name) {
-				return current.ctes[index]
+		ctes := current.visibleCTEs(position)
+		for index := len(ctes) - 1; index >= 0; index-- {
+			if strings.EqualFold(ctes[index].name, name) {
+				return ctes[index]
 			}
 		}
 	}
@@ -385,6 +389,9 @@ func projectedType(scope *queryScope, expr clickhouse.Expr) string {
 	bindings := visibleBindings(scope)
 	switch typed := expr.(type) {
 	case *clickhouse.Ident:
+		if field, ok := (Bindings{scope: scope, position: int(expr.Pos())}).SelectAlias(typed.Name); ok {
+			return field.Type
+		}
 		for _, binding := range scope.uniqueBindings() {
 			if !scope.budget.lookup(len(typed.Name) + 1) {
 				return ""

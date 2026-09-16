@@ -44,7 +44,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -3203,6 +3203,22 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
             shipped_fields.append("conclusion_comment")
         self._bump_version_and_save(experiment, update_fields=shipped_fields)
+
+        # The flag rewrite logs under the FeatureFlag scope and the experiment save logs only
+        # end_date/conclusion, so without this entry the History tab never names the shipped variant.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="variant_shipped",
+            detail=Detail(
+                name=experiment.name,
+                changes=[Change(type="Experiment", action="created", field="shipped_variant", after=variant_key)],
+            ),
+        )
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request

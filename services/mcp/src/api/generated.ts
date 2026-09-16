@@ -25967,6 +25967,7 @@ export namespace Schemas {
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
      * * `Amplemarket` - Amplemarket
+     * * `Quo` - Quo
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -27312,6 +27313,7 @@ export namespace Schemas {
       Substack: 'Substack',
       ElectricityMaps: 'ElectricityMaps',
       Amplemarket: 'Amplemarket',
+      Quo: 'Quo',
     } as const;
 
     /**
@@ -28670,7 +28672,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30891,7 +30894,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -38423,6 +38427,18 @@ export namespace Schemas {
       '30day': '30day',
     } as const;
 
+    /**
+     * * `missing_primary_key` - Missing primary key
+     * * `duplicate_primary_key` - Duplicate primary key
+     */
+    export type IncrementalSyncBlockedReasonEnum = typeof IncrementalSyncBlockedReasonEnum[keyof typeof IncrementalSyncBlockedReasonEnum];
+
+
+    export const IncrementalSyncBlockedReasonEnum = {
+      MissingPrimaryKey: 'missing_primary_key',
+      DuplicatePrimaryKey: 'duplicate_primary_key',
+    } as const;
+
     export interface ExternalDataSourceApiVersionDeprecation {
       /** The deprecated vendor API version this source is pinned to. */
       version: string;
@@ -38518,6 +38534,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -39992,7 +40013,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -41371,7 +41393,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -41711,7 +41734,7 @@ export namespace Schemas {
          */
       last_called_at?: string | null;
       _create_in_folder?: string;
-      /** Check if this feature flag is used in any team's session recording linked flag setting. */
+      /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
       readonly is_used_in_replay_settings: boolean;
       /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
       readonly is_eligible_for_experiment: boolean;
@@ -44498,6 +44521,19 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface HeatmapScreenshotSettings {
+      /**
+         * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+         * @maxItems 100
+         * @items.maxLength 253
+         */
+      allowed_hostnames: string[];
+      /** Whether this installation permits screenshot cookie delivery to its renderer. */
+      readonly cookie_delivery_enabled: boolean;
+      /** Whether a screenshot bypass secret has been generated. */
+      readonly has_secret: boolean;
+    }
+
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
@@ -46347,6 +46383,20 @@ export namespace Schemas {
       values: MarketingAnalyticsRetentionCell[];
     }
 
+    export interface MarketingAnalyticsRetentionSummaryRow {
+      acquired: number;
+      breakdownValue: string;
+      eligible30d: number;
+      eligible7d: number;
+      /** Median elapsed days to a second session within 30 days, among observed returners. */
+      medianReturnDays: number | null;
+      previous: boolean;
+      returned30d: number;
+      returned7d: number;
+      /** People with an observed second session within 30 days, including incomplete windows. */
+      returners: number;
+    }
+
     export interface MarketingAnalyticsRetentionQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -46368,6 +46418,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -46387,6 +46439,8 @@ export namespace Schemas {
       breakdownBy?: MarketingAnalyticsAttributionBreakdown | null;
       /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
       breakdownLimit?: number | null;
+      /** Include the previous acquisition period in summary mode. Defaults to false. */
+      comparePreviousPeriod?: boolean | null;
       /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
@@ -46407,6 +46461,8 @@ export namespace Schemas {
       response?: MarketingAnalyticsRetentionQueryResponse | null;
       /** Period for both the cohort rows and the return columns. Defaults to week. */
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
+      /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+      summary?: boolean | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -55106,6 +55162,13 @@ export namespace Schemas {
       Endpoint: 'endpoint',
     } as const;
 
+    export interface NodeEndpoint {
+      /** Name of the endpoint this node's materialization backs. */
+      name: string;
+      /** Endpoint version this node's materialization backs. */
+      version: number;
+    }
+
     export interface Node {
       readonly id: string;
       /** @maxLength 2048 */
@@ -55141,6 +55204,8 @@ export namespace Schemas {
       readonly sync_interval: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended: NodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint: NodeEndpoint | null;
     }
 
     export interface NodeResume {
@@ -67020,6 +67085,11 @@ export namespace Schemas {
        * * `cdc_only` - cdc_only
        * * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /** Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
+       *
+       * * `missing_primary_key` - Missing primary key
+       * * `duplicate_primary_key` - Duplicate primary key */
+      readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -67483,6 +67553,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly resolved_at?: string | null;
+    }
+
+    export interface PatchedHeatmapScreenshotSettingsRequest {
+      /**
+         * Exact DNS hostnames approved to receive the screenshot cookie. No URLs, wildcards, or IP addresses.
+         * @maxItems 100
+         * @items.maxLength 253
+         */
+      allowed_hostnames?: string[];
     }
 
     export interface PatchedHogFlowActionEmailUpdate {
@@ -68699,6 +68778,8 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended?: PatchedNodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint?: NodeEndpoint | null;
     }
 
     /**
@@ -70008,6 +70089,11 @@ export namespace Schemas {
       readonly secret_api_token?: string | null;
       /** @nullable */
       readonly secret_api_token_backup?: string | null;
+      /**
+         * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+         * @nullable
+         */
+      readonly heatmaps_screenshot_secret?: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -74374,6 +74460,11 @@ export namespace Schemas {
       readonly secret_api_token: string | null;
       /** @nullable */
       readonly secret_api_token_backup: string | null;
+      /**
+         * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+         * @nullable
+         */
+      readonly heatmaps_screenshot_secret: string | null;
       /** @nullable */
       receive_org_level_activity_logs?: boolean | null;
       /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -76925,6 +77016,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -85144,7 +85237,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -86539,7 +86633,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -87916,7 +88011,8 @@ export namespace Schemas {
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
        * * `ElectricityMaps` - ElectricityMaps
-       * * `Amplemarket` - Amplemarket */
+       * * `Amplemarket` - Amplemarket
+       * * `Quo` - Quo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
