@@ -1066,9 +1066,9 @@ class TeamAdmin(admin.ModelAdmin):
             raise PermissionDenied
 
         team_url = reverse("admin:posthog_team_change", args=[object_id])
-        # A team that only sent through the API may have no config row yet, and the sweep skips a
-        # rowless team. Create the row first so the recompute can move it off tier 0, matching the
-        # suspend and set-tier actions.
+        # A team that only sent through the API may have no config row yet. Create it here so a
+        # team that has not sent anything still ends up with a row staff can pin or re-tier,
+        # matching the suspend and set-tier actions.
         get_or_create_team_extension(team, TeamWorkflowsConfig)
         try:
             decision = recompute_email_sending_tier_for_team(team.id)

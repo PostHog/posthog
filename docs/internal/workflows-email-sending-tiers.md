@@ -40,6 +40,7 @@ None of them are wired there yet; the charts change is part of turning the rollo
 In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
 Pinned teams never move automatically.
+Candidates are teams that sent in the window plus teams holding stored state; a candidate with no `TeamWorkflowsConfig` row gets one first, because the tier is stored on that row and a team without it could never leave tier 0.
 
 While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
 Decay, suspension drops, admin recomputes, and the backfill stay silent.
