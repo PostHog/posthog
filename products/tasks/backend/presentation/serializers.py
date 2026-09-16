@@ -2068,6 +2068,18 @@ class TaskRunSummarySerializer(serializers.Serializer):
         choices=TaskExecutionMode.choices,
         help_text="Execution mode of the latest run.",
     )
+    pr_url = serializers.CharField(
+        allow_null=True,
+        help_text="URL of the pull request the latest run opened, or null when it opened none.",
+    )
+    pr_state = serializers.ChoiceField(
+        choices=[*tasks_facade.PR_STATES, "unknown"],
+        allow_null=True,
+        help_text=(
+            "State of that pull request: open, draft, merged, closed, or unknown. "
+            "Null when the latest run opened no pull request."
+        ),
+    )
 
 
 class TaskSummarySerializer(DataclassSerializer):
@@ -2097,6 +2109,11 @@ class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
     origin_product = serializers.CharField(required=False, help_text="Filter by origin product")
+    client_provenance = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskClientProvenance.choices,
+        help_text="Filter by the client that created the task",
+    )
     exclude_origin_product = serializers.ChoiceField(
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,

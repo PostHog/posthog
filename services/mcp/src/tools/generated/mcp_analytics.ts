@@ -192,7 +192,9 @@ const DateRange = z.object({
     date_to: z
         .string()
         .nullable()
-        .describe('End of the date range. Same format as date_from. Omit or null for "now".')
+        .describe(
+            'End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.'
+        )
         .optional(),
     daysOfWeek: z
         .union([

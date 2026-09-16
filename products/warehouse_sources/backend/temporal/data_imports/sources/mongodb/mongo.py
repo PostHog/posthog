@@ -639,6 +639,15 @@ MONGO_KEYS_UNAVAILABLE_ERROR = (
     "unavailable. This clears by itself, and the sync will run again automatically."
 )
 
+# MongoDB OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout): the server killed
+# a getMore because it ran past an execution time limit. We never set maxTimeMS ourselves on this
+# query, so this is the limit enforced by the cluster itself — notably Atlas free/shared/flex tiers,
+# which cap total operation time regardless of client options (the same tiers already special-cased
+# above for rejecting no_cursor_timeout). The cursor is _id-ordered, so last_id is a safe resume point
+# exactly as for CursorNotFound; a getMore killed before yielding anything would hit the identical
+# limit on retry, so that case re-raises instead of looping forever.
+_EXECUTION_TIMEOUT_ERROR_CODE = 50
+
 
 def mongo_source(
     connection_string: str,
@@ -766,6 +775,18 @@ def mongo_source(
                     except OperationFailure as e:
                         if e.code == _KEY_NOT_FOUND_ERROR_CODE:
                             raise OperationFailure(MONGO_KEYS_UNAVAILABLE_ERROR, e.code) from e
+                        if e.code == _EXECUTION_TIMEOUT_ERROR_CODE:
+                            if rows_since_cursor_opened == 0:
+                                raise
+                            logger.debug(
+                                f"MongoDB: operation exceeded time limit for collection={collection_name}; "
+                                f"resuming after _id={last_id}"
+                            )
+                            cursor.close()
+                            cursor = open_resumable_cursor()
+                            rows_since_cursor_opened = 0
+                            continue
+
                         # The option is rejected when the cursor is opened, before any document is
                         # yielded, so retrying without it can't duplicate rows. The tradeoff is that
                         # the server-side idle timeout applies again — hence the CursorNotFound

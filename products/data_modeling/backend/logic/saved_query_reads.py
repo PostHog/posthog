@@ -8,6 +8,7 @@ from django.conf import settings
 
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from ..models.edge import Edge
 from ..models.node import Node
 from .saved_query_freshness import saved_query_materialized_at
 
@@ -168,3 +169,23 @@ def get_saved_query_ids_for_nodes(team_id: int, node_ids: Iterable[UUID | str]) 
         "saved_query_id", flat=True
     )
     return [str(saved_query_id) for saved_query_id in rows]
+
+
+def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -> dict[UUID, frozenset[UUID]]:
+    """The live saved queries that read directly from each given one, keyed by the given id.
+
+    Follows the edges of every node a saved query has, so a dependent in another DAG counts too.
+    """
+    dependents: dict[UUID, set[UUID]] = {saved_query_id: set() for saved_query_id in saved_query_ids}
+    edges = (
+        Edge.objects.filter(
+            team_id=team_id,
+            source__saved_query_id__in=saved_query_ids,
+            target__saved_query__isnull=False,
+        )
+        .exclude(target__saved_query__deleted=True)
+        .values_list("source__saved_query_id", "target__saved_query_id")
+    )
+    for source_id, target_id in edges:
+        dependents[source_id].add(target_id)
+    return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}

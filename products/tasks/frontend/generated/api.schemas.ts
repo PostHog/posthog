@@ -4902,6 +4902,23 @@ export const TaskRunEnvironmentEnumApi = {
     Cloud: 'cloud',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ * * `unknown` - unknown
+ */
+export type PrStateEnumApi = (typeof PrStateEnumApi)[keyof typeof PrStateEnumApi]
+
+export const PrStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+    Unknown: 'unknown',
+} as const
+
 export interface TaskRunSummaryApi {
     /** ID of the latest run. */
     id: string
@@ -4912,6 +4929,19 @@ export interface TaskRunSummaryApi {
      * * `interactive` - interactive
      * * `background` - background */
     mode: TaskExecutionModeEnumApi
+    /**
+     * URL of the pull request the latest run opened, or null when it opened none.
+     * @nullable
+     */
+    pr_url: string | null
+    /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown */
+    pr_state: PrStateEnumApi | null
 }
 
 export interface TaskSearchResultApi {
@@ -5409,6 +5439,13 @@ export type TasksListParams = {
      */
     ci_status?: TasksListCiStatus
     /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance
+    /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
     commented_by?: number
@@ -5546,6 +5583,12 @@ export const TasksListCiStatus = {
     Failing: 'failing',
     Pending: 'pending',
     None: 'none',
+} as const
+
+export type TasksListClientProvenance = (typeof TasksListClientProvenance)[keyof typeof TasksListClientProvenance]
+
+export const TasksListClientProvenance = {
+    PosthogDesktop: 'posthog_desktop',
 } as const
 
 export type TasksListExcludeOriginProduct =

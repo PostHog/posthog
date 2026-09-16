@@ -144,6 +144,13 @@ Do not add new `INTERNAL_API_SECRET` callers.
 Read [.agents/security.md](.agents/security.md) before touching auth, secrets, service-to-service calls, raw SQL, or HogQL string building — it covers least privilege, the injection rules, and how to respond when semgrep flags your code.
 `.semgrep/rules/security/` is the enforced set; run `semgrep --config .semgrep/rules/security/ .` to check a change locally.
 
+**Treat the Content Security Policy in `CSPMiddleware` as enforced.**
+A resource from an origin the policy does not name is refused, and the page shows the user no error, so the feature fails silently.
+Loading a script, font, stylesheet, image, frame, or `fetch` target from a new external origin needs that directive widened in the same PR.
+`eval` and `new Function` never run, because the policy grants `wasm-unsafe-eval` and nothing more.
+In a Django template an inline `<script>` needs `nonce="{{ request.csp_nonce }}"`, and an inline `onclick` or `onsubmit` attribute cannot be made to work at all — put the handler in a nonce'd block instead.
+Read [.agents/security.md](.agents/security.md#content-security-policy) for the directive list and the traps before you add any of these.
+
 ## Architecture guidelines
 
 Each rule is tagged with what catches a violation.

@@ -29,8 +29,8 @@ import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
-    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DataWarehouseManagedViewsetKind,
     DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -54,6 +54,7 @@ import {
     Node,
     NodeKind,
     QueryLogTags,
+    QueryScanResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -93,7 +94,6 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
-    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -1502,15 +1502,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
     }
 
-    // # Data Modeling DAGs
-    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
-    }
-
-    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataModelingDags(teamId).addPathComponent(id)
-    }
-
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -1754,6 +1745,10 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryScan(cacheKey: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent('scan').addPathComponent(cacheKey)
     }
 
     public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
@@ -5749,19 +5744,9 @@ const api = {
         },
     },
 
-    dataModelingDags: {
-        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
-            return await new ApiRequest().dataModelingDags().get()
-        },
-    },
-
     dataModelingNodes: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
-            const req = new ApiRequest().dataModelingNodes()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -5780,11 +5765,6 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
-        },
-        async dagIds(): Promise<{
-            dag_ids: Array<{ id: string; name: string }>
-        }> {
-            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage({
             nodeId,
@@ -5805,12 +5785,8 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
-            const req = new ApiRequest().dataModelingEdges()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
@@ -6392,6 +6368,12 @@ const api = {
     queryLog: {
         async get(queryId: string): Promise<HogQLQueryResponse> {
             return await new ApiRequest().queryLog(queryId).get()
+        },
+    },
+
+    queryScan: {
+        async get(cacheKey: string): Promise<QueryScanResponse> {
+            return await new ApiRequest().queryScan(cacheKey).get()
         },
     },
 
