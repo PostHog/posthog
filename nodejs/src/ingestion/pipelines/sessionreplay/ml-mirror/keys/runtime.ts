@@ -6,7 +6,7 @@ import { MlKeyEncryption } from './crypto'
 import { MlKeyDynamoDB } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlKafkaEncryption } from './transport'
+import { MlKafkaTransport } from './transport'
 
 export interface MlKeyManagerConfig {
     AI_RESEARCH_REPLAY_KEY_TABLE: string
@@ -22,7 +22,7 @@ export class MlKeyManager {
     public readonly encryption: MlKeyEncryption
     public readonly reader: MlKeyReader
     public readonly controller: MlKeyBatchController
-    public readonly kafka: MlKafkaEncryption
+    public readonly kafka: MlKafkaTransport
     private readonly dynamo: DynamoDBClient
     private readonly kms: KMSClient
 
@@ -47,11 +47,11 @@ export class MlKeyManager {
         )
         this.reader = new MlKeyReader(db, this.encryption)
         this.controller = new MlKeyBatchController(new MlSessionKeyStore(db, this.encryption), this.encryption)
-        this.kafka = new MlKafkaEncryption(this.reader)
+        this.kafka = new MlKafkaTransport(this.reader)
     }
 
     public start(): Promise<void> {
-        return this.encryption.start()
+        return Promise.resolve()
     }
 
     public stop(): void {
