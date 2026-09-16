@@ -26,8 +26,8 @@ export type OrgConsent =
 
 export const desktopBetaTermsKeys = {
   all: () => ["auth", "desktop-beta-terms"] as const,
-  acceptance: (identity: string) =>
-    [...desktopBetaTermsKeys.all(), identity] as const,
+  acceptance: (projectId: number | null) =>
+    [...desktopBetaTermsKeys.all(), projectId] as const,
 };
 
 function useDesktopBetaTerms(
@@ -37,7 +37,7 @@ function useDesktopBetaTerms(
 ) {
   const client = useOptionalAuthenticatedClient();
   return useQuery({
-    queryKey: desktopBetaTermsKeys.acceptance(organizationId ?? "unknown"),
+    queryKey: desktopBetaTermsKeys.acceptance(projectId),
     queryFn: async () => {
       if (!client || projectId === null) throw new Error("Not authenticated");
       return await client.areDesktopBetaTermsAccepted(projectId);

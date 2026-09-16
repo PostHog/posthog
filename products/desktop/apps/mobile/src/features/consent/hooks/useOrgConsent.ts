@@ -9,8 +9,6 @@ export type OrgConsentResult = OrgConsent & { retry: () => void };
 
 export const desktopBetaTermsKeys = {
   all: () => ["consent", "desktop-beta-terms"] as const,
-  // Keyed on the project, because a token refresh can move the project while
-  // the organization from /api/users/@me/ stays put.
   acceptance: (projectId: number | null) =>
     [...desktopBetaTermsKeys.all(), projectId] as const,
 };
@@ -24,10 +22,6 @@ export function useDesktopBetaTerms(organizationId: string | undefined) {
       if (projectId === null) throw new Error("No project");
       return getPostHogApiClient().areDesktopBetaTermsAccepted(projectId);
     },
-    // A session with no scoped project must fail this query instead of leaving
-    // it disabled. A disabled query has no result, the consent state reads a
-    // missing result as loading, and the gate then holds the app on a spinner
-    // that offers no way to sign out.
     enabled: isAuthenticated && !!organizationId,
     staleTime: 5 * 60 * 1000,
   });

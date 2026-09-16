@@ -14,8 +14,6 @@ vi.mock("@/features/auth/stores/authStore", () => ({
   useAuthStore: mockUseAuthStore,
 }));
 
-// Not used by this hook, but loading the real one drags in the expo OAuth
-// module, which vitest's node environment cannot evaluate.
 vi.mock("@/features/auth/hooks/useUserQuery", () => ({
   useUserQuery: vi.fn(),
 }));
@@ -62,8 +60,6 @@ describe("useDesktopBetaTerms", () => {
     });
 
     function HookProbe() {
-      // The organization id stays put on purpose: /api/users/@me/ does not
-      // move when the token's scoped teams do.
       currentResult = useDesktopBetaTerms("org-1");
       return null;
     }
@@ -76,8 +72,6 @@ describe("useDesktopBetaTerms", () => {
       );
     }
 
-    // A fresh element every time: React bails out of re-rendering one it has
-    // already seen, so reusing it would never pick a new project up.
     const tree = () => createElement(Wrapper, null, createElement(HookProbe));
     let renderer!: ReturnType<typeof create>;
     await act(async () => {
