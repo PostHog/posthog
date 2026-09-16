@@ -41,7 +41,9 @@ export interface LogRecord {
     trace_flags: number | null
     timestamp: number | null
     observed_timestamp: number | null
-    body: string | null
+    /** Absent on trace spans, which are written with a schema that has no `body` field, so a decoded
+     * span has no key at all rather than `null`. Readers must accept `undefined`. */
+    body?: string | null
     severity_text: string | null
     severity_number: number | null
     service_name: string | null
