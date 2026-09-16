@@ -51,6 +51,21 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert activate.status_code == 200, activate.json()
         return flow_id
 
+    def _create_disabled_flow_with_staged_draft(self) -> str:
+        flow_id = self._create_active_flow()
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://staged.example.com")],
+                "stage_draft": True,
+            },
+        )
+        assert staged.status_code == 200, staged.json()
+        disable = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disable.status_code == 200, disable.json()
+        assert HogFlow.objects.get(pk=flow_id).draft is not None
+        return flow_id
+
     def _patch_actions_via_mcp(self, flow_id: str, url: str = "https://changed.example.com"):
         # Graph content edits over MCP go through the surgical graph endpoint (a plain update
         # rejects actions/edges outright), so drafts are staged the way real agents stage them.
@@ -234,23 +249,44 @@ class TestHogFlowDraftPublish(APIBaseTest):
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://second-draft.example.com"]
 
-    def test_stage_draft_on_inactive_flow_applies_live(self):
-        hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}
-        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        flow_id = create.json()["id"]
+    @parameterized.expand(
+        [
+            ("never_active_with_stage_draft", False, True),
+            ("disabled_with_staged_draft", True, False),
+            ("disabled_with_staged_draft_and_stage_draft", True, True),
+        ]
+    )
+    def test_content_save_on_inactive_flow_applies_live_and_clears_draft(
+        self, _name: str, disabled_with_staged_draft: bool, stage_draft: bool
+    ):
+        if disabled_with_staged_draft:
+            flow_id = self._create_disabled_flow_with_staged_draft()
+        else:
+            hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}
+            create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            flow_id = create.json()["id"]
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {
-                "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
-                "stage_draft": True,
-            },
-        )
+        payload: dict = {"actions": [_trigger_action(), _webhook_action(url="https://saved.example.com")]}
+        if stage_draft:
+            payload["stage_draft"] = True
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
         assert response.status_code == 200, response.json()
+        assert response.json()["draft"] is None
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is None
+        assert flow.draft_updated_at is None
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
-        assert live_urls == ["https://changed.example.com"]
+        assert live_urls == ["https://saved.example.com"]
+
+    def test_metadata_save_on_disabled_flow_keeps_staged_draft(self):
+        flow_id = self._create_disabled_flow_with_staged_draft()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+        assert response.status_code == 200, response.json()
+        draft = HogFlow.objects.get(pk=flow_id).draft
+        assert draft is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
+        assert draft_urls == ["https://staged.example.com"]
 
     def test_mcp_content_edit_on_inactive_flow_applies_live(self):
         # Disabled/draft-status workflows edit in place — the draft cycle protects in-flight runs only

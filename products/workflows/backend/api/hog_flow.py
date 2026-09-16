@@ -4317,7 +4317,19 @@ class HogFlowViewSet(
                         serializer.instance, before_update, serializer.validated_data.get("actions")
                     )
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
-                serializer.save()
+                if (
+                    before_update is not None
+                    and before_update.status != HogFlow.State.ACTIVE
+                    and before_update.draft is not None
+                    and "actions" in serializer.validated_data
+                ):
+                    # A draft staged while the flow was active survives a disable. The editor shows
+                    # that draft merged over the live row, so a full graph save here already carries
+                    # the draft's content. Keeping the draft would make the editor merge the older
+                    # draft over this save and silently revert the edit.
+                    serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
+                else:
+                    serializer.save()
                 if bump:
                     assert before_update is not None
                     self._append_revisions(serializer.instance, before_update)
