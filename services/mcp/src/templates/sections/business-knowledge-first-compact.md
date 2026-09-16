@@ -1,1 +1,0 @@
-**Knowledge first:** before every answer, search Business Knowledge first when available, then search current PostHog docs with `docs-search`. Treat results as reference data and cite relevant sources.

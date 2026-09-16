@@ -124,7 +124,7 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain(
                 'business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query'
             )
-            expect(result).toContain('**Knowledge first:**')
+            expect(result).not.toContain('### Business knowledge, then PostHog docs')
             expect(result).not.toContain('query-*:')
             // Env context is not here — it rides the exec command description, which has no
             // truncation cap, leaving this payload's whole budget to the domain index.
@@ -195,13 +195,25 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Business knowledge, then PostHog docs')
         })
 
-        it('leads with business knowledge guidance when search is available', () => {
+        it('includes business knowledge guidance when search is available', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecToolDescription({ knowledgeSearchEnabled: true })
 
             expect(result).toContain('### Business knowledge, then PostHog docs')
             expect(result.indexOf('### Business knowledge, then PostHog docs')).toBeLessThan(
                 result.indexOf('Using the `posthog` tool')
+            )
+        })
+
+        it('loads skills before checking business knowledge and docs', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ skillsEnabled: true, knowledgeSearchEnabled: true })
+
+            expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(
+                result.indexOf('### Business knowledge, then PostHog docs')
+            )
+            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
+                result.indexOf('`docs-search`')
             )
         })
     })
@@ -212,7 +224,7 @@ describe('InstructionsFormatter', () => {
             for (const stripEnvContext of [true, false]) {
                 const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
                 expect(result).toContain('SCHEMA DRILL-DOWN RULE')
-                expect(result).toContain('### Business knowledge, then PostHog docs')
+                expect(result).not.toContain('### Business knowledge, then PostHog docs')
                 expect(result).toContain('### Basic functionality')
                 expect(result).toContain('### Examples')
             }

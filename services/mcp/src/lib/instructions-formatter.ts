@@ -13,7 +13,6 @@ import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
-import BUSINESS_KNOWLEDGE_FIRST_COMPACT from '@/templates/sections/business-knowledge-first-compact.md'
 import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-first.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
@@ -68,9 +67,9 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
-    private knowledgeFirstSections(ctx: InstructionsContext, compact = false): string[] {
+    private knowledgeFirstSections(ctx: InstructionsContext): string[] {
         return ctx.tools?.some(({ name }) => name === 'business-knowledge-documents-search' || name === 'docs-search')
-            ? [compact ? BUSINESS_KNOWLEDGE_FIRST_COMPACT : BUSINESS_KNOWLEDGE_FIRST]
+            ? [BUSINESS_KNOWLEDGE_FIRST]
             : []
     }
 
@@ -116,7 +115,7 @@ export class InstructionsFormatter {
      *  overshoots, because `formatPrompt` trims the trailing separator the real payload
      *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        const sections = [COMPACT_INSTRUCTIONS, ...this.knowledgeFirstSections(ctx, true)]
+        const sections = [COMPACT_INSTRUCTIONS]
         const rendered = this.compose(sections, ctx, { compact: true })
         const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
         if (overflow <= 0) {
@@ -136,8 +135,8 @@ export class InstructionsFormatter {
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(opts: { skillsEnabled?: boolean; knowledgeSearchEnabled?: boolean } = {}): string {
         return [
-            ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
             ...(opts.skillsEnabled ? [SKILLS_FIRST] : []),
+            ...(opts.knowledgeSearchEnabled ? [BUSINESS_KNOWLEDGE_FIRST] : []),
             EXEC_TOOL_BLURB,
         ]
             .map((section) => section.trim())
@@ -271,7 +270,6 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
-            ...this.knowledgeFirstSections(ctx),
             ...(opts.learnEnabled ? [CLI_LEARN] : []),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
