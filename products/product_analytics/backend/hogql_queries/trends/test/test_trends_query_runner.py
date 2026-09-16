@@ -8075,7 +8075,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         property_filter = PersonMetadataPropertyFilter(key="created_at", operator=operator, value=value)
-        series = [EventsNode(event="$pageview", properties=[property_filter] if placement == "series" else None)]
+        series: list[EventsNode | ActionsNode] = [
+            EventsNode(event="$pageview", properties=[property_filter] if placement == "series" else None)
+        ]
 
         response = self._run_trends_query(
             self.default_date_from,
