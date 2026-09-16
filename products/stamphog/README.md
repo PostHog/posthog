@@ -12,17 +12,19 @@ This product decides which PRs are reviewed, runs the engine in a sandbox, and p
 A repository either reviews every PR or waits for its trigger label, depending on its review mode.
 The engine returns one of five verdicts, and `post_verdict` puts it on the PR.
 
-| Verdict  | Where it lands                          | Trigger label in label mode |
-| -------- | --------------------------------------- | --------------------------- |
-| APPROVED | A real GitHub review by `stamphog[bot]` | Kept                        |
-| REFUSED  | The sticky comment                      | Removed                     |
-| ESCALATE | The sticky comment                      | Removed                     |
-| WAIT     | The sticky comment                      | Kept, retries               |
-| ERROR    | The sticky comment                      | Kept, retries               |
+| Verdict  | Where it lands                             | Trigger label in label mode |
+| -------- | ------------------------------------------ | --------------------------- |
+| APPROVED | A real GitHub review by `stamphog[bot]`    | Kept                        |
+| REFUSED  | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| ESCALATE | A GitHub comment review by `stamphog[bot]` | Removed                     |
+| WAIT     | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
+| ERROR    | A GitHub comment review by `stamphog[bot]` | Kept, retries               |
 
 The bot never posts request-changes.
 Approvals are posted as real reviews so they count toward branch protection, once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
-Every other verdict goes into one sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried, so repeated refusals do not stack up on the PR.
+Every other verdict is posted once per run as a comment review on the same surface, so approvals and non-approvals for one head never disagree across two lists.
+A run that produced no verdict posts a short failure notice the same way, unless a newer run already holds the same head.
+The spelling differs per layer: the engine emits `APPROVE` and `REFUSE`, its pipeline reports `APPROVED` and `REFUSED`, and the API exposes the lowercase `approved` and `refused`.
 
 The trigger label only exists in label-triggered mode, and only a substantive non-approval removes it.
 So the label can be re-applied once the feedback is addressed.
@@ -71,11 +73,12 @@ A repository that only wants a bigger size gate writes five lines:
 ```yaml
 version: 1
 size_gate:
-  max_lines: 1200
+  max_lines: 1000
   max_files: 40
 ```
 
 Everything else, including every deny category, still comes from the hosted default.
+A global limit may not exceed the matching ceiling under `overrides`, so a repository that wants to go past the shipped ceilings declares both sections.
 The merged document is validated by the engine's strict loader inside the sandbox, so required sections and the `stamphog_policy` self-governance deny cannot be dropped by omission.
 
 A `policy.yml` that is present but unusable, such as malformed YAML or a non-mapping root, fails the run closed.
@@ -84,7 +87,7 @@ The repository declared something, so reviewing under pure defaults would be wro
 ### The `digest:` key
 
 `policy.yml` may also carry a `digest:` section.
-It names a single Slack channel for all of the repository's merged-PR digests, which opts the repository out of the audience cascade:
+It names a Slack channel that receives all of the repository's merged-PR digests, as one more audience next to the owning teams, so a merge can appear in the repository channel and in a team channel:
 
 ```yaml
 digest:
@@ -104,7 +107,7 @@ A merge fans out to every audience it belongs to, and each audience resolves to 
 - A team slug takes the root `owners.yaml` registry of the repository the merge came from.
 - A repository carrying no registry inherits the monorepo's.
 - Otherwise the slug name-matches a Slack channel, and the app joins it.
-- Channels shared outside the workspace are skipped, and `notifications: false` on a registry entry opts a team out.
+- A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
 
 Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
@@ -135,7 +138,8 @@ The sandbox runs an LLM over untrusted PR content, so it holds no long-lived sec
 It gets a per-run `phe_` scoped token from the Go ai-gateway, pinned to `product=aio_stamphog`, capped at $5 and one hour, and revoked when the sandbox is destroyed.
 Egress is fenced to an explicit domain allowlist.
 Posted bodies are scrubbed and markdown-image-neutralized.
-Approvals are governed by a strict supersession protocol, so no approval survives a push, a re-review or a repository being disabled.
+Approvals are governed by a strict supersession protocol, so no approval survives a push or a re-review.
+Disabling a repository stops new runs and retracts a standing approval on the next head change, not at the moment of disabling.
 Details and invariants: [AGENTS.md](AGENTS.md).
 
 ## Where to read more

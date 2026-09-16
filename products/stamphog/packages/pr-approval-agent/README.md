@@ -178,7 +178,8 @@ Treat it as historical justification like a commit message, not as a claim about
 The `deny` section must keep a `stamphog_policy` category matching the policy files and the engine itself.
 The loader hard-fails without it, so the gate can never be configured to approve edits to its own policy or engine.
 
-The loader ignores top-level keys it does not know, so a caller may carry its own configuration in the same file.
+The loader rejects unknown top-level keys.
+The two exceptions are `digest` and `dismiss`, which a hosting server may declare and parse itself; the engine allows them and never reads them.
 
 ### `review-guidance.md`
 
