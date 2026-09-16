@@ -1,3 +1,4 @@
+import json
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -89,7 +90,16 @@ def instance_memoize(callback):
 class OrjsonJsonSerializer(BaseSerializer):
     def dumps(self, value: Any) -> bytes:
         option = orjson.OPT_UTC_Z
-        return orjson.dumps(value, default=JSONEncoder().default, option=option)
+        try:
+            return orjson.dumps(value, default=JSONEncoder().default, option=option)
+        except TypeError as err:
+            if str(err) != "Integer exceeds 64-bit range":
+                raise
+            # orjson only calls `default` for types it does not support, and `int` is one it
+            # supports, so an out-of-range int always raises (ijl/orjson#301). stdlib json
+            # writes it exactly; orjson reads it back as a lossy float, which keeps the value
+            # numeric and in the right magnitude.
+            return json.dumps(value, cls=JSONEncoder).encode("utf-8")
 
     def loads(self, value: bytes) -> Any:
         return orjson.loads(value)

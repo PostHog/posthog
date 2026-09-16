@@ -68,6 +68,23 @@ class TestQueryCacheFacade(BaseTest):
 
         assert cache.lookup().entry is None
 
+    def test_store_result_swallows_serialization_failures(self):
+        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_unserializable_test_{self.team.pk}", insight_id=1)
+
+        assert cache.store_result(response={"results": [{"data": object()}]}, target_age=None) is False
+        assert cache.lookup().entry is None
+
+    def test_store_result_caches_results_holding_an_out_of_range_integer(self):
+        response = {"is_cached": False, "results": [{"data": [2**70]}], "cache_key": "k"}
+        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_big_int_test_{self.team.pk}", insight_id=1)
+
+        assert cache.store_result(response=response, target_age=None) is True
+
+        entry = cache.lookup().entry
+        assert entry is not None
+        # orjson reads the value back as a lossy float, which for this magnitude is exact.
+        assert entry.as_full_response() == {"is_cached": False, "results": [{"data": [float(2**70)]}], "cache_key": "k"}
+
     def test_store_result_updates_and_clears_freshness_index(self):
         cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_fresh_test_{self.team.pk}", insight_id=42)
         past = datetime.now(UTC) - timedelta(minutes=5)
