@@ -253,6 +253,40 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('loadExposures', () => {
+        // A draft has exposed nobody, so the query can only come back empty — and while it runs the
+        // exposures chart shows its slow-load warning on an experiment that has not started.
+        const experimentWithNewMetrics = {
+            ...experiment,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        it.each([
+            ['a draft', null, false],
+            ['a launched experiment', '2024-12-30T21:55:00Z', true],
+        ])('given %s, queries exposures: %s', async (_name, startDate, expectQuery) => {
+            const queryMock = jest.fn(() => [200, { results: [], timeseries: [], total_exposures: {} }])
+            useMocks({ post: { '/api/environments/:team/query/:kind': queryMock } })
+
+            logic.actions.setExperiment({
+                ...experimentWithNewMetrics,
+                status: startDate ? 'running' : 'draft',
+                start_date: startDate,
+            } as Experiment)
+            await logic.asyncActions.loadExposures(true)
+
+            expect(queryMock).toHaveBeenCalledTimes(expectQuery ? 1 : 0)
+        })
+    })
+
     describe('refreshExperimentResults', () => {
         it('waits for metric refreshes to complete before resolving', async () => {
             logic.actions.setExperiment(experiment)
