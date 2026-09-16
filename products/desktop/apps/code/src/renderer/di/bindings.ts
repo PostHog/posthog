@@ -165,6 +165,10 @@ import {
   type INotifications,
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
+import type {
+  ISettingsBackupFiles,
+  SETTINGS_BACKUP_FILES,
+} from "@posthog/platform/settings-backup-files";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
   AUTH_SIDE_EFFECTS,
@@ -295,6 +299,7 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;

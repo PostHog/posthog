@@ -40,6 +40,56 @@ function jsonStorageOf(module: RendererStorageModule) {
 }
 
 describe("rendererStorage", () => {
+  it("holds ordinary snapshots behind a persist-and-publish transaction", async () => {
+    const data: Record<string, string> = {};
+    const { module, backend } = await setupRegisteredBackend(data);
+    let finish!: () => void;
+    backend.setItem.mockImplementationOnce(
+      (key, value) =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            data[key] = value;
+            resolve();
+          };
+        }),
+    );
+    await module.stateStorage.setItem("settings-storage", "old");
+    const flushing = module.flushRendererStateWrites();
+    await vi.waitFor(() => expect(backend.setItem).toHaveBeenCalledTimes(1));
+
+    let latestPreference = "before";
+    const importing = module.transactRendererStateWrite(
+      "settings-storage",
+      async (persist) => {
+        const imported = `imported:${latestPreference}`;
+        await persist(imported);
+        await module.stateStorage.setItem("settings-storage", imported);
+      },
+    );
+    latestPreference = "during";
+    await module.stateStorage.setItem("settings-storage", "ordinary:during");
+    await module.flushRendererStateWrites();
+
+    finish();
+    await Promise.all([flushing, importing]);
+    expect(data["settings-storage"]).toBe("imported:during");
+  });
+
+  it("restores the newest ordinary snapshot when a transaction fails", async () => {
+    const { module, backend } = await setupRegisteredBackend();
+    backend.setItem.mockRejectedValueOnce(new Error("Disk full"));
+
+    const importing = module.transactRendererStateWrite(
+      "settings-storage",
+      async (persist) => persist("imported"),
+    );
+    await module.stateStorage.setItem("settings-storage", "ordinary");
+
+    await expect(importing).rejects.toThrow("Disk full");
+    await module.flushRendererStateWrites();
+    expect(await backend.getItem("settings-storage")).toBe("ordinary");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

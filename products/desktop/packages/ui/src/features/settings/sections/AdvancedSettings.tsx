@@ -1,5 +1,6 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { Button, Checkbox, Switch } from "@posthog/quill";
 import {
   BACKGROUND_AGENT_LOGS_FLAG,
   ONBOARDING_TEST_TOOLS_FLAG,
@@ -19,10 +20,10 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSetupStore } from "@posthog/ui/features/setup/setupStore";
 import { useTourStore } from "@posthog/ui/features/tour/tourStore";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
-import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 import { OnboardingTestTools } from "./OnboardingTestTools";
+import { SettingsBackup } from "./SettingsBackup";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -46,6 +47,7 @@ export function AdvancedSettings() {
 
   return (
     <div className="flex flex-col gap-7">
+      <SettingsBackup />
       <SettingsCard>
         <SettingsCardRow
           label="Always create pull requests for cloud runs"
@@ -54,47 +56,49 @@ export function AdvancedSettings() {
           <Switch
             checked={autoPublishCloudRuns}
             onCheckedChange={setAutoPublishCloudRuns}
-            size="1"
+            size="sm"
           />
         </SettingsCardRow>
         <SettingsCardRow
           label="Compress command output"
           description="Route eligible shell commands through rtk so their verbose output is compressed before it reaches the model, reducing token usage; Local covers local and worktree sessions"
         >
-          <Flex direction="column" gap="1" align="end">
-            <Flex gap="4" align="center">
-              <Text as="label" size="1">
-                <Flex gap="1" align="center">
-                  <Checkbox
-                    checked={rtkEnabledLocal}
-                    onCheckedChange={(checked) =>
-                      setRtkEnabledLocal(checked === true)
-                    }
-                    size="1"
-                  />
-                  Local
-                </Flex>
-              </Text>
-              <Text as="label" size="1">
-                <Flex gap="1" align="center">
-                  <Checkbox
-                    checked={rtkEnabledCloud}
-                    onCheckedChange={(checked) =>
-                      setRtkEnabledCloud(checked === true)
-                    }
-                    size="1"
-                  />
-                  Cloud
-                </Flex>
-              </Text>
-            </Flex>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-4">
+              <label
+                htmlFor="rtk-local"
+                className="flex items-center gap-1 text-[12px]"
+              >
+                <Checkbox
+                  id="rtk-local"
+                  checked={rtkEnabledLocal}
+                  onCheckedChange={(checked) =>
+                    setRtkEnabledLocal(checked === true)
+                  }
+                />
+                Local
+              </label>
+              <label
+                htmlFor="rtk-cloud"
+                className="flex items-center gap-1 text-[12px]"
+              >
+                <Checkbox
+                  id="rtk-cloud"
+                  checked={rtkEnabledCloud}
+                  onCheckedChange={(checked) =>
+                    setRtkEnabledCloud(checked === true)
+                  }
+                />
+                Cloud
+              </label>
+            </div>
             {rtkEnabledLocal && rtkStatus?.available === false && (
-              <Text size="1" color="orange">
-                rtk binary not found — local sessions run uncompressed until it
+              <span className="text-(--orange-11) text-[12px]">
+                rtk binary not found. Local sessions run uncompressed until it
                 is installed
-              </Text>
+              </span>
             )}
-          </Flex>
+          </div>
         </SettingsCardRow>
         {showOnboardingTools && (
           <SettingsCardRow
@@ -102,8 +106,8 @@ export function AdvancedSettings() {
             description="Re-run the onboarding tutorial and product tours on next app restart"
           >
             <Button
-              variant="soft"
-              size="1"
+              variant="outline"
+              size="sm"
               onClick={() => {
                 closeSettings();
                 useOnboardingStore.getState().resetOnboarding();
@@ -120,9 +124,8 @@ export function AdvancedSettings() {
           description="This will remove all locally stored application data"
         >
           <Button
-            variant="soft"
-            color="red"
-            size="1"
+            variant="destructive-outline"
+            size="sm"
             onClick={clearApplicationStorage}
           >
             Clear all data
@@ -136,7 +139,7 @@ export function AdvancedSettings() {
             <Switch
               checked={debugLogsCloudRuns}
               onCheckedChange={setDebugLogsCloudRuns}
-              size="1"
+              size="sm"
             />
           </SettingsCardRow>
         )}
@@ -163,7 +166,7 @@ function DevModeRow({ client }: { client: DevModeClient }) {
         onCheckedChange={(checked) => {
           void client.setDevMode(checked);
         }}
-        size="1"
+        size="sm"
       />
     </SettingsCardRow>
   );

@@ -7,6 +7,7 @@ export default defineConfig({
     "src/storage-paths.ts",
     "src/app-meta.ts",
     "src/dialog.ts",
+    "src/settings-backup-files.ts",
     "src/clipboard.ts",
     "src/file-icon.ts",
     "src/secure-storage.ts",

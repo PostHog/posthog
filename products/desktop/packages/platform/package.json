@@ -103,6 +103,10 @@
     "./disk-cache": {
       "types": "./dist/disk-cache.d.ts",
       "import": "./dist/disk-cache.js"
+    },
+    "./settings-backup-files": {
+      "types": "./dist/settings-backup-files.d.ts",
+      "import": "./dist/settings-backup-files.js"
     }
   },
   "scripts": {
