@@ -665,6 +665,9 @@ importers:
       '@posthog/products-apm':
         specifier: workspace:*
         version: link:../products/apm
+      '@posthog/products-autoresearch':
+        specifier: workspace:*
+        version: link:../products/autoresearch
       '@posthog/products-batch-exports':
         specifier: workspace:*
         version: link:../products/batch_exports

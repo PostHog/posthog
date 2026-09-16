@@ -7,7 +7,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
 ## What lives here
 
 - `tools.yaml`
-  The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `resolve-template-create`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed.
+  The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /autoresearch`. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `resolve-template-create`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed.
   Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
 Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
