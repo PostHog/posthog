@@ -123,13 +123,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
-    {
-        key: 'hog_flow_proposal',
-        objectName: 'Workflow suggestion',
-        objectPlural: 'workflow suggestions',
-        // Nothing reads with this scope: listing suggestions is a workflow read.
-        disabledActions: ['read'],
-    },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
     {
         key: 'ingestion_warning',
