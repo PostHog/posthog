@@ -4,11 +4,12 @@ from parameterized import parameterized
 
 from posthog.schema import QueryScanFindingReason
 
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, analyze
 from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.test_explain import events_read_node, load_plan
+from posthog.query_scan.tree_facts import TreeFacts
 
 _USABLE_EVENT_FILTER = EventFilterOutcome(classification="usable")
 _END_DATE_ONLY = "(timestamp in (-Inf, 1800000000])"
@@ -17,6 +18,9 @@ _BOTH_BOUNDS = "and((timestamp in (-Inf, 1800000000]), (timestamp in [1700000000
 
 
 _EVENT_KEY = ["team_id", "toDate(timestamp)", "event"]
+
+NO_START_DATE = "no_start_date"
+NO_EVENT_FILTER = "no_event_filter"
 
 
 def plan(name: str) -> QueryPlan:
@@ -31,6 +35,26 @@ def join_plan(*reads: dict[str, object]) -> QueryPlan:
     return parse_query_plan([{"Plan": {"Node Type": "Join", "Plans": list(reads)}}])
 
 
+def facts(**overrides: object) -> TreeFacts:
+    values: dict[str, object] = {
+        "timestamp_bound": False,
+        "property_filter": False,
+        "all_history": False,
+        "groups_by_event": False,
+        "counts_any_event": False,
+        "view_name": None,
+    }
+    return TreeFacts(**{**values, **overrides})  # type: ignore[arg-type]
+
+
+# A join whose heaviest read pruned on nothing while its lighter read pruned on `event`: an
+# unfiltered helper read beside a read that names events.
+_HELPER_READ_PLAN = join_plan(
+    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
+    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=10, primary_keys=_EVENT_KEY),
+)
+
+
 def analyze_fixture(
     outer: str | QueryPlan,
     *,
@@ -43,7 +67,10 @@ def analyze_fixture(
     event_filter: EventFilterOutcome | None = None,
     table_row_averages: dict[str, float] | None = None,
     all_time: bool = False,
+    dashboard_all_time: bool = False,
     all_history_by_design: bool = False,
+    all_events_by_design: bool = False,
+    tree: TreeFacts | None = None,
 ) -> QueryScanResult:
     return analyze(
         PlanSet(
@@ -54,11 +81,16 @@ def analyze_fixture(
         ),
         QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=persons_ratio),
         query_kind=query_kind,
-        open_filters_placeholder=open_filters_placeholder,
+        run=RunFacts(
+            all_time=all_time,
+            dashboard_all_time=dashboard_all_time,
+            all_history_by_design=all_history_by_design,
+            all_events_by_design=all_events_by_design,
+            open_filters_placeholder=open_filters_placeholder,
+            tree=tree,
+        ),
         event_filter=event_filter,
         table_row_averages=table_row_averages,
-        all_time=all_time,
-        all_history_by_design=all_history_by_design,
     )
 
 
@@ -102,6 +134,24 @@ class TestAnalyze(SimpleTestCase):
                 {"event_filter": _USABLE_EVENT_FILTER},
                 ["no_start_date"],
             ),
+            (
+                "a small unbounded read is not flagged",
+                join_plan(
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
+                    events_read_node("true", [], selected_granules=10),
+                ),
+                {"event_filter": _USABLE_EVENT_FILTER, "team_granules": 10_000},
+                [],
+            ),
+            (
+                "an unbounded read over the start-date ratio is flagged",
+                join_plan(
+                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
+                    events_read_node("true", [], selected_granules=10),
+                ),
+                {"event_filter": _USABLE_EVENT_FILTER, "team_granules": 500},
+                ["no_start_date"],
+            ),
             # The event filter is judged on the larger read: a small read without one stays quiet, and
             # a large read without one is flagged whatever the small read did.
             (
@@ -115,28 +165,17 @@ class TestAnalyze(SimpleTestCase):
             ),
             (
                 "the heaviest read with no event filter is flagged",
-                join_plan(
-                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=5000),
-                    events_read_node(_BOTH_BOUNDS, ["timestamp"], selected_granules=10, primary_keys=_EVENT_KEY),
-                ),
+                _HELPER_READ_PLAN,
                 {"range_granules": 10_000},
                 ["no_event_filter"],
             ),
             # An "All time" insight runs with a bound at the project's first event, so the plan alone
             # would stay quiet; the setting is what says no start date was chosen.
             (
-                "all time insight is flagged despite the bound",
+                "all time insight is flagged despite the bound and whatever its size",
                 "plan_event_filter_used",
-                {"query_kind": "TrendsQuery", "all_time": True},
+                {"query_kind": "TrendsQuery", "all_time": True, "team_granules": 100_000_000_000},
                 ["no_start_date"],
-            ),
-            # First-time math has to read from the first event whatever the date range, so the
-            # advice to set one could not be followed.
-            (
-                "an insight that reads all history by design gets no start-date advice",
-                "plan_no_date_bound",
-                {"query_kind": "TrendsQuery", "all_history_by_design": True},
-                [],
             ),
             # persons gate: the persons read dwarfs the events read
             ("persons join over the ratio", "plan_persons_join", {}, ["persons_join"]),
@@ -182,12 +221,156 @@ class TestAnalyze(SimpleTestCase):
         self.assertTrue(result.explain_ok)
         self.assertEqual(result.finding_kinds(), expected_kinds)
 
+    @parameterized.expand(
+        [
+            ("no bound at all", "plan_no_date_bound", {}, [(NO_START_DATE, None, True)]),
+            (
+                "a bound clickhouse could not use",
+                "plan_no_date_bound",
+                {"tree": facts(timestamp_bound=True)},
+                [(NO_START_DATE, QueryScanFindingReason.BOUND_NOT_USED, True)],
+            ),
+            (
+                "a first-ever computation in sql",
+                "plan_no_date_bound",
+                {"tree": facts(all_history=True, timestamp_bound=True)},
+                [(NO_START_DATE, QueryScanFindingReason.ALL_HISTORY, False)],
+            ),
+            (
+                "a first-time math on all time",
+                "plan_event_filter_used",
+                {"query_kind": "TrendsQuery", "all_time": True, "all_history_by_design": True},
+                [(NO_START_DATE, QueryScanFindingReason.ALL_HISTORY, False)],
+            ),
+            (
+                "all time chosen on the insight",
+                "plan_event_filter_used",
+                {"query_kind": "TrendsQuery", "all_time": True},
+                [(NO_START_DATE, QueryScanFindingReason.ALL_TIME, True)],
+            ),
+            (
+                "all time forced by the dashboard",
+                "plan_event_filter_used",
+                {"query_kind": "TrendsQuery", "all_time": True, "dashboard_all_time": True},
+                [(NO_START_DATE, QueryScanFindingReason.DASHBOARD_ALL_TIME, True)],
+            ),
+            (
+                "all time reaching sql through filters",
+                "plan_no_date_bound",
+                {"all_time": True, "open_filters_placeholder": True},
+                [(NO_START_DATE, QueryScanFindingReason.FILTERS, True)],
+            ),
+            (
+                "the dashboard's all time reaching sql through filters",
+                "plan_no_date_bound",
+                {"all_time": True, "open_filters_placeholder": True, "dashboard_all_time": True},
+                [(NO_START_DATE, QueryScanFindingReason.DASHBOARD_ALL_TIME, True)],
+            ),
+            (
+                "a read inside a saved view",
+                "plan_no_date_bound",
+                {"tree": facts(view_name="v_active")},
+                [(NO_START_DATE, None, False)],
+            ),
+            (
+                "no event filter and nothing standing in for one",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000},
+                [(NO_EVENT_FILTER, None, False)],
+            ),
+            (
+                "a property filter standing in for an event name",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "tree": facts(property_filter=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.PROPERTY_FILTER, True)],
+            ),
+            (
+                "a property filter on an all events insight",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "query_kind": "TrendsQuery", "tree": facts(property_filter=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.PROPERTY_FILTER, True)],
+            ),
+            (
+                "grouping by event beside a property filter",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "tree": facts(groups_by_event=True, property_filter=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.ALL_EVENTS, False)],
+            ),
+            (
+                "counting distinct people over any event",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "tree": facts(counts_any_event=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.ALL_EVENTS, False)],
+            ),
+            (
+                "counting distinct people with a property filter",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "tree": facts(counts_any_event=True, property_filter=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.PROPERTY_FILTER, True)],
+            ),
+            (
+                "an active-user math on all events",
+                "plan_no_event_filter",
+                {"range_granules": 1_000_000, "query_kind": "TrendsQuery", "all_events_by_design": True},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.ALL_EVENTS, False)],
+            ),
+            (
+                "an unfiltered helper read in sql",
+                _HELPER_READ_PLAN,
+                {"range_granules": 10_000, "tree": facts(counts_any_event=True)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.HELPER_READ, True)],
+            ),
+            (
+                "an unfiltered helper read in an insight",
+                _HELPER_READ_PLAN,
+                {"range_granules": 10_000, "query_kind": "TrendsQuery"},
+                [(NO_EVENT_FILTER, None, False)],
+            ),
+            (
+                "an unfiltered subquery beside an outer read that names events",
+                "plan_event_filter_used",
+                {"subqueries": ("plan_no_event_filter",)},
+                [(NO_EVENT_FILTER, QueryScanFindingReason.HELPER_READ, True)],
+            ),
+            (
+                "a negated event filter",
+                "plan_event_filter_negated",
+                {
+                    "range_granules": 400_000,
+                    "event_filter": EventFilterOutcome(classification="not_used", reason="negated"),
+                },
+                [(NO_EVENT_FILTER, QueryScanFindingReason.NEGATED, False)],
+            ),
+            (
+                "an event filter inside an or",
+                "plan_no_event_filter",
+                {
+                    "range_granules": 1_000_000,
+                    "event_filter": EventFilterOutcome(classification="not_used", reason="in_or"),
+                },
+                [(NO_EVENT_FILTER, QueryScanFindingReason.IN_OR, True)],
+            ),
+        ]
+    )
+    def test_reasons_and_actionability(
+        self,
+        _name: str,
+        outer: str | QueryPlan,
+        kwargs: dict[str, object],
+        expected: list[tuple[str, QueryScanFindingReason | None, bool]],
+    ) -> None:
+        result = analyze_fixture(outer, **kwargs)  # type: ignore[arg-type]
+
+        self.assertEqual(
+            [(str(finding.kind), finding.reason, finding.actionable) for finding in result.findings], expected
+        )
+
     def test_no_outer_plan_fails_closed(self) -> None:
         result = analyze(
             PlanSet(outer=None),
             QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5),
             query_kind="HogQLQuery",
-            open_filters_placeholder=False,
+            run=RunFacts(),
         )
 
         self.assertFalse(result.explain_ok)
@@ -206,18 +389,35 @@ class TestAnalyze(SimpleTestCase):
         self.assertIsNone(result.findings[0].reason)
         self.assertIn("This insight has no start date", result.findings[0].message)
 
-    def test_a_negated_event_filter_is_flagged_with_its_reason(self) -> None:
-        # `event != x` lists `event` in the key yet keeps most of the range, so the plan alone
-        # cannot flag it; the combined outcome the job ships carries the tree's `negated` reason.
-        result = analyze_fixture(
-            "plan_event_filter_negated",
-            range_granules=400_000,
-            event_filter=EventFilterOutcome(classification="not_used", reason="negated"),
-        )
+    @parameterized.expand(
+        [
+            (
+                "the dashboard's date filter",
+                "plan_event_filter_used",
+                {"query_kind": "TrendsQuery", "all_time": True, "dashboard_all_time": True},
+                "The dashboard's date filter is set to All time",
+            ),
+            (
+                "the saved view the read sits in",
+                "plan_no_date_bound",
+                {"tree": facts(view_name="v_active")},
+                "The view `v_active` inside this query has no start date",
+            ),
+            (
+                "the subquery the read sits in",
+                "plan_event_filter_used",
+                {"subqueries": ("plan_no_date_bound",)},
+                "Subquery 1 of this query has no start date",
+            ),
+        ]
+    )
+    def test_the_headline_names_the_cause(
+        self, _name: str, outer: str, kwargs: dict[str, object], expected_in_message: str
+    ) -> None:
+        result = analyze_fixture(outer, **kwargs)  # type: ignore[arg-type]
 
-        self.assertEqual(result.finding_kinds(), ["no_event_filter"])
-        self.assertEqual(result.findings[0].reason, QueryScanFindingReason.NEGATED)
-        self.assertIn("only excludes events", result.findings[0].message)
+        self.assertEqual(result.finding_kinds(), ["no_start_date"])
+        self.assertIn(expected_in_message, result.findings[0].message)
 
     def test_shares_are_the_read_over_the_denominators(self) -> None:
         result = analyze_fixture("plan_no_event_filter", team_granules=10_000_000, range_granules=1_000_000)
@@ -231,3 +431,4 @@ class TestAnalyze(SimpleTestCase):
 
         assert result.findings[0].evidence is not None
         self.assertIn("In subquery 1", result.findings[0].evidence)
+        self.assertIn("Subquery 1 of this query", result.findings[0].message)

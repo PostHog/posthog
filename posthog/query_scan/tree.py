@@ -117,6 +117,9 @@ def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType
         seen.add(id(current))
         while isinstance(current, ast.FieldAliasType):
             current = current.type
+        if isinstance(current, ast.PropertyType):
+            # `properties.plan` is a key inside the `properties` column, so the condition is on that column.
+            current = current.field_type
         if not isinstance(current, ast.FieldType):
             continue
         table_type = _unwrap_table_alias(current.table_type)

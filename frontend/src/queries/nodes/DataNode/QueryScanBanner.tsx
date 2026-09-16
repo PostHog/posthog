@@ -20,13 +20,12 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
         return null
     }
 
-    const { summary, findings, assistantPrompt } = queryScan
-    const showFindings = findings.length > 0
+    const { summary, findings, actionable, assistantPrompt } = queryScan
 
     return (
         <div className={clsx('flex flex-col gap-2 shrink-0', className)} data-attr="query-scan">
             <span className="text-xs text-secondary">{queryScanStatLine(summary)}</span>
-            {showFindings && (
+            {findings.length > 0 && actionable && (
                 <LemonBanner type="warning">
                     <QueryScanFindingList findings={findings} dropBulletIfSingle />
                     {onFixWithAI && assistantPrompt && (
@@ -42,6 +41,11 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
                         </LemonButton>
                     )}
                 </LemonBanner>
+            )}
+            {findings.length > 0 && !actionable && (
+                <div className="text-xs text-secondary" data-attr="query-scan-note">
+                    <QueryScanFindingList findings={findings} dropBulletIfSingle />
+                </div>
             )}
         </div>
     )

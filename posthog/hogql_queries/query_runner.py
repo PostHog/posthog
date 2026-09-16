@@ -1690,6 +1690,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
+    # Set by apply_dashboard_filters when the dashboard's date filter, not the insight's own range,
+    # chose All time, so the query scan can name the dashboard in its advice.
+    dashboard_all_time: bool = False
     workload: Workload
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
@@ -2757,6 +2760,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         cacheable=cacheable,
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
+                        dashboard_all_time=self.dashboard_all_time,
                     )
                     if scan_skip in (None, "slot_exists"):
                         # Says only that there is an analysis to look up, never its state: the
@@ -2852,6 +2856,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 dashboard_id=dashboard_id,
                 killed=True,
                 error_type=clickhouse_error_type(error),
+                dashboard_all_time=self.dashboard_all_time,
             )
             if flag.mode != QueryScanMode.SHOW or skip not in (None, "slot_exists"):
                 # Under `log_only` the analysis runs and nobody sees it, and with no slot behind
@@ -3251,6 +3256,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversibly update self.query with provided dashboard filters."""
+        self.dashboard_all_time = dashboard_filter.date_from == "all"
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(

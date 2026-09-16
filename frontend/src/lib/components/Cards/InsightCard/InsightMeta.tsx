@@ -47,6 +47,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/queryScan'
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
 import { Node, ProductKey } from '~/queries/schema/schema-general'
@@ -249,9 +250,9 @@ export function InsightMeta({
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
     const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
-    // Without a finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
+    // Without an actionable finding the tag can only say that PostHog was slow, which leaves the viewer nothing to do.
     const queryScanTooltip =
-        canEditInsight && queryScan && scanFindings.length > 0 ? (
+        canEditInsight && queryScan && queryScanHasActionableFinding(scanFindings) ? (
             <QueryScanTileTooltip summary={queryScan} findings={scanFindings} />
         ) : null
 

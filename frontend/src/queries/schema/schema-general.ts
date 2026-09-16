@@ -596,12 +596,31 @@ export interface AccessControlFilterWarning {
 export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
 
 /**
- * Why a filter the query does have did not narrow the read. `in_or`: it sits inside an OR. `wrapped`:
- * `event` is inside a function call. `negated`: it excludes events, which narrows nothing. `dynamic`:
- * `event` is compared to a column. `not_pruned`: ClickHouse reported it unused. `filters`: the date
- * range comes from `{filters}` and the insight left it open.
+ * Why the read was not narrowed, which picks the wording and decides whether the person can act.
+ * Event filter: `in_or`: it sits inside an OR. `wrapped`: `event` is inside a function call. `negated`: it
+ * excludes events, which narrows nothing. `dynamic`: `event` is compared to a column. `not_pruned`:
+ * ClickHouse reported it unused. `property_filter`: a property condition stands in for an event name.
+ * `helper_read`: a subquery or CTE reads all events beside a read that names them. `all_events`: the
+ * question is about every event by design.
+ * Start date: `filters`: the date range comes from `{filters}` and the insight left it open. `bound_not_used`:
+ * the query has a start date ClickHouse could not skip data with. `all_time`: All time was chosen on the
+ * insight. `dashboard_all_time`: the dashboard's date filter forced All time. `all_history`: the query finds
+ * a first event ever by design.
  */
-export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
+export type QueryScanFindingReason =
+    | 'in_or'
+    | 'wrapped'
+    | 'negated'
+    | 'dynamic'
+    | 'not_pruned'
+    | 'property_filter'
+    | 'helper_read'
+    | 'all_events'
+    | 'filters'
+    | 'bound_not_used'
+    | 'all_time'
+    | 'dashboard_all_time'
+    | 'all_history'
 
 /** One finding of a query's analysis. */
 export interface QueryScanWarning {
@@ -614,6 +633,8 @@ export interface QueryScanWarning {
     fix: string
     /** The one fact the finding rests on. */
     evidence?: string
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
 }
 
 /** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */

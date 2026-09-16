@@ -315,6 +315,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return response
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        self.dashboard_all_time = dashboard_filter.date_from == "all"
         self.query.filters = self.query.filters or HogQLFilters()
 
         if dashboard_filter.date_to or dashboard_filter.date_from:

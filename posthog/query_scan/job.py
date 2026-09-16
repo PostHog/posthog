@@ -22,7 +22,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
+from posthog.query_scan.analyze import PlanSet, QueryScanResult, RunFacts, analyze
 from posthog.query_scan.event_filter import (
     EventFilterClass,
     EventFilterOutcome,
@@ -35,6 +35,7 @@ from posthog.query_scan.slot import (
     clear as clear_slot,
     set_done,
 )
+from posthog.query_scan.tree_facts import TreeFacts
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +60,8 @@ _EVENT_FILTER_REASONS = get_args(EventFilterReason)
 @frozen
 class Execution:
     """One printed execution of the run, as the trigger enqueued it. ``event_filter`` is the tree
-    verdict the trigger classified, or None when it shipped nothing.
+    verdict the trigger classified and ``tree`` the other facts it read off the tree; either is
+    None when it shipped nothing.
     """
 
     stubbed_sql: str
@@ -67,6 +69,7 @@ class Execution:
     values: dict[str, Any]
     rows_read: int
     event_filter: dict[str, Any] | None = None
+    tree: dict[str, Any] | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> Execution:
@@ -76,6 +79,7 @@ class Execution:
             values=payload.get("values") or {},
             rows_read=payload.get("rows_read") or 0,
             event_filter=payload.get("event_filter"),
+            tree=payload.get("tree"),
         )
 
 
@@ -96,7 +100,9 @@ class QueryScanJob:
     killed: bool = False
     error_type: str | None = None
     all_time: bool = False
+    dashboard_all_time: bool = False
     all_history_by_design: bool = False
+    all_events_by_design: bool = False
 
 
 def run_query_scan(job: QueryScanJob) -> None:
@@ -141,9 +147,14 @@ def _run(job: QueryScanJob, started: float) -> None:
                 PlanSet(outer=outer, subqueries=subqueries, team_granules=team_granules, range_granules=range_granules),
                 flag,
                 query_kind=job.query_kind or "",
-                open_filters_placeholder=job.open_filters_placeholder,
-                all_time=job.all_time,
-                all_history_by_design=job.all_history_by_design,
+                run=RunFacts(
+                    all_time=job.all_time,
+                    dashboard_all_time=job.dashboard_all_time,
+                    all_history_by_design=job.all_history_by_design,
+                    all_events_by_design=job.all_events_by_design,
+                    open_filters_placeholder=job.open_filters_placeholder,
+                    tree=TreeFacts.from_payload(execution.tree),
+                ),
                 event_filter=_combined_event_filter(execution, outer),
                 table_row_averages=table_row_averages,
             )
@@ -328,6 +339,10 @@ def _report(job: QueryScanJob, merged: QueryScanResult, *, flag_event_ratio: flo
         "event_ratio": flag_event_ratio,
         "explain_ok": merged.explain_ok,
         "finding_kinds": merged.finding_kinds(),
+        "finding_reasons": merged.finding_reasons(),
+        "actionable_finding_kinds": merged.actionable_finding_kinds(),
+        "actionable_finding_reasons": merged.actionable_finding_reasons(),
+        "actionable": bool(merged.actionable_finding_kinds()),
         "killed": job.killed,
         "error_type": job.error_type,
         "job_ms": job_ms,

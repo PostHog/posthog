@@ -31,6 +31,7 @@ from posthog.schema import (
     PropertyOperator,
     QueryScanAnalysis,
     QueryScanFindingKind,
+    QueryScanFindingReason,
     QueryStatus,
 )
 
@@ -1361,7 +1362,11 @@ A_STORED_SCAN = stored_slot(
     QueryScanAnalysis(
         range_share=0.8,
         project_share=0.25,
-        findings=[build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery")],
+        findings=[
+            build_warning(
+                kind=QueryScanFindingKind.NO_EVENT_FILTER, reason=QueryScanFindingReason.IN_OR, query_kind="HogQLQuery"
+            )
+        ],
     )
 )
 A_CLAIMED_SCAN = json.dumps({"pending": True})
@@ -1389,7 +1394,7 @@ class TestQueryScan(APIBaseTest):
         self.assertEqual(analysis["project_share"], 0.25)
         self.assertEqual([finding["kind"] for finding in analysis["findings"]], ["no_event_filter"])
         # "Fix with AI" sends this, so the endpoint builds it rather than the client.
-        self.assertIn("- no_event_filter:", analysis["assistant_prompt"])
+        self.assertIn("- no_event_filter (in_or):", analysis["assistant_prompt"])
 
     def test_answers_with_an_empty_body_while_the_job_runs(self):
         # A client polls until an analysis arrives, so "not yet" has to differ from the 404 that

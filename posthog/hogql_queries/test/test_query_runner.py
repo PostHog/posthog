@@ -27,6 +27,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CacheMissResponse,
     CurrencyCode,
+    DashboardFilter,
     DataTableNode,
     DataVisualizationNode,
     DateRange,
@@ -398,6 +399,36 @@ class TestQueryRunner(BaseTest):
             "killed": True,
             "analysis_requested": True,
         }
+
+    @parameterized.expand([("all time", "all", True), ("a recent range", "-7d", False)])
+    def test_the_analysis_knows_when_the_dashboard_chose_all_time(self, _name, date_from, expected):
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_over_the_floor(_self):
+            record(rows_read=90, duration_ms=4000.0)
+            active = get_active()
+            assert active is not None
+            active.record_execution(
+                tree=parse_select("select 1"), context=HogQLContext(team_id=self.team.pk), rows_read=90
+            )
+            return TheTestBasicQueryResponse(results=[])
+
+        redis_client = mock.Mock()
+        redis_client.get.return_value = None
+        redis_client.incr.return_value = 1
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.apply_dashboard_filters(DashboardFilter(date_from=date_from))
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
+            mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
+            mock.patch("posthog.query_scan.trigger.print_prepared_ast", return_value="SELECT 1"),
+            mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
+            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_over_the_floor),
+        ):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["dashboard_all_time"] is expected
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()

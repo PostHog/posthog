@@ -2660,6 +2660,14 @@ class QueryScanWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    actionable: bool = Field(
+        ...,
+        description=(
+            "Whether the person can change the query so it reads less and still answers"
+            ' the same question. Surfaces show the full advice and "Fix with AI" only'
+            " when a finding is actionable."
+        ),
+    )
     evidence: str | None = Field(default=None, description="The one fact the finding rests on.")
     fix: str = Field(..., description='What "Fix with AI" and the assistant are told to do.')
     kind: QueryScanFindingKind

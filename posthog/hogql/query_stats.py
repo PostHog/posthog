@@ -26,11 +26,25 @@ if TYPE_CHECKING:
 
 @frozen
 class RecordedExecution:
-    """One ClickHouse execution inside a scope, held by reference for the job to explain later."""
+    """One ClickHouse execution inside a scope, held by reference for the job to explain later.
+
+    ``lookup`` is the ``QueryTags.lookup`` value the execution ran under, so a run's analysis can
+    leave out an internal lookup a runner made on the way to its real query.
+    """
 
     tree: ast.Expr
     context: HogQLContext
     rows_read: int
+    duration_ms: float = 0.0
+    lookup: str | None = None
+
+
+@frozen
+class LastQuery:
+    """What the last query recorded in the current thread read and took."""
+
+    rows_read: int = 0
+    duration_ms: float = 0.0
 
 
 @frozen(frozen=False)
@@ -53,18 +67,30 @@ class QueryStats:
             self.duration_ms += duration_ms
             self.query_count += 1
 
-    def record_execution(self, *, tree: ast.Expr, context: HogQLContext, rows_read: int) -> None:
+    def record_execution(
+        self,
+        *,
+        tree: ast.Expr,
+        context: HogQLContext,
+        rows_read: int,
+        duration_ms: float = 0.0,
+        lookup: str | None = None,
+    ) -> None:
         with self.lock:
-            self.executions.append(RecordedExecution(tree=tree, context=context, rows_read=rows_read))
+            self.executions.append(
+                RecordedExecution(
+                    tree=tree, context=context, rows_read=rows_read, duration_ms=duration_ms, lookup=lookup
+                )
+            )
 
 
 _accumulator: ContextVar[QueryStats | None] = ContextVar("query_stats_accumulator", default=None)
 
-# The rows of the last query recorded in the current thread, for the executor to attribute to the
-# tree it just ran. Kept per thread rather than read off the shared totals, because runners that
-# fan out over threads share one QueryStats, and a change in its total would charge one thread with
-# rows another read at the same time.
-_last_rows_read: ContextVar[int] = ContextVar("query_stats_last_rows_read", default=0)
+# The last query recorded in the current thread, for the executor to attribute to the tree it just
+# ran. Kept per thread rather than read off the shared totals, because runners that fan out over
+# threads share one QueryStats, and a change in its total would charge one thread with rows another
+# read at the same time.
+_last_query: ContextVar[LastQuery | None] = ContextVar("query_stats_last_query", default=None)
 
 
 @contextlib.contextmanager
@@ -103,18 +129,18 @@ def use(stats: QueryStats | None) -> Iterator[None]:
 
 def record(*, rows_read: int, duration_ms: float) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
-    _last_rows_read.set(rows_read)
+    _last_query.set(LastQuery(rows_read=rows_read, duration_ms=duration_ms))
     stats = _accumulator.get()
     if stats is None:
         return
     stats.add(rows_read=rows_read, duration_ms=duration_ms)
 
 
-def reset_last_rows_read() -> None:
-    """Forget the last query's rows in this thread, before a run that must not inherit them."""
-    _last_rows_read.set(0)
+def reset_last_query() -> None:
+    """Forget the last query in this thread, before a run that must not inherit it."""
+    _last_query.set(None)
 
 
-def last_rows_read() -> int:
-    """The rows of the last query recorded in this thread since the reset, or 0."""
-    return _last_rows_read.get()
+def last_query() -> LastQuery:
+    """The last query recorded in this thread since the reset, or an empty one."""
+    return _last_query.get() or LastQuery()

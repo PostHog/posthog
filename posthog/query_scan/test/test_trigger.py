@@ -9,12 +9,17 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    Breakdown,
+    BreakdownFilter,
+    BreakdownType,
     DateRange,
     EventsNode,
     FunnelMathType,
     FunnelsQuery,
     HogQLFilters,
     HogQLQuery,
+    LifecycleQuery,
+    MultipleBreakdownType,
     RetentionFilter,
     RetentionQuery,
     RetentionType,
@@ -28,6 +33,7 @@ from posthog.hogql.query_stats import QueryStats, RecordedExecution
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
+from posthog.query_scan.tree_facts import TreeFacts
 from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
@@ -37,15 +43,25 @@ _QUERY_WITH_SUBQUERY = "select 1 from events where event in (select 'x')"
 
 
 def _execution(
-    sql: str = _QUERY_WITH_SUBQUERY, rows_read: int = 100, values: dict[str, Any] | None = None
+    sql: str = _QUERY_WITH_SUBQUERY,
+    rows_read: int = 100,
+    values: dict[str, Any] | None = None,
+    duration_ms: float = 0.0,
+    lookup: str | None = None,
 ) -> RecordedExecution:
     return RecordedExecution(
-        tree=parse_select(sql), context=HogQLContext(team_id=1, values=values or {}), rows_read=rows_read
+        tree=parse_select(sql),
+        context=HogQLContext(team_id=1, values=values or {}),
+        rows_read=rows_read,
+        duration_ms=duration_ms,
+        lookup=lookup,
     )
 
 
-def _stats(*, duration_ms: float = 2000.0, executions: list[RecordedExecution] | None = None) -> QueryStats:
-    stats = QueryStats(rows_read=10, duration_ms=duration_ms)
+def _stats(
+    *, duration_ms: float = 2000.0, rows_read: int = 10, executions: list[RecordedExecution] | None = None
+) -> QueryStats:
+    stats = QueryStats(rows_read=rows_read, duration_ms=duration_ms)
     stats.executions.extend(executions if executions is not None else [_execution()])
     return stats
 
@@ -150,6 +166,28 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert self.delay.call_args.kwargs["killed"] is True
         assert self.delay.call_args.kwargs["duration_ms"] == 999
 
+    @parameterized.expand(
+        [
+            ("still over the floor without it", 3000.0, None, 50, 1500),
+            ("under the floor without it", 2000.0, "below_floor", None, None),
+        ]
+    )
+    def test_a_runners_own_lookup_does_not_count_toward_the_run(
+        self, _name: str, total_ms: float, expected_reason: str | None, expected_rows: int | None, expected_ms
+    ) -> None:
+        lookup = _execution(rows_read=100, duration_ms=1500.0, lookup="earliest_timestamp")
+        query = _execution(rows_read=50, duration_ms=total_ms - 1500.0)
+
+        result = self._trigger(stats=_stats(duration_ms=total_ms, rows_read=150, executions=[lookup, query]))
+
+        assert result == expected_reason
+        if expected_reason is not None:
+            self.delay.assert_not_called()
+            return
+        enqueued = self.delay.call_args.kwargs
+        assert (enqueued["rows_read"], enqueued["duration_ms"]) == (expected_rows, expected_ms)
+        assert [execution["rows_read"] for execution in enqueued["executions"]] == [50]
+
     def test_an_mcp_run_is_analyzed_despite_its_api_key(self) -> None:
         tag_queries(access_method=AccessMethod.PERSONAL_API_KEY, feature=Feature.MCP)
 
@@ -203,14 +241,22 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result == "enqueue_failed"
         self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
 
-    def test_the_payload_carries_the_event_filter_classification(self) -> None:
-        # The job folds this verdict into the plan, so a payload that stopped carrying it would
-        # drop the tree's reason for why the filter could not prune.
-        result = self._trigger(trigger="killed", killed=True, error_type="ClickHouseQueryTimeOut")
+    def test_the_payload_carries_the_tree_verdicts(self) -> None:
+        facts = TreeFacts(
+            timestamp_bound=True,
+            property_filter=False,
+            all_history=False,
+            groups_by_event=False,
+            counts_any_event=False,
+            view_name="v_active",
+        )
+        with mock.patch("posthog.query_scan.trigger.tree_facts", return_value=facts):
+            result = self._trigger(trigger="killed", killed=True, error_type="ClickHouseQueryTimeOut")
 
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
         assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
+        assert enqueued[0]["tree"] == facts.to_payload()
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
@@ -279,10 +325,14 @@ class TestQueryScanTrigger(SimpleTestCase):
         # A count left without a TTL would stand forever and cap the team for good.
         self.redis.set.assert_any_call("query_scan:enqueues:1", 0, nx=True, ex=60)
 
-    def test_the_payload_says_whether_all_time_was_chosen(self) -> None:
-        self._trigger(query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")))
+    def test_the_payload_says_whether_all_time_was_chosen_and_by_which_picker(self) -> None:
+        self._trigger(
+            query=TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="all")),
+            dashboard_all_time=True,
+        )
 
         assert self.delay.call_args.kwargs["all_time"] is True
+        assert self.delay.call_args.kwargs["dashboard_all_time"] is True
 
     @parameterized.expand(
         [
@@ -313,6 +363,47 @@ class TestQueryScanTrigger(SimpleTestCase):
         self._trigger(query=query)
 
         assert self.delay.call_args.kwargs["all_history_by_design"] is expected
+
+    @parameterized.expand(
+        [
+            ("active users on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.DAU)]), True),
+            (
+                "monthly active on all events",
+                TrendsQuery(series=[EventsNode(math=BaseMathType.MONTHLY_ACTIVE)]),
+                True,
+            ),
+            ("unique sessions on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.UNIQUE_SESSION)]), True),
+            ("lifecycle on all events", LifecycleQuery(series=[EventsNode()]), True),
+            (
+                "a breakdown by event name",
+                TrendsQuery(
+                    series=[EventsNode()],
+                    breakdownFilter=BreakdownFilter(breakdown="event", breakdown_type=BreakdownType.EVENT_METADATA),
+                ),
+                True,
+            ),
+            (
+                "a multiple breakdown by event name",
+                TrendsQuery(
+                    series=[EventsNode()],
+                    breakdownFilter=BreakdownFilter(
+                        breakdowns=[Breakdown(property="event", type=MultipleBreakdownType.EVENT_METADATA)]
+                    ),
+                ),
+                True,
+            ),
+            (
+                "active users on a named event",
+                TrendsQuery(series=[EventsNode(event="a", math=BaseMathType.DAU)]),
+                False,
+            ),
+            ("a total on all events", TrendsQuery(series=[EventsNode(math=BaseMathType.TOTAL)]), False),
+        ]
+    )
+    def test_the_payload_says_whether_the_insight_reads_all_events_by_design(self, _name, query, expected) -> None:
+        self._trigger(query=query)
+
+        assert self.delay.call_args.kwargs["all_events_by_design"] is expected
 
 
 class TestOpenFiltersPlaceholder(SimpleTestCase):

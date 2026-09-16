@@ -2559,7 +2559,14 @@ class QueryScanFindingReason(StrEnum):
     NEGATED = "negated"
     DYNAMIC = "dynamic"
     NOT_PRUNED = "not_pruned"
+    PROPERTY_FILTER = "property_filter"
+    HELPER_READ = "helper_read"
+    ALL_EVENTS = "all_events"
     FILTERS = "filters"
+    BOUND_NOT_USED = "bound_not_used"
+    ALL_TIME = "all_time"
+    DASHBOARD_ALL_TIME = "dashboard_all_time"
+    ALL_HISTORY = "all_history"
 
 
 class QuickFilterContext(StrEnum):

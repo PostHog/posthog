@@ -22,6 +22,7 @@ const DONE_SCAN = {
                 kind: 'no_event_filter',
                 message: 'This query read every event in its date range.',
                 fix: 'Add an event filter.',
+                actionable: true,
             },
         ],
         range_share: 0.42,

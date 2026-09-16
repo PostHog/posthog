@@ -14,7 +14,15 @@ from typing import Any, Literal, TypeGuard
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import BaseMathType, FunnelMathType, GroupMathType, RetentionType
+from posthog.schema import (
+    BaseMathType,
+    BreakdownType,
+    EventsNode,
+    FunnelMathType,
+    GroupMathType,
+    LifecycleQuery,
+    RetentionType,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -34,6 +42,7 @@ from posthog.query_scan.slot import (
     set_pending,
 )
 from posthog.query_scan.stub import stub_in_subqueries
+from posthog.query_scan.tree_facts import tree_facts
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +65,17 @@ _FIRST_TIME_MATHS: frozenset[str] = frozenset(
         GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
         FunnelMathType.FIRST_TIME_FOR_USER,
         FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS,
+    }
+)
+
+# Math that counts people or sessions over whatever they did, so on an "All events" series the
+# answer needs every event and picking events would change it.
+_ANY_EVENT_MATHS: frozenset[str] = frozenset(
+    {
+        BaseMathType.DAU,
+        BaseMathType.WEEKLY_ACTIVE,
+        BaseMathType.MONTHLY_ACTIVE,
+        BaseMathType.UNIQUE_SESSION,
     }
 )
 
@@ -103,12 +123,23 @@ def maybe_trigger_query_scan(
     dashboard_id: int | None = None,
     killed: bool = False,
     error_type: str | None = None,
+    dashboard_all_time: bool = False,
 ) -> SkipReason | None:
-    """Enqueue the analysis for this run. Returns why it was skipped, or None once the job is enqueued."""
+    """Enqueue the analysis for this run. Returns why it was skipped, or None once the job is enqueued.
+
+    ``dashboard_all_time`` says the dashboard's date filter, not the insight's own range, chose
+    All time, so the advice can name the dashboard.
+    """
     if flag is None or stats is None:
         return "flag_off"
 
-    duration_ms = round(stats.duration_ms)
+    # A lookup a runner made on the way to its real query, such as the project's first event for
+    # an All time range, is not the query the person wrote, so it neither counts toward the floor
+    # nor gets analyzed in the query's place.
+    executions = [execution for execution in stats.executions if execution.lookup is None]
+    lookups = [execution for execution in stats.executions if execution.lookup is not None]
+    rows_read = max(0, stats.rows_read - sum(execution.rows_read for execution in lookups))
+    duration_ms = max(0, round(stats.duration_ms - sum(execution.duration_ms for execution in lookups)))
     # The floor leaves alone the runs nobody minded. Nobody gets a result from a run ClickHouse
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:
@@ -130,13 +161,13 @@ def maybe_trigger_query_scan(
         # Another slow run of the same query claimed the slot between the read above and here.
         return "slot_exists"
 
-    executions = _print_executions(stats)
-    if isinstance(executions, str):
+    printed = _print_executions(executions)
+    if isinstance(printed, str):
         # A selected execution could not be shipped, so analyzing the rest would advise on a run the
         # job never saw whole.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
-        return executions
-    if not executions:
+        return printed
+    if not printed:
         # The run had no executions to print: it bypassed the executor, or fanned out into none.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         return "nothing_to_analyze"
@@ -151,8 +182,8 @@ def maybe_trigger_query_scan(
         analyze_query_scan.delay(
             team_id=team_id,
             cache_key=cache_key,
-            executions=executions,
-            rows_read=stats.rows_read,
+            executions=printed,
+            rows_read=rows_read,
             duration_ms=duration_ms,
             trigger=trigger,
             insight_id=insight_id,
@@ -162,7 +193,9 @@ def maybe_trigger_query_scan(
             query_kind=query_kind,
             open_filters_placeholder=_open_filters_placeholder(query),
             all_time=_all_time(query),
+            dashboard_all_time=dashboard_all_time,
             all_history_by_design=_reads_all_history_by_design(query),
+            all_events_by_design=_reads_all_events_by_design(query),
         )
     except Exception:
         # The broker can be down while ClickHouse is fine, and the result is not cached yet, so
@@ -174,13 +207,13 @@ def maybe_trigger_query_scan(
     return None
 
 
-def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | SkipReason:
+def _print_executions(executions: list[RecordedExecution]) -> list[dict[str, Any]] | SkipReason:
     """Print the heaviest executions for the job to EXPLAIN: each with its subqueries stubbed, and
     each subquery on its own. The skip reason when any of the heaviest could not be shipped, so the
     job never analyzes part of a run and advises as if it saw the whole. An empty list means the run
     carried no executions to print.
     """
-    heaviest = sorted(stats.executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
+    heaviest = sorted(executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
     printed: list[dict[str, Any]] = []
     subquery_budget = MAX_SUBQUERIES
     for execution in heaviest:
@@ -212,6 +245,7 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             # The plan says whether ClickHouse pruned on `event`; the tree says why it could not.
             # Classify here, where the prepared tree is held; the job folds it into the plan.
             "event_filter": _event_filter_verdict(execution.tree),
+            "tree": _tree_facts_payload(execution.tree),
         }
         if any(key.endswith("_sensitive") for key in context.values):
             # The warehouse stub runs before the print, so this catches any other credential or access list.
@@ -242,6 +276,17 @@ def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
     return {"classification": outcome.classification, "reason": outcome.reason}
 
 
+def _tree_facts_payload(tree: ast.Expr) -> dict[str, Any] | None:
+    """What the tree says about its events reads, JSON-safe. A failure ships None rather than
+    dropping the execution: the plan alone still yields a finding, with the plain wording."""
+    try:
+        facts = tree_facts(tree)
+    except Exception:
+        logger.warning("query_scan_tree_facts_failed", exc_info=True)
+        return None
+    return facts.to_payload() if facts is not None else None
+
+
 def _source(query: BaseModel) -> BaseModel:
     """The query an insight node wraps, or the query itself."""
     return getattr(query, "source", None) or query
@@ -269,6 +314,33 @@ def _reads_all_history_by_design(query: BaseModel) -> bool:
         return True
     retention_filter = getattr(source, "retentionFilter", None)
     return getattr(retention_filter, "retentionType", None) == RetentionType.RETENTION_FIRST_TIME
+
+
+def _reads_all_events_by_design(query: BaseModel) -> bool:
+    """Whether the insight has to read every event whatever its series: an active-user, unique-session
+    or lifecycle count on All events counts people over whatever they did, and a breakdown by event
+    name is a question about the set of events itself. Picking events would change the answer.
+    """
+    source = _source(query)
+    series = getattr(source, "series", None) or []
+    all_events = [item for item in series if isinstance(item, EventsNode) and item.event is None]
+    if any(getattr(item, "math", None) in _ANY_EVENT_MATHS for item in all_events):
+        return True
+    if all_events and isinstance(source, LifecycleQuery):
+        return True
+    breakdown_filter = getattr(source, "breakdownFilter", None)
+    if breakdown_filter is None:
+        return False
+    if (
+        getattr(breakdown_filter, "breakdown_type", None) == BreakdownType.EVENT_METADATA
+        and getattr(breakdown_filter, "breakdown", None) == "event"
+    ):
+        return True
+    return any(
+        getattr(breakdown, "type", None) == BreakdownType.EVENT_METADATA
+        and getattr(breakdown, "property", None) == "event"
+        for breakdown in getattr(breakdown_filter, "breakdowns", None) or []
+    )
 
 
 def _open_filters_placeholder(query: BaseModel) -> bool:

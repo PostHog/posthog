@@ -68,6 +68,7 @@ class TestQueryScanJob(BaseTest):
         team_denom: str = "plan_no_date_bound",
         range_denom: str = "plan_no_event_filter",
         averages_error: BaseException | None = None,
+        tree: dict[str, Any] | None = None,
     ) -> None:
         def execute(query: str, arguments: Any = None, *args: Any, **kwargs: Any) -> Any:
             self.calls.append((query, arguments or {}))
@@ -95,6 +96,7 @@ class TestQueryScanJob(BaseTest):
                     subqueries=subqueries,
                     values={},
                     rows_read=500_000,
+                    tree=tree,
                 ),
             ),
             rows_read=500_000,
@@ -114,23 +116,45 @@ class TestQueryScanJob(BaseTest):
     @parameterized.expand(
         [
             # The stubbed SQL plans, so the outer plan's finding is stored.
-            ("the stubbed sql plans", {"STUBBED_MARKER": "plan_no_date_bound"}, (), ["no_start_date"], True),
+            (
+                "the stubbed sql plans",
+                {"STUBBED_MARKER": "plan_no_date_bound"},
+                (),
+                None,
+                ["no_start_date"],
+                ["no_start_date"],
+                True,
+            ),
+            (
+                "the tree's facts pick the reason",
+                {"STUBBED_MARKER": "plan_no_date_bound"},
+                (),
+                {"timestamp_bound": True, "all_history": True},
+                ["no_start_date/all_history"],
+                [],
+                True,
+            ),
             # A finding on a stubbed subquery is merged into the slot.
             (
                 "a subquery finding is merged",
                 {"STUBBED_MARKER": "plan_event_filter_used", "SUB_MARKER": "plan_no_event_filter"},
                 ("SUB_MARKER",),
+                None,
+                ["no_event_filter/helper_read"],
                 ["no_event_filter"],
                 True,
             ),
             # Any EXPLAIN error ends the analysis: a slot stored with no plan behind it would say
             # "nothing to fix" for 30 days, so the claim goes and the next slow run analyzes again.
-            ("an explain failure fails closed", {"STUBBED_MARKER": _OTHER_ERROR}, (), [], False),
+            ("an explain failure fails closed", {"STUBBED_MARKER": _OTHER_ERROR}, (), None, [], [], False),
         ]
     )
-    def test_analyzes_each_execution(self, _name, dispatch, subqueries, expected_kinds, expected_explain_ok) -> None:
-        self._run(dispatch, subqueries=subqueries)
+    def test_analyzes_each_execution(
+        self, _name, dispatch, subqueries, tree, expected_reasons, expected_actionable, expected_explain_ok
+    ) -> None:
+        self._run(dispatch, subqueries=subqueries, tree=tree)
 
+        expected_kinds = [reason.split("/")[0] for reason in expected_reasons]
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         if expected_explain_ok:
             assert stored is not None and stored.analysis is not None
@@ -142,6 +166,9 @@ class TestQueryScanJob(BaseTest):
         properties = self.capture.call_args.kwargs["properties"]
         assert self.capture.call_args.kwargs["event"] == "query scan analyzed"
         assert properties["finding_kinds"] == expected_kinds
+        assert properties["finding_reasons"] == expected_reasons
+        assert properties["actionable_finding_kinds"] == expected_actionable
+        assert properties["actionable"] is bool(expected_actionable)
         assert properties["explain_ok"] is expected_explain_ok
         # The rollout analysis groups the event by these, so they travel from the trigger to here.
         assert (properties["insight_id"], properties["dashboard_id"]) == (7, 3)
