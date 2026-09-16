@@ -534,6 +534,18 @@ export const InsightViews: Story = {
     },
 }
 export const RecordingViews: Story = {
+    decorators: [
+        (Story) => {
+            // Skipping inactivity moves the playhead on its own, and this recording resizes its
+            // viewport part way through, so the snapshot caught the page at whichever size the skip
+            // had reached. The setting is persisted, so the story pins it before the player mounts.
+            localStorage.setItem(
+                'scenes.session-recordings.player.playerSettingsLogic.skipInactivitySetting',
+                JSON.stringify(false)
+            )
+            return <Story />
+        },
+    ],
     parameters: {
         // `t=0` pins the player to the first frame. Without it the player picks its own start, which
         // depends on how much of the recording has loaded, and the recording resizes its viewport
