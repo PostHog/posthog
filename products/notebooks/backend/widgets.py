@@ -643,6 +643,33 @@ def _reconcile_stale_generation_job(job: GeneratedWidgetGenerationJob) -> None:
         job.refresh_from_db()
 
 
+def _improvement_input_contract(
+    instance: NotebookWidgetInstance,
+    base_version: GeneratedWidgetVersion,
+    inspection: WidgetInputInspection,
+) -> list[dict[str, object]]:
+    available = {item.name: item.contract for item in inspection.resolved_inputs}
+    bindings = instance.input_bindings if isinstance(instance.input_bindings, dict) else {}
+    required: list[dict[str, object]] = []
+    for item in base_version.input_contract:
+        slot = str(item["slot"])
+        binding = bindings.get(slot)
+        source = (
+            str(binding["source"])
+            if isinstance(binding, dict) and isinstance(binding.get("source"), str)
+            else str(item.get("sourceName") or slot)
+        )
+        if source not in available:
+            raise WidgetConflictError(
+                f'Run the cell that creates "{source}" before improving this widget.',
+                "input_not_ready",
+            )
+        # Existing source still uses these slots, including schemas supplied by input transformations.
+        required.append({**available[source], **item, "sourceName": source})
+    slots = {item["slot"] for item in required}
+    return required + [item for item in inspection.contract if item["slot"] not in slots]
+
+
 def start_widget_generation(
     *,
     notebook: Notebook,
@@ -771,6 +798,9 @@ def start_widget_generation(
         elif operation == GeneratedWidgetVersion.Operation.INITIAL:
             resolved_operation = GeneratedWidgetVersion.Operation.REGENERATE
         input_contract = input_contract_override if input_contract_override is not None else inspection.contract
+        if operation == GeneratedWidgetVersion.Operation.IMPROVE and input_contract_override is None:
+            assert base_version is not None
+            input_contract = _improvement_input_contract(locked_instance, base_version, inspection)
         job = GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id).create(
             idempotency_key=generation_id,
             team_id=notebook.team_id,

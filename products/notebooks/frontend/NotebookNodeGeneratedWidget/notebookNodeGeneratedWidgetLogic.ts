@@ -1123,6 +1123,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const generationId = uuidv4()
                     let aborted = false
                     try {
+                        if (operation === 'improve') {
+                            await props.prepareInsightDataframes?.(
+                                getWidgetSourceFrameNames(
+                                    values.status?.frame_names ?? [],
+                                    values.status?.input_bindings ?? {}
+                                )
+                            )
+                        }
                         await props.prepareInsightDataframes?.()
                         await props.persistNotebook()
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -148,6 +149,7 @@ describe('insight dataframes', () => {
     it.each(['missing', 'failed'])(
         'continues discovering widget dataframes after a %s insight, but rejects an explicit dependency',
         async (failure) => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             const lookup = jest.spyOn(insightsApi, 'getByShortId')
             if (failure === 'missing') {
                 lookup.mockResolvedValue(null)
@@ -164,6 +166,10 @@ describe('insight dataframes', () => {
             )
 
             await prepareNotebookInsightDataframes(notebook)
+
+            expect(captureException).toHaveBeenCalledWith(new Error('Notebook insight dataframe preparation failed'), {
+                action: 'prepare notebook insight dataframe',
+            })
 
             expect(collectNotebookFrameNodes(notebook.values.content)).toEqual([
                 expect.objectContaining({ name: 'available_df', hasRun: true }),

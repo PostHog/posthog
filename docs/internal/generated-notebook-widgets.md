@@ -14,6 +14,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 - Every ready build exposes the SHA-256 of its frozen Canvas artifact manifest. Choosing “Run widget” at a gate records consent for that exact hash. A later gated build with different artifact contents requires a new decision. A build with identical contents reuses the earlier consent.
 - “View source” remains available before a widget runs and reads the source belonging to the selected historical version.
 - Generation uses dataframes with completed runs and skips cells that have not run. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows per connected dataframe without sending values to the model. Across all its dataframes, one preview reads at most 200 pages and 32 MiB of response data.
+- Improving a notebook widget requires completed results for its existing inputs, including renamed connections, and preserves their slots and schemas. Unrelated cells without completed results are still skipped.
 - Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
 - `<Widget>` is the only notebook markdown tag for generated widgets.
 - Widget previews allow pointer lock for interactive controls such as games. Both the iframe and artifact CSP permit `allow-pointer-lock`; the preview URL varies to refresh previously cached CSP headers.

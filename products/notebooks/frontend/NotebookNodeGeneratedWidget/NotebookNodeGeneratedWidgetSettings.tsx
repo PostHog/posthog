@@ -186,8 +186,8 @@ export function NotebookNodeGeneratedWidgetSettings({
                         />
                     </div>
                     <div className="text-xs text-muted">
-                        Run every SQL and Python cell before generating. The widget can use their latest completed
-                        results automatically.
+                        Run the SQL and Python cells you want the widget to use before generating. Cells without
+                        completed results are skipped.
                     </div>
                     <div>
                         <LemonLabel htmlFor={modelId}>Model</LemonLabel>

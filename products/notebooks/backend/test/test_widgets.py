@@ -1163,6 +1163,56 @@ class TestWidgetData(APIBaseTest):
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
 
+    @parameterized.expand([("direct", False), ("bound", True)])
+    def test_improvement_requires_existing_inputs_and_preserves_slots(self, _name: str, bound: bool) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        slot = "points" if bound else self.INPUT_NAME
+        version.input_contract[0]["slot"] = slot
+        if bound:
+            version.input_contract[0]["sourceName"] = "original_df"
+            instance.input_bindings = {slot: {"source": self.INPUT_NAME}}
+            instance.save(update_fields=["input_bindings"])
+        version.save(update_fields=["input_contract"])
+        self.notebook.content = markdown_content(
+            f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="unrun" returnVariable="unrun_df" code="SELECT 1" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+        request = {
+            "prompt": "Use a darker background",
+            "generation_id": str(uuid4()),
+            "generation_operation": "improve",
+            "expected_current_version_id": str(version.id),
+        }
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(url, data=request, format="json")
+            assert response.status_code == 409
+            assert response.json()["code"] == "input_not_ready"
+            assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+            workflow.assert_not_called()
+
+            run = self._run()
+            response = self.client.post(url, data=request, format="json")
+
+        assert response.status_code == 202
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get()
+        required = next(item for item in job.input_contract if item["slot"] == slot)
+        assert required == {
+            **version.input_contract[0],
+            "sourceName": self.INPUT_NAME,
+            "runId": str(run.id),
+            "totalRowCount": 150,
+        }
+        assert "unrun_df" not in [item["slot"] for item in job.input_contract]
+        workflow.assert_called_once()
+
     def test_improvement_rejects_a_stale_current_version_before_creating_a_job(self) -> None:
         self._mapping()
 

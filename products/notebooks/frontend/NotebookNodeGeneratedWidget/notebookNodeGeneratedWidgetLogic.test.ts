@@ -1040,8 +1040,15 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
     it('loads the selected version source and queues an improvement from it', async () => {
         const versionId = '00000000-0000-0000-0000-000000000009'
+        const prepareInsightDataframes = jest.fn().mockResolvedValue(undefined)
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(
-            status({ lifecycle_status: 'ready', current_version_id: versionId, has_versions: true })
+            status({
+                lifecycle_status: 'ready',
+                current_version_id: versionId,
+                has_versions: true,
+                frame_names: ['points'],
+                input_bindings: { points: { source: 'insight_df' } },
+            })
         )
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
@@ -1067,7 +1074,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetGenerate).mockResolvedValue(status({ lifecycle_status: 'generating' }))
-        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -1101,6 +1108,25 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(logic.values.sourceModalOpen).toBe(false)
+        expect(prepareInsightDataframes.mock.calls).toEqual([[['insight_df']], []])
+    })
+
+    it('stops an improvement when a required insight cannot be prepared', async () => {
+        const versionId = '00000000-0000-0000-0000-000000000009'
+        const prepareInsightDataframes = jest.fn().mockRejectedValue(new Error('Preparation failed. Try again.'))
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ current_version_id: versionId, frame_names: ['insight_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await logic.asyncActions.generateWidget('Use a darker background', 'claude-sonnet-4-6', 'improve', versionId)
+
+        expect(prepareInsightDataframes).toHaveBeenCalledWith(['insight_df'])
+        expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+        expect(logic.values.generationRequestLoading).toBe(false)
+        expect(logic.values.generationError).toBe('Preparation failed. Try again.')
     })
 
     it('waits for immutable version metadata before improving source', async () => {
