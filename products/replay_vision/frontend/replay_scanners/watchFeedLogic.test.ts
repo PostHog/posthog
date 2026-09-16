@@ -92,6 +92,19 @@ describe('watchFeedLogic', () => {
         expect(logic.values.scannerIdsFilter).toEqual(['scanner-a', 'scanner-b'])
     })
 
+    it('applies a searched shared link to the feed', async () => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            router.actions.push('/replay-vision?feed_search=coupon')
+        })
+            .toDispatchActions(['setSearch', 'loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.search).toBe('coupon')
+        expect(new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams.get('search')).toBe('coupon')
+    })
+
     it('clears every filter at once', async () => {
         logic.mount()
         logic.actions.setScannerIdsFilter(['scanner-a'])

@@ -76,7 +76,11 @@ export interface watchFeedLogicActions {
     setScannerTypeFilter: (scannerType: ScannerType | null) => {
         scannerType: ScannerTypeEnumApi | null
     }
-    setSearch: (search: string) => {
+    setSearch: (
+        search: string,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         search: string
     }
     setTagsFilter: (tags: string[]) => {
@@ -88,14 +92,14 @@ export interface watchFeedLogicActions {
 export interface watchFeedLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasFeedFilters: (
-            scannerIdsFilter: any,
-            tagsFilter: any,
+            scannerIdsFilter: string[],
+            tagsFilter: string[],
             scannerTypeFilter: ScannerTypeEnumApi | null,
-            search: any
+            search: string
         ) => boolean
         tagOptions: (
-            allTags: any,
-            tagsFilter: any
+            allTags: string[],
+            tagsFilter: string[]
         ) => {
             label: string
             value: string
@@ -135,7 +139,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
     actions({
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setScannerTypeFilter: (scannerType: ScannerType | null) => ({ scannerType }),
-        setSearch: (search: string) => ({ search }),
+        setSearch: (search: string, fromUrl: boolean = false) => ({ search, fromUrl }),
         setScannerIdsFilter: (scannerIds: string[]) => ({ scannerIds }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         clearFeedFilters: true,
@@ -254,9 +258,12 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             reportFiltered(values)
             actions.loadFeed()
         },
-        setSearch: async (_, breakpoint) => {
-            // Debounce keystrokes; a URL restore calls loadFeed directly and skips this path.
-            await breakpoint(300)
+        setSearch: async ({ fromUrl }, breakpoint) => {
+            // Debounce keystrokes. A URL restore loads immediately so its request runs alongside the
+            // other restored filters and collapses into one, instead of flickering in 300ms later.
+            if (!fromUrl) {
+                await breakpoint(300)
+            }
             reportFiltered(values)
             actions.loadFeed()
         },
@@ -321,7 +328,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
             // picks alone rather than silently widening their feed to the whole fleet.
             const search = typeof searchParams.feed_search === 'string' ? searchParams.feed_search : null
             if (search !== null && search !== values.search) {
-                actions.setSearch(search)
+                actions.setSearch(search, true)
             }
             const scanners = parseCsvParam(searchParams.feed_scanners)
             if (searchParams.feed_scanners !== undefined && !objectsEqual(scanners, values.scannerIdsFilter)) {
