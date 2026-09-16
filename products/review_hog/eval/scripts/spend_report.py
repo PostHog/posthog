@@ -9,7 +9,8 @@ summing it at input price is the old, naive method and overstates true cost ~5×
 runs. Every gen here splits into fresh (`input - read - write`, 1×) / cache write (1.25×) /
 cache read (0.1×) / output per (model × stage); `true $` prices that split at list, `gw $` is the
 gateway's LiteLLM-computed `$ai_total_cost_usd`, and the per-side `$ai_*_cost_usd` fields
-cross-check the split.
+cross-check the split. A failed gen (`$ai_is_error`) reports no usable tokens or cost, so it is
+counted on its own and left out of every tally.
 """
 
 import re
@@ -106,6 +107,7 @@ class SpendRow:
     ai_stage: str
     task_title: str
     task_run_id: str
+    is_error: bool
     input_tokens: float
     output_tokens: float
     cache_read: float
@@ -125,6 +127,7 @@ class SpendRow:
             ai_stage,
             task_title,
             task_run_id,
+            is_error,
             input_tokens,
             output_tokens,
             cache_read,
@@ -141,6 +144,7 @@ class SpendRow:
             ai_stage=ai_stage,
             task_title=task_title,
             task_run_id=task_run_id,
+            is_error=bool(is_error),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cache_read=cache_read,
@@ -201,40 +205,74 @@ class UnitSession:
         return len(self.models) > 1
 
 
-@dataclass(frozen=False)
-class SideTotal:
-    """One cost side of the gateway's own `$ai_*_cost_usd` fields, and how many gens emitted it."""
+@frozen
+class RowCost:
+    """One gen's list-price cost, split by side. Both the bucket total and the cross-check read
+    it, so a row is priced once."""
 
-    usd: float = 0.0
+    fresh: float
+    cache_read: float
+    cache_write: float
+    output: float
+
+    @classmethod
+    def of(cls, row: "SpendRow", prices: ListPrice) -> "RowCost":
+        return cls(
+            fresh=row.fresh_input_tokens * prices.fresh_input,
+            cache_read=row.cache_read * prices.cache_read,
+            cache_write=row.cache_write * prices.cache_write,
+            output=row.output_tokens * prices.output,
+        )
+
+    @property
+    def input_side(self) -> float:
+        return self.fresh + self.cache_read + self.cache_write
+
+    @property
+    def total(self) -> float:
+        return self.input_side + self.output
+
+
+@dataclass(frozen=False)
+class SideCheck:
+    """One cost side of the cross-check: the gateway's own `$ai_*_cost_usd` against the
+    back-calc from the token split, over the same gens.
+
+    Holding both columns in one accumulator is what keeps the Δ honest. A row joins a side only
+    when the model has a list price and the gateway emitted that row's field, so neither column
+    can carry a gen the other one misses.
+    """
+
+    gw_usd: float = 0.0
+    true_usd: float = 0.0
     gens: int = 0
 
-    def add(self, usd: float) -> None:
-        self.usd += usd
+    def add(self, *, gw_usd: float, true_usd: float) -> None:
+        self.gw_usd += gw_usd
+        self.true_usd += true_usd
         self.gens += 1
+
+    @property
+    def delta_note(self) -> str:
+        if not self.true_usd:
+            return ""
+        return f" (true ${self.true_usd:,.4f}, Δ {(self.gw_usd - self.true_usd) / self.true_usd:+.1%})"
 
 
 @dataclass(frozen=False)
-class GatewaySides:
-    """LiteLLM's per-side costs. `input_side` is the whole input side, cache included."""
+class SideChecks:
+    """The five cross-check lines. `input_side` is the whole input side, cache included, and
+    `fresh` is what is left of each row's input cost once its cache sides come off."""
 
-    input_side: SideTotal = field(default_factory=SideTotal)
-    output: SideTotal = field(default_factory=SideTotal)
-    cache_read: SideTotal = field(default_factory=SideTotal)
-    cache_write: SideTotal = field(default_factory=SideTotal)
+    input_side: SideCheck = field(default_factory=SideCheck)
+    cache_read: SideCheck = field(default_factory=SideCheck)
+    cache_write: SideCheck = field(default_factory=SideCheck)
+    fresh: SideCheck = field(default_factory=SideCheck)
+    output: SideCheck = field(default_factory=SideCheck)
 
     @property
     def any_emitted(self) -> bool:
-        return any(side.gens for side in (self.input_side, self.output, self.cache_read, self.cache_write))
-
-
-@dataclass(frozen=False)
-class TrueSides:
-    """The same four sides, back-calculated from the token split at list price."""
-
-    fresh: float = 0.0
-    output: float = 0.0
-    cache_read: float = 0.0
-    cache_write: float = 0.0
+        return any(side.gens for side in (self.input_side, self.cache_read, self.cache_write, self.output))
 
 
 @dataclass(frozen=False)
@@ -269,11 +307,16 @@ class SpendTally:
         self.buckets: dict[BucketKey, BucketTally] = {}
         self.units: dict[str, UnitSession] = {}
         self.gw_missing = 0
+        self.failed_gens = 0
         self.naive_usd = 0.0
-        self.true_sides = TrueSides()
-        self.gw_sides = GatewaySides()
+        self.sides = SideChecks()
 
     def add(self, row: SpendRow) -> None:
+        # A failed gen usually reports no tokens and no cost, so counting it would drag the
+        # per-unit tally to zero and leave the unit's real first turn unrecorded.
+        if row.is_error:
+            self.failed_gens += 1
+            return
         stage = _stage_of(row.task_title, row.ai_stage)
         key = BucketKey(model=row.model or "(unknown)", stage=stage)
         bucket = self.buckets.get(key)
@@ -297,32 +340,30 @@ class SpendTally:
         if prices is None:
             bucket.true_usd = None
         else:
-            self._add_list_price(bucket, row, prices)
+            cost = RowCost.of(row, prices)
+            if bucket.true_usd is not None:
+                bucket.true_usd += cost.total
+            self.naive_usd += row.input_tokens * prices.fresh_input + cost.output
+            self._add_crosscheck(row, cost)
         if row.gw_cost is None:
             self.gw_missing += 1
         else:
             bucket.gw_usd += row.gw_cost
-        for side, value in (
-            (self.gw_sides.input_side, row.gw_input_cost),
-            (self.gw_sides.output, row.gw_output_cost),
-            (self.gw_sides.cache_read, row.gw_cache_read_cost),
-            (self.gw_sides.cache_write, row.gw_cache_write_cost),
-        ):
-            if value is not None:
-                side.add(value)
 
-    def _add_list_price(self, bucket: BucketTally, row: SpendRow, prices: ListPrice) -> None:
-        fresh = row.fresh_input_tokens * prices.fresh_input
-        write = row.cache_write * prices.cache_write
-        read = row.cache_read * prices.cache_read
-        out = row.output_tokens * prices.output
-        if bucket.true_usd is not None:
-            bucket.true_usd += fresh + write + read + out
-        self.naive_usd += row.input_tokens * prices.fresh_input + out
-        self.true_sides.fresh += fresh
-        self.true_sides.output += out
-        self.true_sides.cache_read += read
-        self.true_sides.cache_write += write
+    def _add_crosscheck(self, row: SpendRow, cost: RowCost) -> None:
+        if row.gw_input_cost is not None:
+            self.sides.input_side.add(gw_usd=row.gw_input_cost, true_usd=cost.input_side)
+            # The gateway has no fresh-input field, so fresh comes off each row's own input cost.
+            # Subtracting run-wide cache totals instead would mix rows that emitted a cache field
+            # into a line the other rows never joined.
+            gw_fresh = row.gw_input_cost - (row.gw_cache_read_cost or 0.0) - (row.gw_cache_write_cost or 0.0)
+            self.sides.fresh.add(gw_usd=gw_fresh, true_usd=cost.fresh)
+        if row.gw_cache_read_cost is not None:
+            self.sides.cache_read.add(gw_usd=row.gw_cache_read_cost, true_usd=cost.cache_read)
+        if row.gw_cache_write_cost is not None:
+            self.sides.cache_write.add(gw_usd=row.gw_cache_write_cost, true_usd=cost.cache_write)
+        if row.gw_output_cost is not None:
+            self.sides.output.add(gw_usd=row.gw_output_cost, true_usd=cost.output)
 
     def _track_unit(self, row: SpendRow, stage: str) -> None:
         if not row.task_run_id:
@@ -411,6 +452,7 @@ class SpendReport:
         return (
             f"SPEND gens={self._totals.gens} true_usd={_fmt_usd(self._totals.true_usd)} "
             f"gw_usd={_fmt_usd(self._totals.gw_usd)} naive_usd={naive} "
+            f"failed_gens={self._tally.failed_gens} "
             f"turn1_hits={sum(1 for u in units if u.cache_read > 0)}/{len(self._tally.units)} "
             f"model_switches={sum(1 for u in units if u.switched_model)}"
         )
@@ -446,6 +488,11 @@ class SpendReport:
             "- `true $` = list-price back-calc (fresh 1× + cache write 1.25× + cache read 0.1× + output); "
             "`gw $` = gateway `$ai_total_cost_usd` (LiteLLM). " + delta
         ]
+        if self._tally.failed_gens:
+            lines.append(
+                f"- {self._tally.failed_gens} failed gen(s) (`$ai_is_error`) are left out of every "
+                "column above and of the per-unit table below."
+            )
         for model, u in t.unpriced.items():
             lines.append(
                 f"- `true $` total excludes unpriced model `{model}` ({u.gens} gen(s), gw {_fmt_usd(u.gw_usd)})."
@@ -462,34 +509,24 @@ class SpendReport:
         return lines
 
     def _side_crosscheck(self) -> list[str]:
-        gw, true = self._tally.gw_sides, self._tally.true_sides
-        if not gw.any_emitted:
+        sides = self._tally.sides
+        if not sides.any_emitted:
             return []
         lines = [
-            "- gateway per-side cross-check (gens emitting the field; LiteLLM's `input_cost` "
-            "is the whole input side, cache included):"
+            "- gateway per-side cross-check (priced gens that emitted the field, both columns over "
+            "the same gens; LiteLLM's `input_cost` is the whole input side, cache included):"
         ]
         checks = [
-            (
-                "input side (fresh + cache write + cache read)",
-                gw.input_side.usd,
-                gw.input_side.gens,
-                true.fresh + true.cache_write + true.cache_read,
-            ),
-            ("· of which cache read", gw.cache_read.usd, gw.cache_read.gens, true.cache_read),
-            ("· of which cache write", gw.cache_write.usd, gw.cache_write.gens, true.cache_write),
-            (
-                "· of which fresh (derived)",
-                gw.input_side.usd - gw.cache_read.usd - gw.cache_write.usd,
-                gw.input_side.gens,
-                true.fresh,
-            ),
-            ("output", gw.output.usd, gw.output.gens, true.output),
+            ("input side (fresh + cache write + cache read)", sides.input_side),
+            ("· of which cache read", sides.cache_read),
+            ("· of which cache write", sides.cache_write),
+            ("· of which fresh (derived)", sides.fresh),
+            ("output", sides.output),
         ]
-        for label, total, count, true_value in checks:
-            delta = f" (true ${true_value:,.4f}, Δ {(total - true_value) / true_value:+.1%})" if true_value else ""
-            lines.append(f"  - {label}: ${total:,.4f} over {count} gen(s){delta}")
-        if gw.cache_write.gens and true.cache_write and gw.cache_write.usd > true.cache_write * 1.05:
+        for label, side in checks:
+            lines.append(f"  - {label}: ${side.gw_usd:,.4f} over {side.gens} gen(s){side.delta_note}")
+        write = sides.cache_write
+        if write.gens and write.true_usd and write.gw_usd > write.true_usd * 1.05:
             lines.append(
                 "  - write-side excess over the 1.25× back-calc = 1h-TTL cache writes "
                 "(billed 2×; the token split can't see the TTL)."
@@ -569,6 +606,7 @@ def fetch_spend_rows(start_dt: datetime) -> list[SpendRow]:
             JSONExtractString(properties, 'ai_stage') AS ai_stage,
             JSONExtractString(properties, 'task_title') AS task_title,
             JSONExtractString(properties, 'task_run_id') AS task_run_id,
+            JSONExtractString(properties, '$ai_is_error') = 'true' AS is_error,
             toFloat64OrZero(JSONExtractString(properties, '$ai_input_tokens')) AS input_tokens,
             toFloat64OrZero(JSONExtractString(properties, '$ai_output_tokens')) AS output_tokens,
             toFloat64OrZero(JSONExtractString(properties, '$ai_cache_read_input_tokens')) AS cache_read,

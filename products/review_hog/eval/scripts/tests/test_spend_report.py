@@ -14,6 +14,7 @@ def _row(
     step: str = "",
     ai_stage: str = "",
     run_id: str = "",
+    is_error: bool = False,
     tin: float,
     tout: float,
     cache_read: float = 0.0,
@@ -31,6 +32,7 @@ def _row(
         ai_stage=ai_stage,
         task_title=f"[sandbox_prompt:{step}]" if step else "",
         task_run_id=run_id,
+        is_error=is_error,
         input_tokens=tin,
         output_tokens=tout,
         cache_read=cache_read,
@@ -46,7 +48,8 @@ def _row(
 # One synthetic run that reaches every branch of the section: a warm-up unit plus two forked
 # review units on one chunk (so the fork-collision tracker fires), a unit whose second turn
 # lands on another model, a date-suffixed model id, the one-shot chunking/dedup calls that carry
-# no task_run_id, an unpriced model, a >200K-token prompt, and a gen with no gateway cost.
+# no task_run_id, an unpriced model that still reports per-side gateway costs, a >200K-token
+# prompt, a gen with no gateway cost, and a failed gen ahead of its unit's first good one.
 ROWS = [
     _row(
         at=(0, 5),
@@ -61,6 +64,15 @@ ROWS = [
         gw_out=0.004,
         gw_read=0.0,
         gw_write=0.21,
+    ),
+    _row(
+        at=(0, 38),
+        model="claude-sonnet-5",
+        step="issues-review-c1",
+        run_id="run-bbbb2222",
+        is_error=True,
+        tin=0,
+        tout=0,
     ),
     _row(
         at=(0, 41),
@@ -132,7 +144,15 @@ ROWS = [
         at=(3, 30), model="claude-haiku-4-5", ai_stage="dedup", tin=40_000, tout=2_000, gw=0.05, gw_in=0.04, gw_out=0.01
     ),
     _row(
-        at=(4, 0), model="some-other-model", step="validation-1", run_id="run-eeee5555", tin=30_000, tout=800, gw=0.04
+        at=(4, 0),
+        model="some-other-model",
+        step="validation-1",
+        run_id="run-eeee5555",
+        tin=30_000,
+        tout=800,
+        gw=0.04,
+        gw_in=0.03,
+        gw_out=0.008,
     ),
     _row(at=(4, 30), model="some-other-model", step="validation-2", run_id="run-ffff6666", tin=25_000, tout=600),
 ]
@@ -152,10 +172,11 @@ EXPECTED_MARKDOWN = """\
 | **total** |  | **9** | **167,000** | **167,000** | **471,000** | **13,500** | **1** | **$0.89** | **$0.93** |
 
 - `true $` = list-price back-calc (fresh 1× + cache write 1.25× + cache read 0.1× + output); `gw $` = gateway `$ai_total_cost_usd` (LiteLLM). Δ (priced buckets) = -0.6%.
+- 1 failed gen(s) (`$ai_is_error`) are left out of every column above and of the per-unit table below.
 - `true $` total excludes unpriced model `some-other-model` (2 gen(s), gw $0.04).
 - 1 gen(s) had no `$ai_total_cost_usd` — `gw $` undercounts by those gens.
 - naive method (all prompt tokens at input price): $2.06 — 2.3× the true cost; never gate on it.
-- gateway per-side cross-check (gens emitting the field; LiteLLM's `input_cost` is the whole input side, cache included):
+- gateway per-side cross-check (priced gens that emitted the field, both columns over the same gens; LiteLLM's `input_cost` is the whole input side, cache included):
   - input side (fresh + cache write + cache read): $0.7380 over 7 gen(s) (true $0.7587, Δ -2.7%)
   - · of which cache read: $0.1392 over 5 gen(s) (true $0.1392, Δ +0.0%)
   - · of which cache write: $0.4175 over 3 gen(s) (true $0.4175, Δ +0.0%)
@@ -180,7 +201,9 @@ EXPECTED_MARKDOWN = """\
 - chunk 2 forked units: **1 prefix writer(s) / 0 reader(s)** at turn 1 (1 writer is the ideal fork).
 """
 
-EXPECTED_HEADLINE = "SPEND gens=9 true_usd=$0.89 gw_usd=$0.93 naive_usd=$2.06 turn1_hits=3/6 model_switches=1"
+EXPECTED_HEADLINE = (
+    "SPEND gens=9 true_usd=$0.89 gw_usd=$0.93 naive_usd=$2.06 failed_gens=1 turn1_hits=3/6 model_switches=1"
+)
 
 
 class TestSpendReport(SimpleTestCase):
