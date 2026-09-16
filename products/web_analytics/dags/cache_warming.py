@@ -7,6 +7,7 @@ import zlib
 import random
 import threading
 import statistics
+from collections import defaultdict
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
@@ -706,16 +707,18 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
     # changed under the raw-replay demand bar, so stickiness can never mint raw
     # background scans.
     sticky = get_sticky_warm_shapes()
-    # Cap sticky contributions per team, matching the demand selection's
-    # `LIMIT ... BY team_id`, so one tenant filling the shared sticky set can't
-    # crowd the fleet-wide warm pass with its own shapes.
-    sticky_per_team: dict[int, int] = {}
+    # Cap sticky contributions per team with the same bound the demand
+    # selection's `LIMIT ... BY team_id` uses. The two caps stack — a team can
+    # contribute up to MAX_SHAPES_PER_TEAM sticky shapes on top of its
+    # selection shapes — but each side is bounded, so one tenant filling the
+    # shared sticky set can't crowd the fleet-wide warm pass.
+    sticky_per_team: defaultdict[int, int] = defaultdict(int)
     sticky_added = 0
     for entry in sticky:
         team_id = entry["team_id"]
-        if sticky_per_team.get(team_id, 0) >= MAX_SHAPES_PER_TEAM:
+        if sticky_per_team[team_id] >= MAX_SHAPES_PER_TEAM:
             continue
-        sticky_per_team[team_id] = sticky_per_team.get(team_id, 0) + 1
+        sticky_per_team[team_id] += 1
         query_json = entry.get("query") or {}
         date_from = (query_json.get("dateRange") or {}).get("date_from")
         queries.append(
@@ -761,6 +764,7 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext, floor_published
             "query_count": len(queries),
             "team_count": team_count,
             "sticky_count": len(sticky),
+            "sticky_added": sticky_added,
             "floor_dropped": floor_dropped,
             "cap_reached": selection_cap_reached,
             "from_cache": from_cache,
