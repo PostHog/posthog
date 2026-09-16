@@ -148,19 +148,26 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         assert report["repairs"] == []
         assert report["outcomes"] == {"already_correct": 1}
 
-    def test_a_repoint_mid_scan_is_not_reported_as_a_repair(self) -> None:
+    @parameterized.expand([("a_current_key", "other-current"), ("a_stale_key", "other-stale")])
+    def test_a_repoint_mid_scan_is_reported_as_changed_rather_than_repaired(
+        self, _name: str, repointed_key: str
+    ) -> None:
         # An admin can send the gate to a different flag between the chunk read and the lock.
         # That edit is not this command's to touch, and reporting a repair here would name a key
-        # the team does not hold, on a flag it no longer points at.
+        # the team does not hold, on a flag it no longer points at. It is reported all the same,
+        # and whether the key that lands happens to be current makes no difference: this run read
+        # it against no flag, so counting it correct would hide a team that is still not
+        # recording.
         stale_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
         other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-current")
         set_linked_flag(self.team, {"id": stale_flag.id, "key": "gate-stale"})
+        repointed = {"id": other_flag.id, "key": repointed_key}
 
         real_save = repair_command.save_replay_gate_rewrites
 
         def repoint_then_save(team_id: int, compute: Any) -> None:
             admin = Team.objects.get(pk=team_id)
-            admin.session_recording_linked_flag = {"id": other_flag.id, "key": "other-current"}
+            admin.session_recording_linked_flag = repointed
             admin.save()
             real_save(team_id, compute)
 
@@ -168,8 +175,10 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             report = self._run("--live-run", teams=[self.team])
 
         self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-current"}
+        assert self.team.session_recording_linked_flag == repointed
         assert report["repairs"] == []
+        assert report["outcomes"] == {"changed_mid_scan": 1}
+        assert report["unrepairable"][0]["location"] == "linked_flag"
 
     def test_a_flag_hard_deleted_at_write_time_writes_nothing(self) -> None:
         # The key is read again inside the team's row lock. A hard delete landing in that window
@@ -449,6 +458,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
             report = self._run("--live-run", teams=[self.team])
 
         assert report["repairs"] == []
+        assert report["outcomes"] == {"changed_mid_scan": 1}
         self.team.refresh_from_db()
         # Every group still stale, and reported as untouched, so the next run repairs them where
         # they now sit.
