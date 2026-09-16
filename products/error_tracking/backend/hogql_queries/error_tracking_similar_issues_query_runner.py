@@ -126,15 +126,15 @@ class ErrorTrackingSimilarIssuesQueryRunner(
                     fingerprints.fingerprint, issues.id, issues.name, issues.team_id, issues.description, issues.status
                     FROM (
                         SELECT DISTINCT ON (fingerprint)
-                            fingerprint, issue_id, version, first_seen
+                            fingerprint, issue_id, version
                         FROM posthog_errortrackingissuefingerprintv2
-                        WHERE fingerprint = ANY(%s)
+                        WHERE team_id = %s AND fingerprint = ANY(%s)
                         ORDER BY fingerprint, version DESC
                     ) AS fingerprints
                     INNER JOIN posthog_errortrackingissue as issues ON issues.id = fingerprints.issue_id
                     WHERE issues.team_id = %s
                 """,
-                [fingerprint_strs, self.team.id],
+                [self.team.id, fingerprint_strs, self.team.id],
             )
             similar_issues_by_id = {}
             for row in cursor.fetchall():
