@@ -277,7 +277,7 @@ def slice_record_batch(
         max_record_batch_size_bytes: The max size in bytes of a record batch to
             yield. If the provided `record_batch` is larger than this, then it
             will be sliced into multiple record batches.
-        min_records_batch_per_batch: Each slice yielded should contain at least
+        min_records_per_batch: Each slice yielded should contain at least
             this number of records.
     """
     if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
