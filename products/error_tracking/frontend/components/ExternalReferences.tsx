@@ -457,6 +457,7 @@ function ExistingIssueSelect({
             <LemonInputSelect
                 mode="single"
                 data-attr="select-existing-issue"
+                popoverClassName="[&_.LemonButton__content>span]:grow [&_.LemonButton__content>span]:min-w-0"
                 placeholder={
                     requiresRepository && !repository ? 'Select a repository first...' : 'Search for an issue...'
                 }
