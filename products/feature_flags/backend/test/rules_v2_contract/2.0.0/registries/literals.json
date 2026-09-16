@@ -1,0 +1,285 @@
+{
+    "registry_version": "2.0.0",
+    "config_versions": {
+        "v1": 1,
+        "v2": 2,
+        "absent_version_selects": "v1",
+        "unknown_version_result": "unsupported",
+        "version_comparison": "A JSON number selects the version it equals mathematically, so 2.0 selects v2. A JSON string or boolean never selects a version."
+    },
+    "fields": [
+        "aggregation_group_type_index",
+        "assign_by",
+        "assignment_algorithm",
+        "cohort_name",
+        "default_value",
+        "description",
+        "exclusion_percentage",
+        "experiment_id",
+        "group_key_names",
+        "group_type_index",
+        "holdout",
+        "id",
+        "key",
+        "label",
+        "metadata",
+        "negation",
+        "on_rollout_miss",
+        "operator",
+        "paused",
+        "properties",
+        "return_type",
+        "rollout_percentage",
+        "rule_type",
+        "rules",
+        "seed",
+        "targeting",
+        "type",
+        "value",
+        "variants",
+        "version",
+        "weight"
+    ],
+    "rule_types": [
+        {
+            "value": "targeted_release",
+            "writer_status": "enabled"
+        },
+        {
+            "value": "percentage_rollout",
+            "writer_status": "enabled"
+        },
+        {
+            "value": "experiment",
+            "writer_status": "enabled"
+        }
+    ],
+    "return_types": [
+        {
+            "value": "boolean",
+            "writer_status": "enabled"
+        },
+        {
+            "value": "string",
+            "writer_status": "enabled"
+        },
+        {
+            "value": "number",
+            "writer_status": "reserved"
+        },
+        {
+            "value": "object",
+            "writer_status": "reserved"
+        }
+    ],
+    "rollout_miss_policies": ["continue", "return_default"],
+    "assignment_targets": ["person"],
+    "assignment_algorithms": ["sha1_60_v1"],
+    "property_types": ["person", "cohort", "group", "flag"],
+    "property_operators": [
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "icontains_multi",
+        "not_icontains_multi",
+        "starts_with",
+        "not_starts_with",
+        "ends_with",
+        "not_ends_with",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "semver_gt",
+        "semver_gte",
+        "semver_lt",
+        "semver_lte",
+        "semver_eq",
+        "semver_neq",
+        "semver_tilde",
+        "semver_caret",
+        "semver_wildcard",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_after",
+        "is_date_before",
+        "in",
+        "not_in",
+        "flag_evaluates_to"
+    ],
+    "reason_codes": [
+        "targeting_match",
+        "experiment_split",
+        "rollout_miss",
+        "experiment_paused",
+        "holdout",
+        "no_rule_match",
+        "flag_disabled",
+        "missing_group_key",
+        "dependency_error",
+        "error"
+    ],
+    "openfeature_mapping": {
+        "specification": "https://openfeature.dev/specification/",
+        "reason_codes": {
+            "targeting_match": {
+                "reason": "TARGETING_MATCH",
+                "error_code": null,
+                "note": "Targeted release, or percentage rollout inclusion. TARGETING_MATCH is this contract's choice for rollout inclusion; OpenFeature also describes pseudorandom assignment with SPLIT and permits custom reasons."
+            },
+            "experiment_split": {
+                "reason": "SPLIT",
+                "error_code": null,
+                "note": "Experiment identity is in flag metadata."
+            },
+            "rollout_miss": {
+                "reason": "DEFAULT",
+                "error_code": null,
+                "note": "A terminal rollout miss under return_default. Value is default_value, or the caller default when null. A continuing miss moves evaluation to the next rule and contributes neither a reason code nor metadata from the missed rule (including rule_id and condition_index) to the final result. The final result uses the terminating rule's reason and metadata, or no_rule_match if no rule terminates."
+            },
+            "experiment_paused": {
+                "reason": "DEFAULT",
+                "error_code": null,
+                "note": "Value is default_value, or the caller default when null."
+            },
+            "holdout": {
+                "reason": "DEFAULT",
+                "error_code": null,
+                "note": "Value is default_value, or the caller default when null."
+            },
+            "no_rule_match": {
+                "reason": "DEFAULT",
+                "error_code": null,
+                "note": "No rule produced a terminal result, including when targeting matched but rollout missed with continue. Value is default_value, or the caller default when null."
+            },
+            "flag_disabled": {
+                "reason": "DISABLED",
+                "error_code": null,
+                "note": "Local definitions only. Remote responses omit an inactive flag."
+            },
+            "missing_group_key": {
+                "reason": "ERROR",
+                "error_code": "INVALID_CONTEXT",
+                "note": "The required group key is missing from additional evaluation-context fields. If a provider binds the group key to OpenFeature targetingKey and that field is missing, use TARGETING_KEY_MISSING instead."
+            },
+            "dependency_error": {
+                "reason": "ERROR",
+                "error_code": "GENERAL",
+                "note": "A dependency is unknown, cyclic, or otherwise unresolvable. reason.description becomes the error message."
+            },
+            "error": {
+                "reason": "ERROR",
+                "error_code": "GENERAL",
+                "note": "reason.description becomes the error message."
+            }
+        },
+        "outcomes_without_reason_code": [
+            {
+                "situation": "Flag absent from the remote response",
+                "reason": "ERROR",
+                "error_code": "FLAG_NOT_FOUND",
+                "note": "Typed accessor returns the caller default."
+            },
+            {
+                "situation": "Unsupported config version or unknown semantic field in definitions, strict local mode",
+                "reason": "ERROR",
+                "error_code": "PARSE_ERROR",
+                "note": "Auto mode falls back remotely before this."
+            },
+            {
+                "situation": "Typed accessor asked for a type the flag does not return",
+                "reason": "ERROR",
+                "error_code": "TYPE_MISMATCH",
+                "note": "No coercion."
+            },
+            {
+                "situation": "Bootstrap value used",
+                "reason": "CACHED",
+                "error_code": null,
+                "note": "STALE when the SDK knows definitions are outdated. No experiment context, no exposure."
+            },
+            {
+                "situation": "Client-side override",
+                "reason": "override",
+                "error_code": null,
+                "note": "Custom reason string. Never TARGETING_MATCH; suppresses $experiment_exposure."
+            },
+            {
+                "situation": "Provider not initialised",
+                "reason": "ERROR",
+                "error_code": "PROVIDER_NOT_READY",
+                "note": "Provider concern."
+            }
+        ],
+        "flag_metadata_keys": [
+            "config_version",
+            "rule_type",
+            "rule_id",
+            "experiment_id",
+            "variant_key",
+            "holdout_id",
+            "id",
+            "version",
+            "reason_code",
+            "condition_index"
+        ]
+    },
+    "warning_codes": [
+        "RULE_ORDER_CHANGES_TRAFFIC",
+        "UNREACHABLE_LOWER_RULE",
+        "ROLLOUT_MISS_CAN_ENTER_LOWER_RULE",
+        "ASSIGNMENT_RESET_CHANGES_TRAFFIC",
+        "CONCLUSION_EXPANDS_POPULATION"
+    ],
+    "semantic_constraints": [
+        {
+            "id": "rule_ids_unique",
+            "scope": "rules",
+            "requirement": "Each rule id is unique in one config. For example, two rules in one config with id aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa are invalid even if their rule_type differs; the same id may appear in separate configs."
+        },
+        {
+            "id": "variant_keys_unique",
+            "scope": "rules[].variants",
+            "requirement": "Each variant key is unique in one variant list. For example, [control, test] is valid and [control, control] is invalid within one rule. Separate rules may each use control and test."
+        },
+        {
+            "id": "variant_weights_sum_100",
+            "scope": "rules[].variants",
+            "requirement": "Each variant weight is a percentage of subjects enrolled by the rule. Weights sum to exactly 100 in stored order; rollout_percentage separately controls enrollment into the rule. For example, [33.33, 33.33, 33.34] is valid, while [33.33, 33.33, 33.33] totals 99.99 and is invalid. Validate the stored decimal percentages exactly (for example, as integer hundredths totaling 10000); do not round an invalid sum to 100. This validation is separate from binary64 accumulation during assignment."
+        },
+        {
+            "id": "percentage_two_decimals",
+            "scope": "all rollout_percentage, weight, and exclusion_percentage values",
+            "requirement": "Percentages have at most two decimal places. JSON Schema multipleOf is not used because binary64 division is inexact for values such as 33.33."
+        },
+        {
+            "id": "number_is_binary64",
+            "scope": "all number and object values",
+            "requirement": "Numbers are finite IEEE-754 binary64 values. Negative zero normalizes to zero. Nonzero underflow to zero is invalid."
+        },
+        {
+            "id": "json_keys_unique",
+            "scope": "all object values",
+            "requirement": "JSON object keys are unique at every depth before ordinary deserialization."
+        },
+        {
+            "id": "json_depth_limit",
+            "scope": "all object values",
+            "requirement": "Object values contain at most 20 object/array levels, counting the root object as level 1. Scalar leaves do not add a level. The config schema enforces this bound with numbered definitions."
+        },
+        {
+            "id": "assignment_target_context",
+            "scope": "randomized rules",
+            "requirement": "Explicit person assignment is valid only for person flags. Group flags use the flag aggregation key and omit assign_by. The config schema enforces omission of assign_by whenever aggregation_group_type_index is present, including index 0."
+        },
+        {
+            "id": "contextual_size_limits",
+            "scope": "config and metadata",
+            "requirement": "The deployment config byte limit and the metadata size limit apply outside JSON Schema validation."
+        }
+    ]
+}
