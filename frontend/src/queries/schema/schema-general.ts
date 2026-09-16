@@ -7753,6 +7753,10 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     'orderBy' | 'compareFilter' | 'interval' | 'conversionGoal' | 'doPathCleaning' | 'sampling' | 'samplingFactor'
 > {
     kind: NodeKind.MarketingAnalyticsRetentionQuery
+    /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+    summary?: boolean
+    /** Include the previous acquisition period in summary mode. Defaults to false. */
+    comparePreviousPeriod?: boolean
     /** Cohort dimension, read off each person's first session. Defaults to channel. */
     breakdownBy?: MarketingAnalyticsAttributionBreakdown
     /** Period for both the cohort rows and the return columns. Defaults to week. */
@@ -7799,8 +7803,24 @@ export interface MarketingAnalyticsRetentionRow {
     values: MarketingAnalyticsRetentionCell[]
 }
 
+export interface MarketingAnalyticsRetentionSummaryRow {
+    breakdownValue: string
+    previous: boolean
+    acquired: integer
+    eligible7d: integer
+    returned7d: integer
+    eligible30d: integer
+    returned30d: integer
+    /** Median elapsed days to a second session within 30 days, among observed returners. */
+    medianReturnDays: number | null
+    /** People with an observed second session within 30 days, including incomplete windows. */
+    returners: integer
+}
+
 export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsRetentionRow[]
+    /** Only populated in summary mode. Rates use the corresponding eligible population. */
+    summary?: MarketingAnalyticsRetentionSummaryRow[]
     /** Column count. Every row's values array has this length. */
     intervalCount: integer
     interval: MarketingAnalyticsRetentionInterval

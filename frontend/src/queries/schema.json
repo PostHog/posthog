@@ -12365,6 +12365,13 @@
                     },
                     "type": "array"
                 },
+                "summary": {
+                    "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -34579,6 +34586,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Breakdown values kept before the rest roll into 'Other'. Defaults to 20."
                 },
+                "comparePreviousPeriod": {
+                    "description": "Include the previous acquisition period in summary mode. Defaults to false.",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
                     "type": ["number", "null"]
@@ -34626,6 +34637,10 @@
                 "retentionInterval": {
                     "$ref": "#/definitions/MarketingAnalyticsRetentionInterval",
                     "description": "Period for both the cohort rows and the return columns. Defaults to week."
+                },
+                "summary": {
+                    "description": "Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false.",
+                    "type": "boolean"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -34694,6 +34709,13 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                    },
+                    "type": "array"
+                },
+                "summary": {
+                    "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
                     },
                     "type": "array"
                 },
@@ -34773,6 +34795,52 @@
                 }
             },
             "required": ["breakdownValue", "cohortDate", "cohortIndex", "cohortSize", "values"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRetentionSummaryRow": {
+            "additionalProperties": false,
+            "properties": {
+                "acquired": {
+                    "$ref": "#/definitions/integer"
+                },
+                "breakdownValue": {
+                    "type": "string"
+                },
+                "eligible30d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "eligible7d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "medianReturnDays": {
+                    "description": "Median elapsed days to a second session within 30 days, among observed returners.",
+                    "type": ["number", "null"]
+                },
+                "previous": {
+                    "type": "boolean"
+                },
+                "returned30d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "returned7d": {
+                    "$ref": "#/definitions/integer"
+                },
+                "returners": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People with an observed second session within 30 days, including incomplete windows."
+                }
+            },
+            "required": [
+                "breakdownValue",
+                "previous",
+                "acquired",
+                "eligible7d",
+                "returned7d",
+                "eligible30d",
+                "returned30d",
+                "medianReturnDays",
+                "returners"
+            ],
             "type": "object"
         },
         "MarketingAnalyticsSchemaField": {
@@ -42463,6 +42531,13 @@
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/MarketingAnalyticsRetentionRow"
+                            },
+                            "type": "array"
+                        },
+                        "summary": {
+                            "description": "Only populated in summary mode. Rates use the corresponding eligible population.",
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRetentionSummaryRow"
                             },
                             "type": "array"
                         },

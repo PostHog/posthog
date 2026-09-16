@@ -18,6 +18,8 @@ import {
     MarketingAnalyticsRetentionRow,
 } from '~/queries/schema/schema-general'
 
+import { RetentionReturnTable } from 'products/marketing_analytics/frontend/retention/RetentionReturnTable'
+
 import { BREAKDOWN_LABELS, displayBreakdownValue, isFoldedBreakdownValue } from '../../logic/marketingBreakdown'
 import {
     MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
@@ -89,6 +91,17 @@ export function RetentionCohortTable({
 
     if (responseError) {
         return <InsightErrorState query={query} onRetry={loadData} />
+    }
+
+    if (query.summary) {
+        return (
+            <RetentionReturnTable
+                rows={retentionResponse?.summary ?? []}
+                dimensionLabel={dimensionLabel}
+                loading={responseLoading || !retentionResponse}
+                compare={query.comparePreviousPeriod ?? false}
+            />
+        )
     }
 
     const columns: LemonTableColumn<MarketingAnalyticsRetentionRow, any>[] = [

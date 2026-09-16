@@ -214,6 +214,8 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     @property
     def _cohort_window_start_str(self) -> str:
+        if self.query.summary:
+            return self.query_date_range.date_from_str
         return self.query_date_range.format_date(self.cohort_starts[0])
 
     @property
@@ -585,6 +587,10 @@ class MarketingAnalyticsRetentionQueryRunner(
     # ------------------------------------------------------------------ main query
 
     def to_query(self) -> ast.SelectQuery:
+        if self.query.summary:
+            from .marketing_retention_summary import build_summary_query
+
+            return build_summary_query(self)
         ctes: dict[str, ast.CTE] = {}
 
         # Materialized because both `cohort_sizes` and `matrix` read it, and ClickHouse re-evaluates an
@@ -622,7 +628,7 @@ class MarketingAnalyticsRetentionQueryRunner(
     # ------------------------------------------------------------------ execution
 
     def _calculate(self) -> MarketingAnalyticsRetentionQueryResponse:
-        if self._period_count <= 0:
+        if self.query_date_range.date_from() > self.query_date_range.date_to():
             # An inverted range spans no periods. `cohort_starts` still floors itself at one entry so the
             # expressions have an anchor to read, and that lone cohort opens at the aligned start of
             # `date_to`, which sits BEFORE `date_to` itself. Running the query would report whoever
@@ -646,6 +652,19 @@ class MarketingAnalyticsRetentionQueryRunner(
         # Mapped by column name, not tuple position, so adding a column cannot shift every later one.
         columns = response.columns or []
         named_results = [dict(zip(columns, row)) for row in response.results or []]
+
+        if self.query.summary:
+            from posthog.schema import MarketingAnalyticsRetentionSummaryRow
+
+            summary = [MarketingAnalyticsRetentionSummaryRow(**row) for row in named_results]
+            return self._empty_response().model_copy(
+                update={
+                    "summary": summary,
+                    "totalCohortSize": sum(row.acquired for row in summary if not row.previous),
+                    "hogql": response.hogql,
+                    "timings": response.timings,
+                }
+            )
 
         # The CROSS JOIN puts the same pre-folding count on every row, so read it off the first one.
         distinct_breakdowns = int(named_results[0].get(_DISTINCT_BREAKDOWNS) or 0) if named_results else 0
@@ -674,6 +693,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             otherBreakdownCount=0,
             truncatedCohorts=0,
             totalCohortSize=0,
+            summary=[] if self.query.summary else None,
             modifiers=self.modifiers,
         )
 

@@ -35,12 +35,14 @@ export interface marketingRetentionLogicValues {
         interval: IntervalType
     } // marketingAnalyticsLogic
     breakdownBy: MarketingAnalyticsAttributionBreakdown
+    comparePreviousPeriod: boolean
     excludeDirectTraffic: boolean
     excludeUnattributed: boolean
     onlyNewUsers: boolean
     optionsOpen: boolean
     query: MarketingAnalyticsRetentionQuery
     retentionInterval: MarketingAnalyticsRetentionInterval
+    showCohorts: boolean
     totalIntervals: number
 }
 
@@ -48,6 +50,9 @@ export interface marketingRetentionLogicValues {
 export interface marketingRetentionLogicActions {
     setBreakdownBy: (breakdownBy: MarketingAnalyticsAttributionBreakdown) => {
         breakdownBy: MarketingAnalyticsAttributionBreakdown
+    }
+    setComparePreviousPeriod: (comparePreviousPeriod: boolean) => {
+        comparePreviousPeriod: boolean
     }
     setExcludeDirectTraffic: (excludeDirectTraffic: boolean) => {
         excludeDirectTraffic: boolean
@@ -63,6 +68,9 @@ export interface marketingRetentionLogicActions {
     }
     setRetentionInterval: (retentionInterval: MarketingAnalyticsRetentionInterval) => {
         retentionInterval: MarketingAnalyticsRetentionInterval
+    }
+    setShowCohorts: (showCohorts: boolean) => {
+        showCohorts: boolean
     }
     setTotalIntervals: (totalIntervals: number) => {
         totalIntervals: number
@@ -83,7 +91,9 @@ export interface marketingRetentionLogicMeta {
                 dateFrom: string | null
                 dateTo: string | null
                 interval: IntervalType
-            }
+            },
+            showCohorts: boolean,
+            comparePreviousPeriod: boolean
         ) => MarketingAnalyticsRetentionQuery
     }
 }
@@ -101,6 +111,8 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
         values: [marketingAnalyticsLogic, ['dateFilter']],
     })),
     actions({
+        setShowCohorts: (showCohorts: boolean) => ({ showCohorts }),
+        setComparePreviousPeriod: (comparePreviousPeriod: boolean) => ({ comparePreviousPeriod }),
         setBreakdownBy: (breakdownBy: MarketingAnalyticsAttributionBreakdown) => ({ breakdownBy }),
         setRetentionInterval: (retentionInterval: MarketingAnalyticsRetentionInterval) => ({ retentionInterval }),
         setTotalIntervals: (totalIntervals: number) => ({ totalIntervals }),
@@ -110,8 +122,13 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
         setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
     }),
     reducers({
+        showCohorts: [false, { setShowCohorts: (_, { showCohorts }) => showCohorts }],
+        comparePreviousPeriod: [
+            true,
+            { setComparePreviousPeriod: (_, { comparePreviousPeriod }) => comparePreviousPeriod },
+        ],
         breakdownBy: [
-            MarketingAnalyticsAttributionBreakdown.Channel as MarketingAnalyticsAttributionBreakdown,
+            MarketingAnalyticsAttributionBreakdown.Source as MarketingAnalyticsAttributionBreakdown,
             { setBreakdownBy: (_, { breakdownBy }) => breakdownBy },
         ],
         retentionInterval: [
@@ -138,6 +155,8 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                 s.excludeUnattributed,
                 s.onlyNewUsers,
                 s.dateFilter,
+                s.showCohorts,
+                s.comparePreviousPeriod,
             ],
             (
                 breakdownBy: MarketingAnalyticsAttributionBreakdown,
@@ -146,9 +165,13 @@ export const marketingRetentionLogic = kea<marketingRetentionLogicType>([
                 excludeDirectTraffic: boolean,
                 excludeUnattributed: boolean,
                 onlyNewUsers: boolean,
-                dateFilter: DateFilter
+                dateFilter: DateFilter,
+                showCohorts: boolean,
+                comparePreviousPeriod: boolean
             ): MarketingAnalyticsRetentionQuery => ({
                 kind: NodeKind.MarketingAnalyticsRetentionQuery,
+                summary: !showCohorts,
+                comparePreviousPeriod: !showCohorts && comparePreviousPeriod,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 breakdownBy,
                 retentionInterval,

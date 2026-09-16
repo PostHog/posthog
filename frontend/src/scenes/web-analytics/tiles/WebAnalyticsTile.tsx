@@ -219,14 +219,19 @@ const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
     )
 }
 
-type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
-const VariationCell = (
-    { isPercentage, reverseColors, isDuration }: VariationCellProps = {
+type VariationCellProps = {
+    isPercentage?: boolean
+    reverseColors?: boolean
+    isDuration?: boolean
+    reserveTrendSpace?: boolean
+}
+export const VariationCell = (
+    { isPercentage, reverseColors, isDuration, reserveTrendSpace = true }: VariationCellProps = {
         isPercentage: false,
         reverseColors: false,
         isDuration: false,
     }
-): QueryContextColumnComponent => {
+) => {
     const formatNumber = (value: number): string => {
         if (isPercentage) {
             return `${(value * 100).toFixed(1)}%`
@@ -236,7 +241,7 @@ const VariationCell = (
         return value?.toLocaleString() ?? '(empty)'
     }
 
-    return function Cell({ value, context }) {
+    return function Cell({ value, context }: { value: unknown; context?: QueryContext }) {
         const compareFilter = context?.compareFilter
 
         if (!value) {
@@ -283,10 +288,11 @@ const VariationCell = (
                 : null
 
         return (
-            <div className={clsx({ 'pr-4': !trend })}>
+            <div className={clsx({ 'pr-4': !trend && reserveTrendSpace })}>
                 <Tooltip title={tooltip}>
                     <span>
-                        {formatNumber(current)}&nbsp;
+                        {formatNumber(current)}
+                        {(reserveTrendSpace || trend) && '\u00a0'}
                         {trend && (
                             // eslint-disable-next-line react/forbid-dom-props
                             <span style={{ color: trend.color }}>

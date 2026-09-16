@@ -6111,6 +6111,27 @@ class MarketingAnalyticsRetentionRow(BaseModel):
     )
 
 
+class MarketingAnalyticsRetentionSummaryRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    acquired: int
+    breakdownValue: str
+    eligible30d: int
+    eligible7d: int
+    medianReturnDays: float | None = Field(
+        ...,
+        description=("Median elapsed days to a second session within 30 days, among observed returners."),
+    )
+    previous: bool
+    returned30d: int
+    returned7d: int
+    returners: int = Field(
+        ...,
+        description=("People with an observed second session within 30 days, including incomplete windows."),
+    )
+
+
 class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13539,6 +13560,10 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -19195,6 +19220,10 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20960,6 +20989,10 @@ class QueryResponseAlternative37(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[MarketingAnalyticsRetentionRow]
+    summary: list[MarketingAnalyticsRetentionSummaryRow] | None = Field(
+        default=None,
+        description=("Only populated in summary mode. Rates use the corresponding eligible population."),
+    )
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -27728,6 +27761,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
         default=None,
         description=("Breakdown values kept before the rest roll into 'Other'. Defaults to 20."),
     )
+    comparePreviousPeriod: bool | None = Field(
+        default=None,
+        description=("Include the previous acquisition period in summary mode. Defaults to false."),
+    )
     dataColorTheme: float | None = Field(
         default=None,
         description=(
@@ -27763,6 +27800,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     retentionInterval: MarketingAnalyticsRetentionInterval | None = Field(
         default=None,
         description=("Period for both the cohort rows and the return columns. Defaults to week."),
+    )
+    summary: bool | None = Field(
+        default=None,
+        description=("Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false."),
     )
     tags: QueryLogTags | None = None
     totalIntervals: int | None = Field(

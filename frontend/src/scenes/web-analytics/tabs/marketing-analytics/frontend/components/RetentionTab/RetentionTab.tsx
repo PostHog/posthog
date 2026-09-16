@@ -33,6 +33,8 @@ export function RetentionTab(): JSX.Element {
         excludeUnattributed,
         onlyNewUsers,
         optionsOpen,
+        showCohorts,
+        comparePreviousPeriod,
         query,
     } = useValues(marketingRetentionLogic)
     const {
@@ -43,6 +45,8 @@ export function RetentionTab(): JSX.Element {
         setExcludeUnattributed,
         setOnlyNewUsers,
         setOptionsOpen,
+        setShowCohorts,
+        setComparePreviousPeriod,
     } = useActions(marketingRetentionLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
@@ -53,30 +57,42 @@ export function RetentionTab(): JSX.Element {
                 <div className="text-muted mb-2 text-xs font-semibold uppercase">Acquisition period</div>
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
                 <div className="text-muted mt-1 text-xs">
-                    People who arrived in this period become the cohorts. Each cohort is then followed forward.
+                    People acquired in this period are followed for return visits.
                 </div>
             </div>
-            <div>
-                <div className="text-muted mb-2 text-xs font-semibold uppercase">Period length</div>
-                <LemonSelect
+            {showCohorts && (
+                <>
+                    <div>
+                        <div className="text-muted mb-2 text-xs font-semibold uppercase">Period length</div>
+                        <LemonSelect
+                            fullWidth
+                            value={retentionInterval}
+                            onChange={(value) => value && setRetentionInterval(value)}
+                            options={Object.values(MarketingAnalyticsRetentionInterval).map((value) => ({
+                                value,
+                                label: RETENTION_INTERVAL_LABELS[value],
+                            }))}
+                        />
+                    </div>
+                    <div>
+                        <div className="text-muted mb-2 text-xs font-semibold uppercase">Periods to follow</div>
+                        <LemonSelect
+                            fullWidth
+                            value={totalIntervals}
+                            onChange={(value) => value && setTotalIntervals(value)}
+                            options={COLUMN_COUNT_OPTIONS.map((count) => ({ value: count, label: `${count} periods` }))}
+                        />
+                    </div>
+                </>
+            )}
+            {!showCohorts && (
+                <LemonSwitch
                     fullWidth
-                    value={retentionInterval}
-                    onChange={(value) => value && setRetentionInterval(value)}
-                    options={Object.values(MarketingAnalyticsRetentionInterval).map((value) => ({
-                        value,
-                        label: RETENTION_INTERVAL_LABELS[value],
-                    }))}
+                    checked={comparePreviousPeriod}
+                    onChange={setComparePreviousPeriod}
+                    label="Compare to previous period"
                 />
-            </div>
-            <div>
-                <div className="text-muted mb-2 text-xs font-semibold uppercase">Periods to follow</div>
-                <LemonSelect
-                    fullWidth
-                    value={totalIntervals}
-                    onChange={(value) => value && setTotalIntervals(value)}
-                    options={COLUMN_COUNT_OPTIONS.map((count) => ({ value: count, label: `${count} periods` }))}
-                />
-            </div>
+            )}
             <LemonDivider className="my-0" />
             <LemonSwitch
                 fullWidth
@@ -130,7 +146,10 @@ export function RetentionTab(): JSX.Element {
                         </div>
                     }
                     right={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonButton type="secondary" size="small" onClick={() => setShowCohorts(!showCohorts)}>
+                                {showCohorts ? 'Back to summary' : 'View cohorts'}
+                            </LemonButton>
                             <ReloadAll iconOnly />
                             <Popover
                                 visible={optionsOpen}
