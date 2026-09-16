@@ -4,6 +4,7 @@ from typing import ClassVar
 import time_machine
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -413,6 +414,64 @@ class TestHandleGithubEventForLoops(TestCase):
         self.assertEqual(mock_fire_loop.call_count, 3)
         fire_keys = [call.kwargs["fire_key"] for call in mock_fire_loop.call_args_list]
         self.assertEqual(fire_keys, ["del-redelivered", "del-redelivered", "del-other"])
+
+    @patch(f"{LOOP_GITHUB_EVENTS_MODULE}.logger")
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_one_teams_trigger_lookup_timing_out_still_fires_the_other_teams(self, mock_fire_loop, mock_logger):
+        team_b = Team.objects.create(organization=self.organization, name="Team B")
+        Integration.objects.create(team=team_b, kind="github", integration_id="998877", config={})
+
+        loop_a = self._create_loop(self.team, name="Loop A")
+        trigger_a = self._create_github_trigger(
+            self.team,
+            loop_a,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["push"],
+        )
+        payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
+
+        real_for_team = LoopTrigger.objects.for_team
+
+        def for_team(team_id, *args, **kwargs):
+            if team_id == team_b.id:
+                raise OperationalError("canceling statement due to statement timeout")
+            return real_for_team(team_id, *args, **kwargs)
+
+        with patch.object(LoopTrigger.objects, "for_team", side_effect=for_team):
+            handle_github_event_for_loops("push", payload, delivery_id="del-timeout")
+
+        mock_fire_loop.assert_called_once()
+        self.assertEqual(mock_fire_loop.call_args.kwargs["trigger"].id, trigger_a.id)
+        warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        self.assertEqual(warnings, ["loop_github_events_trigger_lookup_timed_out"])
+
+    @patch(f"{LOOP_GITHUB_EVENTS_MODULE}.logger")
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_an_installation_lookup_timeout_skips_the_delivery_instead_of_firing(self, mock_fire_loop, mock_logger):
+        # The fan-out's per-delivery budget cannot interrupt a query already in flight, so the
+        # statement cap is what keeps a slow match from costing the whole delivery. A cancelled
+        # statement must leave the consumer reporting "skipped", not escape it.
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["push"],
+        )
+        payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
+
+        with patch.object(
+            Integration.objects,
+            "filter",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ):
+            handle_github_event_for_loops("push", payload, delivery_id="del-timeout")
+
+        mock_fire_loop.assert_not_called()
+        warnings = [call.args[0] for call in mock_logger.warning.call_args_list]
+        self.assertEqual(warnings, ["loop_github_event_match_timed_out"])
 
     @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
     def test_event_flood_beyond_the_throttle_stops_matching_and_firing(self, mock_fire_loop):

@@ -810,6 +810,18 @@ export interface PullRequestChecksResponseApi {
 }
 
 /**
+ * Response when the GitHub App cannot read pull request checks.
+ */
+export interface PullRequestChecksPermissionErrorApi {
+    /** Stable code for a missing GitHub Checks permission. */
+    readonly code: string
+    /** What the GitHub App permission prevents. */
+    readonly error: string
+    /** Project integrations settings where a project admin can reconnect GitHub. */
+    readonly remediation_url: string
+}
+
+/**
  * * `conversation` - conversation
  * * `review` - review
  */
@@ -2725,10 +2737,15 @@ export interface SignalScoutConfigOptionsApi {
  */
 export interface SignalScoutCreateApi {
     /**
-     * Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.
      * @maxLength 64
      */
-    name: string
+    name?: string
     /**
      * Short description of the signal or behavior this scout investigates.
      * @maxLength 1024
@@ -3090,6 +3107,11 @@ export interface SignalScoutConfigCreateApi {
      */
     run_cron_schedule?: string | null
     /**
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
      * The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.
      * @maxLength 200
      */
@@ -3139,7 +3161,7 @@ export interface SignalScoutOutputDestinationsUpdateApi {
  */
 export interface PatchedSignalScoutConfigUpdateApi {
     /**
-     * Name shown in the UI. Does not change the skill name. Leave blank to use the default name.
+     * Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.
      * @maxLength 200
      */
     display_name?: string
@@ -3342,6 +3364,60 @@ export interface ScoutNoteCreateRequestApi {
 }
 
 /**
+ * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
+ */
+export interface EmitEligibilityApi {
+    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
+    ai_processing_approved: boolean
+    /** Whether the `signals_scout` signal source is enabled for this team. */
+    source_enabled: boolean
+    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
+    can_emit: boolean
+    /**
+     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
+     * @nullable
+     */
+    remediation: string | null
+}
+
+/**
+ * One bucket in `inventory.existing_inbox_reports.by_status`.
+ */
+export interface InboxReportStatusBucketApi {
+    /** Report status (e.g. `potential`, `candidate`, `ready`). */
+    status: string
+    /** Number of reports in this status (excludes deleted/suppressed). */
+    count: number
+}
+
+/**
+ * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+ */
+export interface ExistingInboxReportsApi {
+    /** Total non-deleted, non-suppressed reports for this team. */
+    total: number
+    /** Per-status breakdown of inbox reports. */
+    by_status: InboxReportStatusBucketApi[]
+}
+
+/**
+ * The compact envelope returned ahead of the verbose `payload`.
+ *
+ * Both sections are repeated from `payload.inventory`. They lead the response because a
+ * client that truncates a long tool result keeps the prefix, and these are the two things a
+ * scout has to know before it does anything: whether its output can reach the inbox at all,
+ * and what is already there. Read `summary` rather than digging for the same keys inside
+ * `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+ * received.
+ */
+export interface ProjectProfileSummaryApi {
+    /** The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit. */
+    emit_eligibility: EmitEligibilityApi | null
+    /** Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed. */
+    existing_inbox_reports: ExistingInboxReportsApi | null
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -3433,23 +3509,6 @@ export interface SignalSourceConfigsBucketsApi {
 }
 
 /**
- * `inventory.emit_eligibility` — whether scout findings can reach the inbox for this team.
- */
-export interface EmitEligibilityApi {
-    /** Whether the organization has approved AI data processing (an org-level gate on all scout emits). */
-    ai_processing_approved: boolean
-    /** Whether the `signals_scout` signal source is enabled for this team. */
-    source_enabled: boolean
-    /** True only when both team/org-level gates pass, so scout findings (signal and report channels alike) actually reach the inbox. When False, every emit is silently dropped — quick-close instead of doing throwaway investigation. Does not account for a scout's own dry-run `emit` toggle, which is per-config, not team-wide. */
-    can_emit: boolean
-    /**
-     * One-line next step to unblock emits when `can_emit` is False; null when emits can flow.
-     * @nullable
-     */
-    remediation: string | null
-}
-
-/**
  * One scout in either bucket of `inventory.scout_fleet`.
  */
 export interface ScoutFleetEntryApi {
@@ -3496,26 +3555,6 @@ export interface ScoutFleetApi {
     disabled: ScoutFleetEntryApi[]
     /** The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'. */
     emitted_lookback_days: number
-}
-
-/**
- * One bucket in `inventory.existing_inbox_reports.by_status`.
- */
-export interface InboxReportStatusBucketApi {
-    /** Report status (e.g. `potential`, `candidate`, `ready`). */
-    status: string
-    /** Number of reports in this status (excludes deleted/suppressed). */
-    count: number
-}
-
-/**
- * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
- */
-export interface ExistingInboxReportsApi {
-    /** Total non-deleted, non-suppressed reports for this team. */
-    total: number
-    /** Per-status breakdown of inbox reports. */
-    by_status: InboxReportStatusBucketApi[]
 }
 
 /**
@@ -3992,8 +4031,14 @@ export interface ProjectProfilePayloadApi {
  * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
  * latest cached profile or a freshly-built one if the cache was stale or the caller passed
  * `force_refresh=true`.
+ *
+ * `summary` leads the response and `payload` trails it: the inventory runs to tens of
+ * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+ * gate the scout has to read before doing any work.
  */
 export interface ProjectProfileApi {
+    /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
+    summary: ProjectProfileSummaryApi
     /** UUID of the `SignalProjectProfile` row. */
     profile_id: string
     /** ISO-8601 timestamp the profile was built. */
@@ -4002,8 +4047,8 @@ export interface ProjectProfileApi {
     expires_at: string
     /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
     source_version: string
-    /** Structured profile content. v1 has `inventory` only. */
-    payload: ProjectProfilePayloadApi
+    /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
+    payload?: ProjectProfilePayloadApi
 }
 
 export type SignalScoutRunSummaryApiMetadataDerived = {
@@ -5522,6 +5567,11 @@ export type SignalsReportsPrCiStatusesParams = {
 
 export type SignalsScoutConfigListParams = {
     /**
+     * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
+     * @minLength 1
+     */
+    search?: string
+    /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
      */
@@ -5597,6 +5647,10 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean
+    /**
+     * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
+     */
+    summary_only?: boolean
 }
 
 export type SignalsScoutRunsListParams = {

@@ -187,30 +187,17 @@ from products.workflows.backend.services.workflow_email_health import (
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.durations import (
+    DURATION_PATTERN,
+    duration_error,
+    duration_minutes,
+    is_duration,
+    is_signed_duration,
+)
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
-
-# Delay durations are strings like "30s", "30m", "2h", "1.5d". Must match the regex in the Node.js
-# executor (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
-# wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
-# is held to the same format.
-DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
-
-# A delay_until offset is the same shape, signed, so it can point before the date it is offsetting.
-DELAY_OFFSET_REGEX = re.compile(r"^-?\d*\.?\d+[dhms]$")
-
-
-def _is_valid_duration(value: Any) -> bool:
-    return isinstance(value, str) and bool(DELAY_DURATION_REGEX.match(value))
-
-
-def _duration_error(field: str) -> str:
-    return (
-        f"{field} must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-        "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
-    )
 
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
@@ -1787,10 +1774,22 @@ class HogFlowActionSerializer(serializers.Serializer):
             if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
             max_wait_duration = data.get("config", {}).get("max_wait_duration")
-            # A falsy timeout means "wait indefinitely": conditional_branch.ts skips the parse
-            # entirely for it, so only a value that actually reaches the parser needs the format.
-            if strict and max_wait_duration and not _is_valid_duration(max_wait_duration):
-                raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
+            # Absent or empty never reaches the parser: conditional_branch.ts skips the re-park and
+            # continues to the next action, so only a value the parser sees needs the format. It does
+            # not wait indefinitely, whatever the field name suggests. Test emptiness rather than
+            # truthiness, because {} and [] are falsy here and truthy in the worker, which would hand
+            # the parser a container and throw on every run.
+            if strict and max_wait_duration not in (None, "") and not is_duration(max_wait_duration):
+                raise serializers.ValidationError({"config": duration_error("max_wait_duration")})
+
+        if is_conditional_branch:
+            # A branch that matches no condition re-parks on this optional delay, which
+            # conditional_branch.ts hands to the same parser as max_wait_duration above. Absent or
+            # empty means "do not re-park", so only a value that actually reaches the parser needs the
+            # format, and emptiness is the test for the same reason as above.
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if strict and delay_duration not in (None, "") and not is_duration(delay_duration):
+                raise serializers.ValidationError({"config": duration_error("delay_duration")})
 
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
@@ -1803,8 +1802,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         delay_until = config.get("delay_until")
 
         if delay_until is None:
-            if strict and not _is_valid_duration(config.get("delay_duration")):
-                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            if strict and not is_duration(config.get("delay_duration")):
+                raise serializers.ValidationError({"config": duration_error("delay_duration")})
             return
 
         if config.get("delay_duration"):
@@ -1827,19 +1826,19 @@ class HogFlowActionSerializer(serializers.Serializer):
             return
 
         offset = delay_until.get("offset")
-        if strict and offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+        if strict and offset is not None and not is_signed_duration(offset):
             raise serializers.ValidationError(
                 {
                     "config": (
-                        "delay_until.offset must be a string matching ^-?\\d*\\.?\\d+[dhms]$ "
+                        "delay_until.offset must be a duration string, optionally signed "
                         "(e.g. '-1d' for a day before the date, '2h' for two hours after)."
                     )
                 }
             )
 
         max_delay_duration = config.get("max_delay_duration")
-        if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
-            raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+        if strict and max_delay_duration is not None and not is_duration(max_delay_duration):
+            raise serializers.ValidationError({"config": duration_error("max_delay_duration")})
 
         use_person_timezone = delay_until.get("use_person_timezone")
         if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
@@ -1941,24 +1940,8 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
     )
 
 
-# Duration strings as the workflow's delay steps already express them, so one convention covers both.
-# The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets `\d*` and
-# `\d+` both claim the same digits, so a long non-matching value backtracks quadratically, which lets an
-# authenticated caller burn a web process with one request. This form matches the same strings linearly.
-# Use `[0-9]`, not `\d`: Python's `\d` also matches Unicode digits (e.g. '٧', '７') and `float()` parses
-# them, so `\d` would store a window the Node worker's ASCII regex cannot parse, and the worker would
-# then fall back to its default window with no error. `[0-9]` holds the API to the same ASCII grammar the
-# worker and the generated clients enforce.
-CONVERSION_WINDOW_REGEX = r"^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$"
-
-_MINUTES_PER_DURATION_UNIT = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
-
 MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
 MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
-
-
-def _duration_minutes(value: str) -> float:
-    return float(value[:-1]) * _MINUTES_PER_DURATION_UNIT[value[-1]]
 
 
 class HogFlowConversionSerializer(serializers.Serializer):
@@ -1977,7 +1960,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
     )
     window = serializers.RegexField(
-        regex=CONVERSION_WINDOW_REGEX,
+        regex=DURATION_PATTERN,
         # A real window is a handful of characters ('365d', '31536000s'); the cap keeps the regex and the
         # float parse off arbitrarily long input and flows a bound into the generated client schemas.
         max_length=32,
@@ -2009,10 +1992,10 @@ class HogFlowConversionSerializer(serializers.Serializer):
     def validate_window(self, value: str | None) -> str | None:
         if value is None:
             return value
-        minutes = _duration_minutes(value)
+        minutes = duration_minutes(value)
         # A zero window measures nothing. The worker cannot honor it either, so it would fall back to
         # the default and give the workflow a 90-day window nobody asked for.
-        if minutes <= 0:
+        if minutes is None or minutes <= 0:
             raise serializers.ValidationError("The conversion window must be longer than zero.")
         if minutes > MAX_CONVERSION_WINDOW_MINUTES:
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
@@ -2452,17 +2435,10 @@ def _fetch_isp_metrics(team_id: int, window_days: int, domains: list[str]) -> li
             "emails_sent": row.emails_sent,
             "delivery_rate": row.delivery_rate,
             "bounce_rate": row.bounce_rate,
+            "transient_bounce_rate": row.transient_bounce_rate,
             "complaint_rate": row.complaint_rate,
+            "complaint_base": row.complaint_base,
             "unavailable": list(row.unavailable),
-            "daily": [
-                {
-                    "date": point.date,
-                    "emails_sent": point.emails_sent,
-                    "delivery_rate": point.delivery_rate,
-                    "bounce_rate": point.bounce_rate,
-                }
-                for point in row.daily
-            ],
         }
         for row in rows
     ]
@@ -2571,19 +2547,6 @@ class AwsTenantReputationSerializer(serializers.Serializer):
     )
 
 
-class IspDailyPointSerializer(serializers.Serializer):
-    """One bucket of a provider's sending history."""
-
-    date = serializers.CharField(read_only=True, help_text="Bucket date, as an ISO 8601 calendar date.")
-    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent to this provider on this date.")
-    delivery_rate = serializers.FloatField(
-        read_only=True, help_text="Emails this provider accepted on this date, divided by emails sent to it (0-1)."
-    )
-    bounce_rate = serializers.FloatField(
-        read_only=True, help_text="Hard bounces at this provider on this date, divided by emails sent to it (0-1)."
-    )
-
-
 class IspSendingHealthSerializer(serializers.Serializer):
     """How one mailbox provider treated this project's email, from AWS SES's own delivery data."""
 
@@ -2609,6 +2572,16 @@ class IspSendingHealthSerializer(serializers.Serializer):
             "when the underlying metric could not be loaded from AWS."
         ),
     )
+    transient_bounce_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Soft (transient) bounces at this provider, divided by emails sent to it (0-1). These "
+            "are deferrals the provider may accept on a retry, such as a full mailbox, greylisting "
+            "or rate limiting, so they are counted apart from permanent bounces. Null when the "
+            "underlying metric could not be loaded from AWS."
+        ),
+    )
     complaint_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
@@ -2618,20 +2591,21 @@ class IspSendingHealthSerializer(serializers.Serializer):
             "or nothing was delivered — and also when the metric could not be loaded from AWS."
         ),
     )
+    complaint_base = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Deliveries the provider reports complaints for, which is what `complaint_rate` "
+            "divides by. Far smaller than `emails_sent`, so a caller deciding whether the rate "
+            "rests on enough volume has to weigh it against this. Zero when there is no base."
+        ),
+    )
     unavailable = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
         help_text=(
-            "Rates AWS did not return for this provider, from `delivery`, `bounce` and `complaint`. "
+            "Rates AWS did not return for this provider, from `delivery`, `bounce`, "
+            "`transient_bounce` and `complaint`. "
             "A rate named here is missing, not zero, and the UI says so rather than showing a number."
-        ),
-    )
-    daily = IspDailyPointSerializer(
-        many=True,
-        read_only=True,
-        help_text=(
-            "Sending history for this provider, oldest first, so a drop can be dated rather than "
-            "averaged into the window. Dates this provider received nothing are omitted."
         ),
     )
 
