@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -125,6 +126,104 @@ func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
 func TestValidateAcceptsHogQLQualifiedTable(t *testing.T) {
 	result := Validate(schema(), "SELECT o.synced_id FROM postgres.synced.orders AS o")
 	if !result.Valid || len(result.Diagnostics) != 0 {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestValidateCommonTableExpressions(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		tableNames []string
+	}{
+		{
+			name:       "basic",
+			query:      "WITH x AS (SELECT event FROM events) SELECT * FROM x",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "projected alias",
+			query:      "WITH x AS (SELECT event AS kind FROM events) SELECT x.kind FROM x",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "wildcard projection",
+			query:      "WITH x AS (SELECT * FROM events) SELECT x.uuid FROM x",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "qualified wildcard projection",
+			query:      "WITH x AS (SELECT e.* FROM events AS e) SELECT x.uuid FROM x",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "chained",
+			query:      "WITH x AS (SELECT event AS kind FROM events), y AS (SELECT kind FROM x) SELECT y.kind FROM y",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "shadows physical table",
+			query:      "WITH events AS (SELECT person_id FROM warehouse_people) SELECT events.person_id FROM events",
+			tableNames: []string{"warehouse_people"},
+		},
+		{
+			name:       "definition does not reference itself",
+			query:      "WITH events AS (SELECT event FROM events) SELECT events.event FROM events",
+			tableNames: []string{"events"},
+		},
+		{
+			name:       "nested definition shadows outer definition",
+			query:      "WITH x AS (SELECT event AS outer_field FROM events), y AS (WITH x AS (SELECT person_id AS inner_field FROM warehouse_people) SELECT inner_field FROM x) SELECT y.inner_field FROM y",
+			tableNames: []string{"events", "warehouse_people"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := Validate(schema(), test.query)
+			if !result.Valid || len(result.Diagnostics) != 0 {
+				t.Fatalf("result = %#v", result)
+			}
+			if strings.Join(result.TableNames, ",") != strings.Join(test.tableNames, ",") {
+				t.Fatalf("table names = %#v", result.TableNames)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsUnknownCommonTableExpressionField(t *testing.T) {
+	result := Validate(schema(), "WITH x AS (SELECT event AS kind FROM events) SELECT x.timestamp FROM x")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+		t.Fatalf("result = %#v", result)
+	}
+	if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
+		t.Fatalf("table names = %#v", result.TableNames)
+	}
+}
+
+func TestValidateRejectsUnknownQualifiedFields(t *testing.T) {
+	for _, query := range []string{
+		"SELECT missing.event FROM events",
+		"SELECT missing.properties.value FROM events",
+		"SELECT missing.* FROM events",
+	} {
+		result := Validate(schema(), query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+}
+
+func TestValidateBoundsCommonTableExpressionProjectionExpansion(t *testing.T) {
+	ctes := []string{"c0 AS (SELECT * FROM events)"}
+	for index := 1; index < 14; index++ {
+		ctes = append(ctes, fmt.Sprintf(
+			"c%d AS (SELECT left_side.*, right_side.* FROM c%d AS left_side JOIN c%d AS right_side ON 1 = 1)",
+			index, index-1, index-1,
+		))
+	}
+	result := Validate(schema(), "WITH "+strings.Join(ctes, ", ")+" SELECT missing FROM c13")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" {
 		t.Fatalf("result = %#v", result)
 	}
 }
