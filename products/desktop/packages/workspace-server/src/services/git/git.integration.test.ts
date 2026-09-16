@@ -2,25 +2,38 @@ import { execSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GitService } from "./service";
 
 function run(cmd: string, cwd: string): void {
   execSync(cmd, { cwd, stdio: "pipe" });
 }
 
-async function createTempGitRepo(remoteUrl?: string): Promise<string> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "git-it-"));
+let templateRepo: string | null = null;
+
+// Initializing a repo costs six git subprocesses and this file needs one per
+// test, so build it once and copy it. A git repo has no absolute paths, so
+// the copy is a valid, independent repo.
+async function getTemplateRepo(): Promise<string> {
+  if (templateRepo) return templateRepo;
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "git-it-template-"));
   run("git init -b main", dir);
   run("git config user.email 'test@test.com'", dir);
   run("git config user.name 'Test'", dir);
   run("git config commit.gpgsign false", dir);
-  if (remoteUrl) {
-    run(`git remote add origin ${remoteUrl}`, dir);
-  }
   await fs.writeFile(path.join(dir, "README.md"), "# Test Repo\n");
   run("git add .", dir);
   run("git commit -m 'Initial commit'", dir);
+  templateRepo = dir;
+  return dir;
+}
+
+async function createTempGitRepo(remoteUrl?: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "git-it-"));
+  await fs.cp(await getTemplateRepo(), dir, { recursive: true });
+  if (remoteUrl) {
+    run(`git remote add origin ${remoteUrl}`, dir);
+  }
   return dir;
 }
 
@@ -52,6 +65,12 @@ describe("GitService integration (git-read + git-mutate)", () => {
     await Promise.all(
       dirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true })),
     );
+  });
+
+  afterAll(async () => {
+    if (templateRepo) {
+      await fs.rm(templateRepo, { recursive: true, force: true });
+    }
   });
 
   describe("validateRepo", () => {
