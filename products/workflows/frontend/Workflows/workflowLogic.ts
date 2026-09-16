@@ -191,6 +191,8 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+type WorkflowSaveStamps = Pick<HogFlow, 'updated_at' | 'draft_updated_at'>
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -248,7 +250,7 @@ export interface workflowLogicValues {
     publishDisabledReason: string | undefined
     resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
-    saveBaseUpdatedAt: string | null
+    saveBaseStamps: WorkflowSaveStamps | null
     scheduleConfigSources: {
         natural_language: boolean
         picker: boolean
@@ -2402,8 +2404,8 @@ export interface workflowLogicActions {
     setResumeEmailSendingPending: (pending: boolean) => {
         pending: boolean
     }
-    setSaveBaseUpdatedAt: (updatedAt: string | null) => {
-        updatedAt: string | null
+    setSaveBaseStamps: (stamps: WorkflowSaveStamps | null) => {
+        stamps: WorkflowSaveStamps | null
     }
     setScheduleRepeating: (repeating: boolean) => {
         repeating: boolean
@@ -3069,7 +3071,7 @@ export const workflowLogic = kea<workflowLogicType>([
         clearAutoSavePending: true,
         setExternallyEdited: (externallyEdited: boolean) => ({ externallyEdited }),
         setSyncingExternalEdit: (syncing: boolean) => ({ syncing }),
-        setSaveBaseUpdatedAt: (updatedAt: string | null) => ({ updatedAt }),
+        setSaveBaseStamps: (stamps: WorkflowSaveStamps | null) => ({ stamps }),
         keepMyWorkflowVersion: true,
         publishDraft: true,
         confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
@@ -3210,17 +3212,17 @@ export const workflowLogic = kea<workflowLogicType>([
                             // back, so a stopped workflow resumes running and sending.
                             delete payload.status
                         }
-                        const liveBase = latest?.updated_at
+                        const baseStamps = values.saveBaseStamps ?? latest
+                        const liveBase = baseStamps?.updated_at
+                        const draftBase = baseStamps?.draft_updated_at
                         // Draft writes race against other draft writes, not the live row, so the staleness
                         // baseline follows the routing: the draft's own stamp once one is staged.
                         const includesStagedDraft =
                             !stagingDraft && !isStatusTransition && latest?.status !== 'active' && !!latest?.draft
                         const newestBase =
-                            latest?.draft_updated_at && liveBase && dayjs(latest.draft_updated_at).isAfter(liveBase)
-                                ? latest.draft_updated_at
-                                : liveBase
+                            draftBase && liveBase && dayjs(draftBase).isAfter(liveBase) ? draftBase : liveBase
                         const loadedBase = stagingDraft
-                            ? (latest?.draft_updated_at ?? liveBase)
+                            ? (draftBase ?? liveBase)
                             : includesStagedDraft
                               ? newestBase
                               : liveBase
@@ -3235,8 +3237,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // draft-stamp baseline wouldn't catch.
                                 ...(stagingDraft && liveBase ? { base_live_updated_at: liveBase } : {}),
                                 // Let the server reject the save if a newer copy exists (optimistic concurrency).
-                                // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
-                                base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
+                                base_updated_at: loadedBase ?? null,
                             })
                             cache.lastSavedWorkflow = result
                             return result
@@ -3459,13 +3460,13 @@ export const workflowLogic = kea<workflowLogicType>([
                 loadWorkflowFailure: () => false,
             },
         ],
-        // Overrides the base timestamp sent with the next save. Set when the user chooses "Keep mine" on
-        // the conflict banner — we adopt the latest server updated_at so their save deliberately wins
+        // Overrides the stamps the next save fences on. Set when the user chooses "Keep mine" on
+        // the conflict banner — we adopt the latest server stamps so their save deliberately wins
         // instead of dead-ending on a 409. Reset once any load or save reconciles us with the server.
-        saveBaseUpdatedAt: [
-            null as string | null,
+        saveBaseStamps: [
+            null as WorkflowSaveStamps | null,
             {
-                setSaveBaseUpdatedAt: (_, { updatedAt }) => updatedAt,
+                setSaveBaseStamps: (_, { stamps }) => stamps,
                 loadWorkflowSuccess: () => null,
                 saveWorkflowSuccess: () => null,
             },
@@ -4071,14 +4072,16 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         keepMyWorkflowVersion: async () => {
-            // The user wants their in-progress edits to win. Adopt the latest server updated_at as the
+            // The user wants their in-progress edits to win. Adopt the latest server stamps as the
             // save baseline (without touching their canvas) so the next save passes the optimistic-lock
             // check and deliberately overwrites the other channel's version, instead of looping on 409.
             if (props.id && props.id !== 'new') {
                 try {
                     const latest = await api.hogFlows.getHogFlow(props.id)
-                    // On an active workflow the next save races the draft slot, so its stamp is the baseline.
-                    actions.setSaveBaseUpdatedAt(latest.draft_updated_at ?? latest.updated_at)
+                    actions.setSaveBaseStamps({
+                        updated_at: latest.updated_at,
+                        draft_updated_at: latest.draft_updated_at ?? null,
+                    })
                 } catch {
                     // If we can't fetch the latest timestamp, just dismiss; the 409 backstop still protects them.
                 }
