@@ -128,6 +128,18 @@ export const OneProviderFiltering: StoryFn = () => {
     return <WorkflowsReputation />
 }
 
+export const SendingAllowanceNotYetApplied: StoryFn = () => {
+    // Mid-rollout the allowance is measured but not applied. The card has to stay on screen and say
+    // so, because a project whose batch was just capped still needs to read its audience limit.
+    useStorybookMocks(
+        mockReputation({
+            ...baseResponse,
+            sending_allowance: { ...baseResponse.sending_allowance!, enforced: false },
+        })
+    )
+    return <WorkflowsReputation />
+}
+
 export const NoProviderData: StoryFn = () => {
     // What every project sees until Virtual Deliverability Manager is collecting.
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [] }))

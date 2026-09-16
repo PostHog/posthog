@@ -426,10 +426,16 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         Tier {allowance.tier} of {allowance.max_tier}
                     </LemonTag>
                 </Tooltip>
+                {!allowance.enforced && (
+                    <Tooltip title="We are measuring what this allowance would do before applying it, so nothing is delayed by it yet.">
+                        <LemonTag type="completion">Not applied yet</LemonTag>
+                    </Tooltip>
+                )}
             </div>
             <p className="text-secondary mt-2 mb-0">
-                Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails
-                above the allowance are not dropped, they are sent later.
+                {allowance.enforced
+                    ? 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. Emails above the allowance are not dropped, they are sent later.'
+                    : 'Your allowance grows as your workflows keep sending with low bounce and spam complaint rates. It is not applied to your sends yet, so these numbers show where you stand rather than a limit you are hitting.'}
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
                 <div className="min-w-48">
@@ -493,7 +499,7 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
-            {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
+            {sendingAllowance && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
