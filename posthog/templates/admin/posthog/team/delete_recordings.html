@@ -546,8 +546,8 @@
 
     // Each POST mints a fresh Temporal workflow id server-side (team_admin.py), so a double submit
     // starts a second, redundant deletion workflow. Lock the form once a submit is accepted.
-    // Sibling admin templates do this with an inline `onsubmit=` attribute, which cannot work here:
-    // the admin CSP has no 'unsafe-inline' for script-src, so attribute handlers are blocked.
+    // The shared `js-disable-on-submit` marker in admin/base_site.html does not fit: it defers the
+    // disable to a timeout, and this form needs the lock and the `inFlight` check synchronously.
     var inFlight = false;
 
     function lock(form) {

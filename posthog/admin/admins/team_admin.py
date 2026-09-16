@@ -628,7 +628,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "team_name": team.name,
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
-                request=getattr(self, "_current_request", None),
             )
         )
 
@@ -941,7 +940,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "team_name": team.name,
                     "is_suspended": is_suspended,
                 },
-                request=getattr(self, "_current_request", None),
             )
         )
 
@@ -1001,7 +999,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
                     "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
                 },
-                request=getattr(self, "_current_request", None),
             )
         )
 
@@ -1239,7 +1236,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "is_enabled": team.llm_gateway_enabled_at is not None,
                     "is_revoked": team.llm_gateway_revoked_at is not None,
                 },
-                request=getattr(self, "_current_request", None),
             )
         )
 

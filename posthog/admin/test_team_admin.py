@@ -701,21 +701,15 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert "Save tier" in html
         assert "Recompute now" in html
 
-    def test_tier_actions_use_a_nonce_script_not_inline_handlers(self) -> None:
+    def test_tier_actions_mark_the_confirm_instead_of_writing_an_inline_handler(self) -> None:
         # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, so inline
-        # onclick/onsubmit attributes are dropped. The recompute confirm must run from a nonce'd
-        # script, which needs the request in the render context.
-        request = self.factory.get(f"/admin/posthog/team/{self.team.pk}/change/")
-        request.user = self.user
-        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]
-        _attach_messages(request)
-        self.admin._current_request = request
-
+        # onclick/onsubmit attributes are dropped. The recompute confirm must ride a data-confirm
+        # marker, which admin/base_site.html reads from its delegated listener.
         html = self.admin.email_sending_tier_actions(self.team)
 
         assert "onclick=" not in html
         assert "onsubmit=" not in html
-        assert 'nonce="test-nonce-value"' in html
+        assert "data-confirm=" in html
 
     def test_recompute_message_names_the_hold_reason(self) -> None:
         # A held recompute used to report a canned guess ("pinned or does not meet the promotion
