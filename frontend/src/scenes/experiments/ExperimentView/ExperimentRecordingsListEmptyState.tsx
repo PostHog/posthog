@@ -98,6 +98,12 @@ function ReasonBanner({
             <LemonBanner type="info" action={offeredAction}>
                 No recordings yet. The experiment started {startedWhen(context.daysSinceStart)}, and a recording appears
                 here once an exposed person's session has been captured.
+                {/* Only where the way out is the wider scope, because it says what that button
+                    gets them. Its own element rather than a bare text node, so toggling the scope
+                    doesn't remove a text node React may no longer own (frontend/src/AGENTS.md rule 7). */}
+                {offered === 'all_sessions' && (
+                    <span> The same people can already have recordings of their other sessions.</span>
+                )}
             </LemonBanner>
         )
     }

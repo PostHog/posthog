@@ -729,6 +729,7 @@ export interface experimentReplayTabLogicMeta {
             effectiveVariantKey: string | null,
             effectiveExposureScope: ExperimentReplayExposureScope,
             scannedWindowEnd: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -1048,11 +1049,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectWatchCard: (state: string | null, { card }) => (card ? card.variant : state),
             },
         ],
-        // Persisted like the variant facet. The default shows exposed persons' whole journey
-        // from first exposure, matching the population the analysis counts; 'in_session'
-        // narrows out the long tail of their sessions that never touch the feature under test.
+        // The tab answers what an exposed person did on the pages under test at the moment they
+        // entered the experiment, and the session the exposure happened in is the one that shows
+        // that. Their later sessions are the metrics view's question, one click away on the control.
         exposureScope: [
-            'all_exposed' as ExperimentReplayExposureScope,
+            'in_session' as ExperimentReplayExposureScope,
             { persist: true },
             {
                 setExposureScope: (_, { scope }) => scope,
