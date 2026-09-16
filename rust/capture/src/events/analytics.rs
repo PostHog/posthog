@@ -3010,6 +3010,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn already_disabled_under_budget_is_counted_separately() {
+        // The key is under budget, so the counter must stay out of the
+        // enforcement identity the GRL watchdog checks.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = MockSink::new();
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&[]));
+
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            events,
+            &context,
+            PipelineOptions {
+                restriction_service: Some(service),
+                global_rate_limiter: Some(global_limiter),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            already_disabled_count(&snapshotter, "false"),
+            Some(1),
+            "an under-budget event with person processing already off belongs in the other arm"
+        );
+        assert_eq!(already_disabled_count(&snapshotter, "true"), None);
+    }
+
+    #[tokio::test]
     async fn global_rate_limit_does_not_overflow_historical_events() {
         // Invariant: a globally rate-limited AnalyticsHistorical event gets person
         // processing disabled but is never rerouted to overflow.
