@@ -82,6 +82,7 @@
     'posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task',
     'posthog.tasks.gateway_credential.update_gateway_credential_cache_task',
     'posthog.tasks.health_checks.evaluate_health_check_for_team',
+    'posthog.tasks.health_checks.recheck_reverse_proxy_for_organization',
     'posthog.tasks.hypercache_verification.verify_and_fix_flag_definitions_cache_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_flags_cache_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_team_metadata_cache_task',
