@@ -80,8 +80,6 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                 "insight_id": alert.insight_id,
             }
             try:
-                # Do not add alert-specific priority here: this queue also runs unrelated
-                # analytics work, so priority would affect other workloads.
                 await temporalio.workflow.start_child_workflow(
                     CheckAlertWorkflow.run,
                     CheckAlertWorkflowInputs(

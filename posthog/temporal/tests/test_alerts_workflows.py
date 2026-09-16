@@ -12,7 +12,6 @@ from django.conf import settings
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.client import WorkflowFailureError
-from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -35,7 +34,6 @@ from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, pre
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import (
-    DEFAULT_DUE_ALERTS_TEAM_FAIR_SHARE_PER_SCHEDULE_RUN,
     DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN,
     AlertInfo,
     CheckAlertWorkflowInputs,
@@ -57,26 +55,10 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
 ]
 
 
-def test_schedule_due_alert_checks_parses_legacy_schedule_inputs() -> None:
-    inputs = ScheduleDueAlertChecksWorkflow.parse_inputs(['{"max_alerts_per_run": 17}'])
-
-    assert inputs == ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
-
-
-def test_existing_temporal_payload_defaults_missing_team_fair_share() -> None:
-    converter = DataConverter.default.payload_converter
-    payloads = converter.to_payloads([{"max_alerts_per_run": 17}])
-
-    (inputs,) = converter.from_payloads(payloads, [ScheduleDueAlertChecksWorkflowInputs])
-
-    assert inputs.max_alerts_per_run == 17
-    assert inputs.team_fair_share_per_run == DEFAULT_DUE_ALERTS_TEAM_FAIR_SHARE_PER_SCHEDULE_RUN
-
-
 @pytest.mark.asyncio
 async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
     execute_activity = AsyncMock(return_value=[])
-    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17, team_fair_share_per_run=3)
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
 
     with patch(
         "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",

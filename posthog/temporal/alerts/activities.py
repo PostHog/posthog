@@ -1,10 +1,10 @@
 import asyncio
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from django.db import transaction
-from django.db.models import Case, Count, DateTimeField, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
@@ -73,7 +73,6 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
-_ALERT_SCHEDULER_AGING_THRESHOLD = timedelta(minutes=15)
 
 
 @frozen
@@ -92,7 +91,6 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> _RetrievedAlerts:
         polled_at = datetime.now(UTC)
-        aging_cutoff = polled_at - _ALERT_SCHEDULER_AGING_THRESHOLD
 
         calculation_interval_order = Case(
             *(
@@ -103,26 +101,6 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        # Rank each team's alerts: never checked, aged oldest-first, then fresh cadence-first.
-        team_alert_ordering = [
-            F("_aging_order").asc(),
-            F("_aged_next_check_at").asc(nulls_first=True),
-            F("_interval_order").asc(),
-            F("next_check_at").asc(nulls_first=True),
-            F("id").asc(),
-        ]
-        # Select rank 1 from each team, then rank 2, up to the fair share. Overflow fills the cap last.
-        scheduler_ordering = [
-            F("_fair_share_order").asc(),
-            F("_fair_share_rank").asc(nulls_last=True),
-            F("_aging_order").asc(),
-            F("_aged_next_check_at").asc(nulls_first=True),
-            F("_interval_order").asc(),
-            F("next_check_at").asc(nulls_first=True),
-            F("team_id").asc(),
-            F("id").asc(),
-        ]
-
         due_alerts_query = (
             AlertConfiguration.objects.filter(
                 Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
@@ -131,44 +109,25 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(insight__deleted=False)
         )
         alerts_query = (
-            due_alerts_query.annotate(
-                _interval_order=calculation_interval_order,
-                _aging_order=Case(
-                    When(next_check_at__isnull=True, then=Value(0)),
-                    When(next_check_at__lte=aging_cutoff, then=Value(0)),
-                    default=Value(1),
-                    output_field=IntegerField(),
-                ),
-                _aged_next_check_at=Case(
-                    When(next_check_at__isnull=True, then=F("next_check_at")),
-                    When(next_check_at__lte=aging_cutoff, then=F("next_check_at")),
-                    default=Value(None),
-                    output_field=DateTimeField(),
-                ),
-            )
+            due_alerts_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
                     partition_by=[F("team_id")],
-                    order_by=team_alert_ordering,
+                    order_by=[
+                        F("_interval_order").asc(),
+                        F("next_check_at").asc(nulls_first=True),
+                        F("id").asc(),
+                    ],
                 ),
             )
-            .annotate(
-                # Give every due team its configured fair share before overdue overflow fills any
-                # remaining capacity. Deterministic workflow IDs prevent duplicate active checks
-                # when alerts remain due across scheduler runs.
-                _fair_share_order=Case(
-                    When(_team_rank__lte=inputs.team_fair_share_per_run, then=Value(0)),
-                    default=Value(1),
-                    output_field=IntegerField(),
-                ),
-                _fair_share_rank=Case(
-                    When(_team_rank__lte=inputs.team_fair_share_per_run, then=F("_team_rank")),
-                    default=Value(None),
-                    output_field=IntegerField(),
-                ),
+            .order_by(
+                "_team_rank",
+                "_interval_order",
+                F("next_check_at").asc(nulls_first=True),
+                "team_id",
+                "id",
             )
-            .order_by(*scheduler_ordering)
             .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 
@@ -193,17 +152,16 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             polled_at=polled_at,
         )
 
-    async with Heartbeater():
-        retrieved = await get_alerts()
-        try:
-            await asyncio.to_thread(
-                record_due_insight_alert_metrics,
-                retrieved.due_count,
-                retrieved.oldest_due_at,
-                retrieved.polled_at,
-            )
-        except Exception:
-            logger.exception("Failed to record due insight alert metrics")
+    retrieved = await get_alerts()
+    try:
+        await asyncio.to_thread(
+            record_due_insight_alert_metrics,
+            retrieved.due_count,
+            retrieved.oldest_due_at,
+            retrieved.polled_at,
+        )
+    except Exception:
+        logger.exception("Failed to record due insight alert metrics")
 
     try:
         meter = get_metric_meter()

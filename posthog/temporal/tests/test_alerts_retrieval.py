@@ -1,4 +1,3 @@
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -18,24 +17,20 @@ from posthog.temporal.tests.test_alerts_activities import _create_alert
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("alerts_per_team", "max_alerts_per_run", "team_fair_share_per_run", "expected_team_order"),
+    ("alerts_per_team", "max_alerts_per_run", "expected_team_order"),
     [
-        pytest.param([2, 2], 4, 1, [0, 1, 0, 1], id="overflow-fills-unused-capacity"),
-        pytest.param([3, 1], 2, 1, [0, 1], id="fair-share-precedes-overflow"),
-        pytest.param([3, 3, 3], 5, 3, [0, 1, 2, 0, 1], id="truncation-uses-rank-rounds"),
-        pytest.param([4, 1, 1, 1], 4, 1, [0, 1, 2, 3], id="many-teams-precede-noisy-overflow"),
-        pytest.param([4, 1, 1], 6, 2, [0, 1, 2, 0, 0, 0], id="unused-shares-return-to-noisy-team"),
-        pytest.param([4, 3, 2], 7, 2, [0, 1, 2, 0, 1, 2, 0], id="all-share-rounds-precede-overflow"),
-        pytest.param([1, 1, 1], 2, 1, [0, 1], id="cap-smaller-than-due-team-count"),
+        pytest.param([3, 1], 4, [0, 1, 0, 0], id="unused-rounds-return-to-busy-team"),
+        pytest.param([3, 3, 3], 5, [0, 1, 2, 0, 1], id="cap-truncates-a-rank-round"),
+        pytest.param([4, 1, 1, 1], 4, [0, 1, 2, 3], id="each-team-gets-first-rank-before-second"),
+        pytest.param([1, 1, 1], 2, [0, 1], id="cap-smaller-than-due-team-count"),
     ],
 )
-async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
+async def test_retrieve_due_alerts_uses_team_rank_rounds(
     ateam: Team,
     alerts_per_team: list[int],
     max_alerts_per_run: int,
-    team_fair_share_per_run: int,
     expected_team_order: list[int],
 ) -> None:
     teams = [ateam]
@@ -54,10 +49,7 @@ async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
 
     alerts = await ActivityEnvironment().run(
         retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(
-            max_alerts_per_run=max_alerts_per_run,
-            team_fair_share_per_run=team_fair_share_per_run,
-        ),
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
     )
 
     team_index_by_id = {team.id: index for index, team in enumerate(teams)}
@@ -65,7 +57,29 @@ async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
+async def test_retrieve_due_alerts_continues_rank_rounds_past_fifty(ateam: Team) -> None:
+    other_team = await sync_to_async(Team.objects.create)(
+        organization_id=ateam.organization_id,
+        project_id=ateam.project_id,
+        name="Other team",
+    )
+    for team in (ateam, other_team):
+        for _ in range(52):
+            await _create_alert(team)
+
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=102),
+    )
+
+    selected_team_ids = [alert.team_id for alert in alerts]
+    assert selected_team_ids.count(ateam.id) == 51
+    assert selected_team_ids.count(other_team.id) == 51
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_documented_order_within_each_team(
     ateam: Team,
 ) -> None:
@@ -95,19 +109,16 @@ async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_docume
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         alerts = await ActivityEnvironment().run(
             retrieve_due_alerts,
-            ScheduleDueAlertChecksWorkflowInputs(
-                max_alerts_per_run=len(alert_specs),
-                team_fair_share_per_run=len(alert_specs),
-            ),
+            ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=len(alert_specs)),
         )
 
     assert [alert_label_by_id[alert.alert_id] for alert in alerts] == [
-        "never_checked",
-        "aged_daily_oldest",
         "aged_real_time",
         "fresh_real_time",
         "fresh_15_minutes",
         "fresh_hourly",
+        "never_checked",
+        "aged_daily_oldest",
         "fresh_daily_earlier",
         "fresh_daily_tie_lower_id",
         "fresh_daily_tie_higher_id",
@@ -115,7 +126,7 @@ async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_docume
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_checks_advance(ateam: Team) -> None:
     due_alerts = [
         await _create_alert(
@@ -124,7 +135,7 @@ async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_ch
         )
         for minute in range(3)
     ]
-    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=2, team_fair_share_per_run=2)
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=2)
 
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         first_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
@@ -203,11 +214,9 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
         ),
         patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics", new=record_due_metrics),
         patch("posthog.temporal.alerts.activities.get_metric_meter", new=get_metric_meter),
-        patch("posthog.temporal.alerts.activities.asyncio.to_thread", wraps=asyncio.to_thread) as to_thread,
     ):
         alerts = await ActivityEnvironment().run(retrieve_due_alerts)
 
     assert alerts == expected_alerts
-    to_thread.assert_awaited_once_with(record_due_metrics, 1, None, polled_at)
     record_due_metrics.assert_called_once_with(1, None, polled_at)
     get_metric_meter.assert_called_once_with()
