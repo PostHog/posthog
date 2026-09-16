@@ -601,8 +601,9 @@ tools:
             Set `supersedes_implementation` alongside a rewrite when the fix itself changed. Verified automated
             predecessor PRs close only after the replacement completes with verified open PRs. More evidence for the
             same fix belongs in `append_note`. Free-form notes always stay in the work log. Set `corroboration_only`
-            only for confirmations with no new information; the first four stay as entries and later confirmations
-            raise the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
+            only for confirmations with no new information; the first four stay as entries and later confirmations raise
+            the corroboration count. Opt-in: only available to scouts that list `edit_report` in their skill's
+            `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
