@@ -419,6 +419,26 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # The connection string names a replica set the cluster doesn't answer to, so pymongo
+            # drops every server and the selection error names the set instead of a host. Only a
+            # corrected name recovers this, unlike the "found yet" wording a down cluster emits.
+            (
+                "replica_set_name_no_members",
+                'No replica set members available for replica set name "rs0", Timeout: 10.0s, '
+                "Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: ReplicaSetNoPrimary, servers: []>",
+            ),
+            # The same mismatch on a direct connection: the node stays Unknown carrying pymongo's
+            # ConfigurationError, which names both set names.
+            (
+                "replica_set_name_mismatch",
+                "client is configured to connect to a replica set named 'rs0' but this node belongs "
+                "to a set named 'rs1', Timeout: 10.0s, Topology Description: <TopologyDescription "
+                "id: 6a304febea674ebc4c8c051e, topology_type: Single, servers: [<ServerDescription "
+                "('cluster0.example.mongodb.net', 27017) server_type: Unknown, rtt: None, "
+                'error=ConfigurationError("client is configured to connect to a replica set named '
+                "'rs0' but this node belongs to a set named 'rs1'\")>]>",
+            ),
             # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
             # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
             # way, so it must be classified non-retryable.
@@ -483,6 +503,8 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
             ("key_not_found", "No keys found for HMAC", "key management"),
+            ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
+            ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

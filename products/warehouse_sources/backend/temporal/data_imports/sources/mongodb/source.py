@@ -70,6 +70,15 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "string is spelled correctly."
 )
 
+# pymongo drops a server from the topology when its replica set name differs from the one the
+# connection string asks for, so the cluster the user named is never selectable. The name has to be
+# corrected before any sync can run.
+_MONGO_REPLICA_SET_MISMATCH_MESSAGE = (
+    "The replica set name in your connection string doesn't match the one your cluster reports. "
+    "Check the replicaSet option in the connection string, or copy the current connection string "
+    "from your database provider, then re-enable this sync."
+)
+
 _MONGO_AUTHENTICATION_FAILED_MESSAGE = (
     "MongoDB authentication failed. Please check the username and password for this source."
 )
@@ -181,6 +190,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # match the marker rather than the topology suffix, which a reachable-but-down cluster
             # emits too. A name that does not resolve stays unresolved until the user fixes it.
             **dict.fromkeys(_DNS_NAME_NOT_FOUND_MARKERS, _MONGO_HOST_UNRESOLVED_MESSAGE),
+            # pymongo removes every server whose replica set name differs from the `replicaSet` the
+            # connection string asks for, which empties the topology and names the set rather than a
+            # host in the selection error. A cluster that is merely down keeps its servers as Unknown
+            # and reports "No replica set members found yet" instead, so this wording only appears on
+            # a name mismatch. Both shapes are fixed literals in pymongo, so match them directly and
+            # let them beat the "Topology Description:" entry in `get_retryable_errors`.
+            "No replica set members available for replica set name": _MONGO_REPLICA_SET_MISMATCH_MESSAGE,
+            # The same mismatch on a direct connection: pymongo marks the node Unknown with a
+            # ConfigurationError naming both sets, and that text is what the selection timeout carries.
+            "client is configured to connect to a replica set named": _MONGO_REPLICA_SET_MISMATCH_MESSAGE,
             # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
             # valid key for the cursor's timestamp. pymongo formats the full server error response
             # as part of the exception message; the leading phrase before the variable parts
