@@ -56,7 +56,7 @@ misbehaving collector is cut off, not merely slow. Per tick:
 
 | collector | interval | cost | notes |
 |---|---|---|---|
-| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each | `pg_blocking_pids()` only for lock waiters |
+| `activity_samples`, `activity_sessions` | 10s | one `pg_stat_activity` scan each, plus a regexp over each active backend's query text for query tags | `pg_blocking_pids()` only for lock waiters |
 | `lock_waits` | 10s | `pg_stat_activity` scan; `pg_blocking_pids()` per lock waiter only | empty unless something is blocked |
 | `query_stats` | 60s | `pg_stat_statements(false)` (no text); text for ≤500 new ids per tick | no query text on the hot path |
 | `database_stats`, `bgwriter`, `wal`, `replication*`, `vacuum_progress`, `aurora_system_waits`, `aurora_db_latency`, `aurora_replica_status` | 60s | shared-memory counter reads | negligible |
