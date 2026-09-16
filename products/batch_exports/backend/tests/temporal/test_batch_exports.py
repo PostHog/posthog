@@ -70,6 +70,7 @@ async def test_iter_records(clickhouse_client):
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -102,6 +103,7 @@ async def test_iter_records_handles_duplicates(clickhouse_client):
             team_id,
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -137,6 +139,7 @@ async def test_iter_records_can_exclude_events(clickhouse_client):
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             exclude_events=exclude_events,
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -172,6 +175,7 @@ async def test_iter_records_can_include_events(clickhouse_client):
             data_interval_start.isoformat(),
             data_interval_end.isoformat(),
             include_events=include_events,
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -211,6 +215,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
             team_id,
             inserted_at.isoformat(),
             data_interval_end.isoformat(),
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -225,6 +230,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
                 team_id,
                 inserted_at.isoformat(),
                 data_interval_end.isoformat(),
+                use_new_events_schema=False,
             )
             for record in record_batch.to_pylist()
         ]
@@ -263,6 +269,7 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
                 {"expression": "JSONExtractString(properties, '$os')", "alias": "os"},
                 {"expression": "JSONExtractInt(properties, 'custom-property')", "alias": "custom_prop"},
             ],
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]
@@ -308,6 +315,7 @@ async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
                 {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
             ],
             extra_query_parameters={"hogql_val_0": "custom"},
+            use_new_events_schema=False,
         )
         for record in record_batch.to_pylist()
     ]

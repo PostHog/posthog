@@ -5,6 +5,8 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
@@ -511,6 +513,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team, self.user)
+        expected_date = datetime(2024, 1, 1).isoformat(
+            sep=" " if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "T"
+        )
 
         for item in ("event1", self.action.id):
             self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
@@ -522,7 +527,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 toolkit.retrieve_event_or_action_property_values(item, "date"),
-                f'"{datetime(2024, 1, 1).isoformat()}"',
+                f'"{expected_date}"',
             )
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")

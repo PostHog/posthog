@@ -10,13 +10,17 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.escape_sql import escape_clickhouse_identifier
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import CloningVisitor
 
 if typing.TYPE_CHECKING:
     from posthog.models import Team
+
+    from products.batch_exports.backend.service import BatchExportField, BatchExportSchema
 
 
 class UnsupportedHogQLQueryError(Exception):
@@ -110,3 +114,49 @@ def validate_hogql_query_for_batch_export(hogql_query: str, team: "Team") -> Non
         prepare_ast_for_printing(parsed, context=context, dialect="clickhouse", stack=[])
     except ExposedHogQLError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+
+
+class SerializedExportProperties(CloningVisitor):
+    def __init__(self, table_alias: str) -> None:
+        super().__init__()
+        self.table_alias = table_alias
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        node = super().visit_field(node)
+        if node.chain[0] == self.table_alias:
+            node.chain[0] = "events"
+        index = 1 if node.chain[0] == "events" else 0
+        if node.chain[index : index + 2] in (["person", "properties"], ["poe", "properties"]):
+            node.chain[index : index + 2] = ["person_properties"]
+        return node
+
+
+def prepare_serialized_export_query(query: ast.SelectQuery, context: HogQLContext) -> ast.SelectQuery:
+    assert query.select_from is not None
+    query = SerializedExportProperties(query.select_from.alias or "events").visit(query)
+    assert query.select_from is not None
+    query.select_from.table = parse_select(
+        "SELECT event, team_id, timestamp, distinct_id, uuid, created_at, elements_chain, person_id, "
+        "properties, poe.properties AS person_properties FROM events"
+    )
+    query.select_from.alias = "events"
+    return typing.cast(ast.SelectQuery, prepare_ast_for_printing(query, context=context, dialect="clickhouse"))
+
+
+def serialize_batch_export_query(query: ast.SelectQuery, context: HogQLContext) -> "BatchExportSchema":
+    hogql = print_prepared_ast(query, context=context, dialect="hogql")
+    prepared = prepare_serialized_export_query(typing.cast(ast.SelectQuery, parse_select(hogql)), context)
+    fields: list[BatchExportField] = []
+    for field in prepared.select:
+        if isinstance(field, ast.Alias):
+            expression = print_prepared_ast(field.expr, context=context, dialect="clickhouse", stack=[prepared])
+            alias = escape_clickhouse_identifier(field.alias)
+        else:
+            expression = print_prepared_ast(field, context=context, dialect="clickhouse", stack=[prepared])
+            # String constants get parameterized by the ClickHouse printer (e.g., 'hello' becomes
+            # %(hogql_val_0)s), which escape_clickhouse_identifier rejects. Use the raw value instead.
+            alias = escape_clickhouse_identifier(
+                field.value if isinstance(field, ast.Constant) and isinstance(field.value, str) else expression
+            )
+        fields.append({"expression": expression, "alias": alias})
+    return {"fields": fields, "values": context.values, "hogql_query": hogql}

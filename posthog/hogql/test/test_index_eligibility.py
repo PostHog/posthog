@@ -3,6 +3,7 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -408,9 +409,14 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         )
 
         [predicate] = report.predicates
-        assert predicate.verdict == PredicateIndexVerdict.INDEXED
-        assert predicate.usable_indexes == (IndexKind.BLOOM_FILTER,)
-        assert report.usage == QueryIndexUsage.YES
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert predicate.verdict == PredicateIndexVerdict.UNINDEXED_JSON
+            assert predicate.usable_indexes == ()
+            assert report.usage == QueryIndexUsage.NO
+        else:
+            assert predicate.verdict == PredicateIndexVerdict.INDEXED
+            assert predicate.usable_indexes == (IndexKind.BLOOM_FILTER,)
+            assert report.usage == QueryIndexUsage.YES
 
     def test_numeric_property_stored_as_string_is_blocked(self) -> None:
         report = self._report(
@@ -420,7 +426,11 @@ class TestIndexEligibilityThroughThePlanner(BaseTest):
         )
 
         [predicate] = report.predicates
-        assert predicate.verdict == PredicateIndexVerdict.BLOCKED
+        assert predicate.verdict == (
+            PredicateIndexVerdict.UNINDEXED_JSON
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else PredicateIndexVerdict.BLOCKED
+        )
         assert predicate.usable_indexes == ()
         # The advice is real but not a query edit, so it must not become an editor marker.
         assert predicate.fix is not None

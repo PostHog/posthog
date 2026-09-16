@@ -474,7 +474,7 @@ SETTINGS
 )
 
 
-EVENT_COUNT_BY_INTERVAL = """
+EVENT_COUNT_BY_INTERVAL = Template("""
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,
     interval_start + INTERVAL {interval} AS interval_end,
@@ -483,7 +483,7 @@ FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events_recent.distinct_id), cityHash64(events_recent.uuid))
         inserted_at AS _inserted_at
     FROM
-        events_recent
+        $events_table AS events_recent
     PREWHERE
         events_recent.inserted_at >= {overall_interval_start}::DateTime64
         AND events_recent.inserted_at < {overall_interval_end}::DateTime64
@@ -497,4 +497,48 @@ ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
+""")
+
+
+SERIALIZED_EVENTS_JSON_SOURCE = """(
+    SELECT * REPLACE (
+        toString(uuid) AS uuid,
+        toString(person_id) AS person_id,
+        JSONStripEmptyStringsAndNulls(toJSONString(properties)) AS properties,
+        JSONStripEmptyStringsAndNulls(toJSONString(person_properties)) AS person_properties
+    ),
+        nullIf(toJSONString(temporary_properties.^`$set`), '{}') AS set,
+        nullIf(toJSONString(temporary_properties.^`$set_once`), '{}') AS set_once
+    FROM events_json
+)"""
+
+
+def native_events_export_query(
+    fields: str,
+    filters: str = "",
+    *,
+    is_backfill: bool = False,
+    is_workflows: bool = False,
+    order: str = "",
+    s3_function: str | None = None,
+) -> str:
+    timestamp_field = "timestamp" if is_backfill or is_workflows else "inserted_at"
+    return f"""
+{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
+SELECT {fields}
+FROM (
+    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
+        *, {timestamp_field} AS _inserted_at
+    FROM {SERIALIZED_EVENTS_JSON_SOURCE} AS events
+    WHERE team_id = {{{{team_id:Int64}}}}
+        AND ({{interval_start}}::Nullable(DateTime64) IS NULL OR {timestamp_field} >= {{interval_start}}::Nullable(DateTime64))
+        AND {timestamp_field} < {{{{interval_end:DateTime64}}}}
+        AND (length({{{{include_events:Array(String)}}}}) = 0 OR event IN {{{{include_events:Array(String)}}}})
+        AND (length({{{{exclude_events:Array(String)}}}}) = 0 OR event NOT IN {{{{exclude_events:Array(String)}}}})
+        {"AND " + filters if filters else ""}
+    {order}
+) AS events
+{"" if s3_function else "FORMAT ArrowStream"}
+SETTINGS max_bytes_before_external_sort=50000000000, optimize_aggregation_in_order=1
+{", log_comment={log_comment}" if s3_function else ""}
 """

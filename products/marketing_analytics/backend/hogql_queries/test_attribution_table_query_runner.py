@@ -1017,10 +1017,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
             side_effect=restrictions_for,
         ):
-            prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
 
-        # The property only reaches ClickHouse as a parameter when the query actually extracts it.
-        self.assertEqual("plan" in str(context.values), not restricted)
+        sql = printed[0] if isinstance(printed, tuple) else printed
+        if context.uses_new_events_schema():
+            self.assertEqual("properties.plan" in sql or "properties.^plan" in sql, not restricted)
+        else:
+            self.assertEqual("plan" in str(context.values), not restricted)
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("over_the_ceiling", MAX_ATTRIBUTION_WINDOW_DAYS + 1)])
     def test_lookback_override_outside_the_allowed_range_is_rejected(self, _name: str, days: int):

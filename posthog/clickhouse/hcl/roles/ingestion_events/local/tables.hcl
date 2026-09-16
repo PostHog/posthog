@@ -115,6 +115,9 @@ database "posthog" {
     column "dmat_string_9" {
       type = "Nullable(String)"
     }
+    column "captured_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     engine "kafka" {
       collection           = "msk_cluster"
       topic_list           = "clickhouse_events_json"
@@ -126,47 +129,51 @@ database "posthog" {
 
   materialized_view "events_json_table_mv" {
     to_table = "posthog.writable_events_json"
-    query    = <<SQL
+    query = <<SQL
 SELECT
-  uuid,
-  event,
-  ifNull(
-    accurateCastOrNull(properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')
-  ) AS properties,
-  timestamp,
-  team_id,
-  distinct_id,
-  elements_chain,
-  created_at,
-  person_id,
-  person_created_at,
-  ifNull(
-    accurateCastOrNull(person_properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')
-  ) AS person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
-  group0_created_at,
-  group1_created_at,
-  group2_created_at,
-  group3_created_at,
-  group4_created_at,
-  person_mode,
-  historical_migration,
-  _timestamp,
-  _offset,
-  arrayMap(
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
+uuid,
+event,
+if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), JSONCleanPostHogEventProperties(source.properties), concat('{"$unparseable_properties":', toJSONString(source.properties), '}')) AS properties,
+JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'), source.properties, '{}')) AS temporary_properties,
+now64() AS inserted_at,
+timestamp,
+team_id,
+distinct_id,
+elements_chain,
+created_at,
+person_id,
+if(isValidJSON(source.person_properties) AND startsWith(trimLeft(source.person_properties), '{'), JSONCleanPostHogPersonProperties(source.person_properties), concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')) AS person_properties,
+person_created_at,
+group0_properties,
+group1_properties,
+group2_properties,
+group3_properties,
+group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
+person_mode,
+historical_migration,
+coalesce(captured_at, created_at) AS captured_at,
+_timestamp,
+_offset,
+_partition,
+arrayMap(
     i -> (_headers.value[i]),
     arrayFilter(
-      i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-      arrayEnumerate(_headers.name)
+        i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+        arrayEnumerate(_headers.name)
     )
-  ) AS consumer_breadcrumbs
-FROM posthog.kafka_events_json_native_json
+) as consumer_breadcrumbs
+FROM posthog.kafka_events_json_native_json AS source
+)
 SQL
 
     column "uuid" {
@@ -176,7 +183,13 @@ SQL
       type = "String"
     }
     column "properties" {
-      type = "JSON"
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -196,11 +209,11 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
     column "person_created_at" {
       type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type = "JSON"
     }
     column "group0_properties" {
       type = "String"
@@ -238,14 +251,23 @@ SQL
     column "historical_migration" {
       type = "Bool"
     }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "_timestamp" {
       type = "Nullable(DateTime)"
     }
     column "_offset" {
       type = "UInt64"
     }
+    column "_partition" {
+      type = "UInt64"
+    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
+    }
+    column "total_event_size" {
+      type = "UInt32"
     }
   }
 

@@ -16,7 +16,7 @@ The rewriter is scope-aware: it only rewrites fields within SELECT queries that 
 """
 
 from posthog.hogql import ast
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
 
@@ -144,6 +144,9 @@ class AiColumnToPropertyRewriter(CloningVisitor):
                 return _wrap_for_events_type(col_name, new_chain)
 
         return super().visit_field(node)
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Placeholder:
+        return clone_expr(node)
 
     def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
         new_node = super().visit_join_expr(node)
