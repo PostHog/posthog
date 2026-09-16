@@ -298,12 +298,12 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-/** The verbs `exec` dispatches on. A later line that opens with one of these is
- *  what separates a batched request from a legitimately multi-line argument. */
+/** A later line opening with one of these is what separates a batched request
+ *  from a legitimately multi-line argument. */
 const EXEC_VERBS = new Set(['learn', 'tools', 'search', 'info', 'schema', 'call'])
 
-/** Bounds on the commands named back to the caller, so a long batch or a large
- *  JSON body does not turn the rejection into a wall of text. */
+/** Bounds on the rejection message, so a long batch or a large JSON body does
+ *  not come back as a wall of text. */
 const MAX_LISTED_BATCH_COMMANDS = 5
 const MAX_LISTED_BATCH_COMMAND_LENGTH = 200
 
@@ -313,11 +313,8 @@ function firstToken(line: string): string {
     return idx === -1 ? trimmed : trimmed.slice(0, idx)
 }
 
-/**
- * True when the text is a command that can end here. Only `call` carries a body
- * that may span lines, so it ends only once that body is complete JSON. That is
- * what keeps a pretty-printed JSON payload from reading as several commands.
- */
+/** Only `call` carries a body that may span lines, so it ends once that body is
+ *  complete JSON. That keeps a pretty-printed payload from reading as a batch. */
 function isCompleteCommand(command: string): boolean {
     const { verb, rest } = parseCommand(command)
     if (verb !== 'call') {
@@ -335,11 +332,7 @@ function isCompleteCommand(command: string): boolean {
     }
 }
 
-/**
- * Splits a request that stacks several commands on their own lines, e.g. two
- * `info` lines in one string. Returns undefined when the input is a single
- * command, so only a genuine batch is rejected.
- */
+/** Returns undefined for a single command, so only a genuine batch is rejected. */
 function splitBatchedCommands(command: string): string[] | undefined {
     const lines = command.split('\n')
     if (lines.length < 2 || !EXEC_VERBS.has(firstToken(lines[0] ?? ''))) {
@@ -1469,9 +1462,8 @@ export function createExecTool(
             // records what was attempted — those are the failures worth counting.
             options.trackCommand?.({ exec_verb: verb })
 
-            // Caught before dispatch: otherwise the trailing commands ride along as part of
-            // the first one's argument and come back as an unknown tool name, which tells
-            // the agent nothing about why the request failed.
+            // Without this the trailing commands ride along as part of the first one's
+            // argument and come back as an unknown tool name, which explains nothing.
             const batched = splitBatchedCommands(params.command)
             if (batched) {
                 throw new ExecCommandError(batchedCommandMessage(batched), 'batched_command')
