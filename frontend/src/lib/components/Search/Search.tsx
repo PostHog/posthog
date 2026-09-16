@@ -29,7 +29,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { withInsightSceneSource } from 'lib/utils/insightNavigation'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -43,7 +42,13 @@ import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
-import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
+import {
+    SETTINGS_THEME_ITEM_ID,
+    canOpenInNewTab,
+    formatRelativeTimeShort,
+    getCategoryDisplayName,
+    searchItemHref,
+} from './utils'
 
 // ============================================================================
 // Constants
@@ -203,7 +208,7 @@ const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
         name: item.name,
         record: {
             ...item.record,
-            href: item.href,
+            href: searchItemHref(item),
             path: item.name,
         },
     }
@@ -533,12 +538,10 @@ function SearchRoot({
                     return
                 }
             }
+            const href = searchItemHref(item)
             if (onItemSelect) {
-                onItemSelect(item, openInNewTab)
-            } else if (item.href) {
-                const sceneSource =
-                    item.category === 'recents' ? 'recents' : item.category === 'starred' ? 'starred' : 'search'
-                const href = withInsightSceneSource(item.href, item.itemType ?? item.record?.type, sceneSource)
+                onItemSelect({ ...item, href }, openInNewTab)
+            } else if (href) {
                 if (openInNewTab) {
                     newInternalTab(href)
                 } else {
@@ -916,6 +919,7 @@ function SearchResults({
                                         {(item: SearchItem) => {
                                             const typeLabel = getItemTypeDisplayName(item.itemType)
                                             const icon = getIconForItem(item)
+                                            const href = searchItemHref(item)
 
                                             return (
                                                 <ContextMenu key={item.id}>
@@ -959,11 +963,7 @@ function SearchResults({
                                                                         <Link
                                                                             // No `to` when disabled: Link only applies its
                                                                             // disabled state and reason tooltip without one
-                                                                            to={
-                                                                                item.disabledReason
-                                                                                    ? undefined
-                                                                                    : item.href
-                                                                            }
+                                                                            to={item.disabledReason ? undefined : href}
                                                                             disabledReason={item.disabledReason}
                                                                             buttonProps={{ fullWidth: true }}
                                                                             {...props}
