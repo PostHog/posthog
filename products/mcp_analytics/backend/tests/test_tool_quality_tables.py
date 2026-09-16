@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
+    HogQLPropertyFilter,
     IntervalType,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
@@ -20,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
@@ -259,6 +261,15 @@ class TestMCPToolQualitySharedFilters(_MCPAnalyticsTeamScopedTestMixin, Clickhou
     parameterized case per runner proves that, rather than duplicating a property-filter test
     and a filterTestAccounts test per runner.
     """
+
+    def test_rejects_executable_property_filters(self) -> None:
+        runner = MCPToolQualityRowsQueryRunner(
+            query=MCPToolQualityRowsQuery(properties=[HogQLPropertyFilter(key="1 = 1")]),
+            team=self.team,
+        )
+
+        with self.assertRaisesRegex(QueryError, "Only event, person, and session property filters"):
+            runner.calculate()
 
     @parameterized.expand(
         [

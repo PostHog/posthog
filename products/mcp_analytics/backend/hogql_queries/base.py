@@ -11,7 +11,10 @@ from typing import TYPE_CHECKING
 
 import posthoganalytics
 
+from posthog.schema import EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
@@ -73,6 +76,11 @@ def shared_filter_exprs(
     "Filter out internal and test users" switch applies them through this one expression,
     so the two behave identically everywhere they're wired in.
     """
+    if any(
+        not isinstance(property_filter, EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)
+        for property_filter in properties or []
+    ):
+        raise QueryError("Only event, person, and session property filters are supported.")
     all_properties = list(properties or [])
     if filter_test_accounts:
         all_properties += team.test_account_filters or []
