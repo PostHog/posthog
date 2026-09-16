@@ -613,8 +613,12 @@ These compose into any pattern above:
   Your body carries the ownership map only; the shared discipline is already in the harness prompt (check the fleet before investigating, search the scratchpad by entity rather than by your own prefix, and author anyway when your angle is materially new — citing the sibling's report id).
   So don't spend body lines re-teaching "check what siblings found" or "don't duplicate": name what's yours and what isn't, and let the prompt handle the rest.
 - **Run-budget discipline** — the sandbox kills a run after a fixed budget, so an expensive scout should name its budget at the top of the body and query economically: one combined SQL returning several metrics beats several queries, cap tool calls and items per run, and prefer a fast shallower pass that completes over a thorough one that times out and posts nothing.
-- **Notebook write-up behind a rich finding.** When a finding carries real analysis (charts, a multi-step investigation, several supporting queries), write it up in a notebook with `notebooks-create` and link the URL from the finding description, rather than cramming everything into the report prose.
+- **Notebook write-up behind a rich finding.** When a finding carries real analysis (charts, a multi-step investigation, several supporting queries), write it up in a notebook and link the URL from the finding description, rather than cramming everything into the report prose.
   The inbox entry stays scannable; the depth is one click away.
+  Tell your scout to create the notebook from the project's own notebook tools, and to run `search notebooks?-` to load them and read the titles.
+  Name the discovery command in the body, never a tool.
+  A feature flag swaps the notebook surface, so different projects expose different notebook tools, and a body that hardcodes one breaks on the projects that get the other.
+  The two surfaces also want different write-up procedures — `signals-scout-anomaly-detection`'s `references/report-contract.md` carries the recipe for each.
 
 ## Picking and combining
 
