@@ -55125,6 +55125,13 @@ export namespace Schemas {
       Endpoint: 'endpoint',
     } as const;
 
+    export interface NodeEndpoint {
+      /** Name of the endpoint this node's materialization backs. */
+      name: string;
+      /** Endpoint version this node's materialization backs. */
+      version: number;
+    }
+
     export interface Node {
       readonly id: string;
       /** @maxLength 2048 */
@@ -55160,6 +55167,8 @@ export namespace Schemas {
       readonly sync_interval: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended: NodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint: NodeEndpoint | null;
     }
 
     export interface NodeResume {
@@ -68727,6 +68736,8 @@ export namespace Schemas {
       readonly sync_interval?: string | null;
       /** Engines this node is suspended for after repeated materialization failures. Suspended engines are skipped by scheduled DAG runs until the node is resumed. */
       readonly suspended?: PatchedNodeSuspended;
+      /** The endpoint version this node's materialization backs, or null for nodes that are not endpoints. */
+      readonly endpoint?: NodeEndpoint | null;
     }
 
     /**
