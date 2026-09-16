@@ -190,6 +190,10 @@ Three policies exist, and a change lands in whichever one covers the page:
 
 ### Checking a change
 
-Add the directive in `CSPMiddleware`, with a comment saying why the source is needed, and run `posthog/test/test_middleware.py::TestCSPMiddleware`.
+Add the source to the policy that covers the document, which is not always `CSPMiddleware`.
+An app or admin page takes the matching list in `CSPMiddleware`.
+A canvas artifact takes `artifact_csp()` in `products/canvas/backend/contract.py`, and a workflow message asset takes the header its endpoint sets in `products/workflows/backend/api/hog_flow.py`.
+`CSPMiddleware` returns a view-set header untouched, so widening the app policy does nothing for those two.
+Say why the source is needed in a comment either way, then run `posthog/test/test_middleware.py::TestCSPMiddleware`.
 To see what the policy currently blocks, query `$csp_violation` events in project 2.
 Filter to the current policy text and exclude browser extensions on both the source file and the blocked URL, or the result is mostly noise.
