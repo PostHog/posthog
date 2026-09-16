@@ -86,11 +86,7 @@ export interface marketingRetentionLogicMeta {
             excludeDirectTraffic: boolean,
             excludeUnattributed: boolean,
             onlyNewUsers: boolean,
-            dateFilter: {
-                dateFrom: string
-                dateTo: null
-                interval: IntervalType
-            },
+            dateFilter: DateFilter,
             comparePreviousPeriod: boolean
         ) => MarketingAnalyticsRetentionQuery
     }
