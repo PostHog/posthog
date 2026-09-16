@@ -135,6 +135,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    # Discovery reads the merge key off the table's sorting key, so a table without one has
+    # nothing to merge on and is asked for a key like any SQL source.
+    detects_primary_keys: bool = True
     supports_row_filters: bool = True
 
     api_docs_url = "https://clickhouse.com/docs"
