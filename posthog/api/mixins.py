@@ -19,6 +19,10 @@ logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+# What drf-spectacular accepts for one status code, and what this decorator validates against.
+# A bare serializer class or instance is as valid as an OpenApiResponse wrapping one.
+ResponseDeclaration = OpenApiResponse | type[serializers.BaseSerializer[Any]] | serializers.BaseSerializer[Any] | None
+
 
 class ValidatedRequest(Request):
     """
@@ -63,7 +67,7 @@ def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
     query_serializer: type[serializers.Serializer] | None = None,
-    responses: dict[int, OpenApiResponse | None] | None = None,
+    responses: dict[int, ResponseDeclaration] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
@@ -244,7 +248,7 @@ def validated_request(
                     child = cast(serializers.Serializer, response_serializer.child)
                     serializer_class = type(response_serializer)
                     serialized = type(response_serializer)(data=data, child=type(child)(), context=context)
-                elif isinstance(response_serializer, serializers.Serializer):
+                elif isinstance(response_serializer, serializers.BaseSerializer):
                     serializer_class = type(response_serializer)
                     serialized = type(response_serializer)(data=data, context=context)
                 else:

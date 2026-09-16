@@ -80,33 +80,6 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.data["distinct_id"] == "user_123"
         assert mock_request.data["event"] == "$pageview"
 
-    def test_bare_serializer_response_is_validated_rather_than_raising(self):
-        # drf-spectacular accepts a bare serializer where an OpenApiResponse would go, and
-        # `responses` is passed straight to it. Reading `.response` unconditionally turned that
-        # form into an AttributeError, and only under DEBUG, so the endpoint passed every test
-        # and 500ed on a dev stack.
-        @validated_request(
-            request_serializer=EventCaptureRequestSerializer,
-            responses={200: EventCaptureResponseSerializer},
-        )
-        def mock_endpoint(view_self, request):
-            return Response(
-                {"status": "ok", "event_id": str(uuid.uuid4()), "distinct_id": "user_123"},
-                status=status.HTTP_200_OK,
-            )
-
-        view_instance = Mock()
-        view_instance.get_serializer_context = Mock(return_value={})
-        mock_request = Mock()
-        mock_request._full_data = {}
-        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
-
-        with override_settings(DEBUG=True):
-            response = mock_endpoint(view_instance, mock_request)
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data["status"] == "ok"
-
     def test_request_validation_with_missing_required_field(self):
         """Missing required field, should raise validation error"""
 
@@ -198,14 +171,22 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.data["type"] == "server_error"
 
-    def test_invalid_response_data_logs_warning(self):
+    # drf-spectacular accepts a bare serializer where an OpenApiResponse would go, and
+    # `responses` is passed straight to it. Reading `.response` unconditionally turned the bare
+    # form into an AttributeError under DEBUG, so an endpoint declaring one passed every test
+    # and 500ed on a dev stack. Both forms have to reach the same validation.
+    @parameterized.expand(
+        [
+            ("open_api_response", OpenApiResponse(response=EventCaptureResponseSerializer)),
+            ("bare_serializer", EventCaptureResponseSerializer),
+        ]
+    )
+    def test_invalid_response_data_logs_warning(self, _name, declaration):
         """Invalid response data, should log warning and return response"""
 
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
-            responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
-            },
+            responses={200: declaration},
         )
         def mock_endpoint(view_self, request):
             # Missing required fields in response
