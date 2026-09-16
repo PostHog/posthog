@@ -225,6 +225,27 @@ def test_a_grade_carries_its_own_score_coverage_not_the_run_s():
     assert coverage[("action", MODEL_ORDER)] == 0.5
 
 
+def test_the_chance_line_does_not_move_when_the_rows_arrive_in_another_order():
+    # The impression query has no ORDER BY, so a re-run can hand the same rows over differently.
+    # The seeded permutations are applied to the array as it stands, and the partition is history.
+    served = _lists(_served("first", [UUID_A, UUID_B, UUID_B + "-c", UUID_B + "-d"])).assign(
+        outcome_open=[False, True, False, True], outcome_action=False
+    )
+    joined = served.assign(
+        model_name="tabular_xgb",
+        model_version="2026-09-09",
+        model_role="champion",
+        head="open",
+        score=[0.1, 0.2, 0.3, 0.9],
+    )
+
+    def chance(frame: pd.DataFrame) -> tuple:
+        grade = next(g for g in grade_lists(frame, served=served) if g.ranking_order == RANDOM_ORDER)
+        return (grade.ndcg_5, grade.ndcg_10, grade.mrr)
+
+    assert chance(joined.iloc[[3, 0, 2, 1]]) == chance(joined)
+
+
 def test_a_grade_reports_the_engagement_and_the_rows_the_join_dropped():
     # The join keeps only scored rows, and the unscored ones are reports born the day they were
     # impressed — where an open lands most often. A list whose only open is unscored leaves the

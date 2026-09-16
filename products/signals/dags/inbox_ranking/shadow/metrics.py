@@ -290,18 +290,24 @@ def served_lists(rows: pd.DataFrame, outcome: str) -> list[ServedList]:
 
     A list with no outcome is dropped: NDCG has no ideal ranking to normalize against and the
     reciprocal rank has no hit, so every order would score the same nothing.
+
+    Rows are put in served order first. Neither deterministic order cares which arrangement they
+    arrive in, because both sort on `served_rank`, but the seeded permutations are applied to the
+    array as it stands. The impression query has no `ORDER BY`, so without this a re-run of the
+    partition could hand the same rows over differently and publish a different chance line.
     """
     column = outcome_column(outcome)
     lists: list[ServedList] = []
     for _, group in rows.groupby("impression_id", sort=True):
-        relevance = group[column].to_numpy(dtype=float)
-        if len(group) < MIN_LIST_SIZE or relevance.sum() == 0:
+        ordered = group.sort_values(["served_rank", "report_id"])
+        relevance = ordered[column].to_numpy(dtype=float)
+        if len(ordered) < MIN_LIST_SIZE or relevance.sum() == 0:
             continue
         lists.append(
             ServedList(
                 relevance=relevance,
-                score=group["score"].to_numpy(dtype=float),
-                served_rank=group["served_rank"].to_numpy(dtype=float),
+                score=ordered["score"].to_numpy(dtype=float),
+                served_rank=ordered["served_rank"].to_numpy(dtype=float),
             )
         )
     return lists
