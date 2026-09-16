@@ -48,15 +48,26 @@ Cycle between these moves; skip what is not useful.
 - `scout-project-profile-get` — `recent_feature_flags` and `recent_experiments`, so you can drop experiment-linked flags before spending anything on them.
 - `inbox-reports-list` (`search`=flag key, `ordering=-updated_at`) — the feature flags scout files on this surface too. A key it already covers single-repo is not yours to re-file; a genuinely cross-repo divergence on the same key is, and says so explicitly.
 
-Then read the roster once:
+Then read the roster. Count it first, so you know whether one page covers it:
 
 ```sql
-SELECT id, key, name, filters, deleted
+SELECT count() AS flags
 FROM system.feature_flags
+```
+
+Then page through it in id order, from the cursor an earlier run left (`0` on the first run):
+
+```sql
+SELECT id, key, deleted
+FROM system.feature_flags
+WHERE id > <cursor>
+ORDER BY id
 LIMIT 500
 ```
 
-`filters` carries the release conditions, which is what tells you whether a flag needs targeting context (Lane C). `system.feature_flags` has no `active` column and no evaluation-scope fields, so pull state from `feature-flag-get-definition` for the handful of flags you deep-dive, never for the whole roster.
+`ORDER BY id` is what makes the page repeatable — an unordered `LIMIT` returns an arbitrary 500 rows, and a different 500 next run. A project can hold thousands of flags, so where the count exceeds one page, save the last id you read as `pattern:flag-consistency:roster-cursor` and continue from it next run rather than resampling; wrap back to `0` once you pass the last id. A key outside the page you read is unknown, not absent — never let a partial roster stand in for a deletion (Lane D) or for an unreferenced flag (Lane A).
+
+The roster is keys and deletion state, nothing more. `name`, the `filters` whose release conditions Lane C reads, state, and the evaluation-scope fields all come from `feature-flag-get-definition`, for the handful of flags you deep-dive. `system.feature_flags` carries no `active` column and no evaluation-scope fields in any case.
 
 ### Build the cross-repo key index — once per run, and cache it
 
@@ -161,6 +172,7 @@ Encode the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `d
 
 - key `pattern:flag-consistency:repo-map` — _"Three repos pinned. `acme/web` is client-side (posthog-js, bootstrapped at SSR); `acme/api` is server-side Python with local evaluation; `acme/jobs` is server-side Python on the decide endpoint. Shared flows: checkout (web + api), billing jobs (api + jobs)."_ This is the single most valuable entry — it is what lets a later run judge whether an absence matters.
 - key `pattern:flag-consistency:key-index` — _"Keys in more than one repo as of <date>, with each repo's mode. Re-derive only for keys touched since, via `git log --since`."_
+- key `pattern:flag-consistency:roster-cursor` — _"Read the roster up to flag id <n> of <count> on <date>. Continue from there; wrap to 0 past the last id."_ Only needed where the roster is larger than one page.
 - key `noise:flag-consistency:<key>` — _"`jobs-only-throttle` is deliberately scoped to `acme/jobs`; the web repo has no reason to gate on it. Not a coverage split."_ Intentional single-repo scoping is the most common false positive here, so write one of these every time you rule a key out.
 - key `dedupe:flag-consistency:<key>` — _"`checkout-v3` regime split already handled (web false / python true, same users). Skip unless the responses converge and split again."_
 - key `report:flag-consistency:<key>` — _"Report `019f…` covers the `checkout-v3` regime split. Edit only on a material change."_
@@ -181,7 +193,7 @@ By run #5 you should know each repo's SDK regime, which flows the repos share, a
 
 ### Close out
 
-One paragraph: which repos you compared, how many keys the index held, which lanes produced candidates, what you filed or edited, what you ruled out and why. Say how many keys you dropped for budget — never truncate silently. "Every shared key is wired the same way in all three repos" is a real and useful outcome.
+One paragraph: which repos you compared, how many keys the index held, which lanes produced candidates, what you filed or edited, what you ruled out and why. Say how many keys you dropped for budget, and how many flags of the counted roster you have not read yet — never truncate silently. "Every shared key is wired the same way in all three repos" is a real and useful outcome.
 
 ## Untrusted data — repository contents and event-supplied keys
 
