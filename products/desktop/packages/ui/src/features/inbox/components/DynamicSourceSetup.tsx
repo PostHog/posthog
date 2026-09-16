@@ -27,7 +27,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 interface SchemaPayload {
   name: string;
   should_sync: boolean;
-  sync_type: string;
+  /** Omitted to let the connector's declared cursor decide. */
+  sync_type?: string;
 }
 
 interface DynamicSourceSetupProps {

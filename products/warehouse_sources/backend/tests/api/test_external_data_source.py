@@ -137,7 +137,10 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    The create path also asks for the cursor the source declares; a bare MagicMock answers with
+    another MagicMock, which then fails to serialize into `sync_type_config`."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
@@ -145,6 +148,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
+    mock_get_source.return_value.declared_incremental_field_for_schema.return_value = None
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -729,6 +733,31 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 201
         source = ExternalDataSource.objects.get()
         assert source.schemas.filter(should_sync=True).exists()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials",
+        return_value=True,
+    )
+    def test_create_external_data_source_defaults_sync_type_to_the_declared_cursor(self, _mock_validate):
+        # Without this default the table syncs nothing, because the caller cannot name a cursor.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Zendesk",
+                "created_via": "web",
+                "payload": {
+                    "subdomain": "nibbles",
+                    "api_key": "token",
+                    "email_address": "user@example.com",
+                    "schemas": [{"name": "tickets", "should_sync": True}],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        schema = ExternalDataSchema.objects.get(source__pk=response.json()["id"], name="tickets")
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config["incremental_field"] == "generated_timestamp"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

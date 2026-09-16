@@ -3,6 +3,8 @@ import { githubIssuesSchemaNames } from "@posthog/core/integrations/githubSource
 import { Button } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
+  type SignalRecordKind,
+  sourceNeedsFullRefresh,
   type ToggleableSourceProduct,
 } from "@posthog/shared";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -25,11 +27,18 @@ import { useCallback, useEffect, useState } from "react";
 /** PostHog DWH: full table replication (non-incremental); API enum value `full_refresh`. */
 const FULL_TABLE_REPLICATION = "full_refresh" as const;
 
-function schemasPayload(tables: readonly string[]) {
+/** Omitting the method leaves PostHog to pick the connector's declared cursor. */
+function schemasPayload(
+  tables: readonly string[],
+  recordKind: SignalRecordKind,
+) {
+  const syncType = sourceNeedsFullRefresh(recordKind)
+    ? { sync_type: FULL_TABLE_REPLICATION }
+    : {};
   return tables.map((name) => ({
     name,
     should_sync: true,
-    sync_type: FULL_TABLE_REPLICATION,
+    ...syncType,
   }));
 }
 
@@ -65,7 +74,7 @@ export function DataSourceSetup({
         <DynamicSourceSetup
           sourceType={config.dwSourceType}
           title={`Connect ${config.label}`}
-          schemas={schemasPayload(config.requiredTables)}
+          schemas={schemasPayload(config.requiredTables, config.recordKind)}
           onComplete={onComplete}
           onCancel={onCancel}
         />
@@ -146,7 +155,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
           },
           // A multi-repo source names its schema rows per repository, so naming the bare
           // `issues` table here would leave every repository unsynced.
-          schemas: schemasPayload(githubIssuesSchemaNames(repos)),
+          schemas: schemasPayload(githubIssuesSchemaNames(repos), "issue"),
         },
       });
       toast.success("GitHub data source created");
@@ -331,7 +340,7 @@ function ZendeskSetup({ onComplete, onCancel }: SetupFormProps) {
           subdomain: subdomain.trim(),
           api_key: apiKey.trim(),
           email_address: email.trim(),
-          schemas: schemasPayload(["tickets"]),
+          schemas: schemasPayload(["tickets"], "ticket"),
         },
       });
       toast.success("Zendesk data source created");
@@ -414,7 +423,7 @@ function PgAnalyzeSetup({ onComplete, onCancel }: SetupFormProps) {
         payload: {
           api_key: apiKey.trim(),
           organization_slug: organizationSlug.trim(),
-          schemas: schemasPayload(["issues", "servers"]),
+          schemas: schemasPayload(["issues", "servers"], "issue"),
         },
       });
       toast.success("pganalyze data source created");

@@ -2818,6 +2818,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
 
+            # A client that never ran schema discovery cannot name a cursor field, and a table
+            # left without a sync method syncs nothing.
+            if sync_type is None and should_sync and source_schema is not None:
+                declared_cursor = source.declared_incremental_field_for_schema(source_schema)
+                if declared_cursor is not None:
+                    sync_type = "incremental"
+                    requires_incremental_fields = True
+                    incremental_field = declared_cursor["field"]
+                    incremental_field_type = str(declared_cursor["field_type"])
+
             metadata_source_catalog: str | None
             metadata_source_schema: str | None
             metadata_source_table_name: str | None
