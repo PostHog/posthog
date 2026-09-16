@@ -35,6 +35,7 @@ from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, 
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
+    CanvasStateReader,
     apply_layout_ops,
     call_connector_tool,
     canvas_connectors_enabled,
@@ -97,7 +98,6 @@ from products.canvas.backend.presentation.serializers import (
     canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
-from products.canvas.backend.state_reads import CanvasStateReader
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
 
@@ -2158,6 +2158,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         parameters=[CanvasStateValueQuerySerializer],
         responses={
             200: CanvasStateValueResponseSerializer,
+            400: OpenApiResponse(description="Invalid query, or the offset exceeds the value length."),
             404: OpenApiResponse(description="No readable value for this scope and key."),
             409: OpenApiResponse(description="The value changed. Restart from offset zero."),
         },

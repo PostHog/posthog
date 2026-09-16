@@ -120,6 +120,18 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
     raise error
 
 
+_read_page_schema = extend_schema(
+    parameters=[WikiPageQuerySerializer],
+    responses={
+        200: WikiPageSerializer,
+        400: OpenApiResponse(description="Invalid query, or the offset exceeds the page length."),
+        404: OpenApiResponse(description="No page at this path."),
+        409: OpenApiResponse(description="The wiki changed. Restart from offset zero."),
+    },
+    summary="Read a wiki page",
+)
+
+
 def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
     query = WikiPageQuerySerializer(data=request.query_params)
     query.is_valid(raise_exception=True)
@@ -444,11 +456,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return _store_error_response(error)
         return Response(WikiHealthReportSerializer(report).data)
 
-    @extend_schema(
-        parameters=[WikiPageQuerySerializer],
-        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
-        summary="Read a wiki page",
-    )
+    @_read_page_schema
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
         return _read_page(self.organization.id, request)
@@ -642,11 +650,7 @@ class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return ["organization:read"]
         return None
 
-    @extend_schema(
-        parameters=[WikiPageQuerySerializer],
-        responses={200: WikiPageSerializer, 404: OpenApiResponse(description="No page at this path.")},
-        summary="Read a wiki page",
-    )
+    @_read_page_schema
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
         return _read_page(self.organization.id, request)
