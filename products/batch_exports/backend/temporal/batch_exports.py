@@ -48,6 +48,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    native_events_export_query,
 )
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -209,6 +210,8 @@ def iter_records(
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
     backfill_details: BackfillDetails | None = None,
+    *,
+    use_new_events_schema: bool,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -293,12 +296,16 @@ def iter_records(
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
 
-    if filters_str:
-        filters_str = f"AND {filters_str}"
-
-    query_str = query.safe_substitute(
-        fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
-    )
+    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
+        query_str = native_events_export_query(
+            query_fields, filters_str or "", is_backfill=True, order="ORDER BY _inserted_at, event"
+        )
+    else:
+        if filters_str:
+            filters_str = f"AND {filters_str}"
+        query_str = query.safe_substitute(
+            fields=query_fields, filters=filters_str or "", order="ORDER BY _inserted_at, event"
+        )
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters

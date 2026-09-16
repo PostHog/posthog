@@ -1,45 +1,53 @@
+from types import SimpleNamespace
 from typing import cast
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
-
 from posthog.hogql import ast
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import Organization, Team
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.api.batch_export import BatchExportDestinationSerializer, BatchExportSerializer
+from products.batch_exports.backend.api.batch_export import (
+    BatchExportDestinationSerializer,
+    BatchExportSerializer,
+    HogQLSelectQueryField,
+)
 
 
 def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
     """Parse and resolve a HogQL query string into a prepared AST."""
-    parsed = parse_select(query)
-    return cast(
-        ast.SelectQuery,
-        prepare_ast_for_printing(
-            parsed,
-            context=HogQLContext(
-                team_id=team_id,
-                enable_select_queries=True,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ),
-            ),
-            dialect="clickhouse",
-        ),
-    )
+    serializer = BatchExportSerializer(context={"team_id": team_id, "request": SimpleNamespace(user=None)})
+    field = HogQLSelectQueryField()
+    field.bind("hogql_query", serializer)
+    return cast(ast.SelectQuery, field.to_internal_value(query))
 
 
 class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
     def _make_serializer(self) -> BatchExportSerializer:
         return BatchExportSerializer(context={"team_id": self.team.pk})
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_resaving_legacy_query_preserves_types_and_column_names(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT round(e.properties.amount) AS rounded, lower(e.event) FROM events AS e"
+        serializer = self._make_serializer()
+
+        schema = serializer.serialize_hogql_query_to_batch_export_schema(prepare_query(query, self.team.pk))
+        resaved = serializer.serialize_hogql_query_to_batch_export_schema(prepare_query(query, self.team.pk))
+
+        assert schema == resaved
+        assert [field["alias"] for field in schema["fields"]] == ["rounded", "`lower(e.event)`"]
+        assert schema["fields"][0]["expression"].startswith("round(accurateCastOrNull(")
+        assert schema["values"] == {"hogql_val_0": "amount", "hogql_val_1": "Float64"}
+        assert "toFloat(" in schema["hogql_query"]
 
     @parameterized.expand(
         [

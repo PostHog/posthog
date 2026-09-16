@@ -20,6 +20,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
@@ -70,6 +71,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
     EXPORT_TO_S3_FROM_PERSONS,
@@ -330,7 +332,9 @@ async def insert_into_internal_stage_activity(
         Heartbeater(),
         set_status_to_running_task(run_id=inputs.run_id),
     ):
-        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+        _, record_batch_model, model_name, fields, filters, extra_query_parameters = await database_sync_to_async(
+            resolve_batch_exports_model
+        )(
             inputs.team_id,
             inputs.batch_export_model,
             inputs.batch_export_schema,
@@ -574,6 +578,13 @@ async def _get_query(
         else:
             parameters["include_events"] = []
 
+        if "_inserted_at" not in [field["alias"] for field in fields]:
+            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        else:
+            control_fields = []
+
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+
         # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
         # may not be able to handle the load from all batch exports
         if is_5_min_batch_export(full_range=full_range) and not is_backfill and not is_workflows:
@@ -604,21 +615,18 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+        if query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(use_new_events_schema)(
+            team_id
+        ):
+            query = native_events_export_query(query_fields, filters_str, is_backfill=True, s3_function=s3_function)
         else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-        if filters_str:
-            filters_str = f"AND {filters_str}"
-
-        query = query_template.safe_substitute(
-            fields=query_fields,
-            filters=filters_str,
-            s3_function=s3_function,
-        )
+            if filters_str:
+                filters_str = f"AND {filters_str}"
+            query = query_template.safe_substitute(
+                fields=query_fields,
+                filters=filters_str,
+                s3_function=s3_function,
+            )
 
     parameters["team_id"] = team_id
 
@@ -728,6 +736,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # interval into sub-intervals, running one query per sub-interval, to reduce memory usage
         if interval_start is not None:
             query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        else:
+            query_parameters["interval_start"] = None
         query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         if isinstance(query_or_model, RecordBatchModel):

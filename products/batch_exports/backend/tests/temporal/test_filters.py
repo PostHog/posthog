@@ -4,6 +4,12 @@ import typing
 
 import pytest
 
+from django.test import override_settings
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import PropertyDefinition
+from posthog.sync import database_sync_to_async
+
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -117,6 +123,31 @@ def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
         == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
     )
     assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
+
+
+@pytest.mark.parametrize(
+    "property_type,document,predicate",
+    [
+        ("Numeric", '{"value":2.5}', "properties.value > 2"),
+        ("Numeric", '{"value":2.5}', "round(properties.value) = 2"),
+        ("Boolean", '{"value":true}', "properties.value = true"),
+    ],
+)
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+async def test_legacy_filters_preserve_property_types(ateam, property_type, document, predicate):
+    await database_sync_to_async(PropertyDefinition.objects.create)(
+        team=ateam, name="value", type=PropertyDefinition.Type.EVENT, property_type=property_type
+    )
+    clause, values = await database_sync_to_async(compose_filters_clause)(
+        [{"key": predicate, "type": "hogql"}], team_id=ateam.id
+    )
+
+    result = await database_sync_to_async(sync_execute)(
+        f"SELECT {clause} FROM (SELECT %(document)s AS properties) AS events",
+        {**values, "document": document},
+    )
+
+    assert result == [(1,)]
 
 
 @pytest.mark.parametrize(

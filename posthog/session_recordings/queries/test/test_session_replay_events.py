@@ -492,6 +492,8 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
                 "$session_id": session_id,
                 "$recording_status": "disabled",
                 "$sdk_debug_replay_internal_buffer_length": 0,
+                "$session_recording_remote_config": {"sampleRate": 0.5},
+                "$set": {"email": "person@example.com"},
                 "$current_url": "https://example.com/private-path",
                 "email": "person@example.com",
             },
@@ -502,6 +504,7 @@ class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
         assert properties == {
             "$recording_status": "disabled",
             "$sdk_debug_replay_internal_buffer_length": 0,
+            "$session_recording_remote_config": {"sampleRate": 0.5},
         }
 
     def test_returns_none_when_session_has_no_events(self) -> None:
