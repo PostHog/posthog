@@ -30,13 +30,21 @@ from products.engineering_analytics.backend.logic.queries.delivery_summary impor
 )
 from products.engineering_analytics.backend.logic.queries.pull_request_timelines import query_pull_request_timelines
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPLOYMENT_STATUSES_COLUMNS,
+    DEPLOYMENTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     REVIEWS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import _issue_event_row, _pr_row, _run_row
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _deployment_row,
+    _issue_event_row,
+    _pr_row,
+    _run_row,
+    _status_row,
+)
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
     _ago_offset_with_duration,
@@ -468,6 +476,76 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert merged.started_at == _dt(_ago(2))
         old_open = next((item for item in timelines.items if item.number == 26), None)
         assert old_open is None or old_open.started_at == date_from - CI_LOOKBACK
+
+
+class TestDeliveryDeployWindow(_WarehouseMixin):
+    def _seed(self) -> None:
+        # Two merges inside the window, each heading its own production deploy: one deploy lands
+        # inside the reported window, the other two days after it.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    31,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 08:00:00",
+                    merged_at="2026-01-12 08:00:00",
+                    merge_commit_sha="sha-inside",
+                    base_ref="main",
+                    default_branch="main",
+                ),
+                _pr_row(
+                    32,
+                    "alice",
+                    "closed",
+                    0,
+                    "2026-01-11 09:00:00",
+                    merged_at="2026-01-12 09:00:00",
+                    merge_commit_sha="sha-after",
+                    base_ref="main",
+                    default_branch="main",
+                ),
+            ],
+        )
+        self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
+        self._create_table(
+            "github_deployments",
+            DEPLOYMENTS_COLUMNS,
+            [
+                _deployment_row(1, "sha-inside", "prod", "2026-01-12 09:30:00", production=True),
+                _deployment_row(2, "sha-after", "prod", "2026-01-14 09:30:00", production=True),
+            ],
+        )
+        self._create_table(
+            "github_deployment_statuses",
+            DEPLOYMENT_STATUSES_COLUMNS,
+            [
+                _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "prod", "2026-01-14 10:00:00"),
+            ],
+        )
+
+    def test_deployed_count_stops_at_the_report_end(self) -> None:
+        self._seed()
+        curated = CuratedGitHubSource.for_team(self.team)
+
+        summary = query_delivery_summary(
+            curated=curated,
+            scope=_ALICE,
+            date_from=_dt("2026-01-10T00:00:00"),
+            date_to=_dt("2026-01-12T12:00:00"),
+        )
+
+        lead_time = summary.lead_time
+        assert lead_time.deploy_data_available is True
+        assert lead_time.merged_pr_count == 2
+        # The second PR's deploy is two days past the window end, so it is not deployed work yet,
+        # and the count has to agree with the distribution beside it.
+        assert lead_time.deployed_merged_pr_count == 1
+        assert lead_time.open_to_deploy.scope.pr_count == 1
 
 
 class TestDeliveryEndpoints(APIBaseTest):
