@@ -47,10 +47,4 @@ class Migration(migrations.Migration):
                 ),
             ],
         ),
-        # Both concurrent operations above turn off lock_timeout and statement_timeout, and Django
-        # applies later migrations on the same session, so put the deploy's bounded lock wait back.
-        migrations.RunSQL(
-            sql=["RESET lock_timeout", "RESET statement_timeout"],
-            reverse_sql=migrations.RunSQL.noop,
-        ),
     ]
