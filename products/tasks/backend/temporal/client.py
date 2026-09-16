@@ -563,6 +563,9 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
         results: dict[str, str] = {}
         for workflow_id in workflow_ids:
             try:
+                # No run id, so Temporal resolves the workflow's current run. `process-task`
+                # continues as new, and the closed link of that chain reports CONTINUED_AS_NEW;
+                # asking for the current run reports the live one instead of reaping its run.
                 description = await client.get_workflow_handle(workflow_id).describe()
             except RPCError as e:
                 if e.status in _SERVICE_DEGRADED_STATUSES:
