@@ -29,4 +29,4 @@ class ModernCSRFCheck(ModernCsrfViewMiddleware):
 
 
 def install() -> None:
-    rest_framework.authentication.CSRFCheck = ModernCSRFCheck  # type: ignore[misc]
+    rest_framework.authentication.CSRFCheck = ModernCSRFCheck  # type: ignore[misc] # ty: ignore[invalid-assignment]
