@@ -1405,6 +1405,8 @@ class TestWidgetData(APIBaseTest):
         assert error.exception.code == "generation_id_conflict"
 
     def test_generation_identifier_is_scoped_to_the_team(self) -> None:
+        self._run()
+        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize_run=lambda _run: None)
         generation_id = uuid4()
         other_team = Team.objects.create(organization=self.organization)
         other_notebook = Notebook.objects.create(
@@ -1449,7 +1451,7 @@ class TestWidgetData(APIBaseTest):
                 node_id=self.NODE_ID,
                 prompt="Make it lighter",
                 user_id=self.user.id,
-                inspection=WidgetInputInspection(resolved_inputs=[]),
+                inspection=inspection,
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
