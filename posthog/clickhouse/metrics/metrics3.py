@@ -8,12 +8,6 @@ METRIC_SERIES3_TABLE_NAME = "metric_series3"
 METRIC_ATTRIBUTES3_TABLE_NAME = "metric_attributes3"
 METRIC_NAMES3_TABLE_NAME = "metric_names3"
 
-# Splits the `attributes` and `resource_attributes` Map columns into a fixed number of
-# buckets on disk, so a lookup by key reads one bucket instead of the whole map.
-METRIC_SERIES3_MAP_BUCKETS_SETTINGS = (
-    "map_serialization_version = 'with_buckets', map_buckets_strategy = 'constant', max_buckets_in_map = 64"
-)
-
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
@@ -47,14 +41,8 @@ ENGINE = {ReplacingMergeTree(METRIC_SERIES3_TABLE_NAME, replication_scheme=Repli
 PARTITION BY toDate(original_expiry_timestamp)
 ORDER BY (team_id, metric_name, series_fingerprint)
 TTL original_expiry_timestamp
-SETTINGS
-    index_granularity = 8192,
-    {METRIC_SERIES3_MAP_BUCKETS_SETTINGS}
+SETTINGS index_granularity = 8192
 """
-
-
-def METRIC_SERIES3_MODIFY_MAP_BUCKETS_SETTINGS_SQL() -> str:
-    return f"ALTER TABLE {_db()}.{METRIC_SERIES3_TABLE_NAME} MODIFY SETTING {METRIC_SERIES3_MAP_BUCKETS_SETTINGS}"
 
 
 def METRIC_ATTRIBUTES3_TABLE_SQL() -> str:
