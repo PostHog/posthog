@@ -10,15 +10,19 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/httpapi"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 )
 
 // Embedding only in this command keeps the demo out of the production server binary.
@@ -26,102 +30,35 @@ import (
 //go:embed assets/*
 var assets embed.FS
 
-const catalogPath = "/teams/1/users/1/catalog"
-
-func startBackend(ctx context.Context) (string, func(), error) {
-	directory, err := os.MkdirTemp("", "hogql-demo-")
+func newDemoHandler(host string) (http.Handler, error) {
+	publication := syntheticCatalog()
+	payload, err := json.Marshal(publication)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	cleanup := func() { _ = os.RemoveAll(directory) }
-	binary := filepath.Join(directory, "language-service")
-	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/server")
-	build.Stdout, build.Stderr = os.Stdout, os.Stderr
-	if err := build.Run(); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("build service (run from the language-service module): %w", err)
+	catalogs := catalog.NewRegistry(1, 16<<20, 24*time.Hour)
+	if err := catalogs.Put(serviceauth.Authorization{TeamID: 1, UserID: 1}, publication.Revision, catalog.Prepare(&publication.Catalog)); err != nil {
+		return nil, err
 	}
-	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	preAuthLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 300, RefillPerSec: 100, MaxEntries: 10000, IdleTTL: 10 * time.Minute})
 	if err != nil {
-		cleanup()
-		return "", nil, err
+		return nil, err
 	}
-	address := reservation.Addr().String()
-	_ = reservation.Close()
-	backendCtx, cancel := context.WithCancel(ctx)
-	// The executable is built from this checkout in a private temporary directory, with no request-controlled path.
-	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command
-	child := exec.CommandContext(backendCtx, binary)
-	child.Env = []string{
-		"LISTEN_ADDR=" + address,
-		"HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1",
-		"CATALOG_TTL=24h",
-		"MAX_CATALOGS=1",
-		"CATALOG_CACHE_MAX_BYTES=16777216",
+	principalLimiter, err := ratelimit.New(ratelimit.Config{Capacity: 120, RefillPerSec: 60, MaxEntries: 10000, IdleTTL: 10 * time.Minute})
+	if err != nil {
+		return nil, err
 	}
-	child.Stdout, child.Stderr = os.Stdout, os.Stderr
-	if err := child.Start(); err != nil {
-		cancel()
-		cleanup()
-		return "", nil, err
-	}
-	done := make(chan struct{})
-	go func() {
-		_ = child.Wait()
-		close(done)
-	}()
-	stop := func() {
-		cancel()
-		<-done
-		cleanup()
-	}
-	baseURL := "http://" + address
-	client := &http.Client{Timeout: time.Second}
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(10 * time.Second)
-	defer timeout.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			stop()
-			return "", nil, ctx.Err()
-		case <-done:
-			stop()
-			return "", nil, errors.New("demo backend exited; check its output above")
-		case <-timeout.C:
-			stop()
-			return "", nil, errors.New("demo backend did not become ready")
-		case <-ticker.C:
-			response, err := client.Get(baseURL + "/health")
-			if err == nil {
-				_ = response.Body.Close()
-				if response.StatusCode == http.StatusOK {
-					return baseURL, stop, nil
-				}
-			}
-		}
-	}
+	backend := httpapi.NewHandler(httpapi.Config{
+		Catalogs:         catalogs,
+		Auth:             serviceauth.New(nil, true),
+		PreAuthLimiter:   preAuthLimiter,
+		PrincipalLimiter: principalLimiter,
+		Logger:           slog.Default(),
+	})
+	return demoHandler(backend, host, payload), nil
 }
 
-func publishCatalog(ctx context.Context, baseURL string, payload []byte) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, baseURL+catalogPath, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("catalog publication returned HTTP %d", response.StatusCode)
-	}
-	return nil
-}
-
-func demoHandler(baseURL, host string, payload []byte) http.Handler {
+func demoHandler(backend http.Handler, host string, payload []byte) http.Handler {
 	static, _ := fs.Sub(assets, "assets")
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(static)))
@@ -131,7 +68,6 @@ func demoHandler(baseURL, host string, payload []byte) http.Handler {
 		// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
 		_, _ = w.Write(payload)
 	})
-	client := &http.Client{Timeout: 5 * time.Second}
 	for _, operation := range []string{"autocomplete", "validate"} {
 		mux.HandleFunc("POST /api/"+operation, func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 128<<10))
@@ -139,21 +75,14 @@ func demoHandler(baseURL, host string, payload []byte) http.Handler {
 				http.Error(w, "Request too large. Use a shorter query.", http.StatusRequestEntityTooLarge)
 				return
 			}
-			request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, baseURL+"/teams/1/users/1/"+operation, bytes.NewReader(body))
+			request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "/teams/1/users/1/"+operation, bytes.NewReader(body))
 			if err != nil {
 				http.Error(w, "Could not create request. Restart the demo.", http.StatusInternalServerError)
 				return
 			}
 			request.Header.Set("Content-Type", "application/json")
-			response, err := client.Do(request)
-			if err != nil {
-				http.Error(w, "The local service is unavailable. Restart the demo.", http.StatusBadGateway)
-				return
-			}
-			defer response.Body.Close()
-			w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
-			w.WriteHeader(response.StatusCode)
-			_, _ = io.Copy(w, response.Body)
+			request.RemoteAddr = r.RemoteAddr
+			backend.ServeHTTP(w, request)
 		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,25 +108,16 @@ func run(ctx context.Context, host string, port int) error {
 		return err
 	}
 	defer listener.Close()
-	fmt.Println("Building a separate local language service...")
-	baseURL, stop, err := startBackend(ctx)
-	if err != nil {
-		return err
-	}
-	defer stop()
-	payload, err := json.Marshal(syntheticCatalog())
-	if err != nil {
-		return err
-	}
-	if err := publishCatalog(ctx, baseURL, payload); err != nil {
-		return err
-	}
 	allowedHost := listener.Addr().String()
 	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
 		allowedHost = ""
 	}
+	handler, err := newDemoHandler(allowedHost)
+	if err != nil {
+		return err
+	}
 	server := &http.Server{
-		Handler:           demoHandler(baseURL, allowedHost, payload),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -1,6 +1,6 @@
 # Local HogQL playground
 
-The playground runs autocomplete and validation against a separate instance of the real Go language service.
+The playground embeds the real Go language service's HTTP handlers in the demo process.
 It loads a synthetic catalog and serves a small browser editor, without Django, ClickHouse, project data, or credentials.
 It does not execute queries.
 
@@ -23,19 +23,24 @@ For port forwarding, bind the demo page to all interfaces:
 Forward port `8092` and open the forwarded URL.
 This mode accepts the forwarded hostname and HTTP or HTTPS origins matching that hostname.
 The demo has no authentication; use your development environment's private forwarding controls.
-The synthetic backend still binds only to loopback.
+Only the demo page listens on a port; the embedded service has no separate listener.
 Go may download the module's required toolchain on the first run.
-Agents must request elevated execution when starting the demo because it builds and starts local HTTP processes.
+Agents must request elevated execution when starting the demo because it opens a local HTTP listener.
 
-The launcher builds `cmd/server` into a temporary directory, starts it on a separate loopback port with an empty environment except for demo settings, and publishes the catalog as synthetic team 1 / user 1.
+The demo and `cmd/server` share `internal/httpapi`, including request decoding, completion, validation, response encoding, and rate limiting.
+The demo seeds a private in-memory catalog for synthetic team 1 / user 1 and dispatches requests directly to those handlers.
+It does not spawn subprocesses, build another binary, poll readiness, or use an HTTP client.
+Demo settings are explicit and do not read production service environment variables.
 It does not connect to or modify an existing development service.
 The catalog lives in memory with a 24-hour TTL; restart the demo to refresh it.
-Ctrl+C stops both processes and removes the temporary binary.
+Ctrl+C stops the demo server.
 The page defaults to `127.0.0.1` and accepts requests for its own host and origin.
 Binding to `0.0.0.0` or `::` permits other hostnames for forwarding while still rejecting cross-origin browser requests.
 
 The production Dockerfile builds only `cmd/server` and copies only that binary into its final image.
 The demo command, its embedded browser assets, and synthetic catalog are not included in that binary or final image.
+Production authentication and environment configuration remain in `cmd/server`.
+The demo exposes only fixed-scope completion and validation adapters, not the service's catalog mutation routes.
 Do not add the demo to deployment configuration or the production server's routes.
 
 ## Manual checks
@@ -45,7 +50,7 @@ Do not add the demo to deployment configuration or the production server's route
 - Select **Unknown field** or **Unknown table** to inspect diagnostics and typo suggestions.
 - Select **Unicode diagnostic offsets**, validate, and click the diagnostic. It should select `timstamp`, even with the emoji earlier in the query.
 - Select **Property pagination** and use **Load more** to retrieve all 35 matching names.
-- Select **Quoted identifiers** and insert `billing address` to inspect identifier quoting. Missing quotes are a service limitation; the page does not add them.
+- Select **Quoted identifiers** and insert `billing address` to inspect identifier quoting. The service supplies quoted insertion text; the page does not add quotes.
 - Use **CTE completion** and **Subquery completion** to inspect current derived-relation support. Empty suggestions are shown as returned by the service, without a browser fallback.
 - Open raw responses to inspect parser errors, diagnostics, pagination cursors, physical table names, and catalog revisions.
 
@@ -56,7 +61,7 @@ The checkbox is off by default. Enabling it also analyzes the current query; loa
 Turning it off cancels scheduled analysis and in-flight requests. Manual buttons and shortcuts remain available.
 Empty queries and unfinished input-method composition do not trigger automatic requests.
 Completion requests use UTF-16 offsets, matching the textarea selection API.
-Validation requests send only the query; the page converts the service's UTF-8 byte ranges to UTF-16 for diagnostic selection.
+Validation requests explicitly select UTF-8 offsets; the page converts those byte ranges to UTF-16 for diagnostic selection.
 Raw responses and copied exchanges keep the service's original offsets.
 The page shows service time separately from browser round-trip time.
 Editing the query clears results and cancels pending requests; moving the cursor clears completion results.
@@ -95,12 +100,12 @@ They are not evidence that a query would succeed or fail in the full PostHog com
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Full PostHog catalog parity            | The fixture is a small, static subset so the demo runs without Django. Virtual joins and all product tables are not modeled completely.                                                                                                                                           | Add an optional catalog generator using a synthetic local project. Compare its published schema with Django's catalog for that project and document required services.                                                          |
 | Derived-relation completion            | The page does not synthesize CTE or subquery fields when the service returns no suggestions. This keeps service gaps visible.                                                                                                                                                     | Implement the shared query analyzer, then use the CTE and subquery examples to verify projected fields, aliases, and types in both completion and validation.                                                                   |
-| Identifier quoting                     | The page inserts the service's `insertText`, falling back to the label. It does not add quotes when the service omits them.                                                                                                                                                       | Add service-side insertion text for identifiers needing quotes. Verify that inserting `billing address` and `café` produces valid HogQL.                                                                                        |
+| Identifier quoting                     | The page uses the service's quoted `insertText`. Completion inside an already quoted identifier is not supported by the textarea adapter.                                                                                                                                         | Add quote-aware token replacement before supporting completion inside existing quotes. Check escaped backticks and mid-token edits.                                                                                             |
 | Alias and property semantics           | The demo does not correct select-alias visibility, property provenance through CTEs, or shadowing behavior.                                                                                                                                                                       | Extend the analyzer with Python-resolver-backed scope rules. Check a CTE named `events` that projects person properties, and aliases used in `WHERE`, `GROUP BY`, `HAVING`, and `ORDER BY`.                                     |
 | Other HogQL constructs                 | Examples do not establish coverage for unions, scalar `WITH` aliases, CTE column-name lists, recursive CTEs, or every dialect.                                                                                                                                                    | Decide supported constructs explicitly in the analyzer design; add examples and observable regression coverage for each supported construct. Retain the service's exclusion of recursive CTE support unless that scope changes. |
 | Query execution and compiler parity    | No database or Python metadata endpoint is called; validation reflects only this Go service.                                                                                                                                                                                      | Add an opt-in comparison mode against a synthetic local Django project if compiler parity testing is needed. Keep execution separate and explicitly enabled.                                                                    |
 | Editor integration                     | A textarea keeps the page dependency-free. Optional debounced validation and completion run after edits. Monaco highlighting, squiggles, and completion inside already quoted identifiers are not provided. Insertion replaces an ordinary identifier around the captured cursor. | Add a locally bundled editor adapter when testing editor behavior, with cursor/range tests for quoted names, escaped characters, and mid-token edits.                                                                           |
-| Custom catalog editing and permissions | One synthetic team/user catalog is published at startup. There is no upload UI, identity picker, catalog refresh button, permission mutation, or JWT workflow.                                                                                                                    | Add isolated synthetic catalog variants for permission/tenant testing; verify catalog revisions and isolation through authenticated endpoints before adding identity controls.                                                  |
+| Custom catalog editing and permissions | One synthetic team/user catalog is seeded at startup. There is no upload UI, identity picker, catalog refresh button, permission mutation, or JWT workflow.                                                                                                                       | Add isolated synthetic catalog variants for permission/tenant testing; verify catalog revisions and isolation through authenticated endpoints before adding identity controls.                                                  |
 | Performance conclusions                | The fixture is small and timings are exploratory. This page is not a load test or latency acceptance gate.                                                                                                                                                                        | Use the existing large-catalog benchmarks and dedicated latency test; add query-shape benchmarks for the shared analyzer as needed.                                                                                             |
 | Hosting and production                 | Private development port forwarding is supported with `-host 0.0.0.0`. The demo serves HTTP without authentication or built-in TLS and stays excluded from production.                                                                                                            | Use authenticated development forwarding. Public hosting would need a separate authentication and TLS design; production service endpoints remain outside this demo.                                                            |
 | Persistence                            | Query text and results live only in the page; refreshing discards them. This avoids silently storing pasted query text.                                                                                                                                                           | If useful, add explicit local export/import of synthetic examples with a documented file format.                                                                                                                                |
@@ -112,4 +117,4 @@ They are not evidence that a query would succeed or fail in the full PostHog com
 .codex/with-flox env GOTOOLCHAIN=auto go -C services/hogql-language-service vet ./cmd/demo
 ```
 
-Browser checks must exercise this page against the actual child service, including completion insertion, pagination, Unicode diagnostic selection, stale-response handling, and a narrow desktop window.
+Browser checks must exercise this page against the embedded service, including completion insertion, pagination, Unicode diagnostic selection, stale-response handling, and a narrow desktop window.

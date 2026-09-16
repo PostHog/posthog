@@ -253,7 +253,7 @@ async function request(kind, payload, onResult) {
 function validate() {
     syncSelection()
     const snapshot = editor.value
-    return request('validation', { query: snapshot }, (data) => {
+    return request('validation', { query: snapshot, positionEncoding: 'utf-8' }, (data) => {
         const queryBytes = new TextEncoder().encode(snapshot)
         const editorOffset = (byteOffset) => new TextDecoder().decode(queryBytes.subarray(0, byteOffset)).length
         const result = byId('validation')

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/validation"
 )
 
 func TestDemoRejectsForeignBrowserRequests(t *testing.T) {
@@ -30,9 +34,57 @@ func TestDemoRejectsForeignBrowserRequests(t *testing.T) {
 			if test.forwarded {
 				allowedHost = ""
 			}
-			demoHandler("", allowedHost, nil).ServeHTTP(response, request)
+			demoHandler(nil, allowedHost, nil).ServeHTTP(response, request)
 			if response.Code != test.status {
 				t.Fatalf("status = %d, want %d", response.Code, test.status)
+			}
+		})
+	}
+}
+
+func TestDemoEmbeddedService(t *testing.T) {
+	handler, err := newDemoHandler("127.0.0.1:8092")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		method, path, body string
+		status             int
+	}{
+		{http.MethodPost, "/api/validate", `{"query":"WITH t AS (SELECT uuid FROM events) SELECT uuid FROM t"}`, http.StatusOK},
+		{http.MethodPost, "/api/autocomplete", `{"query":"SELECT events.tim FROM events","position":17}`, http.StatusOK},
+		{http.MethodPost, "/api/validate", `{"query":"SELECT 1","unknown":true}`, http.StatusBadRequest},
+		{http.MethodPost, "/api/validate", strings.Repeat(" ", (128<<10)+1), http.StatusRequestEntityTooLarge},
+		{http.MethodPut, "/teams/1/users/1/catalog", `{}`, http.StatusMethodNotAllowed},
+		{http.MethodPost, "/teams/2/users/2/validate", `{"query":"SELECT 1"}`, http.StatusMethodNotAllowed},
+	} {
+		t.Run(test.method+test.path+"/"+http.StatusText(test.status), func(t *testing.T) {
+			request := httptest.NewRequest(test.method, "http://127.0.0.1:8092"+test.path, strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("response = %d %s, want %d", response.Code, response.Body.String(), test.status)
+			}
+			if test.status != http.StatusOK {
+				return
+			}
+			var revision struct {
+				CatalogRevision string `json:"catalogRevision"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &revision); err != nil || revision.CatalogRevision != syntheticCatalog().Revision {
+				t.Fatalf("catalog revision = %q (%v)", revision.CatalogRevision, err)
+			}
+			if test.path == "/api/validate" {
+				var result validation.Result
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || !result.Valid || len(result.Diagnostics) != 0 || len(result.TableNames) != 1 || result.TableNames[0] != "events" {
+					t.Fatalf("validation = %s (%v)", response.Body.String(), err)
+				}
+			} else {
+				var result completion.Result
+				if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || len(result.Suggestions) != 1 || result.Suggestions[0].Label != "timestamp" {
+					t.Fatalf("completion = %s (%v)", response.Body.String(), err)
+				}
 			}
 		})
 	}
@@ -49,7 +101,7 @@ func TestDemoForwardsLanguageRequests(t *testing.T) {
 	} {
 		t.Run(test.operation+"/"+test.host, func(t *testing.T) {
 			payload := `{"query":"SELECT '😀', e. FROM events AS e","position":16,"positionEncoding":"utf-16","cursor":"MjU="}`
-			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
 				if err != nil || string(body) != payload || r.URL.Path != "/teams/1/users/1/"+test.operation || r.Method != http.MethodPost {
 					t.Errorf("forwarded request = %s %s %s (%v)", r.Method, r.URL.Path, body, err)
@@ -60,15 +112,14 @@ func TestDemoForwardsLanguageRequests(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"error":"demo response"}`))
-			}))
-			defer backend.Close()
+			})
 			request := httptest.NewRequest(http.MethodPost, "http://"+test.host+"/api/"+test.operation, strings.NewReader(payload))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("Origin", test.origin)
 			request.Header.Set("Authorization", "Bearer fake-demo-token")
 			request.Header.Set("Cookie", "session=fake-demo-session")
 			response := httptest.NewRecorder()
-			demoHandler(backend.URL, test.allowedHost, nil).ServeHTTP(response, request)
+			demoHandler(backend, test.allowedHost, nil).ServeHTTP(response, request)
 			if response.Code != http.StatusBadRequest || response.Body.String() != `{"error":"demo response"}` {
 				t.Fatalf("response = %d %s", response.Code, response.Body.String())
 			}
