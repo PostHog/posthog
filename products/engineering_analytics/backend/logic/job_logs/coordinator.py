@@ -79,7 +79,11 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str, repo: str) -> l
                     FROM posthog.trace_spans
                     WHERE service_name = 'ci-backend'
                       AND lower(resource_attributes['ci.repository']) = lower({{repo}})
-                      AND timestamp >= parseDateTimeBestEffort({{cutoff}})
+                      AND timestamp >= (
+                          SELECT min(parseDateTimeBestEffort(started_at))
+                          FROM {table}
+                          WHERE completed_at > {{cutoff}} AND conclusion = 'success'
+                      )
                       AND attributes['test.outcome'] = 'rerun_passed'
                       AND notEmpty(coalesce(attributes['test.runner_name'], ''))
                 )

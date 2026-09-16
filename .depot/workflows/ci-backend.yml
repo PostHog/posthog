@@ -1192,7 +1192,6 @@ jobs:
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
-                      --force-reruns 1 --reruns-delay 1 -r fEsxXR
                       --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
@@ -1204,6 +1203,10 @@ jobs:
               shell: bash
               run: |
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      export PYTEST_ADDOPTS="$PYTEST_ADDOPTS --force-reruns 1 --reruns-delay 1 -r fEsxXR"
+                  fi
                   overall=0
                   # The job checks out the PR head while this workflow runs merged with
                   # master. A head that predates the person-on-events default lacks the
@@ -2469,6 +2472,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
@@ -2521,7 +2529,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
                           $PYTEST_ARGS
@@ -2546,7 +2554,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        --force-reruns 1 --reruns-delay 1 -r fEsxXR \
+                        "${RETRY_ARGS[@]}" -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
                         $PYTEST_ARGS
@@ -2595,6 +2603,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Pick the split algorithm and granularity at runtime (see Run Core tests).
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
@@ -2625,7 +2638,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
@@ -2638,7 +2651,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   fi

@@ -232,13 +232,14 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     "run_attempt": attempt,
                     "runner_name": runner,
                     "conclusion": conclusion,
+                    "started_at": (now - timedelta(days=2)).isoformat(),
                     "completed_at": now.isoformat(),
                 }
                 for job_id, run_id, attempt, runner, conclusion in jobs
             ],
         )
         rows = _query_failed_jobs(
-            self.team, GITHUB_SOURCE_PREFIX, (now - timedelta(days=3)).isoformat(), "posthog/POSTHOG"
+            self.team, GITHUB_SOURCE_PREFIX, (now - timedelta(hours=12)).isoformat(), "posthog/POSTHOG"
         )
         assert {row["job_id"] for row in rows} == {1, 5}
 
