@@ -70,6 +70,8 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
     DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,

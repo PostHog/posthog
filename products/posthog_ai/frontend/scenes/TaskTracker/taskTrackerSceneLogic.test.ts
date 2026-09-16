@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
@@ -584,6 +585,34 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
+    })
+
+    // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
+    it('keeps a hidden repository out of the warm and create requests', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
+                },
+            },
+        })
+        const overrides = composerOverrideLogic()
+        overrides.mount()
+        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ repositoryConfig: { integrationId: 7, repository: 'acme/widgets' } })
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({ description: 'draft a welcome sequence' })
+        }).toDispatchActions(['noteDraft'])
+
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ repository: null, github_integration: null })
+
+        overrides.unmount()
     })
 
     // An embedded instance (e.g. Max's side panel runner) keeps the run in place instead of navigating the

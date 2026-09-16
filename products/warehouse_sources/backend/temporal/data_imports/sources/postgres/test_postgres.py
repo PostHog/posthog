@@ -764,25 +764,35 @@ class TestPostgresSourceNonRetryableErrors:
         assert "pg_hba.conf" in friendly[0]
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg,expected_fragment",
         [
             # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
             # fails with this provider message. The host/IP and port are volatile and excluded.
-            'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
-            "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+            (
+                'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
+                "compute-time quota",
+            ),
+            (
+                "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+                "compute-time quota",
+            ),
+            # The same provider family blocks the handshake once the project's data-transfer
+            # allowance is spent, so it needs the same classification as the compute-time quota.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.',
+                "data transfer quota",
+            ),
+            (
+                "OperationalError: Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.",
+                "data transfer quota",
+            ),
         ],
     )
-    def test_exceeded_compute_time_quota_is_non_retryable(self, source, error_msg):
+    def test_exceeded_provider_quota_is_non_retryable_with_friendly_message(self, source, error_msg, expected_fragment):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exceeded compute-time quota error should be non-retryable: {error_msg}"
-
-    def test_exceeded_compute_time_quota_returns_friendly_message(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "Exceeded compute-time quota error should surface an actionable message"
-        assert "compute-time quota" in friendly[0]
+        assert friendly, f"Exceeded provider quota error should surface an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1083,6 +1093,57 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # A multi-tenant Postgres provider rejects a connection with no SNI (the host was
+            # configured as a raw IP), naming the hostname to use instead, then also rejects the
+            # sslmode=prefer fallback attempt for lacking SSL/TLS. Host/IP, port, and the named
+            # hostname are volatile; the rejection reason is stable.
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com\n"
+            'connection to server at "34.200.85.18", port 5432 failed: FATAL:  SSL/TLS connection '
+            "required. Connect with sslmode=require or higher.",
+        ],
+    )
+    def test_sni_hostname_routing_rejection_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "requires connecting via" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SNI hostname routing rejection should be non-retryable: {error_msg}"
+
+    def test_sni_hostname_routing_rejection_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "SNI hostname routing rejection should surface an actionable message"
+        assert "hostname" in friendly[0]
+
+    def test_sni_hostname_routing_rejection_wins_over_the_plaintext_refusal(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "this server requires connecting via org123.dw.us.example.com\n"
+            'connection to server at "34.200.85.18", port 5432 failed: FATAL:  SSL/TLS connection '
+            "required. Connect with sslmode=require or higher."
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "SNI hostname routing rejection should surface an actionable message"
+        assert "requires connecting via" in friendly[0]
+
+    def test_plaintext_refusal_alone_is_non_retryable(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "34.200.85.18", port 5432 failed: FATAL:  '
+            "SSL/TLS connection required. Connect with sslmode=require or higher."
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A refused unencrypted connection should surface an actionable message"
+        assert "unencrypted connection" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Observed on a Neon-style pooler: the role is reported on its own line instead of
             # libpq's "for user" wording, so it doesn't substring-match "password authentication
             # failed for user". Host/IP, port, and the role id are volatile.
@@ -1098,6 +1159,24 @@ class TestPostgresSourceNonRetryableErrors:
         assert is_non_retryable, (
             f"Password auth failure without 'for user' wording should be non-retryable: {error_msg}"
         )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user". Host/IP and port are volatile.
+            'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+            "Failed to identify your database: Your Postgres credentials are incorrect. "
+            "Please check your username and password and try again.",
+        ],
+    )
+    def test_identify_database_credentials_error_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "Your Postgres credentials are incorrect" in non_retryable
+        assert "password authentication failed" not in error_msg
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Proxy credentials rejection should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1482,6 +1561,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+        ],
+    )
+    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
+
+    def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'invalid input syntax for type timestamp: "\\N"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FDW timestamp mismatch error should surface an actionable message"
+        assert "timestamp" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
@@ -1561,6 +1661,29 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "cannot access temporary or unlogged relations during recovery",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "FeatureNotSupported: cannot access temporary or unlogged relations during recovery",
+        ],
+    )
+    def test_unlogged_table_on_read_replica_is_non_retryable(self, source, error_msg):
+        # An unlogged table is never replicated to a standby, so every retry re-hits the same
+        # SQLSTATE 0A000 wall — must not keep retrying.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unlogged-table-on-standby error should be non-retryable: {error_msg}"
+
+    def test_unlogged_table_on_read_replica_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "cannot access temporary or unlogged relations during recovery"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unlogged-table-on-standby error should surface an actionable message"
+        assert "unlogged" in friendly[0]
 
 
 class TestPostgresSourceRetryableErrors:
@@ -4610,6 +4733,15 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            # A proxy/pooler in front of some providers rejects bad credentials during its own
+            # database-identification step, wrapping the rejection in its own sentence instead of
+            # libpq's "password authentication failed for user".
+            (
+                'connection failed: connection to server at "66.135.14.99", port 5432 failed: '
+                "Failed to identify your database: Your Postgres credentials are incorrect. "
+                "Please check your username and password and try again.",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
             (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
                 "PostHog couldn't resolve your database host right now. Check the host name, then try "
@@ -4619,6 +4751,27 @@ class TestValidateCredentialsErrorMapping:
                 TEMPORARY_HOST_RESOLUTION_ERROR,
                 "PostHog couldn't resolve your database host right now. Check the host name, then try "
                 "again in a moment.",
+            ),
+            # A provider that routes by TLS SNI refuses a connection carrying none, and the
+            # sslmode=prefer fallback then draws a second, plaintext refusal. Both wordings arrive
+            # in one message and the host guidance must be the one selected.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+                "this server requires connecting via org123.dw.us.example.com\n"
+                'connection to server at "203.0.113.10", port 5432 failed: FATAL:  SSL/TLS connection '
+                "required. Connect with sslmode=require or higher.",
+                "Your database provider requires connecting through a specific hostname for routing "
+                '("requires connecting via ..."). This usually happens when the host is configured as an '
+                "IP address instead of a hostname. Update the host to the hostname your database "
+                "provider gave you and try again.",
+            ),
+            # The plaintext refusal on its own, without the host line.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+                "SSL/TLS connection required. Connect with sslmode=require or higher.",
+                'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
+                "only tries an unencrypted connection after an encrypted one fails, so check that the host "
+                "is the hostname your database provider gave you rather than an IP address, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -8884,6 +9037,26 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_pooler_login_cooldown_error_is_not_captured(self):
+        # A Postgres-wire-compatible source backed by DuckDB's `postgres_query()` (e.g. DuckLake's
+        # duckgres bridge) can surface a transient PgBouncer server_login_retry cooldown wrapped in
+        # an unrelated exception class (observed as SyntaxErrorOrAccessRuleViolation), so this must
+        # be caught by message rather than type. It self-heals: degrade quietly like the other
+        # expected shapes here instead of flooding error tracking.
+        conn = self._conn_raising(
+            psycopg.errors.SyntaxErrorOrAccessRuleViolation(
+                'Unable to connect to Postgres at "host=... dbname=...": connection to server at '
+                '"..." failed: FATAL:  server login has been failing, cached error: connect failed '
+                "(server_login_retry)"
+            )
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
     def test_failed_sql_transaction_is_not_captured(self):
         # This lookup shares a connection with earlier best-effort metadata queries (PK + index

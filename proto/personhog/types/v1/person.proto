@@ -211,6 +211,39 @@ message DeletePersonsBatchForTeamResponse {
   int64 deleted_count = 1;
 }
 
+// DeleteTombstonedPersonsRequest deletes persons only while they are still
+// tombstoned, checking under the same row locks as the delete, so a racing
+// revival is either skipped or lands afterwards on a fresh row. One call does a
+// bounded amount of work: persons whose dependent rows (distinct ids, hash key
+// overrides, cohort memberships) fit the row budget are deleted whole; the first
+// person that does not fit gives up as many rows as the leftover allows and is
+// returned as pending, as is everything after the budget. Send pending uuids again
+// until none come back. Idempotent.
+message DeleteTombstonedPersonsRequest {
+  int64 team_id = 1;
+  // Person UUIDs to delete. Max 1000 per request.
+  repeated string person_uuids = 2;
+  // Dependent rows this call may delete. 0 means the server default; the server
+  // clamps the value to its own maximum (replica setting TOMBSTONED_DELETE_MAX_ROWS).
+  int64 max_rows = 3;
+}
+
+message DeleteTombstonedPersonsResponse {
+  // Persons hard-deleted together with their dependent rows.
+  int64 deleted_count = 1;
+  // Persons found with is_deleted = false: revived after the caller queued them.
+  // Nothing was deleted for them.
+  int64 skipped_live_count = 2;
+  // Persons still tombstoned but referenced by a live distinct id. Nothing was
+  // deleted for them; the caller must not treat them as cleaned.
+  repeated string blocked_person_uuids = 3;
+  // Persons not finished within max_rows: still tombstoned, some rows possibly
+  // gone. Send them again.
+  repeated string pending_person_uuids = 4;
+  // Dependent rows deleted by this call.
+  int64 rows_deleted = 5;
+}
+
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
 // Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
 // The operation is atomic per request: all splits succeed or none do.
