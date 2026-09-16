@@ -12,8 +12,14 @@ import { twoFactorLogic } from './twoFactorLogic'
 import { TwoFactorSetup } from './TwoFactorSetup'
 
 export function TwoFactorSetupModal(): JSX.Element {
-    const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal, startSetup, canSwitchOrg, setupBackupCodes } =
-        useValues(twoFactorLogic)
+    const {
+        isTwoFactorSetupModalOpen,
+        forceOpenTwoFactorSetupModal,
+        startSetup,
+        canSwitchOrg,
+        setupBackupCodes,
+        isTokenSubmitting,
+    } = useValues(twoFactorLogic)
     const { closeTwoFactorSetupModal } = useActions(twoFactorLogic)
     const [showOrgDropdown, setShowOrgDropdown] = useState(false)
 
@@ -22,8 +28,9 @@ export function TwoFactorSetupModal(): JSX.Element {
     const showingBackupCodes = setupBackupCodes.length > 0
     const setupTitle = isSetupMode ? 'Set up two-factor authentication' : 'Two-factor authentication required'
     const title = showingBackupCodes ? 'Save your backup codes' : setupTitle
-    // Closing the modal here would skip past the codes before the user has saved them.
-    const closable = !forceOpenTwoFactorSetupModal && !showingBackupCodes
+    // Closing here would skip past the codes, either while the token is still being validated or
+    // before the user has saved them.
+    const closable = !forceOpenTwoFactorSetupModal && !showingBackupCodes && !isTokenSubmitting
 
     return (
         <LemonModal
