@@ -137,7 +137,7 @@ def _verdict_is_unsafe(content: str | None) -> bool:
     return isinstance(data, dict) and data.get("choice") is False
 
 
-def _is_safety_suppressed(report_id: str, team_id: int) -> bool:
+def is_safety_suppressed(report_id: str, team_id: int) -> bool:
     """Whether the safety judge marked this report unsafe.
 
     An unsafe report's backing signals are deliberately never indexed: `create_scout_report` is passed
@@ -409,7 +409,7 @@ def emit_report_embedding_on_document_change(
                 )
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
-            if not documents or _is_safety_suppressed(report_id, team_id):
+            if not documents or is_safety_suppressed(report_id, team_id):
                 return
             emit_report_embeddings(team_id=team_id, report_id=report_id, documents=documents, created_at=created_at)
         except Exception:
@@ -526,7 +526,7 @@ def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> 
             )
             if report is None:
                 return
-            if not _is_safety_suppressed(report_id, team_id):
+            if not is_safety_suppressed(report_id, team_id):
                 return
             emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=report["created_at"])
         except Exception:
