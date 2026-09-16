@@ -6,7 +6,7 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
@@ -3269,8 +3269,9 @@ def flag_lifecycle_responses(
 ) -> dict[int, Any]:
     """Response schemas for a flag lifecycle action.
 
-    ``bad_request`` is the 400 that action can actually produce. Documenting the union of all
-    of them would tell an agent to expect failures its action cannot raise.
+    ``bad_request`` is the 400 that action can actually produce, on top of the soft-deleted
+    refusal every one of them makes. Documenting the union of all of them would tell an agent
+    to expect failures its action cannot raise.
 
     ``approval_gated`` says the same thing about the 409. The gate on
     ``FeatureFlagSerializer.update`` only carries the enable, disable and update actions, and
@@ -3302,8 +3303,20 @@ def flag_lifecycle_responses(
         elif approval_gated:
             conflict_response = FlagApprovalConflictSerializer
         responses[409] = OpenApiResponse(response=conflict_response, description=" ".join(conflicts))
+    # Every action built on this refuses a soft-deleted flag, and that refusal is built as a
+    # plain response rather than raised, so it renders a different body from the exception
+    # envelope the other 400s use. The schema names both rather than picking one.
+    reasons = ["The flag is deleted."]
     if bad_request is not None:
-        responses[400] = OpenApiResponse(response=FlagActionErrorSerializer, description=bad_request)
+        reasons.append(bad_request)
+    responses[400] = OpenApiResponse(
+        response=PolymorphicProxySerializer(
+            component_name="FeatureFlagActionBadRequest",
+            serializers=[FlagActionErrorSerializer, FlagDeletedRejectionSerializer],
+            resource_type_field_name=None,
+        ),
+        description=" ".join(reasons),
+    )
     return responses
 
 
@@ -3321,6 +3334,19 @@ class FlagActionErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Human-readable description of what was refused.")
     attr = serializers.CharField(
         allow_null=True, help_text="Request field the error belongs to, or null when it belongs to no single field."
+    )
+
+
+class FlagDeletedRejectionSerializer(serializers.Serializer):
+    """The 400 body a soft-deleted flag produces, which differs from every other error here.
+
+    Built as a plain response rather than raised, so it carries neither the `type` nor the
+    `attr` the exception handler's envelope has.
+    """
+
+    success = serializers.BooleanField(help_text="Always `false`.")
+    error = serializers.CharField(
+        help_text="Human-readable reason, naming the restore the caller has to do before retrying."
     )
 
 
@@ -4146,18 +4172,53 @@ class FeatureFlagViewSet(
         if version != current_version:
             raise Conflict(flag_version_conflict_message(version, current_version))
 
-    def _locked_rollout_flag(self, feature_flag: FeatureFlag, version: int) -> FeatureFlag:
-        """Re-read the flag under its row lock and refuse a caller whose version is not current.
+    def _rollout_action(
+        self, request: ValidatedRequest, *, deleted_hint: str, transform: Callable[[dict], dict]
+    ) -> Response:
+        """Apply one rollout transform to the flag this request names.
 
-        The caller's version is checked against the instance loaded before the lock as a fast
-        path, but the decision that follows has to be made against this row. A write that lands
-        between the two reads leaves the earlier copy stale, and a transform computed from it
-        can compare equal to filters that no longer exist, which would answer 200 for a change
-        that was never applied.
+        Both actions run this sequence. It was revised twice during review, and a revision that
+        landed in only one of them would leave the two endpoints with different concurrency
+        guarantees while both still passed their own tests.
         """
-        locked = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
-        self._rollout_precondition(locked, version)
-        return locked
+        feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
+        if rejection is not None:
+            return rejection
+
+        # A flag written before versioning reads as null; the precondition normalises the stored
+        # side the same way, so a caller can send back exactly what the read returned.
+        version = request.validated_data["version"] or 0
+        self._rollout_precondition(feature_flag, version)
+
+        with transaction.atomic():
+            # The checks above ran against the instance loaded before the lock, which is a fast
+            # path only. The decision below has to be made against this row: a write that lands
+            # between the two reads leaves the earlier copy stale, and a transform computed from
+            # it can compare equal to filters that no longer exist, which would answer 200 for a
+            # change that was never applied.
+            locked_flag = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+            # A bulk delete leaves `version` untouched, so the precondition cannot see one that
+            # landed since the read. Without this check the write rewrites a deleted flag's
+            # filters, and the change takes effect the moment anyone restores it.
+            rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
+            if rejection is not None:
+                return rejection
+            self._rollout_precondition(locked_flag, version)
+
+            current_filters = locked_flag.get_filters()
+            new_filters = transform(current_filters)
+            unchanged = new_filters == current_filters
+
+        # Both answers leave the transaction first. The response serializer runs about a dozen
+        # queries, so answering inside it would hold the row lock while they ran and make every
+        # other writer of this flag wait. The write needs to be outside for a second reason: the
+        # approval gate creates a change request and then raises, and a transaction held across
+        # it would roll that record back. The write takes the row lock again and repeats the
+        # version check, so a change landing in between is refused there rather than applied over.
+        if unchanged:
+            return self._lifecycle_response(locked_flag)
+        return self._lifecycle_response(self._rollout_write(request, locked_flag, new_filters, version))
 
     def _rollout_write(
         self, request: request.Request, feature_flag: FeatureFlag, filters: dict, version: int
@@ -4175,7 +4236,7 @@ class FeatureFlagViewSet(
     @validated_request(
         FeatureFlagSetReleaseConditionRolloutRequestSerializer,
         responses=flag_lifecycle_responses(
-            "The flag is deleted, or it has no release condition at that index.",
+            "It has no release condition at that index.",
             version_precondition=True,
         ),
     )
@@ -4195,22 +4256,11 @@ class FeatureFlagViewSet(
         On a multivariate flag this sets how many of the matching users get a variant at all. It
         does not change how the variants are split between them.
         """
-        feature_flag: FeatureFlag = self.get_object()
-        rejection = self._deleted_flag_rejection(feature_flag, "changing its rollout")
-        if rejection is not None:
-            return rejection
-
         data = request.validated_data
-        # A flag written before versioning reads as null; the precondition normalises the stored
-        # side the same way, so a caller can send back exactly what the read returned.
-        version = data["version"] or 0
-        self._rollout_precondition(feature_flag, version)
 
-        with transaction.atomic():
-            locked_flag = self._locked_rollout_flag(feature_flag, version)
-            current_filters = locked_flag.get_filters()
+        def transform(current_filters: dict) -> dict:
             try:
-                new_filters = flag_filters.set_release_condition_rollout(
+                return flag_filters.set_release_condition_rollout(
                     current_filters, data["condition_index"], data["rollout_percentage"]
                 )
             except IndexError:
@@ -4224,20 +4274,13 @@ class FeatureFlagViewSet(
                     message = "This feature flag has no release conditions, so there is none to set a percentage on."
                 raise exceptions.ValidationError(message)
 
-            if new_filters == current_filters:
-                return self._lifecycle_response(locked_flag)
-
-        # Outside the lock on purpose: the approval gate creates a change request and then
-        # raises, so holding a transaction across it would roll that record back. The write
-        # takes the row lock again and repeats the version check, so a change landing in
-        # between is refused there rather than applied over.
-        return self._lifecycle_response(self._rollout_write(request, locked_flag, new_filters, version))
+        return self._rollout_action(request, deleted_hint="changing its rollout", transform=transform)
 
     @validated_request(
         FeatureFlagRollOutToEveryoneRequestSerializer,
         responses=flag_lifecycle_responses(
-            "The flag is deleted, a multivariate flag was sent no variant, or the variant is not one "
-            "this flag defines.",
+            "The flag is gated on early access enrollment, a multivariate flag was sent no variant, "
+            "or the variant is not one this flag defines.",
             version_precondition=True,
         ),
     )
@@ -4255,9 +4298,8 @@ class FeatureFlagViewSet(
 
         This changes targeting only. A disabled flag still serves nobody, and a holdout is
         evaluated before release conditions, so users in one keep getting the holdout variant
-        instead of the rollout. Early access enrollment is evaluated before release conditions
-        too, so on a flag with `feature_enrollment` a user who carries the enrollment property
-        keeps the answer that property gives, whether or not they opted in.
+        instead of the rollout. A flag gated on early access enrollment is refused, because that
+        gate is evaluated before release conditions too and no targeting change gets past it.
 
         A multivariate flag needs `variant_key`, and every other flag rejects it. A release
         condition decides who the flag serves, not which variant they get, so rolling a
@@ -4269,28 +4311,31 @@ class FeatureFlagViewSet(
         refused with 409. Read the flag again and decide the rollout against its current
         definition.
         """
-        feature_flag: FeatureFlag = self.get_object()
-        rejection = self._deleted_flag_rejection(feature_flag, "rolling it out to everyone")
-        if rejection is not None:
-            return rejection
-
         data = request.validated_data
-        # A flag written before versioning reads as null; the precondition normalises the stored
-        # side the same way, so a caller can send back exactly what the read returned.
-        version = data["version"] or 0
-        self._rollout_precondition(feature_flag, version)
 
-        with transaction.atomic():
-            locked_flag = self._locked_rollout_flag(feature_flag, version)
-            current_filters = locked_flag.get_filters()
+        def transform(current_filters: dict) -> dict:
+            self._reject_enrollment_gated_rollout(current_filters)
             variant_key = self._validated_variant_key(current_filters, data.get("variant_key"))
+            return flag_filters.roll_out_to_everyone(current_filters, variant_key=variant_key)
 
-            new_filters = flag_filters.roll_out_to_everyone(current_filters, variant_key=variant_key)
-            if new_filters == current_filters:
-                return self._lifecycle_response(locked_flag)
+        return self._rollout_action(request, deleted_hint="rolling it out to everyone", transform=transform)
 
-        # Outside the lock, for the reason given on the sibling action above.
-        return self._lifecycle_response(self._rollout_write(request, locked_flag, new_filters, version))
+    @staticmethod
+    def _reject_enrollment_gated_rollout(current_filters: dict) -> None:
+        """Refuse a flag whose early access enrollment decides the answer before targeting does.
+
+        The matcher reads `$feature_enrollment/<key>` ahead of the release conditions and returns
+        on the property being present at all, so everyone who ever saw the opt-in keeps the answer
+        they already have, whichever way they answered. A catch-all condition would report a full
+        rollout those users never get. Clearing the marker is the early access feature's own
+        transition to general availability, not a targeting change this action makes.
+        """
+        if current_filters.get("feature_enrollment") is True:
+            raise exceptions.ValidationError(
+                "This feature flag is gated on early access enrollment, which is evaluated before its "
+                "release conditions, so rolling it out here would not reach anyone who has opted in or "
+                "out. Move its early access feature to general availability instead."
+            )
 
     @staticmethod
     def _validated_variant_key(current_filters: dict, variant_key: str | None) -> str | None:

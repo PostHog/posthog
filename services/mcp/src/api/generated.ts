@@ -41508,6 +41508,21 @@ export namespace Schemas {
     }
 
     /**
+     * The 400 body a soft-deleted flag produces, which differs from every other error here.
+     *
+     * Built as a plain response rather than raised, so it carries neither the `type` nor the
+     * `attr` the exception handler's envelope has.
+     */
+    export interface FlagDeletedRejection {
+      /** Always `false`. */
+      success: boolean;
+      /** Human-readable reason, naming the restore the caller has to do before retrying. */
+      error: string;
+    }
+
+    export type FeatureFlagActionBadRequest = FlagActionError | FlagDeletedRejection;
+
+    /**
      * The 409 body an approval policy produces, which differs from every other error here.
      *
      * Raised through the approvals mixin rather than the exception handler, so it carries the

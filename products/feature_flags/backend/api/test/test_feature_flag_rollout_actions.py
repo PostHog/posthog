@@ -239,6 +239,19 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters == original
 
+    def test_roll_out_to_everyone_refuses_a_flag_gated_on_early_access_enrollment(self):
+        # The matcher answers from `$feature_enrollment/<key>` before it reads the release
+        # conditions, so a catch-all condition would report a rollout that nobody who saw the
+        # opt-in receives. The indexed action makes no such promise, so it is not refused.
+        flag = self._flag(filters={**BOOLEAN_TARGETING, "feature_enrollment": True})
+
+        response = self._act(flag, "roll_out_to_everyone", {"version": flag.version})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "early access enrollment" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.filters["groups"] == BOOLEAN_TARGETING["groups"]
+
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_refuses_a_version_that_is_no_longer_current(self, action, body):
         flag = self._flag()
@@ -385,6 +398,8 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         response = self._act(flag, action, {**body, "version": None})
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters == persisted(rolled_out(action, TARGETING))
 
     @parameterized.expand(ROLLOUT_ACTIONS)
     def test_rollout_action_preserves_legacy_filter_keys(self, action, body):
@@ -405,6 +420,32 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["holdout_groups"] == legacy["holdout_groups"]
         assert flag.filters["super_groups"] == legacy["super_groups"]
+
+    def test_a_rollout_is_refused_when_the_flag_is_deleted_after_it_was_read(self):
+        # A bulk delete leaves `version` untouched, so the version precondition cannot see one
+        # that landed since the read. Both actions run the same body, so one covers the window:
+        # the delete lands between the pre-lock check and the lock.
+        flag = self._flag()
+        original = FeatureFlagViewSet._rollout_precondition
+        fired: list[bool] = []
+
+        def precondition(view, feature_flag, version):
+            original(view, feature_flag, version)
+            if not fired:
+                fired.append(True)
+                FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+            response = self._act(
+                flag,
+                "set_release_condition_rollout",
+                {"condition_index": 0, "rollout_percentage": 25, "version": flag.version},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "has been deleted" in response.json()["error"]
+        flag.refresh_from_db()
+        assert flag.filters == TARGETING
 
     def test_a_no_op_rollout_is_refused_when_the_flag_changed_after_it_was_read(self):
         # The requested state already matches the copy the caller read, so the transform is a
