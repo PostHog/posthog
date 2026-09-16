@@ -115,10 +115,11 @@ function teamIdMatchesCsv(raw: string, teamId: number): boolean {
     if (trimmed === '*') {
         return true
     }
-    return trimmed.split(',').some((part) => {
-        const id = part.trim()
-        return /^\d+$/.test(id) && Number(id) === teamId
-    })
+    return trimmed
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !Number.isNaN(n))
+        .includes(teamId)
 }
 
 /**
@@ -366,7 +367,6 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
-    private readonly jsonAttributeParsingEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -418,7 +418,6 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
-        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -903,14 +902,7 @@ export class LogsIngestionConsumer {
                         const team = await this.retryOnDependencyUnavailable(() =>
                             this.deps.teamManager.getTeam(message.teamId)
                         )
-                        let logsSettings = team?.logs_settings ?? {}
-                        if (
-                            logsSettings.json_parse_logs_attribute_key &&
-                            (this.appSource !== 'logs' ||
-                                !teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId))
-                        ) {
-                            logsSettings = { ...logsSettings, json_parse_logs_attribute_key: undefined }
-                        }
+                        const logsSettings = team?.logs_settings || {}
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
