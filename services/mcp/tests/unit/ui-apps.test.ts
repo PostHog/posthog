@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { buildAppStubHtml } from '@/resources/ui-apps'
+import { buildAppStubHtml, resolveUiAppsBaseUrl } from '@/resources/ui-apps'
 import { DISPATCHABLE_APP_KEYS, UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
 
 import {
@@ -61,6 +61,39 @@ describe('ui-apps', () => {
             const html = buildAppStubHtml('debug', 'https://example.com')
             expect(html).toContain('<script src=')
             expect(html).not.toContain('type="module"')
+        })
+    })
+
+    describe('resolveUiAppsBaseUrl', () => {
+        const configured = 'https://mcp.us.posthog.com'
+
+        const cases = [
+            {
+                label: 'the connected PostHog origin, so the assets stay on the host the client reached',
+                origin: 'https://mcp.posthog.com',
+                expected: 'https://mcp.posthog.com',
+            },
+            {
+                label: 'the configured base for an unknown origin',
+                origin: 'https://evil.example.com',
+                expected: configured,
+            },
+            { label: 'the configured base for a malformed origin', origin: 'not-a-url', expected: configured },
+            { label: 'the configured base when no origin is known', origin: undefined, expected: configured },
+        ]
+
+        it.each(cases)('resolves $label', ({ origin, expected }) => {
+            expect(resolveUiAppsBaseUrl(origin, configured)).toBe(expected)
+        })
+
+        it('stays unset when UI apps are switched off', () => {
+            expect(resolveUiAppsBaseUrl('https://mcp.posthog.com', undefined)).toBeUndefined()
+        })
+
+        it('accepts an origin matching the configured host, for local and tunnelled dev', () => {
+            expect(resolveUiAppsBaseUrl('https://abc.ngrok-free.dev', 'https://abc.ngrok-free.dev')).toBe(
+                'https://abc.ngrok-free.dev'
+            )
         })
     })
 

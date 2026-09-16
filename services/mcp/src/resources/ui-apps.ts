@@ -29,6 +29,46 @@ export function buildAppStubHtml(appDir: string, baseUrl: string): string {
 </body></html>`
 }
 
+/**
+ * Base URL the stub loads the app JS and CSS from.
+ *
+ * A host builds the app iframe CSP around the origin the client connected to, so a
+ * stub that points anywhere else renders blank. Clients reach `mcp.posthog.com`, which
+ * proxies to a regional runtime whose `MCP_APPS_BASE_URL` names the regional host, so
+ * the static value disagrees with the connected origin. Every runtime serves
+ * `/ui-apps/*` itself, so the connected origin always has the assets.
+ *
+ * `MCP_APPS_BASE_URL` stays the switch that turns UI apps on, and the fallback for an
+ * origin we do not serve assets from.
+ */
+export function resolveUiAppsBaseUrl(
+    publicOrigin: string | undefined,
+    configuredBaseUrl: string | undefined
+): string | undefined {
+    if (!configuredBaseUrl || !publicOrigin) {
+        return configuredBaseUrl
+    }
+    return isTrustedAppsOrigin(publicOrigin, configuredBaseUrl) ? publicOrigin : configuredBaseUrl
+}
+
+// The stub origin becomes `script-src` for the app iframe, and a client controls the
+// forwarded host, so only PostHog hosts and the configured host are accepted.
+function isTrustedAppsOrigin(publicOrigin: string, configuredBaseUrl: string): boolean {
+    const host = hostnameOf(publicOrigin)
+    if (!host) {
+        return false
+    }
+    return host === 'posthog.com' || host.endsWith('.posthog.com') || host === hostnameOf(configuredBaseUrl)
+}
+
+function hostnameOf(url: string): string | undefined {
+    try {
+        return new URL(url).hostname.toLowerCase()
+    } catch {
+        return undefined
+    }
+}
+
 export interface UiAppResourceMeta {
     [key: string]: unknown
     ui: McpUiResourceMeta
@@ -44,9 +84,7 @@ export interface UiAppResourceMeta {
  *
  * Declared in two formats: `ui.csp` per the MCP Apps spec (Claude), and
  * `openai/widgetCSP` for ChatGPT — ChatGPT ignores `ui.csp` and only extends
- * its iframe CSP with its own key, so without it assets on MCP_APPS_BASE_URL
- * are blocked whenever that host differs from the connected server origin
- * (e.g. mcp.us.posthog.com assets vs mcp.posthog.com origin).
+ * its iframe CSP with its own key, so without it the app assets are blocked.
  */
 export function buildUiAppResourceMeta(baseUrl: string, analyticsBaseUrl: string | undefined): UiAppResourceMeta {
     const resourceDomains: string[] = [baseUrl]

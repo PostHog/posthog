@@ -81,12 +81,10 @@
      */
     "assets": {
         "directory": "./public/",
-        // `binding: "ASSETS"` exposes `env.ASSETS.fetch(request)` so the Worker
-        // can serve static files programmatically. We use it in src/index.ts
-        // to short-circuit `/ui-apps/*` paths before the OAuth gate —
-        // production's Cloudflare edge routes these to assets before the
-        // Worker, but `wrangler dev` runs the Worker first and the gate 401s
-        // before assets get a chance.
+        // The Worker answers `/ui-apps/*` itself, from the regional runtime, so the
+        // bundles match the manifest and the stub that name them. Without this the
+        // edge would answer first, from a copy that uploads on its own schedule.
+        "run_worker_first": ["/ui-apps/*"],
         "binding": "ASSETS",
     },
     /**

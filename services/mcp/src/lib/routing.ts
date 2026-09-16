@@ -9,6 +9,9 @@ export function getPublicUrl(request: Request): URL {
 
     const forwardedHost = request.headers.get('X-Forwarded-Host')
     if (forwardedHost) {
+        // Clear the port first: setting `host` on its own keeps the existing one, which
+        // would leave the in-cluster port on an ingress-forwarded host.
+        url.port = ''
         url.host = forwardedHost
     }
 
@@ -18,6 +21,25 @@ export function getPublicUrl(request: Request): URL {
     }
 
     return url
+}
+
+// Set by the `mcp.posthog.com` worker when it proxies a request to a regional runtime,
+// so the runtime knows which origin the client actually connected to. `X-Forwarded-Host`
+// cannot carry this: the ingress in front of the runtime rewrites it to its own host.
+export const PUBLIC_ORIGIN_HEADER = 'x-posthog-public-origin'
+
+// Deliberately separate from `getPublicUrl`: a proxied request keeps the region-pinned
+// host there, which `getRegionFromHostname` needs to route the OAuth fallback.
+export function getPublicOrigin(request: Request): string {
+    const proxied = request.headers.get(PUBLIC_ORIGIN_HEADER)
+    if (proxied) {
+        try {
+            return new URL(proxied).origin
+        } catch {
+            // Malformed value: fall through to the request URL.
+        }
+    }
+    return getPublicUrl(request).origin
 }
 
 // Detect region from the request hostname.

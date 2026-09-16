@@ -9,6 +9,17 @@ import { describe, expect, it } from 'vitest'
 // protocol loop is exercised against the Hono runtime in
 // `tests/hono/mcp-protocol.test.ts`.
 describe('MCP HTTP entry point (Cloudflare Workers)', () => {
+    // The Worker keeps its own static copy of the bundles, which uploads separately
+    // and can lag the runtime that built the manifest and the stub naming them.
+    describe('MCP UI app bundles', () => {
+        it('serves them from the regional runtime, not the static copy', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/ui-apps/debug/main.js')
+
+            expect(response.status).toBe(200)
+            expect(await response.text()).toContain('served by the regional runtime')
+        })
+    })
+
     describe('OAuth Protected Resource Metadata (RFC 9728)', () => {
         it('returns metadata advertising scopes_supported for /mcp', async () => {
             const response = await SELF.fetch('https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp')

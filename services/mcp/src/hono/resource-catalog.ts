@@ -10,7 +10,7 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import { buildAppStubHtml, buildUiAppResourceMeta } from '@/resources/ui-apps'
+import { buildAppStubHtml, buildUiAppResourceMeta, resolveUiAppsBaseUrl } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
 
@@ -35,9 +35,6 @@ export class ResourceCatalog {
     private resources: Resource[] = []
     private prompts: Prompt[] = []
     private promptsByName = new Map<string, GetPromptResult>()
-    private uiAppResources: Resource[] = []
-    private uiAppReadEntries = new Map<string, TextResourceContents>()
-    private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
     constructor(env: Env, redis: RedisLike) {
@@ -64,28 +61,21 @@ export class ResourceCatalog {
     }
 
     async warmup(): Promise<void> {
-        await Promise.all([this.warmupResources(), this.warmupUiApps()])
-        this.allResources = [...this.resources, ...this.uiAppResources]
+        await this.warmupResources()
     }
 
-    getResourcesList(): ListResourcesResult {
-        return { resources: this.allResources }
+    getResourcesList(publicOrigin?: string): ListResourcesResult {
+        return { resources: [...this.resources, ...this.uiAppResources(publicOrigin)] }
     }
 
-    async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
+    async readResource(
+        params: Record<string, unknown> | undefined,
+        publicOrigin?: string
+    ): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
-        const uiEntry = this.uiAppReadEntries.get(uri)
+        const uiEntry = this.uiAppReadEntry(uri, publicOrigin)
         if (uiEntry) {
-            return {
-                contents: [
-                    {
-                        uri: uiEntry.uri,
-                        mimeType: uiEntry.mimeType,
-                        text: uiEntry.text,
-                        ...(uiEntry._meta ? { _meta: uiEntry._meta } : {}),
-                    },
-                ],
-            }
+            return { contents: [uiEntry] }
         }
 
         const slimEntry = this.contextMillEntriesByUri.get(uri)
@@ -140,7 +130,6 @@ export class ResourceCatalog {
         }
         this.contextMillEntriesByUri = nextEntriesByUri
         this.resources = nextResources
-        this.allResources = [...this.resources, ...this.uiAppResources]
         contextMillManifestEntries.set(slim.entries.length)
         return result
     }
@@ -168,31 +157,36 @@ export class ResourceCatalog {
         }
     }
 
-    private async warmupUiApps(): Promise<void> {
-        const baseUrl = this.env.MCP_APPS_BASE_URL
+    private uiAppsBaseUrl(publicOrigin?: string): string | undefined {
+        return resolveUiAppsBaseUrl(publicOrigin, this.env.MCP_APPS_BASE_URL)
+    }
+
+    private uiAppResources(publicOrigin?: string): Resource[] {
+        const baseUrl = this.uiAppsBaseUrl(publicOrigin)
         if (!baseUrl) {
-            return
+            return []
         }
+        const meta = buildUiAppResourceMeta(baseUrl, this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL)
+        return UI_APPS.map((app) => ({
+            name: app.name,
+            uri: app.uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            description: app.description,
+            _meta: meta,
+        }))
+    }
 
-        const analyticsBaseUrl = this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
-
-        for (const app of UI_APPS) {
-            const html = buildAppStubHtml(app.appDir, baseUrl)
-            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl)
-
-            this.uiAppResources.push({
-                name: app.name,
-                uri: app.uri,
-                mimeType: RESOURCE_MIME_TYPE,
-                description: app.description,
-                _meta: meta,
-            })
-            this.uiAppReadEntries.set(app.uri, {
-                uri: app.uri,
-                mimeType: RESOURCE_MIME_TYPE,
-                text: html,
-                _meta: meta,
-            })
+    private uiAppReadEntry(uri: string, publicOrigin?: string): TextResourceContents | undefined {
+        const app = UI_APPS.find((candidate) => candidate.uri === uri)
+        const baseUrl = app ? this.uiAppsBaseUrl(publicOrigin) : undefined
+        if (!app || !baseUrl) {
+            return undefined
+        }
+        return {
+            uri: app.uri,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: buildAppStubHtml(app.appDir, baseUrl),
+            _meta: buildUiAppResourceMeta(baseUrl, this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL),
         }
     }
 }

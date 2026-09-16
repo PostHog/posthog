@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { matchAuthServerRedirect } from '@/lib/routing'
+import { getPublicOrigin, matchAuthServerRedirect, PUBLIC_ORIGIN_HEADER } from '@/lib/routing'
 
 describe('Authorization server redirects', () => {
     const redirectCases = [
@@ -30,5 +30,34 @@ describe('Authorization server redirects', () => {
 
     it.each(noRedirectCases)('does not redirect $pathname', ({ pathname }) => {
         expect(matchAuthServerRedirect(pathname)).toBeUndefined()
+    })
+})
+
+describe('getPublicOrigin', () => {
+    const originCases: { label: string; headers: Record<string, string>; expected: string }[] = [
+        {
+            label: 'the proxy header, which survives an ingress that rewrites X-Forwarded-Host',
+            headers: {
+                [PUBLIC_ORIGIN_HEADER]: 'https://mcp.posthog.com',
+                'X-Forwarded-Host': 'mcp.us.posthog.com',
+            },
+            expected: 'https://mcp.posthog.com',
+        },
+        {
+            label: 'the forwarded host when no proxy header is set',
+            headers: { 'X-Forwarded-Host': 'mcp.eu.posthog.com', 'X-Forwarded-Proto': 'https' },
+            expected: 'https://mcp.eu.posthog.com',
+        },
+        { label: 'the request URL when nothing is forwarded', headers: {}, expected: 'http://localhost:8787' },
+        {
+            label: 'the request URL when the proxy header is malformed',
+            headers: { [PUBLIC_ORIGIN_HEADER]: 'not-a-url' },
+            expected: 'http://localhost:8787',
+        },
+    ]
+
+    it.each(originCases)('resolves $label', ({ headers, expected }) => {
+        const request = new Request('http://localhost:8787/mcp', { headers })
+        expect(getPublicOrigin(request)).toBe(expected)
     })
 })

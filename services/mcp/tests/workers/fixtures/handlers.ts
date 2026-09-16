@@ -25,6 +25,11 @@ export const handlers: RequestHandler[] = [
     // OAuth introspection. MCP only falls back here when /personal_api_keys/@current
     // returns 401/403 — local dev rejects introspect for personal keys, so we
     // synthesize a healthy session-token response instead of capturing one.
+    http.get('https://mcp.us.posthog.com/ui-apps/*', () =>
+        new HttpResponse('// bundle served by the regional runtime', {
+            headers: { 'Content-Type': 'text/javascript' },
+        })
+    ),
     http.post('*/oauth/introspect', () =>
         HttpResponse.json({
             active: true,
