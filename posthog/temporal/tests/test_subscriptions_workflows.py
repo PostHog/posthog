@@ -337,11 +337,11 @@ async def test_subscription_delivery_scheduling(
             ),
         ]
 
-    # Push one subscription outside buffer (+1h)
-    subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0, tzinfo=ZoneInfo("UTC"))
-    await sync_to_async(subscriptions[2].save)()
-
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        # The test server owns the workflow clock, independently of time_machine's Python clock.
+        subscriptions[2].next_delivery_date = await activity_environment.get_current_time() + timedelta(hours=1)
+        await sync_to_async(subscriptions[2].save)(update_fields=["next_delivery_date"])
+
         async with Worker(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
