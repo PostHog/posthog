@@ -421,29 +421,27 @@ def _create_missing_configs(team_ids: set[int]) -> None:
     A team that adopted workflow email without ever saving a workflows setting has no row, and the
     tier lives on that row. The sweep could therefore see the team's sends and still have nowhere
     to write a promotion, so the team held tier 0 however cleanly it sent. app_metrics2 outlives a
-    team deleted from Postgres, so only teams Postgres still has get a row, and conflicts are
-    ignored because the team extension signal creates the same row.
+    team deleted from Postgres, so only teams Postgres still has get a row.
     """
     existing = set(TeamWorkflowsConfig.objects.filter(team_id__in=team_ids).values_list("team_id", flat=True))
     missing = sorted(team_ids - existing)
     if not missing:
         return
-    live_team_ids = Team.objects.filter(id__in=missing).values_list("id", flat=True)
-    try:
-        # A team deleted between that read and this write leaves the insert with no foreign-key
-        # target. Contain the failure in its own transaction rather than locking the Team rows:
-        # locking them would make every unrelated child-row writer wait on a hot parent row for
-        # the length of a fleet-wide sweep. A lost run costs a day of tier movement, and the next
-        # run rebuilds the same candidate list.
-        with transaction.atomic():
-            created = TeamWorkflowsConfig.objects.bulk_create(
-                [TeamWorkflowsConfig(team_id=team_id) for team_id in live_team_ids],
-                ignore_conflicts=True,
-            )
-    except IntegrityError:
-        logger.warning("workflows_email_sending_tier_configs_not_created", team_count=len(missing))
-        return
-    logger.info("workflows_email_sending_tier_configs_created", team_count=len(created))
+    # One insert per team, each in its own transaction, so a team deleted between the read above
+    # and its own insert costs that row alone and no other team's promotion. Locking the Team rows
+    # to close the race instead would make every unrelated child-row writer wait on a hot parent
+    # row for the length of a fleet-wide sweep. The loop is bounded by teams that sent workflow
+    # email and still have no row, which the team extension signal keeps near zero.
+    created = 0
+    for team_id in Team.objects.filter(id__in=missing).values_list("id", flat=True):
+        try:
+            with transaction.atomic():
+                TeamWorkflowsConfig.objects.create(team_id=team_id)
+        except IntegrityError:
+            # Either the team was deleted in that gap, or the extension signal created the row.
+            continue
+        created += 1
+    logger.info("workflows_email_sending_tier_configs_created", team_count=created)
 
 
 def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[TierDecision]:

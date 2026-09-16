@@ -413,29 +413,30 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         # A project that adopted workflow email without ever saving a workflows setting has no
         # config row, and the tier is stored on that row. The sweep used to skip it, so the project
         # held tier 0 and its 100-recipient batch cap however cleanly it sent.
+        # The deleted team in the same sweep is the other half: app_metrics2 outlives a team
+        # dropped from Postgres, and that team must neither get a row nor block a live promotion.
         TeamWorkflowsConfig.objects.filter(team=self.team).delete()
         # With no row there is no tier timestamp, so the dwell runs from when the project was made.
         Team.objects.filter(pk=self.team.pk).update(created_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
-        self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
+        ghost_id = self.team.id + 10_000
+        self._run(
+            {
+                self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used),
+                ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10)),
+            }
+        )
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
-
-    def test_history_for_a_deleted_team_does_not_create_a_config_row(self) -> None:
-        # app_metrics2 outlives a team deleted from Postgres, so a candidate id can name a team the
-        # config row's foreign key no longer has a target for.
-        ghost_id = self.team.id + 10_000
-        self._run({ghost_id: history(team_id=ghost_id, sent=10, daily_sends=clean_days(2, 10))})
-
         assert not TeamWorkflowsConfig.objects.filter(team_id=ghost_id).exists()
 
     def test_a_failed_row_creation_does_not_abort_the_sweep(self) -> None:
-        # A team deleted between the live-team read and the insert leaves the insert with no
+        # A team deleted between the live-team read and its insert leaves that insert with no
         # foreign-key target. That must not stop the sweep from moving every other team.
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
         ghost_id = self.team.id + 10_000
-        with patch.object(TeamWorkflowsConfig.objects, "bulk_create", side_effect=IntegrityError):
+        with patch.object(TeamWorkflowsConfig.objects, "create", side_effect=IntegrityError):
             self._run(
                 {
                     self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used),
