@@ -20,6 +20,7 @@ from products.alerts.backend.facade.temporal import (
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.wizard.backend.facade.temporal import (
@@ -36,7 +37,11 @@ class _NotADataSyncWorkflow:
     "task_queue,expected_workflows,expected_activities",
     [
         (settings.WIZARD_TASK_QUEUE, WIZARD_WORKFLOWS, WIZARD_ACTIVITIES),
-        ("alerts-product-shared-orchestration-task-queue", SHARED_ORCHESTRATION_WORKFLOWS, []),
+        (
+            "alerts-product-shared-orchestration-task-queue",
+            SHARED_ORCHESTRATION_WORKFLOWS,
+            SHARED_ORCHESTRATION_ACTIVITIES,
+        ),
         ("alerts-product-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
         ("alerts-product-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
     ],
@@ -46,13 +51,11 @@ def test_queue_registers_workflows_and_activities(
 ) -> None:
     assert expected_workflows
     assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
+    assert expected_activities
+    assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
     if task_queue == settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE:
         assert WORKFLOWS_DICT[task_queue] == set(expected_workflows)
-        assert not expected_activities
-        assert not ACTIVITIES_DICT[task_queue]
-    else:
-        assert expected_activities
-        assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
+        assert ACTIVITIES_DICT[task_queue] == set(expected_activities)
 
 
 # Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a
