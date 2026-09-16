@@ -61,6 +61,13 @@ pub struct Config {
     #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
 
+    /// When true, person deletes tombstone the rows (`is_deleted = true`,
+    /// version bumped, properties scrubbed) instead of removing them. A
+    /// tombstone keeps the row's version counter so a later revival
+    /// outranks its own ClickHouse tombstone instead of restarting at 0.
+    #[envconfig(default = "false")]
+    pub person_delete_tombstone: bool,
+
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
     /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
     /// to skip server-side warming entirely.
