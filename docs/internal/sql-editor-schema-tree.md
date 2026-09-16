@@ -14,6 +14,10 @@ Field requests share the database store, deduplicate concurrent requests, and ig
 Restored expanded nodes load their fields when the table catalog arrives.
 Failed field requests can be retried by collapsing and expanding the table.
 
+Tables and nested joins expand on the first click, including after scrolling.
+The virtualized tree keeps each rendered row under a parent keyed by the item ID.
+Changing the visible range preserves the focused row so mouse-down and mouse-up reach the same element.
+
 There is no timed background request for all fields.
 Consumers that need fields across the catalog must request them explicitly with `ensureAllTableFields`.
 Sidebar search uses this to retain column-name matching.
