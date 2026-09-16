@@ -184,6 +184,13 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     result_count: number
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
+    /**
+     * The way out of the narrowing that the empty state offered, null when it offered none. Null on
+     * a list with rows too, for the same reason `empty_reason` is: a list with rows has no empty
+     * state. The values match `action` on `experiment recordings empty state action clicked`, so
+     * the two together size how often a viewer takes the way out against how often it is offered.
+     */
+    narrowing_action: string | null
     /** Null when the experiment has not launched. */
     days_since_start: number | null
     /** Null while the experiment runs. */

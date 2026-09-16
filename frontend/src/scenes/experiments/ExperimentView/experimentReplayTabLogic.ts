@@ -1866,6 +1866,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ...values.filterContext,
                 result_count: recordings.length,
                 empty_reason: recordings.length === 0 ? values.listEmptyReason : null,
+                narrowing_action: recordings.length === 0 ? values.listEmptyContext.narrowingAction : null,
                 days_since_start: daysSince(props.experiment.start_date),
                 days_since_end: daysSince(props.experiment.end_date),
                 retention_period: values.currentTeam?.session_recording_retention_period ?? null,

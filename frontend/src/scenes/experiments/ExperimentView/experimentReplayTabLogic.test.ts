@@ -929,6 +929,7 @@ describe('experimentReplayTabLogic', () => {
     it.each(NARROWING_ACTION_CASES)(
         'answers a young run narrowed by $narrowing with $action',
         async ({ experimentId, setup, action }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
             teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
             const young = experimentReplayTabLogic({
                 experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(1), end_date: null } as Experiment,
@@ -937,7 +938,16 @@ describe('experimentReplayTabLogic', () => {
             setup?.(young)
             await expectLogic(young).toFinishAllListeners()
 
+            young.actions.recordingsLoaded([])
+            await expectLogic(young).toFinishAllListeners()
+
             expect(young.values.listEmptyContext.narrowingAction).toBe(action)
+            // The banner reads the context, and the report reads it too, so a viewer who was given
+            // a way out and one who was counted as given it cannot come apart.
+            expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
+                empty_reason: ExperimentReplayListEmptyReason.TooEarly,
+                narrowing_action: action,
+            })
             young.unmount()
         }
     )
@@ -996,6 +1006,7 @@ describe('experimentReplayTabLogic', () => {
             experiment_id: 111,
             result_count: 2,
             empty_reason: null,
+            narrowing_action: null,
             days_since_start: 10,
             days_since_end: 2,
             retention_period: '90d',
