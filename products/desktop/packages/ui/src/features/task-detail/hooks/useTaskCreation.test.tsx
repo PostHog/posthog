@@ -247,6 +247,30 @@ describe("useTaskCreation prompt records", () => {
     },
   );
 
+  it("still creates the task when the history write throws", async () => {
+    const addPrompt = vi
+      .spyOn(useTaskInputHistoryStore.getState(), "addPrompt")
+      .mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+
+    try {
+      const { result } = renderTaskCreation(textToContent("Check the build"));
+      await act(async () => {
+        expect(await result.current.handleSubmit()).toBe(true);
+      });
+
+      expect(addPrompt).toHaveBeenCalledOnce();
+      expect(createTaskMock).toHaveBeenCalledOnce();
+    } finally {
+      addPrompt.mockRestore();
+    }
+  });
+
   it("omits subscription billing when Pi is selected", async () => {
     cloudSubscription.cloudSubscriptionOn = true;
     createTaskMock.mockResolvedValueOnce({

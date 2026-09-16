@@ -313,9 +313,15 @@ export function useTaskCreation({
       const filePaths = extractFilePaths(content);
 
       // History is where the person recovers a prompt when creation fails, so
-      // it must be written before any preflight call that can fail.
+      // it must be written before any preflight call that can fail. The write
+      // persists to local storage, which throws when the quota is full, and
+      // history is only a recovery aid, so it must not block the task.
       if (plainPromptText) {
-        useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        try {
+          useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        } catch (error) {
+          log.warn("Failed to save the prompt to history", { error });
+        }
       }
 
       // Held for the whole submit, pre-flight awaits included, so a second
