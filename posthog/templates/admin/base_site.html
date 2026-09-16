@@ -32,9 +32,24 @@
             window.setTimeout(function () {
                 form.querySelectorAll("input[type=submit]").forEach(function (control) {
                     control.disabled = true;
+                    control.dataset.disabledOnSubmit = "1";
                 });
             }, 0);
         }, true);
+
+        // Back/forward can restore this page from the bfcache with these controls still disabled,
+        // which leaves the operator on a page they cannot submit until they reload. A restore means
+        // the POST is done with. Only a control the handler above marked is released, so a control
+        // the template disabled on purpose stays disabled.
+        window.addEventListener("pageshow", function (event) {
+            if (!event.persisted) {
+                return;
+            }
+            document.querySelectorAll("input[data-disabled-on-submit]").forEach(function (control) {
+                control.disabled = false;
+                control.removeAttribute("data-disabled-on-submit");
+            });
+        });
     </script>
 {% endblock %}
 {% block extrastyle %}
