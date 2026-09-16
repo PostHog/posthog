@@ -49,6 +49,9 @@ export const BatchResolverStateSchema = z.object({
     // without this field default to 0 via the zod parse.
     attempts: z.number().int().nonnegative().default(0),
     startedAt: z.string(),
+    // Set when the resolver stopped short with audience still to come. Not derivable from the
+    // counts: an audience of exactly maxAudienceSize fills the budget without dropping anyone.
+    audienceTruncated: z.boolean().optional(),
     pendingTerminal: z.enum(['completed', 'failed']).optional(),
 })
 

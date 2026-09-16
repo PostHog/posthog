@@ -358,6 +358,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         if (!page.has_more || pageTruncated) {
             newState.pendingTerminal = 'completed'
         }
+        if (pageTruncated || (page.has_more && newState.totalEnqueued >= state.maxAudienceSize)) {
+            newState.audienceTruncated = true
+        }
 
         let checkIn: { newJobIds: string[]; cancelRequested?: boolean }
         try {
@@ -468,6 +471,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
+            audienceTruncated: true,
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
@@ -506,7 +510,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         }
 
         try {
-            await this.putBatchJobStatus(state.teamId, state.batchJobId, state.pendingTerminal)
+            await this.putBatchJobStatus(state.teamId, state.batchJobId, state.pendingTerminal, {
+                audienceEnqueued: state.totalEnqueued,
+                audienceLimit: state.maxAudienceSize,
+                audienceTruncated: state.audienceTruncated ?? false,
+            })
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
             const nextAttempts = state.attempts + 1
@@ -551,14 +559,24 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         })
     }
 
-    private async putBatchJobStatus(teamId: number, batchJobId: string, status: 'completed' | 'failed'): Promise<void> {
+    private async putBatchJobStatus(
+        teamId: number,
+        batchJobId: string,
+        status: 'completed' | 'failed',
+        audience: { audienceEnqueued: number; audienceLimit: number; audienceTruncated: boolean }
+    ): Promise<void> {
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
 
         const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
             urlPath,
             fetchParams: {
                 method: 'PUT',
-                body: JSON.stringify({ status }),
+                body: JSON.stringify({
+                    status,
+                    audience_enqueued: audience.audienceEnqueued,
+                    audience_limit: audience.audienceLimit,
+                    audience_truncated: audience.audienceTruncated,
+                }),
                 timeoutMs: 10_000,
             },
         })

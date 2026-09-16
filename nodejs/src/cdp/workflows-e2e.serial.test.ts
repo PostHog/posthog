@@ -4476,7 +4476,12 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }, 20000)
 
         expect(personPageCalls).toBe(3)
-        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        expect(statusPuts[0]).toEqual({
+            status: 'completed',
+            audience_enqueued: expect.any(Number),
+            audience_limit: expect.any(Number),
+            audience_truncated: false,
+        })
 
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
@@ -4672,7 +4677,14 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         )
 
         await waitForExpect(() => {
-            expect(statusPuts).toEqual([{ status: 'completed' }])
+            expect(statusPuts).toEqual([
+                {
+                    status: 'completed',
+                    audience_enqueued: expect.any(Number),
+                    audience_limit: expect.any(Number),
+                    audience_truncated: false,
+                },
+            ])
         }, 20000)
 
         // The replay re-evaluated masking against the released claim and enrolled the
@@ -4731,7 +4743,12 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(statusPuts).toHaveLength(1)
         }, 20000)
 
-        expect(statusPuts[0]).toEqual({ status: 'failed' })
+        expect(statusPuts[0]).toEqual({
+            status: 'failed',
+            audience_enqueued: expect.any(Number),
+            audience_limit: expect.any(Number),
+            audience_truncated: expect.any(Boolean),
+        })
 
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
@@ -4905,7 +4922,12 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }, 20000)
 
         // Status PUT was completed (truncation is still success, not failure)
-        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        expect(statusPuts[0]).toEqual({
+            status: 'completed',
+            audience_enqueued: 100,
+            audience_limit: 100,
+            audience_truncated: true,
+        })
 
         // No children — the resolver short-circuited before audience fetch
         const children = await cyclotronPool.query(
@@ -4970,7 +4992,12 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(statusPuts).toHaveLength(1)
         }, 20000)
 
-        expect(statusPuts[0]).toEqual({ status: 'failed' })
+        expect(statusPuts[0]).toEqual({
+            status: 'failed',
+            audience_enqueued: expect.any(Number),
+            audience_limit: expect.any(Number),
+            audience_truncated: expect.any(Boolean),
+        })
         expect(fetchAttempts).toBe(1) // one more retry consumed the last attempt budget
 
         // No children enqueued — the resolver bailed before ever returning a page
@@ -5095,7 +5122,12 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(statusPuts).toHaveLength(1)
         }, 20000)
 
-        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        expect(statusPuts[0]).toEqual({
+            status: 'completed',
+            audience_enqueued: 4,
+            audience_limit: 4,
+            audience_truncated: true,
+        })
 
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
