@@ -428,13 +428,13 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let tombstone = self.tombstone_delete_teams.includes(team_id);
+        let tombstone = self.tombstone_deletes;
 
         // Resolve UUIDs to integer IDs in one query, then chunk and delete
         // by ID. This avoids scanning the UUID index per-chunk. A tombstone
         // is idempotent on already-tombstoned rows, so those are left out;
-        // a hard delete still removes them, which is what a rollback of the
-        // allowlist or a team teardown needs.
+        // a hard delete still removes them, which is what a flag flip or a
+        // team teardown needs.
         let mut person_ids: Vec<i64> = if tombstone {
             sqlx::query_scalar!(
                 r#"
@@ -519,7 +519,7 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let tombstone = self.tombstone_delete_teams.includes(team_id);
+        let tombstone = self.tombstone_deletes;
 
         // Select up to batch_size person IDs. The tombstone path must skip
         // rows it already tombstoned, or the caller's "loop until 0" never

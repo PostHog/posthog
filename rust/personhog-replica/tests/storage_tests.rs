@@ -1,11 +1,8 @@
 mod common;
 
-use std::collections::HashSet;
-
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
-use personhog_replica::team_allowlist::TeamAllowlist;
 use rand::Rng;
 use rstest::rstest;
 use uuid::Uuid;
@@ -440,8 +437,8 @@ async fn hash_key_override_count(pool: &sqlx::PgPool, team_id: i64, person_id: i
 }
 
 #[tokio::test]
-async fn test_delete_persons_tombstones_allowlisted_team() {
-    let ctx = TestContext::new_with_tombstone_deletes(TeamAllowlist::All).await;
+async fn test_delete_persons_tombstones_when_enabled() {
+    let ctx = TestContext::new_with_tombstone_deletes(true).await;
     let cohort_id: i64 = 8802;
     let person = ctx
         .insert_person(
@@ -512,10 +509,8 @@ async fn test_delete_persons_tombstones_allowlisted_team() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_hard_deletes_team_outside_allowlist() {
-    // Team 1 is outside the random range TestContext draws from.
-    let ctx =
-        TestContext::new_with_tombstone_deletes(TeamAllowlist::Only(HashSet::from([1]))).await;
+async fn test_delete_persons_hard_deletes_when_tombstones_disabled() {
+    let ctx = TestContext::new_with_tombstone_deletes(false).await;
     let person = ctx.insert_person("hard_delete", None).await.unwrap();
 
     let deleted = ctx
@@ -539,7 +534,7 @@ async fn test_delete_persons_hard_deletes_team_outside_allowlist() {
 
 #[tokio::test]
 async fn test_delete_persons_batch_for_team_tombstones_and_terminates() {
-    let ctx = TestContext::new_with_tombstone_deletes(TeamAllowlist::All).await;
+    let ctx = TestContext::new_with_tombstone_deletes(true).await;
     let p1 = ctx.insert_person("batch_tomb_1", None).await.unwrap();
     let p2 = ctx.insert_person("batch_tomb_2", None).await.unwrap();
     let p3 = ctx.insert_person("batch_tomb_3", None).await.unwrap();
