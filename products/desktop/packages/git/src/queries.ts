@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { isBinaryFile } from "@posthog/shared";
-import type { CreateGitClientOptions } from "./client";
+import { type CreateGitClientOptions, DIFF_NORMALIZATION_ARGS } from "./client";
 import { mapWithConcurrency } from "./concurrency";
 import { getGitOperationManager } from "./operation-manager";
 import { streamGitStatus } from "./status-stream";
@@ -764,6 +764,8 @@ export function splitUnifiedDiffByFile(raw: string): Map<string, string> {
   const patches = new Map<string, string>();
   if (!raw) return patches;
 
+  // Strict on purpose: the callers force these prefixes with
+  // `DIFF_NORMALIZATION_ARGS`, so a different shape means a caller skipped it.
   const headerRegex = /^diff --git a\/.+? b\/(.+)$/gm;
   const matches: Array<{ path: string; start: number }> = [];
   let match = headerRegex.exec(raw);
@@ -792,9 +794,9 @@ export async function getBranchDiffPatchesByPath(
     async (git) => {
       try {
         const raw = await git.diff([
+          ...DIFF_NORMALIZATION_ARGS,
           "-M",
           "--patch",
-          "--no-color",
           `origin/${baseBranch}...${headBranch}`,
         ]);
         return splitUnifiedDiffByFile(raw);
@@ -1182,40 +1184,45 @@ export async function hasTrackedFiles(
   return files.length > 0;
 }
 
+type ReadPatchOptions = CreateGitClientOptions & { ignoreWhitespace?: boolean };
+
+/**
+ * Reads a patch whose header shape does not depend on the user's gitconfig.
+ * A new patch read belongs here, so it cannot forget the normalization.
+ */
+async function readPatch(
+  baseDir: string,
+  revisionArgs: string[],
+  options?: ReadPatchOptions,
+): Promise<string> {
+  const args = [...DIFF_NORMALIZATION_ARGS, ...revisionArgs];
+  if (options?.ignoreWhitespace) args.push("--ignore-all-space");
+  return getGitOperationManager().executeRead(
+    baseDir,
+    (git) => git.diff(args),
+    { signal: options?.abortSignal },
+  );
+}
+
 export async function getStagedDiff(
   baseDir: string,
-  options?: CreateGitClientOptions & { ignoreWhitespace?: boolean },
+  options?: ReadPatchOptions,
 ): Promise<string> {
-  const manager = getGitOperationManager();
-  const args = ["--cached", "HEAD"];
-  if (options?.ignoreWhitespace) args.push("-w");
-  return manager.executeRead(baseDir, (git) => git.diff(args), {
-    signal: options?.abortSignal,
-  });
+  return readPatch(baseDir, ["--cached", "HEAD"], options);
 }
 
 export async function getUnstagedDiff(
   baseDir: string,
-  options?: CreateGitClientOptions & { ignoreWhitespace?: boolean },
+  options?: ReadPatchOptions,
 ): Promise<string> {
-  const manager = getGitOperationManager();
-  const args: string[] = [];
-  if (options?.ignoreWhitespace) args.push("-w");
-  return manager.executeRead(baseDir, (git) => git.diff(args), {
-    signal: options?.abortSignal,
-  });
+  return readPatch(baseDir, [], options);
 }
 
 export async function getDiffHead(
   baseDir: string,
-  options?: CreateGitClientOptions & { ignoreWhitespace?: boolean },
+  options?: ReadPatchOptions,
 ): Promise<string> {
-  const manager = getGitOperationManager();
-  const args = ["HEAD"];
-  if (options?.ignoreWhitespace) args.push("--ignore-all-space");
-  return manager.executeRead(baseDir, (git) => git.diff(args), {
-    signal: options?.abortSignal,
-  });
+  return readPatch(baseDir, ["HEAD"], options);
 }
 
 export async function stageFiles(
@@ -1247,12 +1254,7 @@ export async function getDiffAgainstRemote(
   baseBranch: string,
   options?: CreateGitClientOptions,
 ): Promise<string> {
-  const manager = getGitOperationManager();
-  return manager.executeRead(
-    baseDir,
-    (git) => git.diff([`origin/${baseBranch}...HEAD`]),
-    { signal: options?.abortSignal },
-  );
+  return readPatch(baseDir, [`origin/${baseBranch}...HEAD`], options);
 }
 
 export async function addToLocalExclude(
