@@ -1,0 +1,88 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render } from '@testing-library/react'
+
+import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { initKeaTests } from '~/test/init'
+import { ActivityScope } from '~/types'
+
+import { dashboardActivityDescriber } from './dashboardActivityDescriber'
+
+describe('dashboardActivityDescriber', () => {
+    afterEach(cleanup)
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    const makeLogItem = (after: string | null): ActivityLogItem => ({
+        activity: 'updated',
+        scope: ActivityScope.DASHBOARD,
+        item_id: '42',
+        created_at: '2026-09-14T10:00:00Z',
+        user: { first_name: 'Mia', last_name: 'Chen', email: 'mia@example.com' },
+        detail: {
+            name: 'Activation overview',
+            merge: null,
+            trigger: null,
+            changes: [{ type: ActivityScope.DASHBOARD, action: 'changed', field: 'description', after }],
+        },
+    })
+
+    it.each([
+        ['Compare completed setup checklists across new workspaces.', 'updated the description'],
+        ['', 'removed the description'],
+        [null, 'removed the description'],
+    ])('separates the description preview from the action for %p', (after, action) => {
+        const logItem = makeLogItem(after)
+        const [item] = humanize([logItem], () => dashboardActivityDescriber, true)
+
+        expect(render(<>{item.summary?.action}</>).container).toHaveTextContent(action)
+        expect(item.summary?.preview).toBe(after ?? undefined)
+        expect(render(<>{item.summary?.target}</>).getByText('Activation overview')).toHaveAttribute(
+            'href',
+            expect.stringContaining('/dashboard/42')
+        )
+        expect(render(<>{item.description}</>).container).toHaveTextContent(
+            `Mia Chen changed the description of the dashboard to "${after ?? ''}" on the dashboard Activation overview`
+        )
+    })
+
+    it('keeps other described changes alongside the preview and omits excluded fields', () => {
+        const logItem = makeLogItem('Review workspace setup.')
+        logItem.detail.changes!.push(
+            { type: ActivityScope.DASHBOARD, action: 'changed', field: 'pinned', before: false, after: true },
+            { type: ActivityScope.DASHBOARD, action: 'changed', field: 'last_refresh', after: '2026-09-14' }
+        )
+        const { summary } = dashboardActivityDescriber(logItem)
+
+        expect(render(<>{summary?.action}</>).container).toHaveTextContent(
+            /^updated the description, and pinned the dashboard$/
+        )
+        expect(summary?.preview).toBe('Review workspace setup.')
+    })
+
+    it.each([
+        [{ user: { first_name: '', last_name: '', email: 'mia@example.com' } }, 'mia@example.com'],
+        [{ is_system: true }, 'PostHog'],
+        [{ was_impersonated: true }, 'PostHog Support (as Mia Chen)'],
+    ])('preserves actor attribution in summaries for %p', (overrides, name) => {
+        const { summary } = dashboardActivityDescriber({ ...makeLogItem('Review setup.'), ...overrides })
+
+        expect(render(<>{summary?.actor}</>).container).toHaveTextContent(name)
+    })
+
+    it('provides a creation summary without a value preview', () => {
+        const { summary, description } = dashboardActivityDescriber({
+            ...makeLogItem(null),
+            activity: 'created',
+        })
+
+        expect(summary?.action).toBe('Created the dashboard')
+        expect(summary?.preview).toBeUndefined()
+        expect(render(<>{description}</>).container).toHaveTextContent(
+            'Mia Chen created the dashboard Activation overview'
+        )
+    })
+})

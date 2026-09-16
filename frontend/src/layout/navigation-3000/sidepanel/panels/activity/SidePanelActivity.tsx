@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import { IconList, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
-import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLogRow'
 import { ActivityLogSubscribeMenu } from 'lib/components/ActivityLog/ActivityLogSubscribeMenu'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
