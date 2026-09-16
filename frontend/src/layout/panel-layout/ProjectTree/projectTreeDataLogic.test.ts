@@ -61,6 +61,28 @@ describe('projectTreeDataLogic', () => {
         expect(hrefs).toEqual(['/insights/abc123#sceneSource=starred', '/dashboard/7'])
     })
 
+    // A starred folder's children are converted under the project protocol, so their tree ids are
+    // project ids rather than starred ones. The source must not depend on the id.
+    it('tags an insight inside a starred folder', () => {
+        logic.actions.loadShortcutsSuccess([{ id: '1', path: 'My folder', type: 'folder', ref: 'My folder' }])
+        logic.actions.loadFolderSuccess(
+            'My folder',
+            [
+                { id: '2', path: 'My folder/My funnel', type: 'insight', ref: 'abc123', href: '/insights/abc123' },
+                { id: '3', path: 'My folder/My board', type: 'dashboard', ref: '7', href: '/dashboard/7' },
+            ],
+            false,
+            2
+        )
+
+        const children = logic.values.getShortcutTreeItems('', false)[0].children ?? []
+
+        expect(children.map((item) => item.record?.href)).toEqual([
+            '/dashboard/7',
+            '/insights/abc123#sceneSource=starred',
+        ])
+    })
+
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
         await expectLogic(logic, () => {
