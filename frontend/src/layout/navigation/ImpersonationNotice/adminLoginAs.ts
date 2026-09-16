@@ -3,11 +3,13 @@ import posthog from 'posthog-js'
 import { getCookie } from 'lib/api'
 
 import { usersRetrieve } from '~/generated/core/api'
+import { UserApi } from '~/generated/core/api.schemas'
 
 type ImpersonationFailureCause =
     | 'popup_blocked'
     | 'admin_auth_cancelled'
     | 'loginas_request_failed'
+    | 'verification_failed'
     | 'rejected'
     | 'unknown'
 
@@ -130,7 +132,17 @@ async function startImpersonation({ userId, reason, readOnly }: AdminLoginAsPara
     // followed request lands on a 200 that is indistinguishable from a success. Ask the API who
     // we are now instead of trusting the status. A rejection also leaves an already impersonated
     // session untouched, so the answer must be the user this request asked for.
-    const me = await usersRetrieve('@me')
+    let me: UserApi
+    try {
+        me = await usersRetrieve('@me')
+    } catch {
+        // The POST may well have switched the session, so do not claim it failed.
+        throw new AdminLoginAsError(
+            'verification_failed',
+            'Could not confirm whether the login worked. Reload the page to check.'
+        )
+    }
+
     if (!me.is_impersonated || me.id !== userId) {
         throw new AdminLoginAsError(
             'rejected',

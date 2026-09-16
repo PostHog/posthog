@@ -52,6 +52,26 @@ describe('adminLoginAs', () => {
         })
     })
 
+    it('does not claim the login failed when the confirming request fails', async () => {
+        // The POST may already have switched the session, so a lost confirmation is not a refusal.
+        useMocks({
+            get: {
+                '/admin/auth_check': () => [200, {}],
+                '/api/users/@me/': () => [500, {}],
+            },
+            post: { '/admin/login/user/:id/': () => [200, {}] },
+        })
+
+        await expect(adminLoginAs({ userId: 7, reason: 'support ticket', readOnly: true })).rejects.toThrow(
+            /Reload the page to check/
+        )
+        expect(posthog.capture).toHaveBeenCalledWith('impersonation_failed', {
+            cause: 'verification_failed',
+            target_user_id: 7,
+            read_only: true,
+        })
+    })
+
     it('rejects and captures when the login request itself fails', async () => {
         useMocks({
             get: { '/admin/auth_check': () => [200, {}] },
