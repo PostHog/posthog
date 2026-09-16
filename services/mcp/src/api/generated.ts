@@ -3921,9 +3921,19 @@ export namespace Schemas {
       Smooth: 'smooth',
     } as const;
 
+    export type SeriesColorMode = typeof SeriesColorMode[keyof typeof SeriesColorMode];
+
+
+    export const SeriesColorMode = {
+      Palette: 'palette',
+      Opacity: 'opacity',
+    } as const;
+
     export interface ChartStyle {
       /** Line interpolation: straight segments or a smoothed curve through the points. */
       curve?: Curve | null;
+      /** How series are told apart: one color per series, or one color at stepped opacities. */
+      seriesColorMode?: SeriesColorMode | null;
     }
 
     export type DetailedResultsAggregationType = typeof DetailedResultsAggregationType[keyof typeof DetailedResultsAggregationType];
