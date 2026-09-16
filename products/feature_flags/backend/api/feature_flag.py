@@ -2393,6 +2393,14 @@ class FeatureFlagSerializer(
                 if new_key and new_key != old_key and validated_data.get("deleted", locked_instance.deleted) is False:
                     self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
 
+                # The locked row is a fresh object, so per-save context the caller attached to
+                # the instance it handed us does not come with it. The activity-log receiver
+                # reads the scheduled-change id off the saved instance, and without this the
+                # audit entry for a scheduled change loses its trigger.
+                scheduled_change_context = getattr(instance, "_scheduled_change_context", None)
+                if scheduled_change_context is not None:
+                    locked_instance._scheduled_change_context = scheduled_change_context
+
                 with ImpersonatedContext(request):
                     instance = super().update(locked_instance, validated_data)
         except IntegrityError as e:
