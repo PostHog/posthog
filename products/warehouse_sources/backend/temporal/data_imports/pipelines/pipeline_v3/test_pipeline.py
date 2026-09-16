@@ -727,7 +727,6 @@ class TestCompanionJob:
         assert producer.call_args.kwargs["destination_ids"] == []
 
 
-@pytest.mark.asyncio
 class TestSingleTableRunIsUntouched:
     """The base class is every non-lane source. Its staging path must not depend on lanes at all."""
 

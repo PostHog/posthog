@@ -228,7 +228,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         # gate orders on "no earlier index still running", so gaps are harmless.
         billable_rows = 0
         for index, lane in enumerate(self._output_lanes):
-            lane_table = lane.transform(pa_table) if lane.transform is not None else pa_table
+            # The history lane's first match reads the table's rows at its position; keep that
+            # off the event loop the heartbeat runs on.
+            lane_table = await asyncio.to_thread(lane.transform, pa_table) if lane.transform is not None else pa_table
             # Only a lane that filtered the batch away sits this index out. A batch that arrived
             # empty is still staged, as it is on a single-table run.
             #

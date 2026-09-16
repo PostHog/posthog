@@ -232,12 +232,15 @@ class TestPositionRowCap:
         assert position.applied == {(1, "I"): [{}, {}], (2, "I"): [{}]}
         assert position.content_schema is None
 
-    async def test_a_big_file_with_few_rows_at_the_position_does_not_degrade(self, tmp_path, mocker):
+    @pytest.mark.parametrize("cap", ["MAX_POSITION_ROWS", "MAX_POSITION_BYTES"])
+    async def test_a_big_file_with_few_rows_at_the_position_does_not_degrade(self, cap, tmp_path, mocker):
         # After compaction the file holding the newest position holds most of the table. Its row
-        # count is not the count at the position, and degrading on it would switch content
-        # matching off for every history table of any size.
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position.MAX_POSITION_ROWS", 2)
+        # count is not the count at the position, nor are its bytes, and degrading on either would
+        # switch content matching off for every history table of any size.
         table = _write(tmp_path / "t", [10, 10, 10, 30], ids=[1, 2, 3, 4])
+        file_bytes = int(pa.table(table.get_add_actions(flatten=True)).column("size_bytes").to_pylist()[0] or 0)
+        limit = {"MAX_POSITION_ROWS": 2, "MAX_POSITION_BYTES": file_bytes // 2}[cap]
+        mocker.patch(f"products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position.{cap}", limit)
 
         position = await _resolved(table)
 
@@ -255,7 +258,7 @@ class TestPositionRowCap:
 
 
 class TestEnsurePositionStats:
-    async def test_it_names_the_position_column_so_later_reads_are_a_lookup(self, tmp_path, mocker):
+    async def test_it_names_the_position_column_so_later_reads_are_a_lookup(self, tmp_path):
         table = _write(tmp_path / "t", [10], stats=False)
 
         await ensure_position_stats(table)
@@ -275,7 +278,7 @@ class TestEnsurePositionStats:
         declared = deltalake.DeltaTable(str(tmp_path / "t")).metadata().configuration[STATS_COLUMNS_PROPERTY]
         assert CDC_SEQ_COLUMN in declared.split(",")
 
-    async def test_it_does_not_rewrite_a_table_that_already_has_it(self, tmp_path, mocker):
+    async def test_it_does_not_rewrite_a_table_that_already_has_it(self, tmp_path):
         # Runs on every lane build, so a second call has to be free.
         table = _write(tmp_path / "t", [10], stats=False)
         await ensure_position_stats(table, ["id"])

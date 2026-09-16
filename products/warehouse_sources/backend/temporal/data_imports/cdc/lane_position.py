@@ -165,13 +165,14 @@ def _load_applied(
 ) -> LanePosition:
     """The rows the table holds at `highest`, read from the candidate files."""
     rows_at_position = sum(candidates.values())
-    if rows_at_position > MAX_POSITION_ROWS:
+    bytes_per_row = _bytes_per_row(add_actions, list(candidates))
+    if rows_at_position > MAX_POSITION_ROWS or rows_at_position * bytes_per_row > MAX_POSITION_BYTES:
         # File totals overstate it: after compaction the file holding the newest position holds
         # most of the table. Count the rows actually at the position first — one integer
-        # column, row-group pruned — and only degrade when that count is what exceeds the cap.
+        # column, row-group pruned — and only degrade when that count is what exceeds a cap.
         only_seq = _rows_at_position(delta_table, add_actions, highest, list(candidates), [CDC_SEQ_COLUMN])
         rows_at_position = only_seq.num_rows
-    estimated_bytes = rows_at_position * _bytes_per_row(add_actions, list(candidates))
+    estimated_bytes = rows_at_position * bytes_per_row
     if rows_at_position > MAX_POSITION_ROWS or estimated_bytes > MAX_POSITION_BYTES:
         # One bulk transaction stamps every row it touched with one position, and reading them
         # all back as Python objects would exhaust memory before anything could be staged — the
