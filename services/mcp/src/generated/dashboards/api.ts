@@ -72,7 +72,7 @@ export const DashboardsListQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    pinned: zod.boolean().optional().describe('Optional. Return only dashboards pinned by the current user.'),
+    pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()
         .optional()

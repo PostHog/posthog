@@ -10434,7 +10434,7 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
-     * Optional. Return only dashboards pinned by the current user.
+     * Optional. Return only pinned dashboards.
      */
     pinned?: boolean
     /**
