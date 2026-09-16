@@ -15,7 +15,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
@@ -46,6 +46,27 @@ jest.mock('./utils/playerUtils', () => ({
 
 const makeEvent = (timestamp: number, type: number = EventType.IncrementalSnapshot): eventWithTime =>
     ({ timestamp, type, data: { source: IncrementalSource.MouseMove } }) as unknown as eventWithTime
+
+// Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
+// synchronously when it rebuilds a full snapshot on a document without a head, which is the
+// WebKit failure this recovery path guards against.
+const fakeReplayer = (head: HTMLElement | null): any => {
+    const throwWhenHeadless = (): void => {
+        if (!head) {
+            throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
+        }
+    }
+    return {
+        iframe: { contentDocument: { head } },
+        play: jest.fn(throwWhenHeadless),
+        pause: jest.fn(throwWhenHeadless),
+        getCurrentTime: jest.fn(() => 0),
+        setConfig: jest.fn(),
+        on: jest.fn(),
+        destroy: jest.fn(),
+        service: { state: { context: { events: [] } } },
+    }
+}
 
 describe('findNewEvents', () => {
     it.each([
@@ -1214,27 +1235,6 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.hasUnrenderableWindow).toBe(false)
         })
 
-        // Builds a stand-in replayer whose iframe document has (or lacks) a <head>. rrweb throws
-        // synchronously when it rebuilds a full snapshot on a document without a head, which is the
-        // WebKit failure this recovery path guards against.
-        const fakeReplayer = (head: HTMLElement | null): any => {
-            const throwWhenHeadless = (): void => {
-                if (!head) {
-                    throw new TypeError("null is not an object (evaluating 'doc.head.appendChild')")
-                }
-            }
-            return {
-                iframe: { contentDocument: { head } },
-                play: jest.fn(throwWhenHeadless),
-                pause: jest.fn(throwWhenHeadless),
-                getCurrentTime: jest.fn(() => 0),
-                setConfig: jest.fn(),
-                on: jest.fn(),
-                destroy: jest.fn(),
-                service: { state: { context: { events: [] } } },
-            }
-        }
-
         it('re-inits the replayer instead of reporting a playback failure when the iframe has no head', async () => {
             seedRecording([fs(START), inc(START + 1000), inc(START + 11000)], [])
             logic.actions.setPause()
@@ -1394,6 +1394,61 @@ describe('sessionRecordingPlayerLogic', () => {
                     },
                 }),
             })
+        })
+    })
+
+    describe('capturing a single moment', () => {
+        let rootFrame: HTMLDivElement
+
+        beforeEach(async () => {
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                autoPlay: false,
+                startPaused: true,
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+            rootFrame = document.createElement('div')
+            document.body.appendChild(rootFrame)
+            logic.actions.setRootFrame(rootFrame)
+            await expectLogic(logic).toDispatchActions(['initializePlayerFromStart']).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            rootFrame.remove()
+        })
+
+        // The paused playhead rests on the window's first meta snapshot, which rrweb has already
+        // rendered. Reading the resolution from a strictly earlier snapshot rejected that painted
+        // frame as unready.
+        it('captures a paused frame that sits on its meta snapshot', async () => {
+            logic.actions.setPause()
+            logic.actions.seekToTime(0)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.openHeatmap()
+
+            expect(logic.values.resolution).toEqual({ width: 2560, height: 1304 })
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                'in-app heatmap background snapshot rejected',
+                expect.anything()
+            )
+        })
+
+        it('holds the playhead paused on the first segment', async () => {
+            const replayer = fakeReplayer(document.createElement('head'))
+
+            await expectLogic(logic, () => {
+                logic.actions.setPlayer({ replayer, windowId: 1 })
+            }).toFinishAllListeners()
+
+            expect(logic.values.playingState).toBe(SessionPlayerState.PAUSE)
+            expect(replayer.pause).toHaveBeenCalled()
+            expect(replayer.play).not.toHaveBeenCalled()
+            expect(logic.values.currentTimestamp).toBe(logic.values.sessionPlayerData.start?.valueOf())
         })
     })
 

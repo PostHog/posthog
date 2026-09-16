@@ -47,11 +47,18 @@ export function SessionPlayerModal(): JSX.Element | null {
                   matchedEvents: matchedEvents,
               },
         skipToFirstMatchingEvent: isChoosingHeatmapBackground,
+        startPaused: isChoosingHeatmapBackground,
     }
 
     const playerLogic = sessionRecordingPlayerLogic(logicProps)
-    const { isFullScreen, resolution, rootFrame } = useValues(playerLogic)
+    const { isFullScreen, playerError, resolution, rootFrame } = useValues(playerLogic)
     const { openHeatmap } = useActions(playerLogic)
+
+    const backgroundDisabledReason = playerError
+        ? "This part of the recording didn't load, so there's no frame to capture"
+        : !rootFrame || !resolution
+          ? 'Wait for the recording to load'
+          : undefined
 
     return (
         <LemonModal
@@ -71,7 +78,7 @@ export function SessionPlayerModal(): JSX.Element | null {
                         <div>
                             <h3 className="mb-0">Choose the background</h3>
                             <p className="mb-0 text-sm text-muted">
-                                The player pauses at the first matching page event. Scrub to the exact state you want,
+                                The player stays paused so the frame holds still. Scrub to the exact state you want,
                                 then use that moment as the heatmap background.
                             </p>
                         </div>
@@ -84,9 +91,7 @@ export function SessionPlayerModal(): JSX.Element | null {
                                 type="primary"
                                 icon={<IconHeatmap />}
                                 onClick={openHeatmap}
-                                disabledReason={
-                                    !rootFrame || !resolution ? 'Wait for the recording to load' : undefined
-                                }
+                                disabledReason={backgroundDisabledReason}
                                 data-attr="heatmap-use-recording-moment"
                             >
                                 Use this moment as background
