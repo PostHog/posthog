@@ -108,6 +108,27 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         assert response.clickhouse
         self.assertIn("where_optimization", response.clickhouse)
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        self.assertIn("multiSearchAny(where_optimization.properties, [%(hogql_val_1)s])", response.clickhouse)
+
+    @parameterized.expand(
+        [
+            ("in_list", "properties.$some_prop in ('something', 'other')", "[%(hogql_val_1)s, %(hogql_val_2)s]"),
+            ("quoted_value", """properties.$some_prop = 'some"thing'""", None),
+            ("non_ascii_value", "properties.$some_prop = 'sömething'", None),
+            ("is_not", "properties.$some_prop != 'something'", None),
+        ]
+    )
+    def test_json_substring_prefilter(self, _name: str, where: str, expected_values: str | None):
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where {where}"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        if expected_values is None:
+            self.assertNotIn("multiSearchAny", response.clickhouse)
+        else:
+            self.assertIn(f"multiSearchAny(where_optimization.properties, {expected_values})", response.clickhouse)
 
     @snapshot_clickhouse_queries
     def test_joins_are_left_alone_for_now(self):
