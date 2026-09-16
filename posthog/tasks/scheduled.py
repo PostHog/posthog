@@ -123,6 +123,7 @@ from products.streamlit_apps.backend.facade.api import (
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
+    reconcile_stale_in_progress_task_runs_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_inactive_tasks_task,
@@ -441,6 +442,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         reconcile_loop_trigger_schedules_task.s(),
         name="reconcile loop trigger schedules",
+    )
+
+    # Stranded task run reconciliation - every 15 minutes, fails runs left in IN_PROGRESS
+    # by a workflow that died before it could write a terminal status.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        reconcile_stale_in_progress_task_runs_task.s(),
+        name="reconcile stale in progress task runs",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)

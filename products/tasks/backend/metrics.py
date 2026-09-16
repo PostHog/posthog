@@ -392,6 +392,14 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
     "Loops auto-paused after exceeding the consecutive-failure threshold",
 )
 
+# outcome is one of: reaped, workflow_running, workflow_unknown, claim_lost, error — a fixed,
+# code-defined set, safe as a label.
+STALE_IN_PROGRESS_RUN_RECONCILED_TOTAL = Counter(
+    "posthog_tasks_stale_in_progress_run_reconciled_total",
+    "Outcomes of the watchdog sweep over runs stranded in IN_PROGRESS",
+    labelnames=["outcome"],
+)
+
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 DesktopAccessOutcome = Literal[
@@ -747,6 +755,10 @@ def observe_workflow_task_create(*, reason: str) -> None:
 
 def observe_loop_auto_paused() -> None:
     LOOP_AUTO_PAUSED_TOTAL.inc()
+
+
+def observe_stale_in_progress_run_reconciled(*, outcome: str) -> None:
+    STALE_IN_PROGRESS_RUN_RECONCILED_TOTAL.labels(outcome=outcome).inc()
 
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:

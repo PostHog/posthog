@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -10,8 +11,10 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -527,6 +530,45 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     observe_task_run_workflow_start(task_run, outcome="started", reason="reconcile")
     logger.info("task_run_reconcile_dispatch_started", extra={"run_id": run_id, "task_id": task_id})
     return "recovered"
+
+
+def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str, str]:
+    """Liveness of each orchestrating workflow, keyed by workflow id.
+
+    Each id maps to ``running``, ``gone`` (proven absent, or closed without terminalizing its
+    run) or ``unknown`` (Temporal could not answer). Plain strings keep temporalio out of the
+    caller.
+
+    NOT_FOUND is the only error that proves absence. Timeouts, unavailability and permission
+    errors say nothing about the workflow, and failing a live run is unrecoverable, so every
+    other error reports ``unknown`` and leaves the row for a later sweep to judge.
+
+    Batched because ``sync_connect`` opens a fresh client per call: describing one workflow at
+    a time would pay a connection and an event loop for every candidate in a sweep.
+    """
+    if not workflow_ids:
+        return {}
+
+    async def describe_all(client: Any) -> dict[str, str]:
+        results: dict[str, str] = {}
+        for workflow_id in workflow_ids:
+            try:
+                description = await client.get_workflow_handle(workflow_id).describe()
+            except RPCError as e:
+                results[workflow_id] = "gone" if e.status == RPCStatusCode.NOT_FOUND else "unknown"
+            except Exception as e:
+                logger.warning("task_run_liveness_describe_failed", extra={"workflow_id": workflow_id, "error": str(e)})
+                results[workflow_id] = "unknown"
+            else:
+                results[workflow_id] = "running" if description.status == WorkflowExecutionStatus.RUNNING else "gone"
+        return results
+
+    try:
+        client = sync_connect()
+    except Exception as e:
+        logger.warning("task_run_liveness_connect_failed", extra={"error": str(e)})
+        return dict.fromkeys(workflow_ids, "unknown")
+    return asyncio.run(describe_all(client))
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
