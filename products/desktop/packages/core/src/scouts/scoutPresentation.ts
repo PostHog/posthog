@@ -298,7 +298,9 @@ export function prettifyScoutSkillName(skillName: string): string {
 export function scoutDisplayName(
   config: Pick<ScoutConfig, "skill_name" | "display_name">,
 ): string {
-  return config.display_name?.trim() || prettifyScoutSkillName(config.skill_name);
+  return (
+    config.display_name?.trim() || prettifyScoutSkillName(config.skill_name)
+  );
 }
 
 /**
