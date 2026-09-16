@@ -560,7 +560,19 @@ _INHERITED_PR_OUTPUT_KEYS = ("pr_url", "pr_urls", "pr_summaries", "pr_state", "p
 def _inherited_pr_fields(output: object) -> dict[str, Any]:
     if not isinstance(output, dict):
         return {}
-    return {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
+    urls = read_pr_urls(output)
+    if not urls:
+        return {}
+    fields = {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
+    # An output can carry `pr_urls` without `pr_url`, and some readers look only at the latter
+    # (the feed's `has_pr` predicate, `get_latest_pr_url_by_task`), so mirror the primary-first
+    # shape `merge_pr_output` stores.
+    primary = output.get("pr_url")
+    if not isinstance(primary, str) or not primary:
+        primary = urls[0]
+    fields["pr_url"] = primary
+    fields["pr_urls"] = [primary, *(url for url in urls if url != primary)]
+    return fields
 
 
 def _prior_pr_output_from_runs(task: Task) -> dict[str, Any] | None:
@@ -1083,6 +1095,13 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) ->
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
+# ``{"pr_urls": [""]}`` carries no usable PR, and matching it would let a malformed newest run
+# shadow an older run that holds the real one.
+_PR_CARRYING_OUTPUT_Q = (Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | (
+    Q(output__pr_urls__0__isnull=False) & ~Q(output__pr_urls__0="")
+)
+
+
 def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) -> dict[str, dict[str, Any]]:
     """Most recent run ``output`` that carries a PR, per task.
 
@@ -1095,7 +1114,7 @@ def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) ->
         return {}
     rows = (
         TaskRun.objects.filter(team_id=team_id, task_id__in=ids)
-        .filter((Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(output__pr_urls__0__isnull=False))
+        .filter(_PR_CARRYING_OUTPUT_Q)
         .order_by("task_id", "-created_at", "-id")
         .distinct("task_id")
         .values_list("task_id", "output")
@@ -1105,11 +1124,7 @@ def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) ->
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
     """Find same-team tasks with a primary PR or a PR array, including array-only outputs."""
-    return (
-        TaskRun.objects.filter(*conditions, team_id=team_id)
-        .filter((Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(output__pr_urls__0__isnull=False))
-        .values("task_id")
-    )
+    return TaskRun.objects.filter(*conditions, team_id=team_id).filter(_PR_CARRYING_OUTPUT_Q).values("task_id")
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
@@ -5615,19 +5630,23 @@ def _list_tasks_queryset(
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
     # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
-    # loop persist onto the latest run's output (same latest-run subquery shape
-    # as the status filter, so "the task's PR" means what the API's latest_run
-    # shows). KeyTextTransform, so the comparison is text = text.
+    # loop persist onto a run's output. KeyTextTransform, so the comparison is
+    # text = text.
     pr_state = filters.get("pr_state")
     if pr_state:
-        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
-            :1
-        ]
+        # Anchored on the newest PR-carrying run, the one `_task_detail_to_dto` inherits
+        # `latest_run.output` from. A resumed run never gains a `pr_state` of its own, so reading
+        # the newest run would answer `pr_state=open` differently from the `latest_run` this same
+        # endpoint returns.
+        latest_pr_run = latest_run.filter(_PR_CARRYING_OUTPUT_Q)
+        latest_run_pr_state = latest_pr_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values(
+            "_pr_state"
+        )[:1]
         qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
         if pr_state == "merged":
             # Runs merged before pr_state existed only carry the older
             # pr_merged flag; honor both spellings.
-            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+            latest_run_pr_merged = latest_pr_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
                 "_pr_merged"
             )[:1]
             qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
@@ -5635,6 +5654,8 @@ def _list_tasks_queryset(
             )
         else:
             qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    # `ci_status` stays on the newest run: unlike the PR, it is not inherited across a resume.
 
     ci_status = filters.get("ci_status")
     if ci_status:

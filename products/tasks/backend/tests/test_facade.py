@@ -622,6 +622,59 @@ class TestFacadeReadsAndMappers(TestCase):
         assert dto is not None and dto.latest_run is not None
         self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/2")
 
+    def test_get_prior_pr_output_by_task_skips_an_empty_pr_urls_entry(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        # Storable, carries no PR, and so must not shadow the older run that has one.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": [""]})
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_url": "https://x/pull/1"}})
+
+    def test_task_detail_fills_pr_url_from_an_array_only_prior_output(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/9"]}
+        )
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        # Readers that look only at `pr_url` (the feed's `has_pr`, `get_latest_pr_url_by_task`)
+        # have to see the PR too.
+        assert dto is not None and dto.latest_run is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/9")
+        self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/9"])
+
+    def test_list_tasks_pr_state_filter_matches_an_inherited_pr(self):
+        resumed = self._make_task(title="resumed open pr")
+        TaskRun.objects.create(
+            task=resumed,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://x/pull/1", "pr_state": "open"},
+        )
+        TaskRun.objects.create(task=resumed, team=self.team, status=TaskRun.Status.COMPLETED)
+        merged = self._make_task(title="resumed merged pr")
+        TaskRun.objects.create(
+            task=merged,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            # Legacy merge: the pr_merged flag, no pr_state.
+            output={"pr_url": "https://x/pull/2", "pr_merged": True},
+        )
+        TaskRun.objects.create(task=merged, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The filter and `latest_run.output` have to answer the same way about the same task.
+        open_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "open"})]
+        merged_ids = [dto.id for dto in facade.list_tasks(self.team.id, self.user.id, filters={"pr_state": "merged"})]
+
+        self.assertEqual(open_ids, [resumed.id])
+        self.assertEqual(merged_ids, [merged.id])
+
     def test_list_tasks_resolves_inherited_prs_in_one_query(self):
         tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
         for index, task in enumerate(tasks):
