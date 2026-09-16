@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
@@ -459,52 +460,56 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             },
         ],
     })),
-    reducers({
-        insights: {
-            updateInsight: (state, { insight }) => ({
-                ...state,
-                results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
-            }),
-            addInsight: (state, { insight }) => ({
-                ...state,
-                count: state.count + 1,
-                results: [insight, ...state.results],
-            }),
-        },
-        rawFilters: [
-            null as Partial<SavedInsightFilters> | null,
-            {
-                setSavedInsightsFilters: (state, { filters, merge }) =>
-                    cleanFilters({
-                        ...(merge ? state || {} : {}),
-                        ...filters,
-                        // Reset page on filter change EXCEPT if it's page that's being updated
-                        ...('page' in filters ? {} : { page: 1 }),
-                    }),
+    reducers(() => {
+        const filtersPersistence = buildUserScopedPersistenceConfig('saved_insights_filters__')
+        return {
+            insights: {
+                updateInsight: (state, { insight }) => ({
+                    ...state,
+                    results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
+                }),
+                addInsight: (state, { insight }) => ({
+                    ...state,
+                    count: state.count + 1,
+                    results: [insight, ...state.results],
+                }),
             },
-        ],
-        insightsLoadFailed: [
-            false,
-            {
-                loadInsights: () => false,
-                loadInsightsSuccess: () => false,
-                loadInsightsFailure: () => true,
-            },
-        ],
-        dashboardUpdatesInProgress: [
-            {} as Record<number, boolean>,
-            {
-                setDashboardUpdateLoading: (state, { insightId, loading }) => {
-                    return { ...state, [insightId]: loading }
+            rawFilters: [
+                null as Partial<SavedInsightFilters> | null,
+                filtersPersistence,
+                {
+                    setSavedInsightsFilters: (state, { filters, merge }) =>
+                        cleanFilters({
+                            ...(merge ? state || {} : {}),
+                            ...filters,
+                            // Reset page on filter change EXCEPT if it's page that's being updated
+                            ...('page' in filters ? {} : { page: 1 }),
+                        }),
                 },
-            },
-        ],
-        draftQuery: [
-            null as DraftInsightQuery | null,
-            {
-                setDraftQuery: (_, { draftQuery }) => draftQuery,
-            },
-        ],
+            ],
+            insightsLoadFailed: [
+                false,
+                {
+                    loadInsights: () => false,
+                    loadInsightsSuccess: () => false,
+                    loadInsightsFailure: () => true,
+                },
+            ],
+            dashboardUpdatesInProgress: [
+                {} as Record<number, boolean>,
+                {
+                    setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                        return { ...state, [insightId]: loading }
+                    },
+                },
+            ],
+            draftQuery: [
+                null as DraftInsightQuery | null,
+                {
+                    setDraftQuery: (_, { draftQuery }) => draftQuery,
+                },
+            ],
+        }
     }),
     selectors({
         filters: [
@@ -803,6 +808,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
             // The insight editor may have written or cleared a draft since this logic mounted
             actions.loadDraftQuery()
+
+            const hasFilterParams = Object.keys(cleanFilters({})).some((key) => key in searchParams)
+            if (!hasFilterParams && values.rawFilters !== null) {
+                actions.loadInsights(false)
+                return
+            }
 
             const currentFilters = cleanFilters(values.filters)
             const nextFilters = cleanFilters(searchParams)

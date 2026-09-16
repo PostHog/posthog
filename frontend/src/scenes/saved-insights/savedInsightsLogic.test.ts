@@ -187,6 +187,18 @@ describe('savedInsightsLogic', () => {
             .toMatchValues(router, { searchParams: { search: 'hoi' } })
     })
 
+    it('keeps persisted filters when the page is opened without URL filters', async () => {
+        logic.actions.setSavedInsightsFilters({ createdBy: [1], tags: ['marketing'] })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsightsSuccess'])
+            .toMatchValues({ filters: partial({ createdBy: [1], tags: ['marketing'] }) })
+    })
+
     it('makes a direct ID query if searching for a number', async () => {
         logic.actions.setSavedInsightsFilters({ search: '123' })
         await expectLogic(logic)
