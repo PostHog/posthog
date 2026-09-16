@@ -362,6 +362,7 @@ class TestGroundedEventFallback(_VisionAPITestCase):
             _draft_v2(filter_events=["plan upgraded"]), allowed_pages=[], allowed_events=[], team_id=self.team.id
         )
 
+        assert result.query is not None
         assert result.query["events"] == [
             {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
         ]
