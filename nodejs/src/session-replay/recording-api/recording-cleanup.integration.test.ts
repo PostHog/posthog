@@ -159,6 +159,22 @@ describe('recording cleanup (integration)', () => {
         ).toBe(1)
     })
 
+    it('queues the deleted observations for the ClickHouse event sweep, once', async () => {
+        const queued = (observationId: string): Promise<number> =>
+            count(
+                `SELECT count(*) FROM posthog_asyncdeletion
+                 WHERE deletion_type = 5 AND team_id = $1 AND key = $2 AND delete_verified_at IS NULL`,
+                [teamId, observationId]
+            )
+
+        await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
+        // A repeated delete reruns the cleanup and must not trip the unique (deletion_type, key) constraint.
+        await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
+
+        expect(await queued(targetObservationId)).toBe(1)
+        expect(await queued(otherObservationId)).toBe(0)
+    })
+
     it('expires the rendered video for the deleted recording', async () => {
         await service.deleteRecordings(['session-to-delete'], teamId, 'test@example.com')
 
