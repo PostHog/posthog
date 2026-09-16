@@ -189,7 +189,7 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .string()
         .default(mcpAnalyticsSessionsListQueryPropertiesDefault)
         .describe(
-            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the \/query\/ endpoint takes. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
     search: zod
         .string()
@@ -273,6 +273,6 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .string()
         .default(mcpAnalyticsSessionsToolCallsQueryPropertiesDefault)
         .describe(
-            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the \/query\/ endpoint takes. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
+            'Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]'
         ),
 })

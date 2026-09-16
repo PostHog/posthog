@@ -816,6 +816,8 @@ class TestSharedFilterQueryParams(SimpleTestCase):
             ("not_json", "{definitely not json"),
             ("not_a_list", '{"key": "$mcp_tool_name"}'),
             ("unknown_filter_type", '[{"key": "a", "value": "b", "type": "nonsense"}]'),
+            ("hogql_filter", '[{"key": "1 = 1", "value": true, "type": "hogql"}]'),
+            ("cohort_filter", '[{"key": "id", "value": 1, "type": "cohort"}]'),
         ]
     )
     def test_unparseable_properties_are_rejected(self, _name: str, raw: str) -> None:

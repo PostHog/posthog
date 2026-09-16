@@ -5,18 +5,23 @@ from typing import Any
 import pydantic
 from rest_framework import serializers
 
-from posthog.schema import AnyPropertyFilterDiscriminated
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    SessionPropertyFilter,
+)
 
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
     list[AnyPropertyFilterDiscriminated]
 )
+_ALLOWED_PROPERTY_FILTERS = (EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter)
 
 PROPERTIES_HELP_TEXT = (
     "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of "
-    "PostHog property filters, each with key, value, operator and type - the same shape the "
-    "/query/ endpoint takes. Example: "
+    "event, person, or session property filters, each with key, value, operator, and type. Example: "
     '[{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", '
     '"type": "event"}]'
 )
@@ -40,9 +45,12 @@ class PropertyFiltersField(serializers.CharField):
         if not raw:
             return []
         try:
-            return _PROPERTY_FILTERS_ADAPTER.validate_python(json.loads(raw))
+            filters = _PROPERTY_FILTERS_ADAPTER.validate_python(json.loads(raw))
         except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as error:
             raise serializers.ValidationError(f"Properties are unparsable: {error}")
+        if any(not isinstance(property_filter, _ALLOWED_PROPERTY_FILTERS) for property_filter in filters):
+            raise serializers.ValidationError("Only event, person, and session property filters are supported.")
+        return filters
 
 
 MAX_GOAL_LENGTH = 500

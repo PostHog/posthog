@@ -105059,7 +105059,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the /query/ endpoint takes. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
     /**
@@ -105096,7 +105096,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the /query/ endpoint takes. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
     };
@@ -105107,7 +105107,7 @@ export namespace Schemas {
      */
     filter_test_accounts?: boolean;
     /**
-     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of PostHog property filters, each with key, value, operator and type - the same shape the /query/ endpoint takes. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
+     * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
     };
