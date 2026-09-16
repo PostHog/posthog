@@ -28,7 +28,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import authentication, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -2949,7 +2949,7 @@ class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
     def test_authenticate_runs_once_per_request(
         self,
         _name: str,
-        authenticator_class: type,
+        authenticator_class: type[authentication.BaseAuthentication],
         authorization_header: Callable[[Any], str] | None,
     ) -> None:
         headers = {}
