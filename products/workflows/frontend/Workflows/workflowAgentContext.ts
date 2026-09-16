@@ -12,8 +12,7 @@ import type { HogFlow } from './hogflows/types'
 // the chip actually detaches the payload instead of only hiding the chip.
 const SKILL_DISMISS_GROUP = 'workflow-scene-skill'
 const EDITOR_STATE_DISMISS_GROUP = 'workflow-scene-state'
-// The AI-first composer keeps its own group. A dismissal is global and never resets, so a skill chip closed
-// on a workflow would otherwise take this page's instructions with it, on this visit and every later one.
+// Own dismiss group: a dismissal is global and never resets, so a chip closed on a workflow must not strip this page.
 const NEW_WORKFLOW_DISMISS_GROUP = 'new-workflow-composer'
 
 const BUILDING_WORKFLOWS_SKILL = 'building-workflows'
@@ -71,8 +70,7 @@ export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
     hideRepositorySelector: true,
     hideSuggestions: true,
     hideRecentTasks: true,
-    // This page is not a takeover host, and it closes a side panel open on PostHog AI, so nothing
-    // would receive the replay click.
+    // Not a takeover host, and the side panel is closed here, so nothing would receive the replay click.
     hideOnboardingReplay: true,
 }
 
@@ -126,8 +124,7 @@ export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
     },
 ]
 
-// Static text: the user lands here from "New workflow" with nothing built yet, so the fastest useful
-// outcome is a draft in the editor, which they then refine with the agent alongside.
+// The fastest useful outcome from nothing is a draft in the editor, refined with the agent alongside.
 const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
@@ -140,11 +137,7 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
         'Never enable it.',
 }
 
-/**
- * Agent context for the AI-first new-workflow composer: skill pointer plus the draft-first instruction, no
- * editor state. The chip cannot be closed here, unlike on a workflow, because the page advances only when
- * the agent creates the draft and closing a chip detaches the hidden items it stands for.
- */
+/** Skill pointer plus the draft-first instruction, no editor state. Not dismissible: the page only advances once the draft exists. */
 export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
     return [
         { ...TOOLING_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },

@@ -90,8 +90,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     )
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
-    // The AI-first composer replaces the editor for a brand-new workflow; deep links that carry a
-    // starting point and the escape hatch land in the editor instead (see `aiComposerAvailable`).
+    // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
     const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
     // while it is open the panel's framing follows the email being edited, not the graph. Both

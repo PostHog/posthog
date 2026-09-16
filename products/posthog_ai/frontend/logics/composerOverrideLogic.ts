@@ -8,10 +8,7 @@ export interface ComposerOverride {
     hideSuggestions?: boolean
     /** Hide the recent-tasks list under the composer. */
     hideRecentTasks?: boolean
-    /**
-     * Hide the onboarding replay button. Set it on a host that is not in `resolvePhaiOnboardingMounts`,
-     * because the takeover the button opens is mounted per host and the button does nothing without one.
-     */
+    /** Hide the onboarding replay button on a host outside `resolvePhaiOnboardingMounts`, which has no takeover to open. */
     hideOnboardingReplay?: boolean
 }
 
@@ -49,16 +46,12 @@ export type composerOverrideLogicType = MakeLogicType<
     composerOverrideLogicMeta
 >
 
-/**
- * Global registry of contextual composer overrides, the sibling of `welcomeOverrideLogic`: a host
- * surface registers what fits what the user is looking at, and the composer's empty state applies it
- * instead of the generic defaults while the provider stays registered.
- */
+/** Registry of composer overrides, the sibling of `welcomeOverrideLogic`. The first registered provider wins. */
 export const composerOverrideLogic = kea<composerOverrideLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'composerOverrideLogic']),
 
     actions({
-        /** Idempotent upsert — re-register the same `providerId` to update its override. */
+        /** Idempotent upsert: re-registering the same `providerId` updates its override. */
         registerComposerOverride: (providerId: string, override: ComposerOverride) => ({ providerId, override }),
         deregisterComposerOverride: (providerId: string) => ({ providerId }),
     }),
@@ -80,7 +73,6 @@ export const composerOverrideLogic = kea<composerOverrideLogicType>([
     }),
 
     selectors({
-        // First registered provider wins, mirroring `welcomeOverrideLogic`.
         composerOverride: [
             (s) => [s.providers],
             (providers: Record<string, ComposerOverride>): ComposerOverride | null =>

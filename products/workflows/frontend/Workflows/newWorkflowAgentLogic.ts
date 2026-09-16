@@ -22,13 +22,7 @@ import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 // pinned: MCP tool name from products/workflows/mcp/tools.yaml
 const CREATE_WORKFLOW_TOOL = 'workflows-create'
 
-/**
- * The id of the draft a `workflows-create` call just made. The call's output is not usable for this: a
- * workflow with rendered email HTML exceeds the harness's tool-result limit, and the frontend only sees
- * the "saved to file" notice. Names are not unique and the list is ordered by update time, which a
- * background refresh bumps, so among exact-name matches the most recently created one is taken. Without
- * a usable name there is no safe guess, and the page does not hand off.
- */
+/** The tool output is truncated, so the draft is found by exact name, newest `created_at` first. No name means no guess. */
 export async function findCreatedWorkflowId(name: unknown): Promise<string | null> {
     const search = typeof name === 'string' && name.trim() ? name.trim() : undefined
     if (!search) {
@@ -82,12 +76,7 @@ export interface newWorkflowAgentLogicActions {
 
 export type newWorkflowAgentLogicType = MakeLogicType<newWorkflowAgentLogicValues, newWorkflowAgentLogicActions>
 
-/**
- * Drives the AI-first "New workflow" screen. The composer on that screen is the PostHog AI side panel's own
- * runner instance, so the run never has to be handed over: once the agent's `workflows-create` call completes,
- * this opens the side panel (which keeps that instance mounted across the route change) and routes to the
- * new draft, where the panel continues the same thread against the open editor.
- */
+/** The composer is the side panel's own runner: a completed `workflows-create` opens the panel and routes to the draft. */
 export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
     path(['products', 'workflows', 'frontend', 'newWorkflowAgentLogic']),
     connect(() => ({
@@ -112,16 +101,12 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
         composerShown: true,
     }),
     listeners(({ actions, cache, values }) => ({
-        // Dispatched from the component's mount effect, after the previous scene has left the panel
-        // registry: a close fired earlier would count as the user dismissing the editor's auto-open.
+        // Runs after the previous scene left the panel registry, so its close is not read as dismissing the auto-open.
         composerShown: () => {
-            // The panel is shared with the PostHog AI side panel: a run or history list left open there must
-            // not take the place of the composer, and a second copy of it beside the page is noise.
+            // The panel is shared with the side panel: a run or history list left open there must not replace the composer.
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
-            // A prompt typed in the panel and never sent is still in the shared form, where it would greet
-            // the person under the new-workflow headline. An empty seed is how a host prefills this
-            // composer, so it is also how a host empties it.
+            // An unsent prompt typed in the panel is still in the shared form. An empty seed is how a host clears it.
             actions.setSeed({ prompt: '', autoSubmit: false })
             if (values.sidePanelOpen && values.selectedTab === SidePanelTab.Max) {
                 actions.closeSidePanel()
@@ -149,9 +134,7 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
             try {
                 workflowId = await findCreatedWorkflowId(resolveToolCall(event.invocation).innerInput?.name)
             } catch {
-                // A rejected list call (a network failure, or a name the search endpoint refuses) reads the
-                // same to the person as a name that matches nothing: the draft is saved and this page cannot
-                // open it. Both leave the run on screen, so the thread continues either way.
+                // A rejected list call reads like no match: the draft is saved and the run stays on screen.
                 workflowId = null
             }
             // The composer can be cleared or re-sent while the lookup is in flight.

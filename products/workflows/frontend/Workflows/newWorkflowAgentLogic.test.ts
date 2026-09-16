@@ -50,8 +50,7 @@ describe('newWorkflowAgentLogic', () => {
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                // Ordered by update time, like the real list: a same-named older draft that was touched since
-                // must not win over the new one.
+                // Ordered by update time like the real list, so the same-named older draft comes first.
                 '/api/environments/:team_id/hog_flows/': {
                     results: [
                         { id: OLDER_ID, name: NAME, created_at: '2026-09-01T00:00:00Z' },
@@ -85,8 +84,7 @@ describe('newWorkflowAgentLogic', () => {
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
-    // The composer is the panel's own instance, so a prompt typed in the panel and never sent is still in
-    // the form this page renders. Seeding an empty prompt is how a host prefills that composer.
+    // The composer is the panel's own instance, so an unsent panel prompt would show here. An empty seed clears it.
     it('empties the shared composer when the composer is shown', async () => {
         const seeds = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID })
         seeds.mount()
@@ -110,9 +108,7 @@ describe('newWorkflowAgentLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/workflows/${WORKFLOW_ID}/workflow`)
     })
 
-    // The draft is already saved by the time this runs, so a lookup that cannot find it must say where it
-    // went instead of leaving the person on the composer. A rejection covers both a network failure and a
-    // name the search endpoint refuses, since a workflow name may be twice as long as a search term.
+    // The draft is already saved, so a lookup that fails or matches nothing must say where it went.
     it.each([
         { name: 'the lookup fails', response: () => [500, { detail: 'boom' }] },
         { name: 'no workflow matches', response: () => [200, { results: [], count: 0 }] },
@@ -139,8 +135,7 @@ describe('newWorkflowAgentLogic', () => {
         toast.mockRestore()
     })
 
-    // The bus is global: a replay on reload, another run's create, or a still-streaming call must not
-    // yank the user off the composer.
+    // The bus is global: a replay, another run's create, or a still-streaming call must not move the user.
     it.each([
         { name: 'a replayed event', overrides: { source: 'replay' as const } },
         { name: 'another stream', overrides: { streamKey: 'other-run' } },

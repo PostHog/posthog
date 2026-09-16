@@ -33,10 +33,7 @@ describe('newWorkflowLogic', () => {
     })
 
     describe('AI-first new workflow', () => {
-        // The experiment hinges on the flag-on path skipping the modal and the flag-off path staying
-        // byte-identical; a regression either way silently poisons the experiment's arms.
-        // `exposed` is the experiment's own measurement: the click is the decision point, so it records
-        // exposure for both arms, and records nothing for a click the composer could never answer.
+        // The flag-off path must stay byte-identical, and exposure is recorded only for a click the composer could answer.
         it.each([
             { name: 'flag on', flags: AI_FIRST_FLAGS, routed: true, exposed: true },
             {
@@ -74,8 +71,7 @@ describe('newWorkflowLogic', () => {
             recordExposure.mockRestore()
         })
 
-        // Template and prefill deep links, and the escape hatch's own route, must keep landing in the
-        // editor, otherwise the composer swallows a starting point the user already chose.
+        // Deep links and the escape hatch must keep landing in the editor, or the composer swallows a chosen starting point.
         it.each([
             { name: 'an AI entry', path: '/workflows/new/workflow', search: { mode: 'ai' }, available: true },
             // Other products open the plain URL for a specific job and tell the person the editor is there.
@@ -104,8 +100,7 @@ describe('newWorkflowLogic', () => {
                 search: { mode: 'editor' },
                 available: false,
             },
-            // The editor scene reads this for every workflow it opens. An existing workflow must answer
-            // false without reading the flag, or opening any editor joins the experiment's exposure.
+            // The editor reads this for every workflow, so an existing one must answer false without reading the flag.
             {
                 name: 'an existing workflow',
                 path: '/workflows/wf-1/workflow',

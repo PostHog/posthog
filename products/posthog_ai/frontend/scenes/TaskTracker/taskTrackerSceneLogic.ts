@@ -546,10 +546,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     ? getRuntimeAdapterForModel(catalogue, displayModel)
                     : defaultRuntimeAdapter,
         ],
-        // What the warm and create requests actually send. A host that hides the picker never scopes its
-        // tasks to a repo, but the form can still hold one: the auto-select restores the remembered pick,
-        // and the side panel's composer shares this logic instance. The pick is dropped here rather than
-        // cleared from the form, so the host that does show the picker keeps it.
+        // The shared form may still hold a remembered repo while the picker is hidden. Drop it here, not from the form.
         effectiveRepositoryConfig: [
             (s) => [s.newTaskData, s.composerOverride],
             (newTaskData: TaskCreateForm, composerOverride: ComposerOverride | null): RepositoryConfig =>

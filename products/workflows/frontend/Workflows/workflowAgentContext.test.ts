@@ -287,9 +287,7 @@ describe('workflowAgentContext', () => {
     })
 
     describe('buildNewWorkflowComposerContext', () => {
-        // A dismissal is recorded against the group, is global, and never resets, so sharing the editor
-        // scene's group would let a chip closed on a workflow strip this page's instructions. The page
-        // advances only once the agent creates the draft, and there would be no chip left to bring them back.
+        // A dismissal is global and never resets, so a chip closed on a workflow must not strip this page's instructions.
         it('cannot be dismissed from the workflow editor scene, or from its own chip', () => {
             const editorGroups = new Set(
                 buildWorkflowAgentContext(workflowWith({}), 'flow-1', templatesById)

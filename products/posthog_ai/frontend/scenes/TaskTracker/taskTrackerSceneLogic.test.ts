@@ -587,11 +587,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
     })
 
-    // A host that hides the repo picker (the AI-first new-workflow composer) shares this logic with the side
-    // panel, and the auto-select restores the remembered repo, so a pick can sit in the form with nothing on
-    // the page to show or clear it. It must not reach the requests: the run would clone a repository the
-    // person never chose here, and a repo with no branch builds no warm request at all, because the branch
-    // resolver lives inside the hidden picker.
+    // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
     it('keeps a hidden repository out of the warm and create requests', async () => {
         useMocks({
             get: {

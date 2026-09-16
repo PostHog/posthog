@@ -10,11 +10,7 @@ export interface UseComposerOverrideOptions {
     active?: boolean
 }
 
-/**
- * Registers a contextual composer override into the global `composerOverrideLogic` under a stable
- * per-mount provider id. Pass a module-level constant: the registration is keyed on object identity.
- * Deregisters on unmount or when `active: false`.
- */
+/** Registers a composer override for this mount. Pass a module-level constant: registration is keyed on object identity. */
 export function useComposerOverride(override: ComposerOverride | null, options?: UseComposerOverrideOptions): void {
     const active = options?.active ?? true
     const { registerComposerOverride, deregisterComposerOverride } = useActions(composerOverrideLogic)

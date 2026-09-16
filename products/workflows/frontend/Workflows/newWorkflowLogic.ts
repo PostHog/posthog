@@ -11,10 +11,7 @@ import { urls } from 'scenes/urls'
 import type { HogFlowTemplate } from './hogflows/types'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
-// pinned: URL search param - which surface a new workflow opens on. `editor` is the escape hatch's deep
-// link; `ai` opts into the composer. A URL that says neither opens the editor, because a caller that sends
-// someone here for a specific job (a property to write, a template to build) promises the editor and passes
-// its own context, which the composer cannot carry.
+// pinned: URL search param for the surface a new workflow opens on. A URL that says neither opens the editor.
 export const EDITOR_MODE_PARAM = 'mode'
 export const EDITOR_MODE_VALUE = 'editor'
 export const AI_COMPOSER_MODE_VALUE = 'ai'
@@ -24,12 +21,7 @@ export function urlForNewWorkflowComposer(): string {
     return combineUrl(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE }).url
 }
 
-/**
- * Reading `featureFlags[key]` captures `$feature_flag_called`, which is this experiment's exposure, so the
- * read stays behind everything else a caller can check. A caller that reads the flag while the composer
- * could not appear anyway puts that person in the exposure population without the treatment ever reaching
- * them, which flattens the measured difference between the arms.
- */
+/** Reading the flag captures `$feature_flag_called`, the experiment's exposure, so this runs after every cheaper check. */
 function isAiFirstVariant(featureFlags: FeatureFlagsSet): boolean {
     const variant = featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW]
     return variant === true || variant === 'test'
@@ -132,17 +124,13 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         ],
     }),
     selectors({
-        // The composer is the side panel's runner, so it needs the same gate as the scene integration.
-        // The flag is an experiment: only the `test` variant (or a plain boolean rollout) qualifies.
+        // Same gate as the scene integration. Only the `test` variant, or a plain boolean rollout, qualifies.
         aiFirstNewEnabled: [
             (s) => [s.featureFlags, s.sceneIntegrationEnabled],
             (featureFlags: FeatureFlagsSet, sceneIntegrationEnabled: boolean): boolean =>
                 sceneIntegrationEnabled && isAiFirstVariant(featureFlags),
         ],
-        // The composer answers an entry that marked itself as one. Template, template-edit and trigger-prefill
-        // deep links carry a starting point, so they stay on the editor whatever the URL says. The route is
-        // checked here rather than in the scene, because the editor reads this value for every workflow
-        // it opens: see `isAiFirstVariant` for what an early flag read costs the experiment.
+        // Deep links with a starting point stay on the editor. Checked here so the scene never reads the flag early.
         aiComposerAvailable: [
             (s) => [s.featureFlags, s.sceneIntegrationEnabled, s.searchParams, s.location],
             (
@@ -162,9 +150,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     }),
     listeners(({ actions, values }) => ({
         startNewWorkflow: () => {
-            // The experiment's exposure, recorded at the decision point rather than on app load, and only
-            // for a click the composer could answer: without the scene integration the modal opens whatever
-            // the variant says, so recording those people would only dilute both arms.
+            // Exposure is recorded at the click, and only when the composer could answer it.
             if (values.sceneIntegrationEnabled) {
                 posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_AI_FIRST_NEW)
             }

@@ -33,11 +33,9 @@ export function NewWorkflowAgent(): JSX.Element {
     }
 
     return (
-        // While drafting, the runner takes its natural height so the cards sit right under the composer;
-        // once a run starts it fills the page like the side panel.
+        // Natural height while drafting so the cards sit under the composer; full page once a run starts.
         <div className="flex flex-col grow min-h-0" data-attr="new-workflow-agent">
-            {/* Same shape as the tree view's trial banner: the escape hatch rides the banner's action, and it
-                stays up during a run so a turn that never creates the draft still leaves a way out. */}
+            {/* The escape hatch stays up during a run, so a turn that never creates the draft has a way out. */}
             <LemonBanner
                 type="ai"
                 className="m-2 shrink-0"
