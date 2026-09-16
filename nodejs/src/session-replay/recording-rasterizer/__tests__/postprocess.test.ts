@@ -152,6 +152,27 @@ describe('videoTimestampsFromFrames', () => {
         expect(result[1].recording_ts_from_s).toBeLessThanOrEqual(result[2].recording_ts_from_s!)
     })
 
+    it('holds a stretch the capture started inside to what the file shows', () => {
+        // start_offset_s renders from the middle of a session. The stretch still claims session time the
+        // file never shows, and a consumer interpolating across it reads every moment inside as later.
+        const spanning: InactivityPeriod[] = [{ ts_from_s: 0, ts_to_s: 60, active: true }]
+        const frames = [10_000, 10_333, 10_666]
+
+        const result = videoTimestampsFromFrames(spanning, frames, 3)
+
+        expect(result[0].ts_from_s).toBeCloseTo(10)
+        expect(result[0].ts_to_s).toBeCloseTo(10.666)
+        expect(result[0].recording_ts_from_s).toBe(0)
+    })
+
+    it('leaves a stretch the capture covered end to end alone', () => {
+        const result = videoTimestampsFromFrames(periods, frameSessionMs, 3)
+
+        expect(result[0].ts_from_s).toBe(0)
+        expect(result[0].ts_to_s).toBe(1)
+        expect(result[2].ts_from_s).toBe(5)
+    })
+
     it('falls back to the predicted mapping when capture reported no timeline', () => {
         expect(videoTimestampsFromFrames(periods, [], 3)).toEqual(computeVideoTimestamps(periods))
     })

@@ -21,6 +21,11 @@ export function videoTimestampsFromFrames(
     // starting, and those frames carry no sample.
     const videoTimeOf = (sample: number): number => (preRollFrames + sample) / fps
     const lastPeriod = periods.length - 1
+    // A render can start or stop partway through a stretch, via start_offset_s, a trim, or a timeout.
+    // The stretch then spans session time the file never shows, and a consumer interpolating across it
+    // reads every moment inside as later than it is. Hold those two edges to what was captured.
+    const firstSampleS = frameSessionMs[0] / 1000
+    const lastSampleS = frameSessionMs[frameSessionMs.length - 1] / 1000
     return periods.map((period, index) => {
         const fromMs = period.ts_from_s * 1000
         const toMs = period.ts_to_s != null ? period.ts_to_s * 1000 : Number.POSITIVE_INFINITY
@@ -46,7 +51,17 @@ export function videoTimestampsFromFrames(
             const at = videoTimeOf(resumed === -1 ? frameSessionMs.length : resumed)
             return { ...period, recording_ts_from_s: at, recording_ts_to_s: at }
         }
-        return { ...period, recording_ts_from_s: videoTimeOf(first), recording_ts_to_s: videoTimeOf(last + 1) }
+        // Only the stretch the capture began in, and the one it ended in, can be cut by it.
+        const startsMidPeriod =
+            firstSampleS > period.ts_from_s && (period.ts_to_s == null || firstSampleS < period.ts_to_s)
+        const endsMidPeriod = period.ts_to_s != null && lastSampleS < period.ts_to_s && lastSampleS >= period.ts_from_s
+        return {
+            ...period,
+            ts_from_s: startsMidPeriod ? firstSampleS : period.ts_from_s,
+            ts_to_s: endsMidPeriod ? lastSampleS : period.ts_to_s,
+            recording_ts_from_s: videoTimeOf(first),
+            recording_ts_to_s: videoTimeOf(last + 1),
+        }
     })
 }
 
