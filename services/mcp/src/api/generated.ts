@@ -62330,6 +62330,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Ticket[];
+      /** True when more tickets match than `count` reports, because the count stopped at its ceiling. */
+      count_capped?: boolean;
     }
 
     /**
