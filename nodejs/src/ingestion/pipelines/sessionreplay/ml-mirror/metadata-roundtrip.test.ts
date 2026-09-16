@@ -14,7 +14,8 @@ import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/share
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
-import { MlDataKey, decryptEnvelope } from './keys/crypto'
+import { MlDataKey } from './keys/crypto'
+import { decryptEnvelope } from './keys/envelope-testing'
 import { MlKeyReader } from './keys/reader'
 import { sessionKeyId, tableKeyString } from './keys/schema'
 import { MlKafkaTransport } from './keys/transport'

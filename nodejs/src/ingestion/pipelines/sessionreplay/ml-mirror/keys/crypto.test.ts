@@ -1,7 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { MlDataKey, decryptEnvelope, encryptEnvelope } from './crypto'
-import { TrainingEncryptionVector } from './test-vectors'
+import { MlDataKey, encryptEnvelope } from './crypto'
+import { TrainingEncryptionVector, decryptEnvelope } from './envelope-testing'
 import { validateImageOwner } from './transport'
 
 const key: MlDataKey = {

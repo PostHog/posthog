@@ -1,22 +1,16 @@
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { LRUCache } from 'lru-cache'
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { isDeepStrictEqual } from 'node:util'
+import { createCipheriv, randomBytes } from 'node:crypto'
 import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
 
-export const KEY_READ_LEASE_MS = 300_000
-
-export class MlKeyReadExpiredError extends Error {}
-
 export interface MlDataKey {
     identity: MlKeyIdentity
     plaintext: Buffer
     wrapped: Buffer
-    decryptUntil?: number
 }
 
 /** The raw payload sealed with AES-256-GCM; the canonical JSON of `{ v, context }` is the additional authenticated data. */
@@ -28,7 +22,7 @@ export interface MlEncryptedEnvelope {
 }
 
 const NONCE_BYTES = 12
-const TAG_BYTES = 16
+export const TAG_BYTES = 16
 
 /** Both readers rebuild this byte for byte, so key order is sorted and there is no whitespace. */
 export function canonicalJson(value: unknown): string {
@@ -162,22 +156,4 @@ export function encryptEnvelope(key: MlDataKey, kind: string, data: Buffer, ref?
         ciphertext: ciphertext.toString('base64'),
     }
     return Buffer.from(JSON.stringify(envelope))
-}
-
-export function decryptEnvelope(key: MlDataKey, envelope: MlEncryptedEnvelope, kind: string, ref?: string): Buffer {
-    if (key.decryptUntil !== undefined && performance.now() >= key.decryptUntil) {
-        throw new MlKeyReadExpiredError('ML key read lease expired; read the key again')
-    }
-    const context = { ...key.identity, kind, ...(ref ? { ref } : {}) }
-    if (envelope.v !== 3 || !isDeepStrictEqual(envelope.context, context)) {
-        throw new Error('ML envelope context mismatch')
-    }
-    const sealed = Buffer.from(envelope.ciphertext, 'base64')
-    if (sealed.length < TAG_BYTES) {
-        throw new Error('Invalid authenticated ML envelope')
-    }
-    const decipher = createDecipheriv('aes-256-gcm', key.plaintext, Buffer.from(envelope.nonce, 'base64'))
-    decipher.setAAD(Buffer.from(canonicalJson({ v: 3, context })))
-    decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES))
-    return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - TAG_BYTES)), decipher.final()])
 }
