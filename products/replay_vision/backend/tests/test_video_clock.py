@@ -26,7 +26,7 @@ class TestVideoClock:
     @parameterized.expand(
         [
             ("before any cut", 10.0, 10_000),
-            ("the boundary instant belongs to the stretch before the cut", 58.0, 58_000),
+            ("a second shared across a cut is the resumed moment, not the one before it", 58.0, 62_000),
             ("just past the boundary is the resumed moment", 58.5, 62_500),
             ("well past a cut", 70.0, 74_000),
             ("past the end clamps to the last kept moment", 999.0, 80_000),
