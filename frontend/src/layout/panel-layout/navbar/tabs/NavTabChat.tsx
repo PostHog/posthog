@@ -76,11 +76,19 @@ export interface AiHistoryGroup {
     items: AiHistoryItem[]
 }
 
-export function groupAiHistory(conversationHistory: Conversation[], tasks: Task[]): AiHistoryGroup[] {
+export function groupAiHistory(
+    conversationHistory: Conversation[],
+    tasks: Task[],
+    tasksMerged: boolean = false
+): AiHistoryGroup[] {
     const items: AiHistoryItem[] = []
 
     for (const conversation of conversationHistory) {
         if (!conversation) {
+            continue
+        }
+        // A chat that has a task is in the task list too, so it would show twice once tasks are merged in.
+        if (tasksMerged && conversation.task) {
             continue
         }
         const title = conversation.title || 'Untitled conversation'
@@ -286,7 +294,7 @@ export function NavTabChat({
             : (location.pathname.match(/\/tasks\/([^/]+)/)?.[1] ?? null)
 
     const historyGroups = useMemo(
-        () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : []),
+        () => groupAiHistory(conversationHistory, tasksEnabled ? tasks : [], tasksEnabled),
         [conversationHistory, tasks, tasksEnabled]
     )
     const initialLoading = historyGroups.length === 0 && (conversationHistoryLoading || (tasksEnabled && tasksLoading))

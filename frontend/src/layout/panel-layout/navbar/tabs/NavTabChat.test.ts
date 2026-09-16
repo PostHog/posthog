@@ -90,4 +90,14 @@ describe('groupAiHistory', () => {
 
         expect(items.map((item) => item.key)).toEqual(['task:task-id', 'conversation:conversation-id'])
     })
+
+    it('shows a chat that has a task only as its task once tasks are merged in', () => {
+        const chatWithTask = { ...conversation, task: { id: 'task-id', latest_run: null } }
+
+        const merged = groupAiHistory([chatWithTask], [baseTask], true).flatMap((group) => group.items)
+        const chatsOnly = groupAiHistory([chatWithTask], []).flatMap((group) => group.items)
+
+        expect(merged.map((item) => item.key)).toEqual(['task:task-id'])
+        expect(chatsOnly.map((item) => item.key)).toEqual(['conversation:conversation-id'])
+    })
 })
