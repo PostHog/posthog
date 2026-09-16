@@ -165,13 +165,20 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
                     "reference_version_not_found",
                 )
         else:
+            # Two steps in label-then-prompt order, matching set_prompt_label
+            # and archive_prompt, so no pair of paths locks the same two rows
+            # in opposite orders.
             label = (
-                LLMPromptLabel.objects.select_for_update(of=("self", "prompt"))
+                LLMPromptLabel.objects.select_for_update()
                 .filter(team_id=team_id, prompt_name=reference.name, name=reference.label)
-                .select_related("prompt")
                 .first()
             )
-            if label is None or label.prompt.deleted:
+            locked_target = (
+                LLMPrompt.objects.select_for_update().filter(pk=label.prompt_id, team_id=team_id).first()
+                if label is not None
+                else None
+            )
+            if locked_target is None or locked_target.deleted:
                 exists = LLMPrompt.objects.filter(team_id=team_id, name=reference.name, deleted=False).exists()
                 if not exists:
                     raise _reference_error(
@@ -184,7 +191,7 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
                     "Create the label first or pin a version instead.",
                     "reference_label_not_found",
                 )
-            target = label.prompt
+            target = locked_target
 
         if not isinstance(target.prompt, str):
             raise _reference_error(

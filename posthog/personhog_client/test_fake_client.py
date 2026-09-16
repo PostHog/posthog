@@ -469,3 +469,152 @@ class TestFakePersonhogClientContextManager:
 
             client = get_personhog_client()
             assert client is fake
+
+
+class TestFakePersonHogClientDeleteTombstonedPersons:
+    TEAM_ID = 7
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=1,
+            uuid="tombstoned",
+            distinct_ids=["t-1", "t-2"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["t-1", "t-2"],
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid="live", distinct_ids=["l-1"])
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid="blocked",
+            distinct_ids=["b-1", "b-2"],
+            is_deleted=True,
+            tombstoned_distinct_ids=["b-1"],
+        )
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=4,
+            uuid="big",
+            distinct_ids=[f"o-{i}" for i in range(5)],
+            is_deleted=True,
+            tombstoned_distinct_ids=[f"o-{i}" for i in range(5)],
+        )
+
+    def _delete(self, *uuids: str, max_rows: int = 0) -> person_pb2.DeleteTombstonedPersonsResponse:
+        return self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(team_id=self.TEAM_ID, person_uuids=list(uuids), max_rows=max_rows)
+        )
+
+    def _present(self, uuid: str) -> bool:
+        return self.client.get_person_by_uuid(
+            person_pb2.GetPersonByUuidRequest(team_id=self.TEAM_ID, uuid=uuid)
+        ).HasField("person")
+
+    @pytest.mark.parametrize(
+        "uuid,expected,expect_present",
+        [
+            ("tombstoned", person_pb2.DeleteTombstonedPersonsResponse(deleted_count=1, rows_deleted=2), False),
+            ("live", person_pb2.DeleteTombstonedPersonsResponse(skipped_live_count=1), True),
+            ("blocked", person_pb2.DeleteTombstonedPersonsResponse(blocked_person_uuids=["blocked"]), True),
+            ("big", person_pb2.DeleteTombstonedPersonsResponse(deleted_count=1, rows_deleted=5), False),
+            ("unknown", person_pb2.DeleteTombstonedPersonsResponse(), False),
+        ],
+    )
+    def test_each_outcome(self, uuid, expected, expect_present):
+        # The same uuid twice must not double any count or list.
+        assert self._delete(uuid, uuid) == expected
+        assert self._present(uuid) == expect_present
+
+    def test_a_person_over_the_budget_is_trimmed_across_calls_then_deleted(self):
+        pending = person_pb2.DeleteTombstonedPersonsResponse(pending_person_uuids=["big"], rows_deleted=2)
+
+        assert self._delete("big", max_rows=2) == pending
+        assert self._delete("big", max_rows=2) == pending
+        assert self._delete("big", max_rows=2) == person_pb2.DeleteTombstonedPersonsResponse(
+            deleted_count=1, rows_deleted=1
+        )
+        assert not self._present("big")
+        assert not self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="o-0")
+        ).HasField("person")
+
+    def test_small_persons_in_the_same_request_never_wait_behind_a_big_one(self):
+        # tombstoned (2 rows) and blocked (2 rows) are admitted first, in id order, leaving 2
+        # rows of the budget for the big person's trim step.
+        resp = self._delete("big", "tombstoned", "live", "blocked", max_rows=6)
+
+        assert resp == person_pb2.DeleteTombstonedPersonsResponse(
+            deleted_count=1,
+            skipped_live_count=1,
+            blocked_person_uuids=["blocked"],
+            pending_person_uuids=["big"],
+            rows_deleted=4,
+        )
+        assert not self._present("tombstoned")
+        assert self._present("big") and self._present("blocked")
+
+    def test_a_big_person_with_a_live_distinct_id_is_blocked_with_nothing_deleted(self):
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=5,
+            uuid="big-live",
+            distinct_ids=[f"x-{i}" for i in range(5)],
+            is_deleted=True,
+            tombstoned_distinct_ids=[f"x-{i}" for i in range(1, 5)],
+        )
+
+        resp = self._delete("big-live", max_rows=2)
+
+        assert resp == person_pb2.DeleteTombstonedPersonsResponse(blocked_person_uuids=["big-live"])
+        for distinct_id in ("x-0", "x-4"):
+            assert self.client.get_person_by_distinct_id(
+                person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id=distinct_id)
+            ).HasField("person")
+
+    def test_max_rows_defaults_and_clamps_like_the_server(self):
+        self.client.tombstoned_delete_max_rows = 3
+
+        assert self._delete("big", max_rows=0) == person_pb2.DeleteTombstonedPersonsResponse(
+            pending_person_uuids=["big"], rows_deleted=3
+        )
+        assert self._delete("big", max_rows=1) == person_pb2.DeleteTombstonedPersonsResponse(
+            pending_person_uuids=["big"], rows_deleted=1
+        )
+        assert self._delete("big", max_rows=100) == person_pb2.DeleteTombstonedPersonsResponse(
+            deleted_count=1, rows_deleted=1
+        )
+
+    def test_deleting_removes_distinct_id_mappings_and_cohort_rows_and_is_idempotent(self):
+        self.client.add_cohort_membership(person_id=1, cohort_id=9)
+
+        assert self._delete("tombstoned").deleted_count == 1
+
+        by_did = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="t-1")
+        )
+        assert not by_did.HasField("person")
+        membership = self.client.check_cohort_membership(
+            cohort_pb2.CheckCohortMembershipRequest(person_id=1, cohort_ids=[9])
+        )
+        assert list(membership.memberships) == []
+        assert self.client.count_cohort_members(cohort_pb2.CountCohortMembersRequest(cohort_ids=[9])).count == 0
+        assert self._delete("tombstoned") == person_pb2.DeleteTombstonedPersonsResponse()
+
+    def test_wrong_team_touches_nothing(self):
+        resp = self.client.delete_tombstoned_persons(
+            person_pb2.DeleteTombstonedPersonsRequest(team_id=self.TEAM_ID + 1, person_uuids=["tombstoned"])
+        )
+
+        assert resp == person_pb2.DeleteTombstonedPersonsResponse()
+        assert self._present("tombstoned")
+
+    def test_delete_persons_still_removes_tombstoned_and_live_alike(self):
+        resp = self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["tombstoned", "live", "blocked"])
+        )
+
+        assert resp.deleted_count == 3
+        for uuid in ("tombstoned", "live", "blocked"):
+            assert not self._present(uuid)
