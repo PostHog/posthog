@@ -13,10 +13,14 @@ function withInlineCode(message: string): JSX.Element {
     )
 }
 
-export function QueryScanFindingList({ findings }: { findings: QueryScanWarning[] }): JSX.Element {
-    // A single finding already reads as one message next to the banner's own icon;
-    // a bullet in front of it just doubles the marker.
-    if (findings.length === 1) {
+export interface QueryScanFindingListProps {
+    findings: QueryScanWarning[]
+    /** Drops the bullet for a single finding. Only where a sibling icon already marks it, e.g. inside a LemonBanner. */
+    dropBulletIfSingle?: boolean
+}
+
+export function QueryScanFindingList({ findings, dropBulletIfSingle }: QueryScanFindingListProps): JSX.Element {
+    if (dropBulletIfSingle && findings.length === 1) {
         return <div>{withInlineCode(findings[0].message)}</div>
     }
 
