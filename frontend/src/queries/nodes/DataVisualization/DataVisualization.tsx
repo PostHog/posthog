@@ -398,6 +398,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                                 'Only table results are exportable'
                                             }
                                             type="secondary"
+                                            // Raw SQL can select one name twice, and the export keys
+                                            // each row by name, so the file can only hold one of them.
+                                            columns={[...new Set(columns.map((column) => column.name))].map((name) => ({
+                                                name,
+                                            }))}
                                             items={[
                                                 {
                                                     export_format: ExporterFormat.CSV,

@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { ExportedAssetType, InsightShortId } from '~/types'
+import { ExportedAssetType, ExporterFormat, InsightShortId } from '~/types'
 
 export function downloadBlob(content: Blob, filename: string): void {
     const anchor = document.createElement('a')
@@ -47,4 +47,12 @@ export type TriggerExportProps = Pick<
     'export_format' | 'dashboard' | 'insight' | 'export_context'
 > & {
     insightShortId?: InsightShortId
+}
+
+// e.g. ExporterFormat.CSV -> 'csv'
+export function exportFormatExtension(format: ExporterFormat): string {
+    return (
+        Object.keys(ExporterFormat).find((key) => ExporterFormat[key as keyof typeof ExporterFormat] === format) ??
+        format
+    ).toLowerCase()
 }

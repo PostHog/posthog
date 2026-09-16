@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -64,6 +65,7 @@ import { TrendInsight } from 'products/product_analytics/frontend/insights/trend
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+import { trendsExportColumns } from './trendsExportColumns'
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({
@@ -166,6 +168,7 @@ export function InsightVizDisplay({
         display,
         series,
         insightData,
+        breakdownFilter,
         validationError,
         validationErrorCode,
         theme,
@@ -174,6 +177,15 @@ export function InsightVizDisplay({
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
+
+    // The detailed results table is one row per series, which is also how the export reads it.
+    const detailedResultsColumns = useMemo(
+        () =>
+            trendsExportColumns(insightData?.result ?? [], breakdownFilter).map((name) => ({
+                name,
+            })),
+        [insightData, breakdownFilter]
+    )
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -443,6 +455,10 @@ export function InsightVizDisplay({
                             <Tooltip title="Export this table" placement="left">
                                 <ExportButton
                                     type="secondary"
+                                    // A reload in flight leaves the old result on screen while the
+                                    // export context already carries the new query, so the old
+                                    // column names would export as blank columns.
+                                    columns={insightDataLoading ? undefined : detailedResultsColumns}
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
