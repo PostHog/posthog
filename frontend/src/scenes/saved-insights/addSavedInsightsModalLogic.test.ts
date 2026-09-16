@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api'
+import { ApiError, NetworkError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { QueryBasedInsightModel } from '~/types'
 
-import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
+import { addSavedInsightsModalLogic, handleDashboardUpdateFailure } from './addSavedInsightsModalLogic'
 
 const createInsight = (id: number, name = 'test'): QueryBasedInsightModel =>
     ({
@@ -270,6 +270,8 @@ describe('addSavedInsightsModalLogic', () => {
     })
 
     describe('dashboard membership updates', () => {
+        const MESSAGES = { timedOut: 'Timed out', failed: 'Failed to add' }
+
         const insightOnDashboards = (dashboardIds: number[]): QueryBasedInsightModel =>
             ({
                 ...createInsight(53),
@@ -331,6 +333,33 @@ describe('addSavedInsightsModalLogic', () => {
             expect(toastError).toHaveBeenCalledWith(detail ?? 'Failed to add insight to dashboard')
 
             logic.unmount()
+        })
+
+        it.each([
+            ['a 500 the backend answered with', () => new ApiError('Non-OK response', 500), 'Failed to add'],
+            ['a request the browser dropped', () => new NetworkError('network'), 'Failed to add'],
+        ])('consumes %s', (_label, buildError, expectedToast) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+
+            expect(() => handleDashboardUpdateFailure(buildError(), MESSAGES)).not.toThrow()
+
+            expect(toastError).toHaveBeenCalledWith(expectedToast)
+        })
+
+        it.each([
+            ['the fetcher threw before a response arrived', () => new ApiError('the fetcher itself broke')],
+            [
+                'a 2xx body would not parse',
+                () => new ApiError('Malformed JSON response [PATCH /api/environments/2/insights/53/] (status 200)'),
+            ],
+        ])('rethrows a status-less failure, because %s and nothing else records it', (_label, buildError) => {
+            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
+            const error = buildError()
+
+            expect(() => handleDashboardUpdateFailure(error, MESSAGES)).toThrow(error)
+
+            // The user sees the same sentence either way: the rethrow only restores the signal.
+            expect(toastError).toHaveBeenCalledWith('Failed to add')
         })
     })
 
