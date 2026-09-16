@@ -186,8 +186,8 @@ def select_from_persons_table(
         # e.g. `SELECT count() FROM persons` at the page size instead of counting the whole team.
         # HAVING, QUALIFY, ARRAY JOIN, LIMIT BY, and WITH TIES / PERCENT also filter or reshape
         # rows after deduplication, so they need the full person set as well.
-        # The push-down does arithmetic on the LIMIT and OFFSET, so a value that is not an integer
-        # constant -- a placeholder, or an expression -- skips it.
+        # The push-down does arithmetic on the LIMIT and OFFSET values. A LIMIT or OFFSET that is
+        # not an integer constant, such as a placeholder or an expression, therefore skips it.
         can_push_to_inner = (
             node.select_from
             and node.select_from.type
