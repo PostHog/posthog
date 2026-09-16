@@ -140,6 +140,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadedVideo,
     UploadVideoToGeminiInputs,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
@@ -3431,6 +3432,7 @@ class TestWorkflowErrorHelpers:
 
 
 _DURATION_MS = 600_000  # 10-minute recording for the citation tests
+_IDENTITY_CLOCK = VideoClock(spans=())
 
 
 def _monitor_scanner() -> MonitorScanner:
@@ -3528,7 +3530,7 @@ class TestExtractSegments:
         ],
     )
     def test_extract_segments(self, text: str, expected_plain: str, expected_segments: list[Segment]) -> None:
-        plain, segments = _extract_segments(text, _DURATION_MS)
+        plain, segments = _extract_segments(text, _DURATION_MS, _IDENTITY_CLOCK)
         assert plain == expected_plain
         assert segments == expected_segments
 
@@ -3536,7 +3538,7 @@ class TestExtractSegments:
 class TestResolveCitations:
     def test_populates_field_and_segments(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="User retried (t 12) twice.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "User retried twice."
         assert resolved.reasoning_segments == [
@@ -3547,14 +3549,14 @@ class TestResolveCitations:
 
     def test_summarizer_uses_summary_field(self) -> None:
         finalized = SummarizerOutput(title="t", summary="They tried X (t 7).", confidence=0.9)
-        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _summarizer_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, SummarizerOutput)
         assert resolved.summary == "They tried X."
         assert any(isinstance(s, ChipSegment) and s.timestamp_ms == 7_000 for s in resolved.summary_segments)
 
     def test_no_citations_in_text_yields_single_text_segment(self) -> None:
         finalized = MonitorOutput(verdict="yes", reasoning="No citations here.", confidence=0.9)
-        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS)
+        resolved = _resolve_citations(finalized, _monitor_scanner(), _DURATION_MS, _IDENTITY_CLOCK)
         assert isinstance(resolved, MonitorOutput)
         assert resolved.reasoning == "No citations here."
         assert resolved.reasoning_segments == [TextSegment(value="No citations here.")]

@@ -51,12 +51,12 @@ class SignalFinding(BaseModel, frozen=True):
     start_time: int = Field(
         ge=0,
         description=(
-            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
-            "video footer at that moment (`REC_T` is seconds since the recording started)."
+            "When the issue starts, in whole seconds of video time counted from the start of the video file — the "
+            "same scale you cite moments in, not the footer's `REC_T`."
         ),
     )
     end_time: int = Field(
-        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+        ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
@@ -67,7 +67,7 @@ class SignalFinding(BaseModel, frozen=True):
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
-            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."
         )
     )

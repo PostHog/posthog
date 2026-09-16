@@ -34,6 +34,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
@@ -72,11 +73,13 @@ from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmR
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
+    NavigationEntry,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
     VerificationRecord,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
 logger = structlog.get_logger(__name__)
 
@@ -169,6 +172,9 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    video_clock = await sync_to_async(_load_video_clock)(
+        inputs.team_id, llm_inputs.session_id, llm_inputs.metadata.duration_seconds
+    )
     return await run_scan(
         snapshot=snapshot,
         scanner=scanner,
@@ -177,7 +183,70 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         file_uri=inputs.file_uri,
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
+        video_clock=video_clock,
         trace_id=_scan_trace_id(inputs),
+    )
+
+
+# A render cuts whole inactive stretches, so anything under this is encoder rounding rather than a cut.
+_UNCUT_TOLERANCE_S = 2.0
+
+
+def _load_video_clock(team_id: int, session_id: str, session_duration_s: float | None) -> VideoClock:
+    """The clock for the video this scan is about to read, from the asset the rasterizer just rendered.
+
+    Without a cut map the clock is identity, which is only correct when the render cut nothing. The model cites
+    video seconds, so using identity on a video that *was* cut puts every citation early by the cut time — the
+    failure this conversion exists to prevent, and an invisible one. The two durations settle it: a video as long
+    as its session lost nothing, and anything shorter did. Refuse rather than emit timestamps we know are wrong.
+    """
+    asset = (
+        ExportedAsset.objects.filter(
+            team_id=team_id,
+            is_system=True,
+            export_format="video/mp4",
+            export_context__session_recording_id=session_id,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    export_context = asset.export_context if asset else None
+    clock = video_clock_from_export_context(export_context)
+    if not clock.is_identity:
+        return clock
+
+    video_duration_s = (export_context or {}).get("video_duration_s")
+    tolerance = max(_UNCUT_TOLERANCE_S, (session_duration_s or 0) * 0.02)
+    if video_duration_s is not None and session_duration_s and session_duration_s - video_duration_s <= tolerance:
+        return clock
+
+    logger.warning(
+        "replay_vision.video_clock.missing_cut_map",
+        team_id=team_id,
+        session_id=session_id,
+        video_duration_s=video_duration_s,
+        session_duration_s=session_duration_s,
+    )
+    raise ScannerFailureError(
+        "The rendered video has no inactivity map, so cited moments cannot be placed in the recording",
+        kind=FailureKind.INTERNAL_ERROR,
+    )
+
+
+def _navigation_on_video_clock(entry: NavigationEntry, clock: VideoClock) -> dict[str, Any]:
+    """Navigation timeline `t` values, moved onto the clock the model cites in."""
+    payload = entry.model_dump()
+    payload["rec_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
+    return payload
+
+
+def _signal_on_session_clock(signal: SignalFinding, clock: VideoClock) -> SignalFinding:
+    """Signal bounds come back in video seconds; downstream absolute-time math needs session seconds."""
+    return signal.model_copy(
+        update={
+            "start_time": clock.video_s_to_session_ms(signal.start_time) // 1000,
+            "end_time": clock.video_s_to_session_ms(signal.end_time) // 1000,
+        }
     )
 
 
@@ -190,6 +259,7 @@ async def run_scan(
     file_uri: str,
     mime_type: str,
     team_id: int,
+    video_clock: VideoClock,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
@@ -205,7 +275,7 @@ async def run_scan(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         session_identity=llm_inputs.identity.as_prompt_dict(),
-        navigation=[entry.model_dump() for entry in llm_inputs.navigation],
+        navigation=[_navigation_on_video_clock(entry, video_clock) for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
@@ -221,11 +291,13 @@ async def run_scan(
         preamble_text=preamble_text,
         team_id=team_id,
         llm_inputs=llm_inputs,
+        video_clock=video_clock,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
-    return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
+    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
+    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -241,6 +313,7 @@ def _resolve_citations(
     finalized: _OutputT,
     scanner: BaseScanner,
     duration_ms: int,
+    clock: VideoClock,
 ) -> _OutputT:
     """Walk each `(t <sec>)` marker in the citation fields: drop out-of-range ones, build the plain text, and persist a parallel render-ready segment list."""
     field_updates: dict[str, str | list[Segment]] = {}
@@ -248,7 +321,7 @@ def _resolve_citations(
         text = getattr(finalized, field, None)
         if not isinstance(text, str):
             continue
-        plain, segments = _extract_segments(text, duration_ms)
+        plain, segments = _extract_segments(text, duration_ms, clock)
         field_updates[field] = plain
         field_updates[f"{field}_segments"] = segments
 
@@ -257,8 +330,12 @@ def _resolve_citations(
     return finalized
 
 
-def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
-    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments)."""
+def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
+    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments).
+
+    The model cites video seconds, which is the scale it can index exactly. `clock` converts each one to the
+    session milliseconds the player seeks to, so a citation survives the stretches the rasterizer cut.
+    """
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
@@ -269,8 +346,8 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
             segments.append(TextSegment(value=chunk))
         # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
         for raw_seconds in re.findall(r"\d+", match.group(1)):
-            timestamp_ms = int(raw_seconds) * 1000
-            # Drop citations past the recording end (a misread footer value). 1s slack spares a genuine
+            timestamp_ms = clock.video_s_to_session_ms(float(raw_seconds))
+            # Drop citations past the recording end (a video time the model invented). 1s slack spares a genuine
             # final-second citation from a sub-second start-time skew. The marker is stripped either way.
             if timestamp_ms <= duration_ms + 1000:
                 segments.append(ChipSegment(timestamp_ms=timestamp_ms))
@@ -394,6 +471,7 @@ async def _run_mission(
     preamble_text: str,
     team_id: int,
     llm_inputs: ScannerLlmInputs,
+    video_clock: VideoClock,
     trace_id: str,
 ) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
@@ -420,7 +498,7 @@ async def _run_mission(
         "scanner_type": snapshot.scanner_type.value,
     }
 
-    events_index = build_events_index(llm_inputs)
+    events_index = build_events_index(llm_inputs, video_clock)
 
     def dispatch(call: Any) -> dict[str, Any]:
         return dispatch_events_tool(call, events_index)
@@ -430,7 +508,8 @@ async def _run_mission(
         replace(
             step,
             validate=functools.partial(
-                _validate_signal_timestamps, duration_seconds=llm_inputs.metadata.duration_seconds
+                _validate_signal_timestamps,
+                duration_seconds=video_clock.video_duration_s or llm_inputs.metadata.duration_seconds,
             ),
         )
         if step.name == STEP_SIGNALS
@@ -558,13 +637,14 @@ def _remaining_verify_budget_seconds() -> float | None:
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
+    """`duration_seconds` is the video's length: signals are reported in video time."""
     if not isinstance(output, SignalsResponse) or not output.signals:
         return None
     if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
         return "Recording duration is unavailable. Return an empty signals list."
     if any(signal.end_time > duration_seconds for signal in output.signals):
         return (
-            f"Signal timestamps must not exceed REC_T {math.floor(duration_seconds)}. "
+            f"Signal timestamps must not exceed video second {math.floor(duration_seconds)}. "
             "Use timestamps visible in the recording, or omit the finding. Do not clamp timestamps."
         )
     return None
