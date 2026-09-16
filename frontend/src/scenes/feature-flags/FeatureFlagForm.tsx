@@ -70,6 +70,7 @@ import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, Multivari
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
+import { getExperimentLockReasons, getRunningLinkedExperiment } from './featureFlagExperimentLocks'
 import {
     FeatureFlagLogicProps,
     featureFlagLogic,
@@ -313,6 +314,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const rolloutSumError = validateVariantRolloutSum(variants)
+
+    const runningExperiment = getRunningLinkedExperiment(featureFlag)
+    const experimentLockReasons = getExperimentLockReasons(runningExperiment)
 
     const FLAG_TYPE_OPTIONS = [
         {
@@ -767,37 +771,52 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     >
                                         {FLAG_TYPE_OPTIONS.map((option) => {
                                             const isSelected = currentFlagType === option.value
+                                            const lockedReason = isSelected ? undefined : experimentLockReasons.flagType
                                             return (
-                                                <div
-                                                    key={option.value}
-                                                    role="radio"
-                                                    aria-checked={isSelected}
-                                                    tabIndex={0}
-                                                    className={`rounded p-3 cursor-pointer transition-colors ${
-                                                        isSelected
-                                                            ? 'bg-accent-highlight-light border-2 border-accent'
-                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
-                                                    }`}
-                                                    onClick={() => onSelectFlagType(option.value)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter' || e.key === ' ') {
-                                                            e.preventDefault()
-                                                            onSelectFlagType(option.value)
-                                                        }
-                                                    }}
-                                                    data-attr={`feature-flag-type-${option.value}`}
-                                                >
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex items-center gap-2">
-                                                            {option.icon}
-                                                            <span className="font-medium flex-1">{option.label}</span>
-                                                            {isSelected && (
-                                                                <IconCheckCircle className="text-accent text-base" />
-                                                            )}
+                                                <Tooltip key={option.value} title={lockedReason}>
+                                                    <div
+                                                        role="radio"
+                                                        aria-checked={isSelected}
+                                                        aria-disabled={!!lockedReason}
+                                                        tabIndex={lockedReason ? -1 : 0}
+                                                        className={`rounded p-3 transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-accent-highlight-light border-2 border-accent'
+                                                                : 'border bg-surface-primary border-primary'
+                                                        } ${
+                                                            lockedReason
+                                                                ? 'opacity-50 cursor-not-allowed'
+                                                                : `cursor-pointer ${isSelected ? '' : 'hover:bg-fill-button-tertiary-hover'}`
+                                                        }`}
+                                                        onClick={() => {
+                                                            if (!lockedReason) {
+                                                                onSelectFlagType(option.value)
+                                                            }
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (!lockedReason && (e.key === 'Enter' || e.key === ' ')) {
+                                                                e.preventDefault()
+                                                                onSelectFlagType(option.value)
+                                                            }
+                                                        }}
+                                                        data-attr={`feature-flag-type-${option.value}`}
+                                                    >
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-2">
+                                                                {option.icon}
+                                                                <span className="font-medium flex-1">
+                                                                    {option.label}
+                                                                </span>
+                                                                {isSelected && (
+                                                                    <IconCheckCircle className="text-accent text-base" />
+                                                                )}
+                                                            </div>
+                                                            <span className="text-xs text-muted">
+                                                                {option.description}
+                                                            </span>
                                                         </div>
-                                                        <span className="text-xs text-muted">{option.description}</span>
                                                     </div>
-                                                </div>
+                                                </Tooltip>
                                             )
                                         })}
                                     </div>
@@ -865,6 +884,17 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <span className="Field--error text-danger text-xs">{rolloutSumError}</span>
                                         )}
 
+                                        {runningExperiment && (
+                                            <LemonBanner type="info">
+                                                Variant keys are fixed while the experiment{' '}
+                                                <Link to={urls.experiment(runningExperiment.id)}>
+                                                    {runningExperiment.name}
+                                                </Link>{' '}
+                                                runs. You can still edit descriptions, payloads, and rollout
+                                                percentages.
+                                            </LemonBanner>
+                                        )}
+
                                         <DndContext
                                             sensors={sensors}
                                             onDragStart={handleDragStart}
@@ -904,6 +934,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     status={
                                                                         variantErrors[index]?.key ? 'danger' : undefined
                                                                     }
+                                                                    disabledReason={experimentLockReasons.variantKey}
                                                                     data-attr={`feature-flag-variant-key-${index}`}
                                                                 />
                                                                 {variantErrors[index]?.key && (
@@ -955,6 +986,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         status="danger"
                                                                         size="small"
                                                                         icon={<IconTrash />}
+                                                                        disabledReason={
+                                                                            experimentLockReasons.removeVariant
+                                                                        }
                                                                         onClick={() => {
                                                                             const variantKey =
                                                                                 variant.key || `Variant ${index + 1}`

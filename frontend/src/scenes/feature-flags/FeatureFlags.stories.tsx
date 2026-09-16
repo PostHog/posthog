@@ -7,9 +7,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import featureFlags from './__mocks__/feature_flags.json'
-import { featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const MULTIVARIATE_FLAG_ID = 1502
+const EXPERIMENT_FLAG_ID = 1503
 
 const meta: Meta = {
     component: App,
@@ -37,7 +39,22 @@ const meta: Meta = {
                     },
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => {
-                    const flag = featureFlags.results.find((r) => r.id === Number(params['flagId']))
+                    const flagId = Number(params['flagId'])
+                    if (flagId === EXPERIMENT_FLAG_ID) {
+                        // The same multivariate flag, served as if a running experiment owned its
+                        // variants. Variant keys and the flag type lock; payloads stay editable.
+                        const multivariateFlag = featureFlags.results.find((r) => r.id === MULTIVARIATE_FLAG_ID)
+                        return [
+                            200,
+                            {
+                                ...multivariateFlag,
+                                id: EXPERIMENT_FLAG_ID,
+                                experiment_set: [42],
+                                experiment_set_metadata: [{ id: 42, name: 'Nav bar color', is_running: true }],
+                            },
+                        ]
+                    }
+                    const flag = featureFlags.results.find((r) => r.id === flagId)
                     if (flag?.id !== STALE_FLAG_ID) {
                         return [200, flag]
                     }
@@ -115,7 +132,7 @@ export const EditFeatureFlag: Story = {
 
 export const EditMultiVariateFeatureFlag: Story = {
     parameters: {
-        pageUrl: urls.featureFlag(1502),
+        pageUrl: urls.featureFlag(MULTIVARIATE_FLAG_ID),
     },
 }
 
@@ -143,12 +160,14 @@ export const FeatureFlagNotFound: Story = {
     },
 }
 
-const waitForMountedFeatureFlagLogic = async (): Promise<ReturnType<typeof featureFlagLogic.build>> => {
+const waitForMountedFeatureFlagLogic = async (
+    id: FeatureFlagLogicProps['id'] = 'new'
+): Promise<ReturnType<typeof featureFlagLogic.build>> => {
     return waitFor(
         () => {
-            const logic = featureFlagLogic.findMounted({ id: 'new' })
+            const logic = featureFlagLogic.findMounted({ id })
             if (!logic) {
-                throw new Error('featureFlagLogic({ id: "new" }) not yet mounted')
+                throw new Error(`featureFlagLogic({ id: "${id}" }) not yet mounted`)
             }
             // The new-flag loader awaits default release conditions, so wait for it to settle —
             // otherwise loadFeatureFlagSuccess resets the flag to NEW_FLAG after a play function
@@ -174,6 +193,17 @@ const waitForErrorText = async (canvasElement: HTMLElement, expectedText: string
         },
         { timeout: 5000 }
     )
+}
+
+export const EditMultiVariateFeatureFlagWithRunningExperiment: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(EXPERIMENT_FLAG_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async () => {
+        const logic = await waitForMountedFeatureFlagLogic(EXPERIMENT_FLAG_ID)
+        logic.actions.editFeatureFlag(true)
+    },
 }
 
 // These stories drive the form into a known validation-failure state via the logic so visual
