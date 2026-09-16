@@ -1616,7 +1616,25 @@ class GitHubIntegrationBase:
             nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } }
           }
           reviewThreads(first: 100) { nodes { isResolved } }
-          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+          commits(last: 1) {
+            nodes {
+              commit {
+                statusCheckRollup {
+                  state
+                  contexts(first: 100) {
+                    nodes {
+                      __typename
+                      ... on CheckRun {
+                        name conclusion detailsUrl
+                        checkSuite { workflowRun { workflow { name } } }
+                      }
+                      ... on StatusContext { context state targetUrl }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -1759,9 +1777,8 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Pull request not found: {pr_url}"}
 
         rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
-        rollup_state = None
-        if rollup_nodes:
-            rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
+        rollup = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}) if rollup_nodes else {}
+        rollup_state = rollup.get("state")
 
         thread_nodes = ((pr.get("reviewThreads") or {}).get("nodes")) or []
         unresolved_threads = sum(1 for t in thread_nodes if t and t.get("isResolved") is False)
@@ -1775,14 +1792,16 @@ class GitHubIntegrationBase:
 
         review_decision = pr.get("reviewDecision")
         author = (pr.get("author") or {}).get("login")
+        html_url = pr.get("url") or pr_url
 
         return {
             "success": True,
             "number": pr.get("number"),
             "title": pr.get("title") or "",
-            "url": pr.get("url") or pr_url,
+            "url": html_url,
             "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
             "ci_status": self._map_ci_status(rollup_state),
+            "failing_checks": self._failing_checks_with_rollup_fallback(rollup, html_url),
             "review_decision": review_decision.lower() if isinstance(review_decision, str) else None,
             "unresolved_threads": unresolved_threads,
             "mergeable": self._map_mergeable(pr.get("mergeable")),
@@ -2019,6 +2038,19 @@ class GitHubIntegrationBase:
                 failing.append({"key": node.get("context") or "unnamed status", "details_url": node.get("targetUrl")})
         return failing
 
+    @classmethod
+    def _failing_checks_with_rollup_fallback(cls, rollup: dict[str, Any] | None, html_url: str) -> list[dict[str, Any]]:
+        """Failing checks by name, or a single link to the checks page when none can be named.
+
+        The rollup can report failure while no context node parses as failing — a check outside
+        the first page, or a conclusion GitHub counts against the rollup but we do not. The
+        fallback keeps the loop from reporting a green PR in that case.
+        """
+        failing = cls._extract_failing_checks(rollup)
+        if not failing and (rollup or {}).get("state") in cls._FAILING_ROLLUP_STATES:
+            failing.append({"key": cls._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+        return failing
+
     @staticmethod
     def _feedback_item(node: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -2082,9 +2114,6 @@ class GitHubIntegrationBase:
         rollup = ((rollup_nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") if rollup_nodes else None
 
         html_url = pr.get("url") or pr_url
-        failing_checks = self._extract_failing_checks(rollup)
-        if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
-            failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
 
         return {
             "success": True,
@@ -2093,7 +2122,7 @@ class GitHubIntegrationBase:
             "head_sha": pr.get("headRefOid") or "",
             "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
             "author_login": author_login,
-            "failing_checks": failing_checks,
+            "failing_checks": self._failing_checks_with_rollup_fallback(rollup, html_url),
             "unresolved_threads": unresolved_threads,
             "comments": feedback,
         }

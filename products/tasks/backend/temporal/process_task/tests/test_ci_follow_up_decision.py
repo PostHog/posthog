@@ -11,12 +11,14 @@ from products.tasks.backend.temporal.babysit_pr.snapshot import (
     PRSnapshot,
     ReviewThreadItem,
 )
+from products.tasks.backend.temporal.constants import MAX_CI_REPETITIONS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.workflow import (
     CIFollowUpDecision,
+    PendingFollowup,
     ProcessTaskInput,
     ProcessTaskWorkflow,
     ResumedSandboxState,
@@ -331,3 +333,63 @@ class TestBabysitFollowUpDecision:
         )
 
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.SKIP
+
+
+class TestCIBudgetRearm:
+    async def test_user_message_gives_the_spent_budget_back_and_restates_the_checks(self, monkeypatch):
+        wf = _babysit_workflow()
+        sent = _capture_dispatched_messages(monkeypatch)
+        _patch_snapshot(
+            monkeypatch,
+            _babysit_snapshot(failing_checks=[BABYSIT_CHECK], comments=[CommentItem(id="M1", author="reviewer")]),
+        )
+
+        assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.FIRE
+        await wf._dispatch_ci_follow_up()
+        wf._ci_repetitions = MAX_CI_REPETITIONS
+        assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.SKIP
+
+        await wf._dispatch_followup(PendingFollowup(message="the CI is still red", artifact_ids=[], sequence=0))
+
+        assert wf._ci_repetitions == 0
+        assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.FIRE
+        await wf._dispatch_ci_follow_up()
+        # The check is restated, the comment the agent already saw is not.
+        assert "CI/backend" in sent[-1]
+        assert "M1" not in sent[-1]
+
+    async def test_re_armed_budget_survives_continue_as_new(self, monkeypatch):
+        wf = _babysit_workflow()
+        wf._ci_repetitions = MAX_CI_REPETITIONS
+        wf._rearm_ci_follow_up()
+        wf._chain_started_at = datetime(2026, 8, 18, tzinfo=UTC)
+
+        resumed = wf._build_resumed_input(ProcessTaskInput(run_id="run-1"), "sandbox-1").resumed_sandbox
+        assert resumed is not None
+        continuation = _babysit_workflow()
+        continuation._restore_resumed_state(resumed)
+
+        assert continuation._ci_repetitions == 0
+        assert continuation._ci_budget_rearmed is True
+
+    async def test_unflagged_ci_message_names_the_failing_checks(self, monkeypatch):
+        wf = _babysit_workflow(pr_babysit_enabled=False)
+        sent = _capture_dispatched_messages(monkeypatch)
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            return GetPrContextOutput(
+                pr_url=BABYSIT_PR_URL,
+                pr_state="open",
+                fingerprint="fp-1",
+                ci_status="failing",
+                failing_checks=[BABYSIT_CHECK],
+            )
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.FIRE
+        await wf._dispatch_ci_follow_up()
+
+        assert "CI/backend" in sent[0]
+        assert "https://ci.example.com/1" in sent[0]
