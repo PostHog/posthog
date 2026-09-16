@@ -70,23 +70,35 @@ def allocate_scout_slug(*, team_id: int, display_name: str, taken: set[str] | No
     base = slugify_scout_name(display_name)
     if not base:
         return fallback_scout_slug()
+    candidates = _slug_candidates(base)
+    # Matched against the exact candidates rather than a `startswith(base)` prefix, because a name
+    # that fills the length cap has its base cut back to make room for the suffix: the candidate
+    # after a 64-character `base` is `base[:62]-2`, which the prefix would not have found. Missing
+    # it hands back a slug another scout already holds.
     reserved = set(taken or ())
     reserved |= set(
-        LLMSkill.objects.filter(team_id=team_id, deleted=False, name__startswith=base).values_list("name", flat=True)
+        LLMSkill.objects.filter(team_id=team_id, deleted=False, name__in=candidates).values_list("name", flat=True)
     )
     reserved |= set(
         SignalScoutConfig.objects.for_team(team_id)
-        .filter(skill_name__startswith=base)
+        .filter(skill_name__in=candidates)
         .values_list("skill_name", flat=True)
     )
-    if base not in reserved:
-        return base
+    return next((candidate for candidate in candidates if candidate not in reserved), fallback_scout_slug())
+
+
+def _slug_candidates(base: str) -> list[str]:
+    """`base`, then its numbered variants, in the order a caller should prefer them.
+
+    The base is cut back by the width of the suffix it carries, so every candidate fits the skill
+    name cap. Deduped because that cut makes two suffixes collide on a long enough base only if the
+    suffix widths differ, and a duplicate candidate would otherwise waste an allocation attempt.
+    """
+    candidates = [_truncate_slug(base, MAX_SKILL_NAME_LENGTH)]
     for suffix in range(2, _MAX_COLLISION_SUFFIX + 1):
         tail = f"-{suffix}"
-        candidate = f"{_truncate_slug(base, MAX_SKILL_NAME_LENGTH - len(tail))}{tail}"
-        if candidate not in reserved:
-            return candidate
-    return fallback_scout_slug()
+        candidates.append(f"{_truncate_slug(base, MAX_SKILL_NAME_LENGTH - len(tail))}{tail}")
+    return list(dict.fromkeys(candidates))
 
 
 def _truncate_slug(slug: str, limit: int) -> str:

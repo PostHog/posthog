@@ -2099,6 +2099,16 @@ def create_scout_with_generated_slug(
     `create_scout_for_source`: a caller that named the scout itself gets the conflict, because
     quietly storing a different identifier than the one it asked for would be worse. Each attempt
     opens its own transaction, so a failed insert is rolled back before the next one starts.
+
+    One case the loop deliberately does not retry: the request loses the race to a create whose
+    definition matches byte for byte, and `create_scout_for_source` adopts that scout and answers
+    200 rather than suffixing past it. Only a concurrent double-submit reaches that — a later
+    repeat never does, because allocation has already moved on to the next free suffix — and
+    sharing one scout beats leaving a duplicate behind a request the client sent twice.
+
+    So a generated name is not the idempotent route an explicit `name` is: repeating the same
+    display name and body makes a second scout. That follows from generating the identity, since
+    nothing in a repeated request says which earlier scout it meant.
     """
     lost: set[str] = set()
     for attempt in range(SLUG_ALLOCATION_ATTEMPTS):

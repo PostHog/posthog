@@ -368,6 +368,22 @@ class TestSignalScoutCreateDisplayNameAPI(APIBaseTest):
             == (self._payload()["body"])
         )
 
+    def test_repeating_a_whole_definition_still_mints_a_second_scout(self) -> None:
+        # A generated identity cannot be recovered from the display name, so this route is not the
+        # idempotent one an explicit `name` gets: the repeat allocates past the slug it already
+        # took. Worth pinning, because the sibling create endpoint answers 200 for the same body
+        # and a reader is entitled to expect the same here.
+        first = self._create(display_name="Checkout failures")
+        second = self._create(display_name="Checkout failures")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert [first.json()["skill"]["name"], second.json()["skill"]["name"]] == [
+            "checkout-failures",
+            "checkout-failures-2",
+        ]
+        assert SignalScoutConfig.all_teams.filter(team=self.team, display_name="Checkout failures").count() == 2
+
     def test_a_name_that_slugifies_to_nothing_still_creates_a_scout(self) -> None:
         # A name in a script that does not transliterate leaves no slug to derive. Falling back to
         # a generated one keeps the scout creatable under the name its author wrote.
