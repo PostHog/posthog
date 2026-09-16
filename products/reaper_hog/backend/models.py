@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
@@ -16,7 +17,7 @@ from products.reaper_hog.backend.facade.enums import (
 from products.reaper_hog.backend.logic.artefacts import ArtefactContent, artefact_type_for
 
 
-def reaper_artefact_type_choices() -> list[tuple[str, str]]:
+def reaper_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return [(t.value, t.value) for t in ArtefactType]
 
 
