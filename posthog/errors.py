@@ -113,15 +113,21 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
     )
 
 
+# One line of the per-column dump a row input format prints when a row mis-splits. Matching the
+# whole line, not the words in it, keeps a file whose own content repeats those words from reading
+# as a dump: ClickHouse echoes the text it stopped on back into the same message.
+ROW_DUMP_COLUMN_PATTERN = re.compile(r"^Column \d+,\s+name: .+?,\s+type: .+?,\s+parsed text:", re.MULTILINE)
+
+
 def _is_delimited_row_split_mismatch(message: str) -> bool:
     """Tell a mis-split row of a warehouse file from the other causes of code 27.
 
     The same code covers a value that fails to convert inside a query, and a JSON file whose
-    structure the reader rejects. Only a row input format (CSV, TSV) prints the per-column dump
-    that ends each column with its parsed text, so that dump is the marker. The dump is also why
-    the message stays fixed: it repeats whole rows of the customer's file.
+    structure the reader rejects. Only a row input format prints the per-column dump, so that dump
+    is the marker. It is also why the message stays fixed: it repeats whole rows of the customer's
+    file.
     """
-    return "Cannot parse input:" in message and "parsed text:" in message
+    return "Cannot parse input:" in message and ROW_DUMP_COLUMN_PATTERN.search(message) is not None
 
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:

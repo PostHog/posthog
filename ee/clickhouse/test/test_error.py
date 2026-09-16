@@ -222,7 +222,8 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
                 "'Ltd\",Bristol,2026-03-04\\n': (at row 12)\n: \nRow 12:\n"
                 'Column 0,   name: account,   type: Nullable(String), parsed text: "Acme, Ltd"\n'
                 'Column 1,   name: city,      type: Nullable(String), parsed text: "Bristol"\n'
-                ": While executing CSVRowInputFormat: While executing ReadFromObjectStorage. Stack trace:\n\n"
+                ": While executing ParallelParsingBlockInputFormat: While executing ReadFromObjectStorage. "
+                "Stack trace:\n\n"
                 "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
                 code=27,
             ),
@@ -246,6 +247,26 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             "Code: 27.\nDB::Exception: Cannot parse input: expected '{' before: "
             "'\"value\": 3}]': (while reading the value of key items): (at row 1)\n"
             ": (in file/uri example-bucket/exports/orders.jsonl): While executing "
+            "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+            "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
+            # A JSON file whose own content repeats the words the dump uses. ClickHouse echoes the
+            # text it stopped on, so the words alone cannot be the marker: the dump's line shape is.
+            ServerException(
+                "DB::Exception: Cannot parse input: expected ',' before: "
+                "'parsed text: none}]': (while reading the value of key notes): (at row 1)\n"
+                ": (in file/uri example-bucket/exports/notes.jsonl): While executing "
+                "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorCannotParseInputAssertionFailed",
+            "Code: 27.\nDB::Exception: Cannot parse input: expected ',' before: "
+            "'parsed text: none}]': (while reading the value of key notes): (at row 1)\n"
+            ": (in file/uri example-bucket/exports/notes.jsonl): While executing "
             "ParallelParsingBlockInputFormat. Stack trace:\n\n"
             "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
             27,
@@ -346,7 +367,8 @@ def test_a_mis_split_csv_row_is_the_customers_file_not_a_platform_failure():
     error = ServerException(
         "Code: 27. DB::Exception: Cannot parse input: expected ',' at end of stream: (at row 4)\n: \nRow 4:\n"
         'Column 0,   name: region,   type: Nullable(String), parsed text: "north, west"\n'
-        ": While executing CSVRowInputFormat. Stack trace:\n\n0. DB::Exception::Exception() @ 0x0000000015979590",
+        ": While executing ParallelParsingBlockInputFormat. Stack trace:\n\n"
+        "0. DB::Exception::Exception() @ 0x0000000015979590",
         code=27,
     )
 
