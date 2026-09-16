@@ -19,11 +19,25 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimisation,
         optimisationLoading,
         optimisationUnreadable,
+        proposalsResponse,
+        approvedResponse,
+        appliedResponse,
+        proposalsResponseLoading,
+        approvedResponseLoading,
+        appliedResponseLoading,
     } = useValues(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
+    // Approving, publishing and discarding each move a suggestion between these lists through
+    // separate requests. Until every one of them has answered, "nothing here" is not known yet.
+    const listsUnknown = proposalsResponse === null || approvedResponse === null || appliedResponse === null
+    const listsSettling =
+        proposalsResponseLoading ||
+        approvedResponseLoading ||
+        appliedResponseLoading ||
+        appliedProposals.some((proposal) => !outcomes[proposal.id])
 
-    if (optimisation === null && optimisationLoading) {
+    if ((optimisation === null && optimisationLoading) || (optimisationEnabled && listsUnknown)) {
         return <Spinner />
     }
 
@@ -42,7 +56,8 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         return <WorkflowSuggestionsIntroduction id={id} enabled={false} />
     }
 
-    if (pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0) {
+    const nothingFiled = pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0
+    if (nothingFiled && !listsSettling) {
         return <WorkflowSuggestionsIntroduction id={id} enabled />
     }
 
