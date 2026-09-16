@@ -309,11 +309,12 @@ class SSHTunnel:
         if not self.has_valid_port()[0]:
             raise Exception("SSHTunnel port is not valid")
 
-        if not self.is_host_key_valid()[0]:
-            raise Exception("SSHTunnel host key is not valid")
-
-        # None leaves the handshake unverified, exactly as before this field existed.
-        ssh_host_key = self.parse_host_key()
+        # Parsed once rather than through `is_host_key_valid`, which would parse the same key and
+        # throw it away. None leaves the handshake unverified, exactly as before this field existed.
+        try:
+            ssh_host_key = self.parse_host_key()
+        except Exception as e:
+            raise Exception("SSHTunnel host key is not valid") from e
 
         if self.auth_type == "password":
             return SSHTunnelForwarder(
