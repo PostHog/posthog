@@ -97,6 +97,33 @@ class TestLogsRetentionRulesAPI(APIBaseTest):
         )
         assert denied.status_code == status.HTTP_403_FORBIDDEN, denied.json()
 
+    def test_partial_update_keeps_stored_custom_period_when_flag_and_feature_are_gone(self):
+        self._grant_30d_retention()
+        rule = self.client.post(
+            self.base_url,
+            self._payload(config={"retention_days": 90, "filter_group": VALID_FILTER_GROUP}),
+            format="json",
+        ).json()
+
+        self.organization.available_product_features = []
+        self.organization.save()
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag != "logs-settings-custom-retention",
+        ):
+            response = self.client.patch(f"{self.base_url}{rule['id']}/", {"enabled": True}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["enabled"] is True
+            assert response.json()["config"]["retention_days"] == 90
+
+            # A changed period is still checked.
+            response = self.client.patch(
+                f"{self.base_url}{rule['id']}/",
+                {"config": {"retention_days": 180, "filter_group": VALID_FILTER_GROUP}},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_list_scoped_to_team(self):
         self.client.post(self.base_url, self._payload(name="mine"), format="json")
         other_team = self.create_team_with_organization(organization=self.organization)

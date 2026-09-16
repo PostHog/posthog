@@ -138,6 +138,19 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
         # bool is an int subclass — reject it explicitly so `true`/`false` don't slip through.
         if isinstance(retention_days, bool) or not isinstance(retention_days, int):
             raise ValidationError({"config": {"retention_days": "Must be an integer."}})
+        # Only a changed period is checked against the flag and the entitlement, so a partial update
+        # such as disabling a rule still works after the flag is turned off.
+        if retention_days != self._stored_retention_days():
+            self._validate_retention_days(retention_days)
+
+        self._validate_filter_group(config.get("filter_group"))
+        return attrs
+
+    def _stored_retention_days(self) -> int | None:
+        stored = self.instance.config if self.instance is not None and isinstance(self.instance.config, dict) else {}
+        return stored.get("retention_days")
+
+    def _validate_retention_days(self, retention_days: int) -> None:
         custom_enabled = retention_days not in LOGS_RETENTION_BASE_TIERS_DAYS and custom_retention_enabled_for(
             self.context
         )
@@ -154,9 +167,6 @@ class LogsRetentionRuleSerializer(serializers.ModelSerializer):
                 raise PermissionDenied(
                     f"This organization does not have permission to set Logs retention to {retention_days} days."
                 )
-
-        self._validate_filter_group(config.get("filter_group"))
-        return attrs
 
     def _validate_filter_group(self, filter_group: Any) -> None:
         message = retention_filter_group_error(filter_group)

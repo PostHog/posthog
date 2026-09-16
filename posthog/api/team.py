@@ -1903,10 +1903,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             else self.instance
         )
 
+        logs_settings = team.logs_settings if team is not None else None
+        old_retention = logs_settings.get("retention_days") if logs_settings else None
+
         new_retention = value.get("retention_days")
-        if new_retention is not None:
-            if isinstance(new_retention, bool) or not isinstance(new_retention, int):
-                raise exceptions.ValidationError("retention_days must be an integer")
+        if new_retention is not None and (isinstance(new_retention, bool) or not isinstance(new_retention, int)):
+            raise exceptions.ValidationError("retention_days must be an integer")
+
+        # Only a changed period is checked against the flag and the entitlement. Unrelated settings
+        # updates send the stored period back, and must not fail when the flag is turned off later.
+        if new_retention is not None and old_retention != new_retention:
             # Only evaluate the flag for values outside the base tiers, so the common path makes no flag call.
             custom_enabled = new_retention not in LOGS_RETENTION_BASE_TIERS_DAYS and _custom_logs_retention_enabled(
                 self, team
@@ -1915,10 +1921,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if error:
                 raise exceptions.ValidationError(error)
 
-        logs_settings = team.logs_settings if team is not None else None
-        old_retention = logs_settings.get("retention_days") if logs_settings else None
-
-        if new_retention is not None and old_retention != new_retention:
             required_feature = required_logs_retention_feature(new_retention)
             if required_feature:
                 organization = _get_organization_for_logs_settings_check(self)

@@ -45,3 +45,6 @@ CustomMonthsWithApply.args = { value: 180, allowCustom: true, customCommit: 'app
 
 export const CustomMonthsInForm = Template.bind({})
 CustomMonthsInForm.args = { value: 180, allowCustom: true, customCommit: 'change' }
+
+export const StoredCustomMonthsWithoutFlag = Template.bind({})
+StoredCustomMonthsWithoutFlag.args = { value: 180, allowCustom: false, customCommit: 'apply' }

@@ -13,6 +13,7 @@ import { DropRuleFilterEditor } from 'products/logs/frontend/components/LogsSamp
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 
 import { logsRetentionFormLogic } from './logsRetentionFormLogic'
+import { isValidLogsRetentionDays } from './logsRetentionPeriod'
 import { LogsRetentionPeriodPicker } from './LogsRetentionPeriodPicker'
 import { buildRetentionProjection, retentionProjectionText } from './retentionStorageProjection'
 
@@ -23,6 +24,7 @@ export function LogsRetentionForm(): JSX.Element {
     const allowCustomRetention = useFeatureFlag(LogsFeatureFlagKeys.customRetention)
 
     const hasFilters = retentionForm.filter_group.values.length > 0
+    const retentionDaysValid = isValidLogsRetentionDays(retentionForm.retention_days, true)
     // Hide the hint once it matches what's in the field — the link would be a no-op.
     const showSuggestion = !!suggestedName?.name && suggestedName.name !== retentionForm.name.trim()
 
@@ -60,7 +62,7 @@ export function LogsRetentionForm(): JSX.Element {
             </div>
 
             <SceneSection title="Retention" titleSize="sm">
-                <LemonField.Pure label="Keep matching logs for">
+                <LemonField.Pure label="Keep matching logs for" error={retentionFormErrors.retention_days}>
                     <LogsRetentionPeriodPicker
                         value={retentionForm.retention_days}
                         onChange={(days) => setRetentionFormValue('retention_days', days)}
@@ -85,7 +87,9 @@ export function LogsRetentionForm(): JSX.Element {
                     filterGroup={retentionForm.filter_group}
                     metric="bytes"
                     renderCaption={({ points }) => {
-                        const projection = buildRetentionProjection(points, retentionForm.retention_days)
+                        const projection = retentionDaysValid
+                            ? buildRetentionProjection(points, retentionForm.retention_days)
+                            : null
                         if (!projection) {
                             return null
                         }

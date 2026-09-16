@@ -2081,6 +2081,24 @@ def team_api_test_factory():
                     )
                     assert "multiple of 30" in response.json()["detail"]
 
+        def test_logs_settings_unchanged_custom_retention_kept_when_flag_off(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            with patch("posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+            # Settings switches send the whole object back, including the stored period.
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90, "json_parse_logs": True}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["logs_settings"]["retention_days"] == 90
+            assert response.json()["logs_settings"]["json_parse_logs"] is True
+
         def test_logs_settings_custom_retention_requires_paid_feature(self):
             with patch("posthoganalytics.feature_enabled", return_value=True):
                 response = self.client.patch(

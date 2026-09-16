@@ -1,11 +1,16 @@
 from temporalio import activity
 
 from posthog.models import Team
-from posthog.models.team.logs_retention import DEFAULT_LOGS_RETENTION_DAYS, required_logs_retention_feature
+from posthog.models.team.logs_retention import (
+    DEFAULT_LOGS_RETENTION_DAYS,
+    required_logs_retention_feature,
+    reset_logs_retention_rules,
+)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.temporal.retention_entitlements.types import (
     EnforceLogsRetentionEntitlementsInput,
     EnforceLogsRetentionEntitlementsOutput,
@@ -72,12 +77,48 @@ async def enforce_logs_retention_entitlements(
                 batch_size=batch_size,
             )
 
+        # Rules store their own retention period, so ingestion keeps applying a paid period until they are reset too.
+        rules_to_update: list[LogsRetentionRule] = []
+        rules_checked = 0
+        async for rule in (
+            LogsRetentionRule.objects.filter(config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS)
+            .select_related("team__organization")
+            .only("id", "config", "version", "team__id", "team__organization__available_product_features")
+        ):
+            retention_days = rule.config.get("retention_days")
+            if not isinstance(retention_days, int):
+                continue
+            required_feature = required_logs_retention_feature(retention_days)
+            if not required_feature:
+                continue
+
+            rules_checked += 1
+            organization = rule.team.organization
+            if organization.is_feature_available(required_feature):
+                continue
+            rules_to_update.append(rule)
+            logger.info(
+                "Logs retention rule period forcibly reduced",
+                rule_id=str(rule.id),
+                team_id=rule.team_id,
+                organization_id=organization.id,
+                retention_period_before=retention_days,
+                retention_period_after=DEFAULT_LOGS_RETENTION_DAYS,
+            )
+
+        if not input.dry_run and rules_to_update:
+            await database_sync_to_async(reset_logs_retention_rules)(rules_to_update)
+
         logger.info(
             "Logs retention entitlement enforcement complete",
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
+            rules_checked=rules_checked,
+            rules_reset=len(rules_to_update),
         )
         return EnforceLogsRetentionEntitlementsOutput(
             teams_checked=teams_checked,
             teams_reset=len(teams_to_update),
+            rules_checked=rules_checked,
+            rules_reset=len(rules_to_update),
         )

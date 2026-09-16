@@ -4,6 +4,8 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.logs.backend.models import LogsRetentionRule
+
 logger = structlog.get_logger(__name__)
 
 DEFAULT_LOGS_RETENTION_DAYS = 14
@@ -35,6 +37,15 @@ def required_logs_retention_feature(days: int) -> AvailableFeature | None:
     return LOGS_RETENTION_PAID_FEATURE if days > DEFAULT_LOGS_RETENTION_DAYS else None
 
 
+def reset_logs_retention_rules(rules: list[LogsRetentionRule]) -> None:
+    """Reset each rule's retention period to the default, keeping its filters and enabled state."""
+    for rule in rules:
+        rule.config = {**rule.config, "retention_days": DEFAULT_LOGS_RETENTION_DAYS}
+        # Ingestion tracks rule changes by version, the same as an API update.
+        rule.version += 1
+    LogsRetentionRule.objects.bulk_update(rules, ["config", "version"])
+
+
 def reset_revoked_logs_retention(organization: Organization, revoked_feature_keys: set[str]) -> int:
     """Reset team Logs retention to the default when its required feature was revoked.
 
@@ -55,11 +66,21 @@ def reset_revoked_logs_retention(organization: Organization, revoked_feature_key
         # Preserve unrelated Logs settings such as JSON parsing and PII scrubbing.
         team.logs_settings = {**(team.logs_settings or {}), "retention_days": DEFAULT_LOGS_RETENTION_DAYS}
 
+    rules = list(
+        LogsRetentionRule.objects.filter(
+            team__organization=organization, config__retention_days__gt=DEFAULT_LOGS_RETENTION_DAYS
+        ).only("id", "config", "version")
+    )
+
     if teams:
         Team.objects.bulk_update(teams, ["logs_settings"])
+    if rules:
+        reset_logs_retention_rules(rules)
+    if teams or rules:
         logger.info(
             "Logs retention reset after entitlement revocation",
             organization_id=str(organization.id),
             teams_reset=len(teams),
+            rules_reset=len(rules),
         )
     return len(teams)

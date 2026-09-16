@@ -8,6 +8,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 
+from products.logs.backend.models import LogsRetentionRule
 from products.logs.backend.temporal.retention_entitlements.activities import enforce_logs_retention_entitlements
 from products.logs.backend.temporal.retention_entitlements.types import (
     EnforceLogsRetentionEntitlementsInput,
@@ -38,6 +39,19 @@ async def _refresh_team(team: Team) -> Team:
     return await sync_to_async(Team.objects.get)(id=team.id)
 
 
+async def _create_rule(team: Team, retention_days: int) -> LogsRetentionRule:
+    return await sync_to_async(LogsRetentionRule.objects.create)(
+        team=team,
+        name=f"Rule {uuid.uuid4()}",
+        enabled=True,
+        config={"retention_days": retention_days, "filter_group": {"type": "AND", "values": []}},
+    )
+
+
+async def _refresh_rule(rule: LogsRetentionRule) -> LogsRetentionRule:
+    return await sync_to_async(LogsRetentionRule.objects.get)(id=rule.id)
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_teams() -> None:
@@ -53,6 +67,10 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
         retention_last_updated="2026-06-01T00:00:00Z",
     )
     team_90d_blocked = await _create_team(org_without_retention, 90)
+    # A rule keeps its own period, so a 14-day team can still apply a paid period through it.
+    rule_allowed = await _create_rule(team_30d_allowed, 90)
+    rule_blocked = await _create_rule(team_14d, 30)
+    rule_14d = await _create_rule(team_14d, 14)
 
     output: EnforceLogsRetentionEntitlementsOutput = await ActivityEnvironment().run(
         enforce_logs_retention_entitlements,
@@ -61,6 +79,15 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
 
     assert output.teams_checked == 3
     assert output.teams_reset == 2
+    assert output.rules_checked == 2
+    assert output.rules_reset == 1
+
+    assert (await _refresh_rule(rule_allowed)).config["retention_days"] == 90
+    assert (await _refresh_rule(rule_14d)).config["retention_days"] == 14
+    blocked_rule = await _refresh_rule(rule_blocked)
+    assert blocked_rule.config == {"retention_days": 14, "filter_group": {"type": "AND", "values": []}}
+    assert blocked_rule.enabled is True
+    assert blocked_rule.version == rule_blocked.version + 1
 
     assert (await _refresh_team(team_14d)).logs_settings["retention_days"] == 14
     assert (await _refresh_team(team_30d_allowed)).logs_settings["retention_days"] == 30
@@ -77,6 +104,7 @@ async def test_enforce_logs_retention_entitlements_resets_only_over_entitled_tea
 async def test_enforce_logs_retention_entitlements_dry_run_does_not_update_team() -> None:
     organization = await _create_organization([])
     team = await _create_team(organization, 30)
+    rule = await _create_rule(team, 90)
 
     output: EnforceLogsRetentionEntitlementsOutput = await ActivityEnvironment().run(
         enforce_logs_retention_entitlements,
@@ -85,4 +113,6 @@ async def test_enforce_logs_retention_entitlements_dry_run_does_not_update_team(
 
     assert output.teams_checked == 1
     assert output.teams_reset == 1
+    assert output.rules_reset == 1
     assert (await _refresh_team(team)).logs_settings["retention_days"] == 30
+    assert (await _refresh_rule(rule)).config["retention_days"] == 90

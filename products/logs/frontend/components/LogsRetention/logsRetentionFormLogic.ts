@@ -18,7 +18,11 @@ import {
 import { LogsRetentionRuleApi, PatchedLogsRetentionRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsRetentionRulesSettingsUrl } from 'products/logs/frontend/logsRetentionRulesSettingsUrl'
 
-import { LOGS_RETENTION_DEFAULT_DAYS, isValidLogsRetentionDays } from './logsRetentionPeriod'
+import {
+    LOGS_RETENTION_DEFAULT_DAYS,
+    LOGS_RETENTION_MONTHS_HINT,
+    isValidLogsRetentionDays,
+} from './logsRetentionPeriod'
 
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -283,6 +287,10 @@ export const logsRetentionFormLogic = kea<logsRetentionFormLogicType>([
             defaults: buildRetentionFormDefaults(props.rule),
             errors: (form: LogsRetentionFormType) => ({
                 name: !form.name?.trim() ? 'Name is required' : undefined,
+                // The picker commits an invalid custom month count as it is typed, so the form must block saving it.
+                retention_days: !isValidLogsRetentionDays(form.retention_days, true)
+                    ? LOGS_RETENTION_MONTHS_HINT
+                    : undefined,
             }),
             submit: async (form: LogsRetentionFormType) => {
                 const projectId = String(values.currentTeamId)

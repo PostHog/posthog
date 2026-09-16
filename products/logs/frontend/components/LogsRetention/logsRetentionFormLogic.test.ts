@@ -86,6 +86,33 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 10000): Promise<v
     await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
+describe('logsRetentionFormLogic validation', () => {
+    let logic: ReturnType<typeof logsRetentionFormLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = logsRetentionFormLogic({ rule: null })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    it.each([0, 75])('reports an error for a retention period of %i days instead of saving it', async (days) => {
+        logic.actions.setRetentionFormValues(form({ retention_days: days }))
+        await expectLogic(logic, () => {
+            logic.actions.submitRetentionForm()
+        }).toDispatchActions(['submitRetentionFormFailure'])
+        expect(logic.values.retentionFormErrors.retention_days).toEqual(expect.stringContaining('whole number'))
+    })
+
+    it('accepts a custom whole-month period', () => {
+        logic.actions.setRetentionFormValues(form({ retention_days: 180 }))
+        expect(logic.values.retentionFormValidationErrors.retention_days).toBeUndefined()
+    })
+})
+
 describe('logsRetentionFormLogic name suggestion', () => {
     const EMPTY_GROUP = { type: FilterLogicalOperator.And, values: [] }
     const PAYMENTS_GROUP = {
