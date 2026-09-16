@@ -19,7 +19,7 @@ export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 export type MlImageSource = 'css' | 'html'
 /** Phases of the ML key work around one Kafka batch: the key bulk read before processing, the key writes and re-read after it, and the deferred publications. */
 export type MlKeyPhase = 'prepare' | 'commit' | 'publish'
-export type MlKeyIdentityMismatchReason = 'organization_changed' | 'wrapped_key_missing'
+export type MlKeyIdentityMismatchReason = 'wrapped_key_missing'
 export type MlKeyRequest =
     | 'kms_generate'
     | 'kms_decrypt'
@@ -70,7 +70,7 @@ export class MlMirrorMetrics {
     })
     private static readonly mlKeyIdentityMismatch = new Counter({
         name: 'recording_blob_ingestion_v2_ml_key_identity_mismatch_total',
-        help: 'Stored ML keys whose row disagrees with the team. organization_changed: the row names another organization than the team has now, and the key is unwrapped under the one the row names (ml_key_organization_changed log). wrapped_key_missing: the row has no wrapped key and no tombstone, and its sessions are dropped (ml_key_stored_key_unusable log)',
+        help: 'Stored ML key rows the mirror could not use: the row has no wrapped key and no tombstone, so its sessions are dropped (ml_key_stored_key_unusable log names the rows)',
         labelNames: ['reason'],
     })
     private static readonly mlProducedVersion = new Counter({
