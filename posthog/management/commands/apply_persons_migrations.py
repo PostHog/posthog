@@ -9,10 +9,14 @@ Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
 tracking table so that environments transitioning from sqlx don't re-apply
 already-applied migrations.
+
+Each file runs inside a transaction, unless it carries the -- no-transaction
+marker that CONCURRENTLY index builds need.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -34,6 +38,11 @@ HOBBY_SKIP_MIGRATIONS = {
 }
 
 TRACKING_TABLE = "_persons_migrations_applied"
+
+# Marker a migration file carries when it must not run inside a transaction, because
+# Postgres rejects CREATE/DROP INDEX CONCURRENTLY there. Same convention as the sqlx
+# runners that read these files in Rust.
+NO_TRANSACTION_MARKER = "-- no-transaction"
 
 
 def _ensure_tracking_table(cursor) -> None:
@@ -72,6 +81,66 @@ def _get_sqlx_applied_versions(cursor) -> set[str]:
 
 def _record_migration(cursor, filename: str) -> None:
     cursor.execute(f"INSERT INTO {TRACKING_TABLE} (filename) VALUES (%s)", [filename])
+
+
+def _runs_outside_transaction(sql_content: str) -> bool:
+    """Report whether the leading comment block of a migration carries the marker."""
+    for line in sql_content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not stripped.startswith("--"):
+            return False
+        if stripped == NO_TRANSACTION_MARKER:
+            return True
+    return False
+
+
+def _holds_multiple_statements(sql_content: str) -> bool:
+    body = re.sub(r"/\*.*?\*/", " ", re.sub(r"--[^\n]*", " ", sql_content), flags=re.DOTALL)
+    return len([statement for statement in body.split(";") if statement.strip()]) > 1
+
+
+def _invalid_indexes(cursor) -> list[str]:
+    cursor.execute("""
+        SELECT n.nspname, c.relname
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indexrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE NOT i.indisvalid
+          AND c.relkind = 'i'
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY n.nspname, c.relname
+    """)
+    return [f"{schema}.{name}" for schema, name in cursor.fetchall()]
+
+
+def _apply_without_transaction(cursor, filename: str, sql_content: str) -> None:
+    """Apply a migration with no transaction around it, on the autocommit connection.
+
+    The tracking insert is no longer atomic with the migration body, so an interrupted run
+    can leave the statement applied and unrecorded. A rerun of a CONCURRENTLY build is
+    harmless, except when the interruption left the index INVALID: IF NOT EXISTS then skips
+    the rebuild and the migration is recorded over a broken index. Refuse the run instead,
+    and name the index to drop.
+    """
+    if _holds_multiple_statements(sql_content):
+        raise CommandError(
+            f"{filename} is marked '{NO_TRANSACTION_MARKER}' but holds more than one statement. "
+            "Postgres runs a multi-statement batch in one implicit transaction, which "
+            "CONCURRENTLY rejects. Give each statement its own migration file."
+        )
+
+    invalid_indexes = _invalid_indexes(cursor)
+    if invalid_indexes:
+        drops = "\n".join(f"  DROP INDEX CONCURRENTLY {index};" for index in invalid_indexes)
+        raise CommandError(
+            f"Cannot apply {filename}: the persons database holds INVALID index(es) left by an "
+            f"interrupted CONCURRENTLY build. Drop them, then re-run the migrations:\n{drops}"
+        )
+
+    cursor.execute(sql_content)
+    _record_migration(cursor, filename)
 
 
 def _ensure_database_exists(persons_url: str) -> None:
@@ -190,9 +259,12 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
-                    cursor.execute(sql_content)
-                    _record_migration(cursor, sql_file.name)
+                if _runs_outside_transaction(sql_content):
+                    _apply_without_transaction(cursor, sql_file.name, sql_content)
+                else:
+                    with conn.transaction():
+                        cursor.execute(sql_content)
+                        _record_migration(cursor, sql_file.name)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"
