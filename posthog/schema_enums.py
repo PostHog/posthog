@@ -3896,6 +3896,21 @@ class LimitContext(Enum):
     NONE_TYPE_NONE = None
 
 
+class QueryScanFindingKind(StrEnum):
+    NO_EVENT_FILTER = "no_event_filter"
+    NO_START_DATE = "no_start_date"
+    PERSONS_JOIN = "persons_join"
+
+
+class QueryScanFindingReason(StrEnum):
+    IN_OR = "in_or"
+    WRAPPED = "wrapped"
+    NEGATED = "negated"
+    DYNAMIC = "dynamic"
+    NOT_PRUNED = "not_pruned"
+    FILTERS = "filters"
+
+
 class QuickFilterContext(StrEnum):
     DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
