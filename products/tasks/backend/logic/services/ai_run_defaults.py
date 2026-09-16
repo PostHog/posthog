@@ -189,6 +189,9 @@ def resolve_ai_run_defaults(
             .first()
         )
     resolved = _resolve_from_preferences(user_preferences, source="user")
+    # A default naming a model the acting user isn't entitled to falls through to
+    # the next level, the same way an unusable pair does — a stored default must
+    # never launch a model the cold run path would have refused.
     if resolved is not None and _level_usable(resolved):
         return resolved
 

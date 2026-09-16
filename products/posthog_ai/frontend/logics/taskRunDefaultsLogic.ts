@@ -101,6 +101,7 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
             (defaults: TasksResolvedAIRunDefaultsApi | null): TasksResolvedAIRunDefaultsApi | null =>
                 defaults?.runtime === TaskRuntimeEnumApi.Pi ? null : (defaults ?? null),
         ],
+        // Whatever runtime the default names: the composer's pickers are runtime-aware (they scope the
         // permission modes to the selected model's harness), so a Codex default renders as readily as a
         // Claude one. Filtering by adapter here would drop the preference to the built-in model rather
         // than to the next level that configured one, which reads as the setting being ignored.
@@ -112,6 +113,7 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
             (s) => [s.acpDefaults],
             (defaults: TasksResolvedAIRunDefaultsApi | null): string | null => defaults?.reasoning_effort ?? null,
         ],
+        // The server already resolved which runtime the default belongs to; carrying it beats
         // re-deriving from the client catalogue, which can be stale and mislabel the harness.
         defaultRuntimeAdapter: [
             (s) => [s.acpDefaults],
