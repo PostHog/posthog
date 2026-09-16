@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
+import * as panicPng from '@posthog/brand/hoggies/png/panic'
 import * as starPng from '@posthog/brand/hoggies/png/star'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -24,6 +25,7 @@ import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 const HedgehogStar = pngHoggie(starPng)
+const HedgehogPanic = pngHoggie(panicPng)
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
@@ -90,36 +92,56 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
 
     // An empty table only means good news when exceptions do reach this project: either
     // some have already been grouped into issues, or autocapture is on and will send them.
-    // Without that, the generic copy is right, because nothing is reporting errors yet.
     const errorsAreReported = errorTrackingStatus === 'has-data' || !!currentTeam?.autocapture_exceptions_opt_in
 
-    const context = useMemo(
-        (): QueryContext =>
-            errorsAreReported
-                ? {
-                      ...baseContext,
-                      emptyStateIcon: <HedgehogStar className="w-32 mb-2" />,
-                      emptyStateHeading: 'No errors found!',
-                      emptyStateDetail: 'Keep up the great work!',
-                  }
-                : baseContext,
-        [errorsAreReported]
-    )
+    const crossSellToErrorTracking = useCallback((): void => {
+        addProductIntentForCrossSell({
+            from: ProductKey.WEB_ANALYTICS,
+            to: ProductKey.ERROR_TRACKING,
+            intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
+        })
+    }, [addProductIntentForCrossSell])
+
+    const context = useMemo((): QueryContext => {
+        if (errorsAreReported) {
+            return {
+                ...baseContext,
+                emptyStateIcon: <HedgehogStar className="w-32 mb-2" />,
+                emptyStateHeading: 'No errors found!',
+                emptyStateDetail: 'Keep up the great work!',
+            }
+        }
+        if (errorTrackingStatus === 'needs-setup') {
+            return {
+                ...baseContext,
+                emptyStateIcon: <HedgehogPanic className="w-32 mb-2" />,
+                emptyStateHeading: 'Error tracking is not set up',
+                emptyStateDetail: (
+                    <>
+                        See the exceptions your visitors hit, grouped by issue and linked to the session they happened
+                        in.
+                        <span className="mt-2 flex justify-center">
+                            <LemonButton
+                                to={to}
+                                onClick={crossSellToErrorTracking}
+                                size="small"
+                                type="primary"
+                                data-attr="web-analytics-error-tracking-setup"
+                            >
+                                Set up error tracking
+                            </LemonButton>
+                        </span>
+                    </>
+                ),
+            }
+        }
+        // Detection is still loading, or it failed. Neither answer is safe to act on, so the
+        // generic copy stands: it promises nothing about whether errors are being reported.
+        return baseContext
+    }, [errorsAreReported, errorTrackingStatus, to, crossSellToErrorTracking])
 
     const viewAllButton = (
-        <LemonButton
-            to={to}
-            icon={<IconOpenInNew />}
-            onClick={() => {
-                addProductIntentForCrossSell({
-                    from: ProductKey.WEB_ANALYTICS,
-                    to: ProductKey.ERROR_TRACKING,
-                    intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
-                })
-            }}
-            size="small"
-            type="secondary"
-        >
+        <LemonButton to={to} icon={<IconOpenInNew />} onClick={crossSellToErrorTracking} size="small" type="secondary">
             View all
         </LemonButton>
     )
