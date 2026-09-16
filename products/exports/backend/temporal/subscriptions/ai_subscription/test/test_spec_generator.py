@@ -82,9 +82,13 @@ class TestSanitizePrompt:
             ("First section\n\nSecond section", "First section\n\nSecond section"),
             ("First section\r\n\r\nSecond section", "First section\n\nSecond section"),
             ("First section\u2028Second section", "First section\nSecond section"),
+            ("First section\n\\n\n\\n\nSecond section", "First section\n\n\nSecond section"),
+            ("First section\n\\r\\n\nSecond section", "First section\n\nSecond section"),
+            ("First section\n\\n\\r\\n\\n\nSecond section", "First section\n\nSecond section"),
+            ("Revenue: \\nTotal", "Revenue: \\nTotal"),
         ],
     )
-    def test_preserves_prompt_line_breaks(self, raw: str, expected: str) -> None:
+    def test_normalizes_prompt_line_breaks(self, raw: str, expected: str) -> None:
         assert sanitize_prompt(raw) == expected
 
     def test_preserves_line_breaks_while_stripping_prompt_framing_and_html_tags(self) -> None:

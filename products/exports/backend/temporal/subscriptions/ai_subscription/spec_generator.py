@@ -81,6 +81,7 @@ MAX_PINNED_EVENTS = 25
 # Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+_ESCAPED_NEWLINE_LINE_RE = re.compile(r"(?:\\n|\\r\\n)+")
 
 # Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
 # window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
@@ -310,6 +311,9 @@ def sanitize_prompt(raw: str | None) -> str:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
     cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH, preserve_newlines=True)
+    cleaned = "\n".join(
+        "" if _ESCAPED_NEWLINE_LINE_RE.fullmatch(line) else line for line in cleaned.split("\n")
+    ).strip()
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 

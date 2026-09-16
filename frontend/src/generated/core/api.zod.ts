@@ -987,7 +987,7 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
     tags: zod
         .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
         .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
-        .describe('Tag names to add, remove, or set.'),
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
