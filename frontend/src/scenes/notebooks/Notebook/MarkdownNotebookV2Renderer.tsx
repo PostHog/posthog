@@ -19,6 +19,7 @@ import type {
 import { makeEmptyParagraph } from 'lib/components/MarkdownNotebook/markdown'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
+    preserveNotebookAIQuestion,
     rebaseNotebookAIResponseRange,
     replaceNotebookAIResponseMarkdown,
     streamNotebookAIResponseMarkdown,
@@ -29,6 +30,7 @@ import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
@@ -94,6 +96,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const enabledAIComponentTags = useMemo(
         () => [
@@ -364,6 +367,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             markdownWithResponse,
             selectedMarkdown,
             selectedRefId,
+            retainedQuestionMarkdown,
         }: MarkdownNotebookAskAIRequest): void => {
             markAIPresenceActive(conversationId)
             setAICaretPosition(getNotebookAICaretPosition(markdownWithResponse, responseNodeIndex))
@@ -389,6 +393,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 markdownWithResponse,
                 selectedMarkdown,
                 selectedRefId,
+                retainedQuestionMarkdown,
                 uiContext,
             }
             setInlineAIRequests((currentRequests) => [
@@ -425,10 +430,12 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         ): void => {
             const inlineAIRequest = getInlineAIRequest(conversationId)
             if (inlineAIRequest) {
-                const artifactMarkdown = notebookArtifactContentToMarkdown(content)
+                const artifactMarkdown = preserveNotebookAIQuestion(
+                    notebookArtifactContentToMarkdown(content),
+                    mode === 'replace' ? inlineAIRequest.retainedQuestionMarkdown : undefined
+                )
                 if (mode === 'replace') {
-                    markdownEditorValueRef.current = artifactMarkdown
-                    applyNotebookArtifactMarkdown(content, conversationId, mode)
+                    updateMarkdownEditorValue(() => artifactMarkdown)
                     inlineAIResponseNodeCountsRef.current[inlineAIRequest.conversationId] = 1
                     const responseNodeIndex = Math.max(0, getMarkdownBlockCount(artifactMarkdown) - 1)
                     inlineAIResponseNodeIndicesRef.current[inlineAIRequest.conversationId] = responseNodeIndex
@@ -756,6 +763,11 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     onAskAI={isEditable ? handleAskAI : undefined}
                     convertExternalDataTransferToNodes={isEditable ? convertExternalDataTransferToNodes : undefined}
                     isAskAIDisabled={inlineAIRequests.length > 0}
+                    askAIDisabledReason={
+                        dataProcessingAccepted
+                            ? undefined
+                            : 'Approve AI data processing in organization settings to use Ask AI.'
+                    }
                     createAIConversationId={uuid}
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}

@@ -3860,6 +3860,7 @@ ${queryMarkdown}`)
                 markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
                 markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
                 selectedMarkdown: undefined,
+                retainedQuestionMarkdown: '**You:** Add a summary here',
             })
         )
         expect(aiRequest.query).not.toContain(TEST_NOTEBOOK_TITLE_MARKDOWN)
@@ -3872,6 +3873,31 @@ ${queryMarkdown}`)
             'For broad edits such as cleaning up, rewriting, reorganizing, or replacing the whole notebook'
         )
         expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
+    })
+
+    it.each([false, true])('blocks Ask AI without consent, with persisted prompt %s', (persisted) => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(persisted ? '<Prompt question="Summarize the chart" />' : ' '),
+                onAskAI,
+                onChange,
+                askAIDisabledReason: 'Approve AI data processing in organization settings to use Ask AI.',
+                initialInsertMenu: persisted ? undefined : { nodeIndex: 1, query: '' },
+            })
+        )
+        if (persisted) {
+            fireEvent.keyDown(getAIPromptInput(container), { key: 'Enter' })
+        } else {
+            const option = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+            expect(option.textContent).toBe('Ask AI')
+            expect(option.disabled).toBe(true)
+            fireEvent.click(option)
+        }
+        expect(onAskAI).not.toHaveBeenCalled()
+        expect(onChange).not.toHaveBeenCalled()
+        expect(container.textContent).not.toContain('Thinking...')
     })
 
     it('opens Ask AI prompts while an AI request is active but blocks submission', () => {
@@ -4212,6 +4238,7 @@ Current AI paragraph`),
             expect.objectContaining({
                 conversationId: TEST_AI_CONVERSATION_ID,
                 query: expect.stringContaining('User request:\nWhat happened here?'),
+                retainedQuestionMarkdown: undefined,
             })
         )
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)

@@ -243,6 +243,7 @@ export type MarkdownNotebookProps = {
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
     aiPromptAuthorName?: string
     isAskAIDisabled?: boolean
+    askAIDisabledReason?: string
     createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
@@ -305,6 +306,7 @@ export type MarkdownNotebookAskAIRequest = {
     markdownWithResponse: string
     selectedMarkdown?: string
     selectedRefId?: string
+    retainedQuestionMarkdown?: string
 }
 
 type CommitDocumentOptions = {
@@ -600,7 +602,8 @@ function MarkdownNotebookEditor({
     onChange,
     onAskAI,
     aiPromptAuthorName = 'You',
-    isAskAIDisabled: isAIPromptSubmitDisabled = false,
+    isAskAIDisabled = false,
+    askAIDisabledReason,
     createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
@@ -629,6 +632,7 @@ function MarkdownNotebookEditor({
     onDebugOpenChange,
     'data-attr': dataAttr = 'markdown-notebook',
 }: MarkdownNotebookProps): JSX.Element {
+    const isAIPromptSubmitDisabled = isAskAIDisabled || !!askAIDisabledReason
     const mergedRegistry = useMemo(
         () => mergeMarkdownNotebookRegistries(getMarkdownNotebookDefaultRegistry(), registry),
         [registry]
@@ -2863,6 +2867,9 @@ function MarkdownNotebookEditor({
             nodeId: string,
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
+            if (askAIDisabledReason) {
+                return
+            }
             onInteractionStateChange?.(true)
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -2913,7 +2920,7 @@ function MarkdownNotebookEditor({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [commitDocument, onInteractionStateChange]
+        [askAIDisabledReason, commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2955,7 +2962,7 @@ function MarkdownNotebookEditor({
                         restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                     },
                     onAskAI ? openAIPrompt : undefined,
-                    false,
+                    !!askAIDisabledReason,
                     extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
                 ),
                 hiddenInsertCommandKeys
@@ -2965,6 +2972,7 @@ function MarkdownNotebookEditor({
             replaceNodeWithInsertedComponent,
             replaceNode,
             onAskAI,
+            askAIDisabledReason,
             openAIPrompt,
             extraInsertCommands,
             hiddenInsertCommandKeys,
@@ -5533,6 +5541,7 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
+        let retainedQuestionMarkdown: string | undefined
         const keepQuestion = currentPromptNode?.props.keepQuestion !== false
         const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
@@ -5552,6 +5561,7 @@ function MarkdownNotebookEditor({
             responseNodeIndex = index + 1
             const questionNode = makeRetainedAIQuestionNode(aiPromptAuthorName, query, `ai-question-${currentNode.id}`)
             questionNode.startsGroup = currentNode.startsGroup
+            retainedQuestionMarkdown = serializeMarkdownNotebook({ ...currentDocument, nodes: [questionNode] })
             return [questionNode, responseNode]
         })
         if (responseNodeIndex === -1) {
@@ -5583,6 +5593,7 @@ function MarkdownNotebookEditor({
             markdownWithResponse,
             selectedMarkdown,
             selectedRefId,
+            retainedQuestionMarkdown,
         })
         return true
     }
@@ -6333,7 +6344,7 @@ function MarkdownNotebookEditor({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
-                            isAskAIDisabled={false}
+                            askAIDisabledReason={askAIDisabledReason}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

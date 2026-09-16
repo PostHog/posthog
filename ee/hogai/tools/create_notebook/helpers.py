@@ -2,6 +2,8 @@ from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 
+from posthog.schema import MarkdownBlock
+
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -187,7 +189,18 @@ async def save_notebook_to_db(
     content: dict[str, Any] = tiptap_doc
     text_content: str | None = None
     if existing_notebook is None:
-        markdown = convert_notebook_content_to_markdown(tiptap_doc)
+        # Markdown blocks can contain live MDX cells that the TipTap parser treats as plain text.
+        markdown = "\n\n".join(
+            [f"# {title}"]
+            + [
+                block.content
+                if isinstance(block, MarkdownBlock)
+                else convert_notebook_content_to_markdown(
+                    blocks_to_tiptap_doc([block], resolve_visualization=resolve_visualization)
+                )
+                for block in blocks
+            ]
+        )
         content = build_markdown_notebook_content(markdown)
         text_content = markdown
 
