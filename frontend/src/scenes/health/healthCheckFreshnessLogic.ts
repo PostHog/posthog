@@ -51,7 +51,7 @@ export interface healthCheckFreshnessLogicActions {
         onComplete?: () => void
     ) => {
         kinds: string[]
-        onComplete?: () => void
+        onComplete: (() => void) | undefined
     }
 }
 
