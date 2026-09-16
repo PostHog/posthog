@@ -43,7 +43,9 @@
 #   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
 #   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
 #   does not need a mirrored action. Canonical pins Trunk CLI 0.15.4 for JUnit retry
-#   elements; the shadow has no uploader CLI to pin)
+#   elements; the shadow has no uploader CLI to pin. Canonical also builds a CODEOWNERS
+#   projection of the owners.yaml map before each upload, so Trunk can attribute a test to
+#   a team; with no upload here, that step has nothing to mirror either)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain

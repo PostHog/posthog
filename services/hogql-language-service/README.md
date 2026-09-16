@@ -32,6 +32,8 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
 
 Completion and validation share scope analysis for table CTEs and aliased `FROM` subqueries.
 Completion suggests projected fields, including aliases and wildcard outputs, with catalog types for direct field projections.
+FROM and JOIN completion suggests visible CTE names before catalog tables and respects CTE shadowing.
+Empty queries offer SELECT and WITH; typed prefixes filter those starting keywords.
 For example, `WITH t AS (SELECT event AS kind FROM events) SELECT t.` suggests `kind`, even before typing `FROM t`.
 Validation checks those output fields and reports only underlying catalog tables in `tableNames`.
 Each request can expand up to 16,384 projected fields before deduplication.
@@ -69,7 +71,9 @@ The parser currently accepts ClickHouse's `database.table` identifiers but not H
 Shared analysis normalizes those table references before parsing while preserving byte offsets.
 For incomplete SQL, completion can recover a single query's `FROM` clause and keeps the parser error in `parseError`.
 It does not recover bindings from malformed CTEs or nested queries.
-Derived-property provenance, select-alias visibility, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
+Completion and validation recognize explicit SELECT aliases in later SELECT items and clauses resolved after SELECT, including WHERE, GROUP BY, HAVING, and ORDER BY.
+Aliases stay within their defining query and do not appear in JOIN conditions.
+Derived-property provenance, additional alias forms, parser recovery, and other exclusions are tracked in [query analysis and remaining work](../../docs/internal/hogql-language-service.md#recovery-and-remaining-work).
 
 ## Multitenant catalogs
 

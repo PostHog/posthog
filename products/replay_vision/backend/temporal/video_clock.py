@@ -5,7 +5,8 @@ behind the wall-clock moment it shows. Everything the model sees is on the video
 is the clock it can index exactly; everything we persist is on the session clock, because that is
 what the player seeks to.
 
-`clipTimeForMoment` in products/desktop/packages/ui/src/features/inbox/components/detail/recordingClipTime.ts
+A cut costs the frame the render spent performing it, so kept stretches are not contiguous on the video
+clock. `clipTimeForMoment` in products/desktop/packages/ui/src/features/inbox/components/detail/recordingClipTime.ts
 is the TypeScript sibling of this mapping. The two have to change together.
 """
 

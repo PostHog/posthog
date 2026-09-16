@@ -1657,7 +1657,8 @@
          "posthog_project"."name",
          "posthog_project"."created_at",
          "posthog_project"."product_description",
-         "posthog_project"."is_pending_deletion"
+         "posthog_project"."is_pending_deletion",
+         "posthog_project"."deletion_scheduled_at"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1857,12 +1858,6 @@
          "posthog_featureflag"."evaluation_runtime",
          "posthog_featureflag"."bucketing_identifier",
          "posthog_featureflag"."last_called_at",
-         EXISTS
-    (SELECT 1 AS "a"
-     FROM "posthog_team" U0
-     WHERE (U0."project_id" = ("posthog_team"."project_id")
-            AND U0."session_recording_linked_flag" @> (JSONB_BUILD_OBJECT(('id')::text, "posthog_featureflag"."id")))
-     LIMIT 1) AS "is_used_in_replay_settings_annotation",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
