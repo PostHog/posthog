@@ -28,7 +28,6 @@ const REVEAL_DELAY_MS = 2500
 export interface TurnSuggestionLogicProps {
     streamKey: string
     turnIndex: number
-    /** Task id backing the conversation; the card's analytics events carry it as `task_id`. */
     sessionId: string
     revealDelayMs?: number
 }
@@ -77,11 +76,6 @@ export type turnSuggestionLogicType = MakeLogicType<
     turnSuggestionLogicMeta
 >
 
-/**
- * The part of a suggestion card that does not depend on its kind: whether it is visible yet,
- * dismissed, or done, and the shown / dismissed / superseded events. The scout and notebook logics
- * connect to it for their form state.
- */
 export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<turnSuggestionLogicType>([
     props({} as TurnSuggestionLogicProps),
     key((props) => `${props.streamKey}:${props.turnIndex}`),

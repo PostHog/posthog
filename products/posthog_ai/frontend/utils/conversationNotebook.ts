@@ -16,7 +16,6 @@ import { toolInvocationToMessage } from './toolCallMessage'
 import { visualizationTypeToQuery } from './visualizationQuery'
 
 export interface ConversationBlocks {
-    /** Markdown blocks in thread order: questions, live query cells, and answers. */
     blocks: string[]
     messageCount: number
     queryCount: number
