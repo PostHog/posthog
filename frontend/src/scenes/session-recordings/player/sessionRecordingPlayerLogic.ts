@@ -2342,6 +2342,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         playerFrameDocumentLoadFailed: ({ iframe }) => {
+            // The load timeout and a late load event both fire after the player gave up, and the viewer
+            // already has the error, so the failure is reported once per player.
+            if (values.playerFrameLoadStopped) {
+                return
+            }
             const report = {
                 sessionRecordingId: props.sessionRecordingId,
                 attempt: values.playerFrameLoadFailures,
