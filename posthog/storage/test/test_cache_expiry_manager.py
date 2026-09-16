@@ -1,0 +1,166 @@
+"""
+Tests for the generic expiry refresh sweep.
+
+Covers:
+- The optional routing hook, which lets one cache hand its rebuilds to another builder
+- The successful/failed/enqueued counts a run reports
+- Pacing of routed teams
+- The expiry backlog gauge
+"""
+
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
+
+from posthog.models.team.team import Team
+from posthog.storage.cache_expiry_manager import RefreshPacing, refresh_expiring_caches
+from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+
+MODULE = "posthog.storage.cache_expiry_manager"
+
+
+def build_config(update_fn=None, route_refresh_fn=None) -> HyperCacheManagementConfig:
+    hypercache = HyperCache(
+        namespace="test_namespace",
+        value="test_value",
+        load_fn=lambda team: {"test": "data"},
+        expiry_sorted_set_key="test_cache_expiry",
+    )
+    return HyperCacheManagementConfig(
+        hypercache=hypercache,
+        update_fn=update_fn or (lambda team, ttl=None: True),
+        cache_name="test_cache",
+        route_refresh_fn=route_refresh_fn,
+    )
+
+
+def build_teams(count: int) -> list[Team]:
+    return [Team(id=team_id) for team_id in range(1, count + 1)]
+
+
+class TestRefreshExpiringCaches(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.teams = build_teams(3)
+
+        teams_patcher = patch(f"{MODULE}.get_teams_with_expiring_caches", return_value=self.teams)
+        self.mock_get_teams = teams_patcher.start()
+        self.addCleanup(teams_patcher.stop)
+
+        redis_patcher = patch(f"{MODULE}.get_client")
+        self.mock_get_client = redis_patcher.start()
+        self.addCleanup(redis_patcher.stop)
+        self.mock_get_client.return_value.zcount.return_value = 0
+
+        push_patcher = patch(f"{MODULE}.push_hypercache_teams_processed_metrics")
+        self.mock_push = push_patcher.start()
+        self.addCleanup(push_patcher.stop)
+
+        sleep_patcher = patch(f"{MODULE}.time.sleep")
+        self.mock_sleep = sleep_patcher.start()
+        self.addCleanup(sleep_patcher.stop)
+
+    def test_without_a_routing_hook_every_team_is_built(self):
+        update_fn = MagicMock(return_value=True)
+
+        counts = refresh_expiring_caches(build_config(update_fn=update_fn))
+
+        assert update_fn.call_count == 3
+        assert (counts.successful, counts.failed, counts.enqueued) == (3, 0, 0)
+
+    def test_a_hook_that_declines_a_team_leaves_the_build_to_the_update_fn(self):
+        update_fn = MagicMock(return_value=True)
+        route_refresh_fn = MagicMock(return_value=False)
+
+        counts = refresh_expiring_caches(build_config(update_fn=update_fn, route_refresh_fn=route_refresh_fn))
+
+        assert route_refresh_fn.call_count == 3
+        assert update_fn.call_count == 3
+        assert (counts.successful, counts.failed, counts.enqueued) == (3, 0, 0)
+
+    def test_a_routed_team_is_not_built_and_is_counted_as_enqueued(self):
+        update_fn = MagicMock(return_value=True)
+
+        counts = refresh_expiring_caches(
+            build_config(update_fn=update_fn, route_refresh_fn=MagicMock(return_value=True))
+        )
+
+        update_fn.assert_not_called()
+        assert (counts.successful, counts.failed, counts.enqueued) == (0, 0, 3)
+
+    def test_the_three_counts_sum_to_the_teams_the_run_processed(self):
+        self.mock_get_teams.return_value = build_teams(4)
+        # Team 1 routed, team 2 built, team 3 reported as a failed build, team 4 raised.
+        route_refresh_fn = MagicMock(side_effect=[True, False, False, False])
+        update_fn = MagicMock(side_effect=[True, False, RuntimeError("redis down")])
+
+        counts = refresh_expiring_caches(build_config(update_fn=update_fn, route_refresh_fn=route_refresh_fn))
+
+        assert (counts.successful, counts.failed, counts.enqueued) == (1, 2, 1)
+        assert counts.successful + counts.failed + counts.enqueued == 4
+
+    def test_a_hook_that_raises_counts_as_failed_and_does_not_build(self):
+        update_fn = MagicMock(return_value=True)
+        route_refresh_fn = MagicMock(side_effect=RuntimeError("flag client down"))
+
+        counts = refresh_expiring_caches(build_config(update_fn=update_fn, route_refresh_fn=route_refresh_fn))
+
+        update_fn.assert_not_called()
+        assert (counts.successful, counts.failed, counts.enqueued) == (0, 3, 0)
+
+    def test_pacing_pauses_once_per_chunk_of_routed_teams(self):
+        self.mock_get_teams.return_value = build_teams(10)
+
+        refresh_expiring_caches(
+            build_config(route_refresh_fn=MagicMock(return_value=True)),
+            pacing=RefreshPacing(chunk_size=3, delay_seconds=5, window_seconds=600),
+        )
+
+        # After teams 3, 6 and 9. The tenth team is last, so nothing waits behind it.
+        assert [call.args[0] for call in self.mock_sleep.call_args_list] == [5, 5, 5]
+
+    def test_pacing_does_not_pause_a_run_that_routes_nothing(self):
+        refresh_expiring_caches(
+            build_config(route_refresh_fn=MagicMock(return_value=False)),
+            pacing=RefreshPacing(chunk_size=1, delay_seconds=5, window_seconds=600),
+        )
+
+        self.mock_sleep.assert_not_called()
+
+    def test_pacing_stops_once_the_window_is_spent(self):
+        self.mock_get_teams.return_value = build_teams(5)
+
+        refresh_expiring_caches(
+            build_config(route_refresh_fn=MagicMock(return_value=True)),
+            pacing=RefreshPacing(chunk_size=1, delay_seconds=6, window_seconds=10),
+        )
+
+        # The second pause is trimmed to what the window has left, and nothing waits after.
+        assert [call.args[0] for call in self.mock_sleep.call_args_list] == [6, 4]
+
+    def test_the_backlog_gauge_is_not_capped_by_the_run_limit(self):
+        self.mock_get_client.return_value.zcount.return_value = 9000
+
+        refresh_expiring_caches(build_config(), limit=3)
+
+        assert self.mock_push.call_args.kwargs["expiry_backlog"] == 9000
+
+    def test_an_empty_run_still_reports_its_counts_and_backlog(self):
+        self.mock_get_teams.return_value = []
+        self.mock_get_client.return_value.zcount.return_value = 0
+
+        refresh_expiring_caches(build_config())
+
+        push_kwargs = self.mock_push.call_args.kwargs
+        assert push_kwargs["successful"] == 0
+        assert push_kwargs["failed"] == 0
+        assert push_kwargs["enqueued"] == 0
+        assert push_kwargs["expiry_backlog"] == 0
+
+    def test_an_unreadable_backlog_pushes_no_backlog_value(self):
+        self.mock_get_client.side_effect = RuntimeError("redis unreachable")
+
+        refresh_expiring_caches(build_config())
+
+        assert self.mock_push.call_args.kwargs["expiry_backlog"] is None
