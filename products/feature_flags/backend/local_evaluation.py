@@ -416,6 +416,9 @@ def _build_flag_definitions_hypercache() -> HyperCache:
         # Mirror to the shared Redis while the /flags/definitions reader still reads
         # from it.
         secondary_cache_alias="default" if has_dedicated_cache else None,
+        # Django only holds write permission on the dedicated Redis, so its own reads
+        # (the verifier, the ETag the cross-region sync sends) go to the mirror.
+        read_cache_alias="default" if has_dedicated_cache else None,
     )
 
 

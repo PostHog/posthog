@@ -452,6 +452,7 @@ update_flag_caches(team)
 | Stale data after flag change | Signal not firing                             | Check transaction.on_commit is used                                                                               |
 | Cache misses in production   | Redis unreachable, or the tier holds no entry | Split the two with `flags_flag_definitions_etag_total`: `redis_error` is the cluster, `redis_missing` is the tier |
 | S3 fallback errors           | Object storage misconfigured                  | Verify OBJECT_STORAGE_ENABLED setting                                                                             |
+| Every team verifies as a miss | Django read a tier it cannot read             | Check `posthog_hypercache_get_from_cache` for `result="redis_denied"`                                              |
 | ETag mismatches              | Non-deterministic JSON serialization          | HyperCache uses `sort_keys=True`                                                                                  |
 
 ## Dedicated flags Redis
@@ -471,6 +472,12 @@ Four HyperCache instances bind that alias. For flags (`products/feature_flags/ba
 The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, and its read side is switchable. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well.
 
 `FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` decides which cluster the Rust `/flags/definitions` reader uses. It defaults to false, which keeps the reader on the shared cache. Set it per fleet to move the reader to the dedicated instance.
+
+Django holds write permission on the dedicated instance and no read permission, so a read there is refused with `NoPermissionError`.
+Django's own reads of the flag-definitions cache therefore go to the shared mirror, through `read_cache_alias="default"` on the HyperCache.
+That covers the hourly verifier's batch read, the ETag the cross-region sync sends as `If-None-Match`, and any single-key read.
+A refused read no longer looks like a cold cache: `posthog_hypercache_get_from_cache` counts it under `result="redis_denied"` and logs it at error level.
+Because Django cannot read the tier it writes, a signal rebuild of unchanged content is never skipped on an ETag match. `skip_if_unchanged` skips only when reads and writes use one tier.
 
 Remove the mirror only after that move has baked. The mirror is what makes the switch reversible. With the mirror gone, a reader sent back to the shared cache reads a cluster nothing writes to. This endpoint has no database fallback on a miss.
 

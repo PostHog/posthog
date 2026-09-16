@@ -199,6 +199,26 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
 
         assert results == {1: (None, "miss", None), 2: (None, "miss", None)}
 
+    def test_get_from_cache_permission_error_degrades_and_counts_separately(self):
+        hc = self.hypercache
+        denied_label = {"result": "redis_denied", "namespace": "test_namespace", "value": "test_value"}
+        denied_before = REGISTRY.get_sample_value("posthog_hypercache_get_from_cache_total", denied_label) or 0
+
+        with (
+            patch.object(
+                hc.read_cache_client,
+                "get",
+                side_effect=redis.exceptions.NoPermissionError("No permissions to access a key"),
+            ),
+            patch.object(object_storage, "read", return_value=None),
+        ):
+            result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+        denied_after = REGISTRY.get_sample_value("posthog_hypercache_get_from_cache_total", denied_label)
+        assert denied_after == denied_before + 1
+
     def test_get_etag_redis_error_returns_none(self):
         def load_fn(team):
             return {"default": "data"}
@@ -1669,3 +1689,71 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
             with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
                 hc.set_cache_value(self.team.id, second, skip_if_unchanged=skip_if_unchanged)
         redis_write.assert_called_once()
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "read-alias-default-test-cache",
+        },
+        "flags_dedicated": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "read-alias-dedicated-test-cache",
+        },
+    }
+)
+class TestHyperCacheReadCacheAlias(BaseTest):
+    """A cache whose write tier only accepts writes reads from the tier it mirrors to."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    def _hypercache(self) -> HyperCache:
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+
+        return HyperCache(
+            namespace="read_alias_ns",
+            value="read_alias_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+            expiry_sorted_set_key="read_alias_expiry",
+            cache_alias="flags_dedicated",
+            secondary_cache_alias="default",
+            read_cache_alias="default",
+            s3_enabled=False,
+        )
+
+    def test_payload_etag_and_batch_reads_come_from_the_mirror(self):
+        hc = self._hypercache()
+        hc.set_cache_value(self.team.id, self.sample_data)
+
+        with patch.object(
+            hc.cache_client,
+            "get",
+            side_effect=redis.exceptions.NoPermissionError("No permissions to access a key"),
+        ):
+            assert hc.get_from_cache(self.team.id) == self.sample_data
+            etag = hc.get_etag(self.team.id)
+            batch = hc.batch_get_from_cache([self.team])
+
+        assert etag is not None
+        assert batch == {self.team.id: (self.sample_data, "redis", etag)}
+
+    def test_unchanged_write_still_reaches_the_write_tier(self):
+        from django.core.cache import caches
+
+        hc = self._hypercache()
+        hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+        # The mirror still holds the ETag, which says nothing about the write tier.
+        caches["flags_dedicated"].delete(hc.get_cache_key(self.team.id))
+
+        hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+        assert caches["flags_dedicated"].get(hc.get_cache_key(self.team.id)) == json.dumps(
+            self.sample_data, sort_keys=True
+        )
