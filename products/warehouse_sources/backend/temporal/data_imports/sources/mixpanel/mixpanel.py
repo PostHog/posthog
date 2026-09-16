@@ -258,13 +258,21 @@ def _request(
     return _check_response(response, url, logger)
 
 
-class MixpanelExportTruncatedError(Exception):
-    """The export stream ended in a line that isn't an event.
+# Mixpanel commits a 200 before it starts streaming, so a server-side abort can only be
+# signalled inside the body: it appends this plain-text marker after the JSONL rows instead
+# of failing the request.
+EXPORT_TERMINATED_MARKER = b"terminated early"
 
-    Mixpanel commits a 200 before it starts streaming, so a server-side abort can only be
-    signalled inside the body: it appends a plain-text marker (`terminated early`) after the
-    JSONL rows instead of failing the request. That leaves a partial day, which is the same
-    situation as a dropped connection and is re-fetched the same way."""
+# Stable, date-free prefix of the raised message, so `get_retryable_errors` and the shared
+# transient-message map can both match it.
+EXPORT_TRUNCATED_ERROR = "Mixpanel export: stream ended early"
+
+
+class MixpanelExportTruncatedError(Exception):
+    """Mixpanel aborted the export part-way through a day.
+
+    That leaves a partial day, which is the same situation as a dropped connection and is
+    re-fetched the same way."""
 
 
 # The export body is read lazily while iterating `iter_lines`, i.e. outside `_request`'s
@@ -307,9 +315,12 @@ def _stream_export_day(
                     try:
                         event = orjson.loads(line)
                     except orjson.JSONDecodeError as e:
-                        raise MixpanelExportTruncatedError(
-                            f"Mixpanel export: stream for {from_date} ended with a line that is not an event"
-                        ) from e
+                        # Only Mixpanel's abort marker means a partial day. Any other line the
+                        # parser rejects is an export shape we do not know, and re-downloading
+                        # the day cannot turn it into events, so let it surface instead.
+                        if EXPORT_TERMINATED_MARKER not in line.lower():
+                            raise
+                        raise MixpanelExportTruncatedError(f"{EXPORT_TRUNCATED_ERROR} for {from_date}") from e
                     batch.append(_flatten_event(event))
                     if len(batch) >= CHUNK_SIZE:
                         yield batch

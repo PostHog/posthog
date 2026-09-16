@@ -34,7 +34,6 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -59,12 +58,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    open_ssh_tunnel,
+    pinned_host_kwargs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    TableProjection,
     ValidatedRowFilter,
     compute_projected_columns,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
@@ -694,14 +698,29 @@ def _statement_timeout_as_non_retryable(
     so retrying is futile. On incremental syncs, map it to the same non-retryable
     QueryTimeoutException the server-cursor and windowed read paths already raise,
     with an actionable message. Returns None when the error is not a statement
-    timeout, or the sync is non-incremental (the caller should re-raise the original
-    error so a full re-sync can reorder rows safely).
+    timeout, or the sync is non-incremental — a full-table read restarts from scratch,
+    so the caller keeps it retryable and words it with `_full_table_timeout_error`.
     """
     if not isinstance(error, psycopg.errors.QueryCanceled) or not should_use_incremental_field:
         return None
     return QueryTimeoutException(
         f"10 min timeout statement reached. Please ensure your incremental field "
         f"({incremental_field}) has an appropriate index created"
+    )
+
+
+def _full_table_timeout_error() -> Exception:
+    """Build the timeout error for a full-table read cancelled by the statement_timeout.
+
+    `_statement_timeout_as_non_retryable` covers incremental reads only, so a full-table read used
+    to propagate psycopg's raw "canceling statement due to statement timeout" — driver text that
+    names neither the table nor anything the customer can change. This stays a plain retryable
+    Exception, matching no key in `get_non_retryable_errors`: a full-table read restarts from
+    scratch, so unlike an incremental read it can still finish on a later attempt.
+    """
+    return Exception(
+        "Reading this table hit your database's statement timeout before it finished. Switch the "
+        "table to incremental replication in its sync settings so each run reads less."
     )
 
 
@@ -829,16 +848,22 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-_resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
+def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+    """The one `psycopg.connect` in this module. Every connection to a source database opens
+    here so that `pinned_host_kwargs` decides what gets dialed.
 
-
-def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
-    """`psycopg.connect` that retries without the libpq `options` startup parameter when the
-    server rejects it.
-
-    See `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
+    Retries without the libpq `options` startup parameter when the server rejects it. See
+    `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    connect_kwargs.update(
+        pinned_host_kwargs(
+            connect_kwargs["host"],
+            port=connect_kwargs.get("port", 5432),
+            connect_timeout=connect_kwargs.get("connect_timeout", 15),
+            team_id=team_id,
+        )
+    )
     try:
         return psycopg.connect(**connect_kwargs)
     except psycopg.OperationalError as e:
@@ -859,6 +884,7 @@ def _connect_to_postgres(
     password: str,
     require_ssl: bool = False,
     connect_timeout: int = 15,
+    team_id: int | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -869,19 +895,9 @@ def _connect_to_postgres(
     # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
-    # Bound psycopg's Python-side DNS lookup in production (see `_resolve_hostaddr_with_timeout`).
-    # Dev/test connect to local or fake hosts, so skip the real lookup there — mirrors `_get_sslmode`.
-    if not (settings.TEST or settings.DEBUG or settings.E2E_TESTING):
-        addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout)
-        if addresses:
-            # A comma-separated `host`/`hostaddr` pair of matching length is how psycopg/libpq
-            # represent multiple attempts (see `split_attempts` in psycopg/_conninfo_utils.py) — this
-            # keeps its per-address failover intact for a dual-stack host instead of pinning the
-            # connection to whichever single address `getaddrinfo` happened to return first.
-            host = ",".join([host] * len(addresses))
-            kwargs["hostaddr"] = ",".join(addresses)
     try:
-        return _connect_with_options_fallback(
+        return _open_connection(
+            team_id=team_id,
             host=host,
             port=port,
             dbname=database,
@@ -922,10 +938,17 @@ def pg_connection(
     user: str,
     password: str,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     )
     try:
         yield conn
@@ -1419,13 +1442,20 @@ def get_postgres_row_count(
     password: str,
     schema: str | None,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
         return {}
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1543,6 +1573,7 @@ def get_schemas(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1566,7 +1597,13 @@ def get_schemas(
     # `_is_dropped_or_connection_limit` matches only these known-transient conditions.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1590,13 +1627,20 @@ def get_primary_keys_for_schemas(
     port: int,
     table_names: list[str],
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
 
     try:
         with pg_connection(
-            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            require_ssl=require_ssl,
+            team_id=team_id,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1683,11 +1727,18 @@ def get_foreign_keys(
     schema: str | None,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
 
@@ -1699,9 +1750,16 @@ def get_connection_metadata(
     password: str,
     port: int,
     require_ssl: bool = False,
+    team_id: int | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        require_ssl=require_ssl,
+        team_id=team_id,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -2646,7 +2704,7 @@ def _size_sample_percent(row_estimate: int | None) -> float | None:
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger, *, byte_bounded: bool = False
 ) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
@@ -2706,11 +2764,20 @@ def _get_table_chunk_size(
         # actually do; the sibling `SQLSourceImplementation.get_chunk_size` already floors it.
         batch_rows = max(1, int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes))
         chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, wide_row_bytes))
-        logger.debug(
+        measurements = (
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. wide_row_bytes={wide_row_bytes}. "
             f"largest_row_bytes={largest_row_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
             f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
         )
+        # The page cap sits fractionally below the chunk on any table whose p99 exceeds its p95,
+        # which is most of them, so a bare comparison would report nearly every sync. An order of
+        # magnitude is the point where the cap starts to matter: the read issues about ten times
+        # the `FETCH` calls per batch. Off the byte bound the caller ignores the cap and fetches the
+        # whole chunk, so reporting there would claim a cap that the read never applied.
+        if byte_bounded and chunking.fetch_rows * 10 <= chunking.batch_rows:
+            logger.info(measurements)
+        else:
+            logger.debug(measurements)
         return chunking
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
@@ -3236,22 +3303,6 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
-def _project_table_columns(
-    table: Table[PostgreSQLColumn],
-    retained: list[str] | None,
-) -> Table[PostgreSQLColumn]:
-    """Return a new `Table` whose columns are filtered to `retained` (in source order).
-
-    `None` retained returns the table unchanged. Columns missing from `retained` are dropped from
-    the Arrow schema so projected SELECT output zips correctly into the schema."""
-    if retained is None:
-        return table
-
-    retained_set = set(retained)
-    filtered = [column for column in table.columns if column.name in retained_set]
-    return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
-
-
 # paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
 # the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
 # bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
@@ -3310,11 +3361,22 @@ def postgres_source(
 
     effective_sslmode = _get_sslmode(require_ssl)
 
+    def _resolve_projection(
+        full_table: Table[PostgreSQLColumn], primary_keys: list[str] | None
+    ) -> TableProjection[PostgreSQLColumn]:
+        return resolve_table_projection(
+            full_table,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+            incremental_field=incremental_field,
+        )
+
     with _tunnel_with_handshake_translation(tunnel) as (host, port):
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
-                conn = _connect_with_options_fallback(
+                conn = _open_connection(
+                    team_id=team_id,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3445,28 +3507,14 @@ def postgres_source(
 
                             # Project both the Arrow schema and the SELECT clause so the cursor's row shape
                             # matches what downstream consumers expect.
-                            retained_columns: list[str] | None = None
-                            if enabled_columns is not None:
-                                retained_set: set[str] = set(enabled_columns)
-                                for pk in primary_keys or []:
-                                    retained_set.add(pk)
-                                if incremental_field:
-                                    retained_set.add(incremental_field)
-                                retained_columns = [
-                                    column.name for column in full_table.columns if column.name in retained_set
-                                ]
-                                # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
-                                if not retained_columns:
-                                    retained_columns = None
-
-                            table = _project_table_columns(full_table, retained_columns)
-                            logger.debug(f"Source schema: {table.to_arrow_schema()}")
+                            setup_projection = _resolve_projection(full_table, primary_keys)
+                            logger.debug(f"Source schema: {setup_projection.table.to_arrow_schema()}")
 
                             inner_query_with_limit = _build_query(
                                 schema,
                                 table_name,
                                 should_use_incremental_field,
-                                table.type,
+                                setup_projection.table.type,
                                 incremental_field,
                                 incremental_field_type,
                                 db_incremental_field_last_value,
@@ -3474,7 +3522,7 @@ def postgres_source(
                                 sample_percent=_size_sample_percent(
                                     _estimated_row_count(cursor, schema, table_name, logger)
                                 ),
-                                enabled_columns=enabled_columns,
+                                enabled_columns=setup_projection.enabled_columns,
                                 primary_keys=primary_keys,
                                 xmin_bounds=xmin_bounds,
                             )
@@ -3516,7 +3564,9 @@ def postgres_source(
                                 )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunking = _get_table_chunk_size(
+                                    cursor, inner_query_with_limit, logger, byte_bounded=byte_bounded_extraction
+                                )
                             chunk_size = chunking.batch_rows
                             # The page cap only exists to bound what one `FETCH` materialises, so
                             # it belongs behind the same gate as the byte bound it serves. Applied
@@ -3674,17 +3724,13 @@ def postgres_source(
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         binary_reporter = BinaryColumnReporter(logger)
-        arrow_schema = table.to_arrow_schema()
-        if xmin_bounds is not None:
-            # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
-            # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
-            arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with _tunnel_with_handshake_translation(tunnel) as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica and not is_duckdb else None
 
             def get_connection():
                 try:
-                    connection = _connect_with_options_fallback(
+                    connection = _open_connection(
+                        team_id=team_id,
                         host=host,
                         port=port,
                         dbname=database,
@@ -3759,6 +3805,32 @@ def postgres_source(
                 connection.commit()
                 return connection
 
+            def refreshed_projection() -> TableProjection[PostgreSQLColumn]:
+                """Re-read the catalog on a streaming connection, right before the read query.
+
+                A probe that fails keeps the setup projection, which is where this read would
+                have started anyway. See `resolve_table_projection` for why the read resolves
+                again. This costs one connect per sync, because every read path below builds its
+                query before it opens a connection of its own.
+                """
+                try:
+                    with _connect_with_dropped_retry(get_connection, logger) as probe_connection:
+                        # `get_connection` may bind ServerCursor as the factory, which needs a
+                        # name, so take an unnamed client cursor directly.
+                        with psycopg.Cursor(probe_connection) as probe_cursor:
+                            fresh_table = _get_table(probe_cursor, schema, table_name, logger)
+                except Exception as e:
+                    logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
+                    return setup_projection
+                return _resolve_projection(fresh_table, primary_keys)
+
+            read_projection = refreshed_projection()
+            arrow_schema = read_projection.table.to_arrow_schema()
+            if xmin_bounds is not None:
+                # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it
+                # to the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
+                arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
+
             def offset_chunking(
                 offset: int,
                 chunk_size: int,
@@ -3786,11 +3858,11 @@ def postgres_source(
                     schema,
                     table_name,
                     should_use_incremental_field,
-                    table.type,
+                    read_projection.table.type,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    enabled_columns=enabled_columns,
+                    enabled_columns=read_projection.enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
@@ -3816,7 +3888,7 @@ def postgres_source(
                             keyset_primary_keys,
                             last_key,
                             incremental_field=incremental_field,
-                            enabled_columns=enabled_columns,
+                            enabled_columns=read_projection.enabled_columns,
                             row_filters=row_filters,
                             xmin_bounds=xmin_bounds,
                         )
@@ -3941,7 +4013,7 @@ def postgres_source(
                                 "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
                                 "or sync from the primary database instead."
                             ) from e
-                        raise
+                        raise _full_table_timeout_error() from e
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if _is_recovery_conflict_error(e):
                             # A recovery conflict raised by the (re)connect itself surfaces as a plain
@@ -4008,7 +4080,7 @@ def postgres_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=read_projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -4039,12 +4111,12 @@ def postgres_source(
                         schema,
                         table_name,
                         should_use_incremental_field,
-                        table.type,
+                        read_projection.table.type,
                         incremental_field,
                         incremental_field_type,
                         lo,
                         upper_bound_inclusive=hi,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=read_projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -4124,11 +4196,11 @@ def postgres_source(
                                 schema,
                                 table_name,
                                 should_use_incremental_field,
-                                table.type,
+                                read_projection.table.type,
                                 incremental_field,
                                 incremental_field_type,
                                 db_incremental_field_last_value,
-                                enabled_columns=enabled_columns,
+                                enabled_columns=read_projection.enabled_columns,
                                 primary_keys=primary_keys,
                                 row_filters=row_filters,
                                 xmin_bounds=xmin_bounds,
@@ -4216,7 +4288,7 @@ def postgres_source(
                     )
                     if timeout_error is not None:
                         raise timeout_error from e
-                    raise
+                    raise _full_table_timeout_error() from e
                 except psycopg.errors.LockNotAvailable as e:
                     # The server-cursor DECLARE waited past the source's lock_timeout for a lock
                     # another transaction holds (a concurrent DDL / VACUUM FULL takes ACCESS
@@ -4308,9 +4380,10 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         config: PostgresSourceConfig,
         *,
         require_ssl: bool = False,
+        team_id: int | None = None,
     ) -> Iterator[psycopg.Connection]:
         """Open a single psycopg connection (through the SSH tunnel if configured)."""
-        with open_ssh_tunnel(config) as (host, port):
+        with open_ssh_tunnel(config, team_id) as (host, port):
             with pg_connection(
                 host=host,
                 port=port,
@@ -4318,6 +4391,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 user=config.user,
                 password=config.password,
                 require_ssl=require_ssl,
+                team_id=team_id,
             ) as conn:
                 yield conn
 

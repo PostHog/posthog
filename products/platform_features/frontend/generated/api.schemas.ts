@@ -1331,6 +1331,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -1342,6 +1343,8 @@ export type ActivityLogListParams = {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -1396,6 +1399,7 @@ export type ActivityLogListParams = {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1428,6 +1432,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1439,6 +1444,8 @@ export const ActivityLogListScope = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1493,6 +1500,7 @@ export const ActivityLogListScope = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1512,6 +1520,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `GeneratedWidget` - GeneratedWidget
  * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
@@ -1523,6 +1532,8 @@ export const ActivityLogListScope = {
  * * `Survey` - Survey
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `ReplayScanner` - ReplayScanner
+ * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
  * * `Project` - Project
@@ -1577,6 +1588,7 @@ export const ActivityLogListScope = {
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
+ * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1597,6 +1609,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1608,6 +1621,8 @@ export const ActivityLogListScopesItem = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1662,6 +1677,7 @@ export const ActivityLogListScopesItem = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1809,6 +1825,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     completed?: CommentsListCompleted
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number
     /**
      * The pagination cursor value.
      */

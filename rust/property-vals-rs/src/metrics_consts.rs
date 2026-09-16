@@ -15,3 +15,4 @@ pub const TOP_K_DROPPED: &str = "property_vals_rs_top_k_dropped_total";
 pub const SEEN_CACHE_HITS: &str = "property_vals_rs_seen_cache_hits_total";
 pub const SEEN_CACHE_MISSES: &str = "property_vals_rs_seen_cache_misses_total";
 pub const SEEN_CACHE_EVICTED: &str = "property_vals_rs_seen_cache_evicted_total";
+pub const SEEN_CACHE_ROLLS: &str = "property_vals_rs_seen_cache_rolls_total";

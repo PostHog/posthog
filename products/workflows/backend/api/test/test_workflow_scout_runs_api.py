@@ -58,11 +58,11 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
     def test_dispatches_a_scout_run(self) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
         with patch(_START_SCOUT, return_value=started) as start:
-            response = self._post()
+            response = self._post({"idempotency_key": "job:step:1"})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
-        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT)
+        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="job:step:1")
 
     @parameterized.expand(
         [
@@ -97,7 +97,9 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
         assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
-        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT)
+        start.assert_called_once_with(
+            team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="invocation-1:action-1"
+        )
 
     def test_a_different_idempotency_key_still_dispatches_its_own_run(self) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")

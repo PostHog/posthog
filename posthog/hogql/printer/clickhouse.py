@@ -246,6 +246,15 @@ class ClickHousePrinter(BasePrinter):
                         relevant_clickhouse_name = overload_clickhouse_name
                         break  # Found an overload matching the first function org
 
+                # A Float duration is Decimal(18, 6) at runtime once the timestamps are DateTime64, and
+                # both constructors reject a Decimal with code 44. toFloat64 is a no-op for a real float.
+                if (
+                    args
+                    and relevant_clickhouse_name in ("toDate", "toDateTime")
+                    and isinstance(first_arg_constant_type, ast.FloatType)
+                ):
+                    args[0] = f"toFloat64({args[0]})"
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 

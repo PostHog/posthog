@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
+        const context = {
+            stateManager: {
+                getApiKey: async () => ({
+                    scopes: ['task:read', 'task:write', ...(sandbox ? ['internal_run:read'] : [])],
+                }),
+                getAiConsentGiven: async () => true,
+            },
+        } as unknown as Context
+        const tools = await getToolsFromContext(context, {
+            featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': true },
+        })
+        const names = tools.map((tool) => tool.name)
+        expect(names).toContain('tasks-create')
+        expect(names.includes('tasks-create-and-run')).toBe(!sandbox)
+        expect(names.includes('tasks-run-create')).toBe(!sandbox)
+    })
+
+    it('does not advertise run-start tools before rollout', () => {
+        const names = getToolsForFeatures({ featureFlags: { tasks: true, 'tasks-mcp-agent-run-start': false } })
+        expect(names).toContain('tasks-create')
+        expect(names).not.toContain('tasks-create-and-run')
+        expect(names).not.toContain('tasks-run-create')
+    })
     const featureTests = [
         {
             features: undefined,
@@ -958,10 +982,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
+                'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',
+                'tasks-mcp-agent-run-start',
                 'dashboard-widgets',
                 'marketing-analytics-mcp',
                 'product-business-knowledge',
@@ -987,7 +1014,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(34)
+        expect(flags).toHaveLength(36)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -1211,5 +1238,38 @@ describe('Tool Filtering - Entitlements (activity log family)', () => {
         // Fail-open: unresolved entitlements still advertise.
         const unknown = getToolsForFeatures({ isCloud: true })
         expect(unknown).toContain('advanced-activity-logs-list')
+    })
+})
+
+describe('Tool Filtering - Entitlements (access control family)', () => {
+    const memberAndDefaultTools = [
+        'access-control-defaults-get',
+        'access-control-members-list',
+        'access-control-member-objects-list',
+        'access-control-member-properties-list',
+        'access-control-default-objects-list',
+        'access-control-default-properties-list',
+    ]
+    const roleTools = [
+        'access-control-roles-list',
+        'access-control-role-objects-list',
+        'access-control-role-properties-list',
+    ]
+
+    it.each(memberAndDefaultTools)('%s needs access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: [], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).toContain(tool)
+    })
+
+    it.each(roleTools)('%s needs role_based_access, not just access_control', (tool) => {
+        expect(getToolsForFeatures({ availableFeatures: ['access_control'], isCloud: true })).not.toContain(tool)
+        expect(getToolsForFeatures({ availableFeatures: ['role_based_access'], isCloud: true })).toContain(tool)
+    })
+
+    it('fails open when entitlements are unknown', () => {
+        const unknown = getToolsForFeatures({ isCloud: true })
+        for (const tool of [...memberAndDefaultTools, ...roleTools]) {
+            expect(unknown).toContain(tool)
+        }
     })
 })

@@ -1,3 +1,4 @@
+import { buildTaskSpaceContextProps } from "@posthog/core/canvas/canvasAnalytics";
 import { partitionLocalMcpServersForRun } from "@posthog/core/local-mcp/localMcpImport";
 import {
   getErrorTitle,
@@ -184,6 +185,12 @@ async function trackTaskCreated(
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
       claude_model_access: claudeModelAccess,
+      ...buildTaskSpaceContextProps({
+        channelId: input.channelId,
+        channelContextId: input.channelContextId,
+        channelContext: input.channelContext,
+        channelContextPath: input.channelContextPath,
+      }),
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -304,6 +311,18 @@ export function useTaskCreation({
       const plainPromptText = promptRecord.promptText;
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
+
+      // History is where the person recovers a prompt when creation fails, so
+      // it must be written before any preflight call that can fail. The write
+      // persists to local storage, which throws when the quota is full, and
+      // history is only a recovery aid, so it must not block the task.
+      if (plainPromptText) {
+        try {
+          useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+        } catch (error) {
+          log.warn("Failed to save the prompt to history", { error });
+        }
+      }
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
@@ -429,12 +448,6 @@ export function useTaskCreation({
         };
 
         try {
-          if (!contentOverride) {
-            if (plainPromptText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
-            }
-          }
-
           const settings = useSettingsStore.getState();
           const defaultedChannelId =
             bluebirdEnabled && !channelId && !channelName

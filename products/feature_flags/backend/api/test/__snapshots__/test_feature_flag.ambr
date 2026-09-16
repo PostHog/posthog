@@ -799,6 +799,7 @@
          "posthog_taggeditem"."endpoint_id",
          "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."project_id",
+         "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -1626,7 +1627,9 @@
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
          "posthog_experiment"."flag_cleanup_task_id",
-         "posthog_experiment"."repository"
+         "posthog_experiment"."repository",
+         "posthog_experiment"."feature_flag_rule_id",
+         "posthog_experiment"."feature_flag_rule_snapshot"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
@@ -1982,7 +1985,9 @@
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
          "posthog_experiment"."flag_cleanup_task_id",
-         "posthog_experiment"."repository"
+         "posthog_experiment"."repository",
+         "posthog_experiment"."feature_flag_rule_id",
+         "posthog_experiment"."feature_flag_rule_snapshot"
   FROM "posthog_experiment"
   WHERE (NOT "posthog_experiment"."deleted"
          AND "posthog_experiment"."feature_flag_id" IN (1,

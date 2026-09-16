@@ -4,6 +4,7 @@ import { type ErrorInfo, type ReactNode, useCallback, useMemo } from 'react'
 import { IconArrowRight, IconInfo } from '@posthog/icons'
 import {
     DefaultTooltip,
+    createTooltipDateFormatter,
     useChartTheme,
     type ChangeColor,
     type MetricChange,
@@ -22,7 +23,6 @@ import { cn, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger 
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
-import { dayjs } from 'lib/dayjs'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
 const SPARKLINE_HEIGHT = 160
@@ -135,22 +135,28 @@ export function WorkflowMetricCard({
     }, [total, totalPreviousPeriod])
 
     const neutral = neutralChange()
-
-    // Labels arrive pre-formatted in the team timezone ('YYYY-MM-DD', or '… HH:mm' for sub-day
-    // intervals), so parse them as naive local strings for the tooltip header.
+    const labelFormatter = useMemo(
+        () =>
+            timeSeries
+                ? createTooltipDateFormatter({
+                      interval: timeSeries.interval,
+                      timezone: timeSeries.timezone,
+                      allDays: timeSeries.labels,
+                  })
+                : undefined,
+        [timeSeries?.interval, timeSeries?.labels, timeSeries?.timezone]
+    )
     const renderTooltip = useCallback(
         (ctx: TooltipContext) => (
             <DefaultTooltip
                 {...ctx}
                 sortedByValue
                 showTotal
-                labelFormatter={(label: string) =>
-                    dayjs(label).format(label.includes(' ') ? 'MMM D, HH:mm' : 'MMM D, YYYY')
-                }
+                labelFormatter={labelFormatter}
                 valueFormatter={(value: number) => humanFriendlyNumber(value)}
             />
         ),
-        []
+        [labelFormatter]
     )
 
     const cardClassName = cn(

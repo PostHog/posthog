@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
@@ -19,6 +19,7 @@ import { resolveScopePreset } from '@/lib/scope-preset'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -118,11 +119,31 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
-export interface ToolCallIntentMeta {
+type ModelMissingReason = 'missing' | 'unknown' | 'invalid' | 'not_captured' | 'capture_error'
+
+export function getModelMissingReason(modelArgument: unknown): ModelMissingReason {
+    if (modelArgument === undefined) {
+        return 'missing'
+    }
+    if (typeof modelArgument !== 'string' || !modelArgument.trim()) {
+        return 'invalid'
+    }
+    if (modelArgument.trim().toLowerCase() === 'unknown') {
+        return 'unknown'
+    }
+    return 'not_captured'
+}
+
+export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
+    /** The calling model -> `$mcp_llm_model`. */
+    llmModel?: string
+    /** Where the model identifier came from -> `$mcp_llm_model_source`. */
+    llmModelSource?: MCPAnalyticsModelSource
+    llmModelMissingReason?: ModelMissingReason
 }
 
 export async function trackToolCall(
@@ -131,7 +152,7 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta,
+    analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
     try {
@@ -171,11 +192,16 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
-            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
+            ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
+                    ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
+                    : {}),
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 // Which vendor ran the tool, so "who do people actually call" is a
@@ -207,7 +233,7 @@ export async function trackExecuteSqlGeneration(
     args: unknown,
     state: ResolvedState,
     meta: ExecuteSqlGenerationMeta,
-    intentMeta?: ToolCallIntentMeta
+    analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return
@@ -230,7 +256,7 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_input: [{ role: 'user', content: analyticsMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
@@ -367,6 +393,20 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+function omitAppData(output: unknown): unknown {
+    if (typeof output !== 'object' || output === null || Array.isArray(output)) {
+        return output
+    }
+    const result = output as Record<string, unknown>
+    const meta = result._meta
+    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
+        return output
+    }
+    const sanitizedMeta: Record<string, unknown> = { ...meta }
+    delete sanitizedMeta[APP_DATA_META_KEY]
+    return { ...result, _meta: sanitizedMeta }
+}
+
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
@@ -386,7 +426,9 @@ export async function trackToolSpan(toolName: string, state: ResolvedState, meta
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
         const toolCategory = getToolCategory(toolName)
         const inputState = serializeSpanState(meta.input)
-        const outputState = serializeSpanState(meta.output)
+        const outputState = serializeSpanState(
+            state.clientProfile.consumer === 'posthog_ai' ? omitAppData(meta.output) : meta.output
+        )
 
         getPostHogClient().capture({
             distinctId: state.distinctId,

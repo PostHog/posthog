@@ -74,8 +74,8 @@ function createMockRedis(): MockRedis {
     }
 }
 
-const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:context-mill:manifest:v2:current'
-const MANIFEST_LOCK_KEY = 'mcp:shared-blob:context-mill:manifest:v2:lock'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:current'
+const MANIFEST_LOCK_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:lock'
 
 function bodyKey(uri: string): string {
     const hash = createHash('sha256').update(uri).digest('hex')

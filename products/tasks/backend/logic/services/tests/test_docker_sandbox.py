@@ -24,6 +24,10 @@ def _log_result() -> ExecutionResult:
     return ExecutionResult(stdout="agent-server log", stderr="", exit_code=0)
 
 
+def _ok_result() -> ExecutionResult:
+    return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+
 @pytest.mark.parametrize(
     ("capabilities", "expected"),
     [
@@ -66,7 +70,7 @@ def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandb
 def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "write_file"),
+        patch.object(sandbox, "write_file", return_value=_ok_result()),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
         patch.object(sandbox, "_launch_and_check", return_value=False),
         patch.object(sandbox, "execute", return_value=_log_result()),
@@ -116,14 +120,14 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
 
     def execute(command: str, **kwargs) -> ExecutionResult:
-        # Only the launch fails; the bundled-skills clear that precedes it succeeds.
-        if ENV_DISABLE_BUNDLED_SKILLS in command:
-            return ExecutionResult(stdout="", stderr="", exit_code=0)
+        # Only the launch fails; the bundled-skills clear and the launch prep that precede it succeed.
+        if ENV_DISABLE_BUNDLED_SKILLS in command or command.startswith("chmod "):
+            return _ok_result()
         return failed
 
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "write_file"),
+        patch.object(sandbox, "write_file", return_value=_ok_result()),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
         patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
         patch.object(sandbox, "execute", side_effect=execute),
@@ -154,4 +158,5 @@ def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: 
 
     assert result.exit_code == 0
     assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
-    assert commands[-1].startswith("mv ")
+    assert commands[-1].startswith("umask 077 && rm -f /tmp/creds.env.tmp-* && ")
+    assert " && mv /tmp/creds.env.tmp-" in commands[-1]

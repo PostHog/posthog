@@ -17,6 +17,7 @@ const {
   useReportTasks,
   useInboxReportArtefacts,
   openResolveDialog,
+  openDismissDialog,
   fireAction,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
@@ -30,6 +31,7 @@ const {
   useReportTasks: vi.fn(),
   useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
+  openDismissDialog: vi.fn(),
   fireAction: vi.fn(),
 }));
 
@@ -70,7 +72,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     dialog: null,
-    openDialog: vi.fn(),
+    openDialog: openDismissDialog,
   }),
 }));
 
@@ -196,6 +198,27 @@ describe("ReportVerdictBanner", () => {
     );
   });
 
+  it("removes the investigation spinner after an already-fixed dismissal", () => {
+    const { rerender } = render(
+      <ReportVerdictBanner report={{ ...report, status: "in_progress" }} />,
+    );
+    expect(screen.getByLabelText("Loading")).toBeInTheDocument();
+
+    rerender(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          status: "potential",
+          dismissal_reason: "already_fixed",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Dismissed until new signals")).toBeInTheDocument();
+    expect(screen.queryByText("Agent investigating")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading")).not.toBeInTheDocument();
+  });
+
   it("offers resolve in triage from both the button and shortcut", async () => {
     const user = userEvent.setup();
     render(
@@ -211,6 +234,22 @@ describe("ReportVerdictBanner", () => {
 
     expect(openResolveDialog).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Dismiss")).toBeInTheDocument();
+  });
+
+  it("offers dismiss in triage from both the button and shortcut", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        dismissHotkey="a"
+      />,
+    );
+
+    await user.click(screen.getByText("Dismiss"));
+    await user.keyboard("a");
+
+    expect(openDismissDialog).toHaveBeenCalledTimes(2);
   });
 
   it("starts a discussion with optional direction and hides the actions after creation", async () => {

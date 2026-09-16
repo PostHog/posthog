@@ -63,6 +63,7 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     # and lazy join must still resolve them for that caller.
     "system._ticket_assignee_roles": frozenset({"ticket"}),
     "system._task_public_channels": frozenset({"task"}),
+    "system.customer_tasks": frozenset({"account"}),
 }
 
 
@@ -153,6 +154,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
         # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_catalog")
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 

@@ -31,7 +31,7 @@ class TestConnectInstructions(SimpleTestCase):
                     "packages": [{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": "1.0.0"}],
                 },
                 "local_package",
-                "agent",
+                "human",
             ),
         ]
     )
@@ -125,15 +125,16 @@ class TestConnectInstructions(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("pinned", "1.2.3", "full", "@example/demo-mcp@1.2.3", "agent"),
-            ("unpinned", "", "human_required", "@example/demo-mcp", "human"),
+            ("pinned", "1.2.3", "@example/demo-mcp@1.2.3"),
+            ("unpinned", "", "@example/demo-mcp"),
         ]
     )
-    def test_npm_package_is_pinned_or_needs_approval(
-        self, _name: str, version: str, automation: str, spec: str, first_actor: str
-    ) -> None:
-        # npx resolves latest when the agent runs it, so an unpinned spec lets a publisher
-        # list something benign and replace it with other code afterwards.
+    def test_npm_package_requires_human_approval(self, _name: str, version: str, spec: str) -> None:
+        # A local package is publisher-controlled code, so a person always approves the
+        # exact package/version before the agent installs it — pinned or not. Pinning stops
+        # the publisher swapping code after listing but says nothing about the pinned
+        # version itself. An unpinned spec additionally resolves whatever is latest at run
+        # time, which is worse.
         server = _server(
             canonical_url="",
             packages=[{"registry_type": "npm", "identifier": "@example/demo-mcp", "version": version}],
@@ -142,8 +143,8 @@ class TestConnectInstructions(SimpleTestCase):
         method = build_connect_instructions(server)["methods"][0]
 
         assert method["method"] == "local_package"
-        assert method["automation"] == automation
-        assert method["steps"][0]["actor"] == first_actor
+        assert method["automation"] == "human_required"
+        assert method["steps"][0]["actor"] == "human"
         assert spec in method["steps"][-1]["command"]
 
     def test_row_overrides_replace_derived_methods(self) -> None:

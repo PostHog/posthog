@@ -1,3 +1,4 @@
+import type { WorkflowHealthItemApi } from '../generated/api.schemas'
 import { isDecisiveFailure, isPassingConclusion } from './lifecycle'
 
 /** Minimal run shape; WorkflowRunRow and PrRunRow both satisfy it. */
@@ -29,22 +30,19 @@ export interface CostableJob {
 
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
+/** Every field must be answerable from both the server's window figures and a page of runs. */
 export interface HealthSummary {
     state: WorkflowState
     totalRuns: number
-    completedRuns: number
     conclusiveRuns: number
     passedRuns: number
     failures: number
-    running: number
     /** Runs that were a 2nd+ attempt. */
     reruns: number
     /** Passes divided by conclusive runs (null when no run reached a verdict). */
     passRate: number | null
     medianSeconds: number | null
     p95Seconds: number | null
-    lastFailureAt: string | null
-    latestConclusion: string | null
 }
 
 // At or above this decisive-failure rate a workflow whose latest run still passed reads as "degraded".
@@ -117,6 +115,35 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
     return sortedAsc[Math.min(sortedAsc.length - 1, Math.max(0, Math.ceil(q * sortedAsc.length) - 1))]
 }
 
+/** Shared by both summaries so a page of runs and the server's figures never disagree on the verdict. */
+function workflowState(latestRunFailed: boolean | null, conclusiveRuns: number, failures: number): WorkflowState {
+    if (latestRunFailed == null) {
+        return 'unknown'
+    }
+    if (latestRunFailed) {
+        return 'failing'
+    }
+    if (conclusiveRuns > 0 && failures / conclusiveRuns >= DEGRADED_FAILURE_RATE) {
+        return 'degraded'
+    }
+    return 'healthy'
+}
+
+export function workflowHealthSummary(item: WorkflowHealthItemApi): HealthSummary {
+    const failures = item.conclusive_run_count - item.successful_run_count
+    return {
+        state: workflowState(item.latest_run_failed, item.conclusive_run_count, failures),
+        totalRuns: item.run_count,
+        conclusiveRuns: item.conclusive_run_count,
+        passedRuns: item.successful_run_count,
+        failures,
+        reruns: item.rerun_cycles ?? 0,
+        passRate: item.success_rate,
+        medianSeconds: item.p50_seconds,
+        p95Seconds: item.p95_seconds,
+    }
+}
+
 /**
  * Verdict + headline stats for one workflow's runs. Durations use successful runs. Rates use
  * conclusive runs, so an unsettled or non-verdict run is never counted as a failure.
@@ -124,7 +151,6 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
     const successful = completed.filter((run) => run.conclusion === 'success')
-    const running = runs.length - completed.length
     const passed = successful.length
     const failures = completed.filter((run) => isDecisiveFailure(run.conclusion)).length
     const conclusiveRuns = passed + failures
@@ -141,41 +167,19 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
         .filter((d): d is number => d != null)
     const durations = (realDurations.length > 0 ? realDurations : allDurations).sort((a, b) => a - b)
 
-    const byStartDesc = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
-    const latestConclusion = byStartDesc[0]?.conclusion ?? null
-    const lastFailureAt =
-        completed
-            .filter((run) => isDecisiveFailure(run.conclusion))
-            .map((run) => run.startedAt)
-            .filter((at): at is string => !!at)
-            .sort()
-            .at(-1) ?? null
-
-    let state: WorkflowState
-    if (completed.length === 0) {
-        state = 'unknown'
-    } else if (isDecisiveFailure(latestConclusion)) {
-        state = 'failing'
-    } else if (conclusiveRuns > 0 && failures / conclusiveRuns >= DEGRADED_FAILURE_RATE) {
-        state = 'degraded'
-    } else {
-        state = 'healthy'
-    }
+    const latest = [...completed].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0]
+    const latestRunFailed = latest ? isDecisiveFailure(latest.conclusion) : null
 
     return {
-        state,
+        state: workflowState(latestRunFailed, conclusiveRuns, failures),
         totalRuns: runs.length,
-        completedRuns: completed.length,
         conclusiveRuns,
         passedRuns: passed,
         failures,
-        running,
         reruns,
         passRate,
         medianSeconds: percentileSorted(durations, 0.5),
         p95Seconds: percentileSorted(durations, 0.95),
-        lastFailureAt,
-        latestConclusion,
     }
 }
 

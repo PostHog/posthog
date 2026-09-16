@@ -94,6 +94,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("ticket_assignments", "select * from system._ticket_assignments", {"ticket"}),
             ("ticket_assignee_roles", "select * from system._ticket_assignee_roles", {"ticket"}),
             ("task_public_channels", "select * from system._task_public_channels", {"task"}),
+            ("customer_tasks", "select * from system.customer_tasks", {"customer_task", "account"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
             # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
@@ -132,17 +133,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_data_quality_checks",
                 "select config from system.information_schema.data_quality_checks",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_check_runs",
                 "select failed_row_count from system.information_schema.data_quality_check_runs",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             (
                 "information_schema_data_quality_health",
                 "select health from system.information_schema.data_quality_health",
-                {"external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
             ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),

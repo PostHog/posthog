@@ -24,6 +24,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 
 | Tool                            | Purpose                                                             |
 | ------------------------------- | ------------------------------------------------------------------- |
+| `posthog:query-trends`          | Native cost trends with supported sums, breakdowns, and comparisons |
 | `posthog:execute-sql`           | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
 | `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics           |
 | `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events              |

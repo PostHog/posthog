@@ -279,9 +279,11 @@ for (const adapter of ADAPTERS) {
           meta: meta(),
         });
         const askToUseTool =
-          "Before doing anything else, you MUST call the request_user_input tool " +
+          "If the request_user_input tool is available, call it once " +
           "to ask the user a single question: whether to proceed with approach A " +
-          "or approach B. Ask exactly that one question via the tool, then stop.";
+          "or approach B. After the answer, reply in one sentence and stop. " +
+          "If the tool is unavailable, say so in one sentence and stop. " +
+          "Do not call other tools or propose an implementation plan.";
         const questionCount = () =>
           s.capture
             .approvals()
@@ -380,40 +382,59 @@ for (const adapter of ADAPTERS) {
     itCodex(
       "folds a mid-turn prompt into the running turn via steering",
       async () => {
+        let questionReady: () => void = () => {};
+        const question = new Promise<void>((resolve) => {
+          questionReady = resolve;
+        });
+        let releaseAnswer: () => void = () => {};
+        const answer = new Promise<void>((resolve) => {
+          releaseAnswer = resolve;
+        });
         const s = await openSession({
           adapter,
           cwd: repo,
           codexOptions: codexOptions(),
           meta: meta(),
+          onQuestion: async () => {
+            questionReady();
+            await answer;
+          },
         });
         try {
+          await s.conn.setSessionConfigOption({
+            sessionId: s.sessionId,
+            configId: "mode",
+            value: "plan",
+          });
           const p1 = s.conn.prompt({
             sessionId: s.sessionId,
             prompt: [
               {
                 type: "text",
-                text: "Count up from 1, one number per line, and keep going.",
+                text:
+                  "Call request_user_input once to ask whether to use approach A or B. " +
+                  "Wait for the answer, then acknowledge it in one sentence and stop. " +
+                  "Do not call other tools or propose an implementation plan.",
               },
             ],
           });
-          await waitFor(
-            () =>
-              s.capture.updates("agent_message_chunk").length > 0
-                ? true
-                : undefined,
-            20_000,
-          );
-          const p2 = s.conn.prompt({
+          await Promise.race([
+            question,
+            p1.then(() => {
+              throw new Error("The first turn ended before asking a question");
+            }),
+          ]);
+          const r2 = await s.conn.prompt({
             sessionId: s.sessionId,
             prompt: [{ type: "text", text: "Now stop and say DONE." }],
           });
-          const [r1] = await Promise.all([p1, p2]);
+          expect(r2).toMatchObject({ _meta: { steer: true } });
+          releaseAnswer();
+          const r1 = await p1;
           expect(r1.stopReason).toBe("end_turn");
           expect(
             s.capture.updates("user_message_chunk").length,
           ).toBeGreaterThanOrEqual(2);
-          // The steer proof: folded into a SINGLE turn (one turn_complete). Two would
-          // mean the steer didn't take and p2 ran as its own turn.
           const turnCompletes = s.capture.events.filter(
             (e) =>
               e.kind === "extNotification" &&
@@ -425,6 +446,7 @@ for (const adapter of ADAPTERS) {
               "turn_complete); 2 means the steer didn't take",
           ).toBe(1);
         } finally {
+          releaseAnswer();
           await s.cleanup();
         }
       },

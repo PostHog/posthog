@@ -21,7 +21,7 @@ use tower::{Layer, Service};
 // ============================================================
 
 /// Header name for client identification in gRPC metadata.
-const CLIENT_NAME_HEADER: &str = "x-client-name";
+pub const CLIENT_NAME_HEADER: &str = "x-client-name";
 
 /// Metadata key marking a FAILED_PRECONDITION as a definitive semantic
 /// refusal rather than a routing-race rejection. The router bounces and

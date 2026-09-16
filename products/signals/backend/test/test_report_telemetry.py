@@ -19,10 +19,20 @@ from products.signals.backend.temporal.summary import (
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
 
+CHART_PAYLOAD = {
+    "chart_id": "signups-drop",
+    "title": "Daily signups",
+    "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+}
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_started_and_ready_fire_expected_captures(ateam):
+@pytest.mark.parametrize(
+    "charts_enabled,charts,expected_chart_count",
+    [(True, [CHART_PAYLOAD], 1), (False, None, 0)],
+)
+async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, charts, expected_chart_count):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.CANDIDATE,
@@ -49,6 +59,8 @@ async def test_started_and_ready_fire_expected_captures(ateam):
                 summary="summary",
                 processed_signal_count=2,
                 source_products=source_products,
+                charts=charts,
+                charts_enabled=charts_enabled,
             )
         )
 
@@ -65,6 +77,13 @@ async def test_started_and_ready_fire_expected_captures(ateam):
         assert "project" in e["groups"]
     assert events[0]["properties"].get("result") is None
     assert events[1]["properties"]["result"] == "ready"
+    # Pipeline chart rate is only measurable if the completion event carries the chart set.
+    assert events[0]["properties"].get("chart_count") is None
+    assert events[1]["properties"]["chart_count"] == expected_chart_count
+    # A zero count from a team the rollout never opened charts to is not the agent declining to
+    # chart, so the count only reads as a rate next to the rollout state the run saw.
+    assert events[1]["properties"]["charts_enabled"] is charts_enabled
+    assert "charts_enabled" not in events[0]["properties"]
 
 
 @pytest.mark.asyncio
@@ -95,6 +114,7 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     kwargs = pipeline_calls[0].kwargs
     assert kwargs["event"] == "signal_report_completed"
     assert kwargs["properties"]["result"] == "failed"
+    assert "chart_count" not in kwargs["properties"]
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
@@ -233,6 +253,10 @@ async def test_pending_input_fires_completed_and_status_changed_with_pending_rea
     calls_by_event = {call.kwargs["event"]: call.kwargs for call in capture.call_args_list}
     assert calls_by_event["signal_report_completed"]["properties"]["result"] == "pending_input"
     assert calls_by_event["signal_report_completed"]["properties"]["pending_reason"] == pending_reason
+    assert calls_by_event["signal_report_completed"]["properties"]["chart_count"] == 0
+    # No research ran to ask about the rollout here, so the property stays absent rather than
+    # reporting a team as opted out of charts.
+    assert "charts_enabled" not in calls_by_event["signal_report_completed"]["properties"]
     assert calls_by_event["signal_report_status_changed"]["properties"]["pending_reason"] == pending_reason
 
 
