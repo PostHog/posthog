@@ -3,7 +3,7 @@ import { DISPLAY_TYPES_TO_CATEGORIES, NON_BREAKDOWN_DISPLAY_TYPES, PIE_DISPLAY_T
 import { isPropertyValueMath } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 
 import type { BreakdownFilter, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter, hasMultiBreakdown } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayCategory, ChartDisplayType, PropertyMathType } from '~/types'
 import type { AnyPropertyFilter } from '~/types'
 
@@ -56,6 +56,27 @@ function isCountryProperty(value: unknown): boolean {
     return typeof value === 'string' && COUNTRY_PROPERTIES.has(value)
 }
 
+// Trends writes breakdowns as a list; older queries carry a single breakdown. Both count.
+export function breakdownProperties(breakdownFilter?: BreakdownFilter | null): (string | number)[] {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns.map((entry) => entry.property)
+    }
+    const single = breakdownFilter?.breakdown
+    if (single == null) {
+        return []
+    }
+    return Array.isArray(single) ? single : [single]
+}
+
+function breakdownTypeOf(breakdownFilter?: BreakdownFilter | null): string | null | undefined {
+    return breakdownFilter?.breakdowns?.length ? breakdownFilter.breakdowns[0].type : breakdownFilter?.breakdown_type
+}
+
+function isSingleCountryBreakdown(breakdownFilter?: BreakdownFilter | null): boolean {
+    const properties = breakdownProperties(breakdownFilter)
+    return properties.length === 1 && isCountryProperty(properties[0])
+}
+
 export function hasTrendsFormula(trendsFilter?: TrendsFilter | null): boolean {
     return !!trendsFilter?.formula || !!trendsFilter?.formulas?.length || !!trendsFilter?.formulaNodes?.length
 }
@@ -92,9 +113,9 @@ export function getChartDisplayOptions({
     breakdown,
     breakdowns,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
-    const singleBreakdownProperty = breakdowns?.length === 1 ? breakdowns[0].property : breakdown
-    const hasSupportedCountryBreakdown =
-        (breakdowns?.length ?? 0) <= 1 && (!singleBreakdownProperty || isCountryProperty(singleBreakdownProperty))
+    const breakdownProps = breakdownProperties({ breakdown, breakdowns })
+    const worldMapBreakdownDisabled =
+        breakdownProps.length > 1 || breakdownProps.some((property) => !isCountryProperty(property))
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !hasSingleSeriesOutput
         ? 'This type currently only supports insights with one series, and this insight has multiple series.'
@@ -222,9 +243,9 @@ export function getChartDisplayOptions({
                         trendsOnlyDisabledReason ||
                         (hasTrendsFormula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : hasSupportedCountryBreakdown
-                              ? undefined
-                              : "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."),
+                            : worldMapBreakdownDisabled
+                              ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                              : undefined),
                 },
                 {
                     display: ChartDisplayType.CalendarHeatmap,
@@ -254,8 +275,7 @@ const DEFAULT_RECOMMENDATION_ORDER = [
 ]
 
 function hasCountryContext(query: TrendsQuery): boolean {
-    const breakdownFilter = query.breakdownFilter
-    if (!hasMultiBreakdown(breakdownFilter) && isCountryProperty(breakdownFilter?.breakdown)) {
+    if (isSingleCountryBreakdown(query.breakdownFilter)) {
         return true
     }
     const filters: AnyPropertyFilter[] = [
@@ -320,11 +340,12 @@ export function getChartDisplayChangeWarning(
     if (display === ChartDisplayType.WorldMap) {
         const current = query.breakdownFilter
         const next = worldMapBreakdownFilter(query)
-        if (
-            hasMultiBreakdown(current) ||
-            current?.breakdown !== next.breakdown ||
-            current?.breakdown_type !== next.breakdown_type
-        ) {
+        const properties = breakdownProperties(current)
+        const alreadyMapBreakdown =
+            properties.length === 1 &&
+            properties[0] === next.breakdown &&
+            breakdownTypeOf(current) === next.breakdown_type
+        if (!alreadyMapBreakdown) {
             return {
                 title: 'This chart type changes the breakdown to Country code',
                 body: `The map uses ${next.breakdown_type} properties for this metric.`,
