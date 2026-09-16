@@ -168,6 +168,7 @@ const REASON_CASES: ReasonCase[] = [
                 excluded_metrics: [],
                 filter_test_accounts: true,
             })
+            logic.actions.setMetricSelected('metric-purchase', true)
             logic.actions.setMetricFilterMode('no_metric_activity')
         },
         copy: 'The experiment started 1 day ago',

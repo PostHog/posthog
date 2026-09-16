@@ -542,6 +542,7 @@ export interface experimentReplayTabLogicActions {
     } // viewRecordingsLinkabilityLogic
     applyDeepLink: (link: ExperimentRecordingsDeepLink) => {
         link: ExperimentRecordingsDeepLink
+    }
     exposureScopeCommitted: (scope: ExperimentReplayExposureScope) => {
         scope: ExperimentReplayExposureScope
     }

@@ -500,9 +500,9 @@ def _resolve_window_end(
     """
     if exposure.used_fallback and fallback_evidence_scan_is_unaffordable(team, experiment):
         # The stamped-property condition carries no event name for ClickHouse to prune on, so
-        # anchoring would read every event the team captured in the run. The in-session recordings
-        # list refuses exactly this scan on these teams, so keep the recent-to-now window instead
-        # of buying the anchor at that price.
+        # anchoring would read every event the team captured in the run. On the teams where
+        # precomputation marks a full-window live scan as a real cost, that scan times out instead
+        # of answering, so keep the recent-to-now window instead of buying the anchor at that price.
         return run_end
 
     cache_key = _anchor_cache_key(

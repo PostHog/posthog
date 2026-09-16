@@ -789,6 +789,7 @@ describe('experimentReplayTabLogic', () => {
             ...BUCKET_RESPONSE,
             used_exposure_fallback: true,
         })
+        logic.actions.setMetricSelected('metric-purchase', true)
         logic.actions.setMetricFilterMode('no_metric_activity')
         // The evidence rides on the response, so the copy claims only what both kinds share until
         // the bucket lands.
