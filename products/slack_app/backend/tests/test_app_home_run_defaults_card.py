@@ -39,8 +39,6 @@ class TestRunDefaultsCardRouting(APIBaseTest):
         assert state.model is None
         assert state.settings_url is None
 
-    # A mention never runs the Pi harness, so a Pi default must not be named as what the
-    # next mention will launch on — the card falls back to naming Slack's own floor.
     def test_card_ignores_a_pi_default(self):
         update_team_ai_run_preferences(
             self.team.id, runtime_adapter=None, model="gpt-5.6-terra", reasoning_effort=None, runtime="pi"

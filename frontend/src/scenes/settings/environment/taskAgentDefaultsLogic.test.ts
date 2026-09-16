@@ -85,9 +85,6 @@ describe('taskAgentDefaultsLogic', () => {
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
     })
 
-    // Pi and the ACP adapters serve some of the same model ids — `gpt-5.6-terra` is both Pi's default
-    // and a Codex model. Keyed on the model alone the two options collide, and picking the Codex one
-    // read as "no change", so a default the person moved off Pi stayed on it.
     it('keeps the Pi and ACP options distinct when they name the same model', () => {
         const shared = 'gpt-5.6-terra'
         const onPi = encodeModelChoice({ model: shared, runtime: 'pi' })
@@ -96,7 +93,6 @@ describe('taskAgentDefaultsLogic', () => {
         expect(onPi).not.toEqual(onAcp)
         expect(decodeModelChoice(onPi)).toEqual({ model: shared, runtime: 'pi' })
         expect(decodeModelChoice(onAcp)).toEqual({ model: shared, runtime: 'acp' })
-        // A draft stored before the harness field carries none, and runs on ACP.
         expect(encodeModelChoice({ model: shared, runtime: null })).toEqual(onAcp)
     })
 
@@ -105,9 +101,6 @@ describe('taskAgentDefaultsLogic', () => {
         expect(decodeModelChoice(null)).toEqual({ model: null, runtime: null })
     })
 
-    // The ACP catalogue owns neither Pi's harness nor its model ids, so deriving an adapter on every
-    // save would store a Pi default as a Claude one — a default nobody picked, on a harness the person
-    // had moved away from.
     it('saves a Pi default back as Pi, with no adapter', async () => {
         useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
         mount()
@@ -123,8 +116,6 @@ describe('taskAgentDefaultsLogic', () => {
         ])
     })
 
-    // Every model the picker offers other than the stored Pi one belongs to an ACP adapter, so
-    // choosing one is how a person moves their default off Pi from the web.
     it('moves a Pi default onto the ACP harness when an ACP model is picked', async () => {
         useConfigMocks({ runtime: 'pi', model: 'gpt-5.6-terra', reasoning_effort: 'off' })
         mount()

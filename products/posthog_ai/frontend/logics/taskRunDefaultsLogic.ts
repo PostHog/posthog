@@ -96,15 +96,11 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
             (myConfig: TasksUserConfigResponseApi | null): TasksResolvedAIRunDefaultsApi | null =>
                 myConfig?.resolved_ai_run_defaults ?? null,
         ],
-        // Only the ACP harness runs in the web app, and a Pi default names a model with no adapter
-        // that the web pickers cannot drive. Consumers read the harness-matched view, so a Pi default
-        // reads here as "no default" rather than as a model a web run would launch on.
         acpDefaults: [
             (s) => [s.resolvedDefaults],
             (defaults: TasksResolvedAIRunDefaultsApi | null): TasksResolvedAIRunDefaultsApi | null =>
                 defaults?.runtime === TaskRuntimeEnumApi.Pi ? null : (defaults ?? null),
         ],
-        // Whatever adapter the default names: the composer's pickers are adapter-aware (they scope the
         // permission modes to the selected model's harness), so a Codex default renders as readily as a
         // Claude one. Filtering by adapter here would drop the preference to the built-in model rather
         // than to the next level that configured one, which reads as the setting being ignored.
@@ -116,7 +112,6 @@ export const taskRunDefaultsLogic = kea<taskRunDefaultsLogicType>([
             (s) => [s.acpDefaults],
             (defaults: TasksResolvedAIRunDefaultsApi | null): string | null => defaults?.reasoning_effort ?? null,
         ],
-        // The server already resolved which adapter the default belongs to; carrying it beats
         // re-deriving from the client catalogue, which can be stale and mislabel the harness.
         defaultRuntimeAdapter: [
             (s) => [s.acpDefaults],

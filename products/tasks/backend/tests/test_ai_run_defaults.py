@@ -25,8 +25,6 @@ FACADE = "products.tasks.backend.facade.api"
 
 TEAM_TRIPLE = {"runtime_adapter": "claude", "model": "claude-opus-4-8", "reasoning_effort": "high"}
 USER_TRIPLE = {"runtime_adapter": "codex", "model": "gpt-5.5", "reasoning_effort": "medium"}
-# 'off' is a Pi depth the ACP catalogue does not list for this model, so a Pi selection that
-# keeps it proves the catalogue never judged it.
 PI_PREFS = {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "off"}
 
 RESOLVER = "products.tasks.backend.logic.services.ai_run_defaults"
@@ -96,8 +94,6 @@ class TestResolveAIRunDefaults(APIBaseTest):
         with pi_harness():
             for_acp = resolve_ai_run_selection(self.team.id, self.user.id)
             for_pi = resolve_ai_run_selection(self.team.id, self.user.id, runtime="pi")
-        # The user replaced the project's Claude default with Pi, so the team's triple must not
-        # take its place on an ACP run.
         assert (for_acp.source, for_acp.model) == ("none", None)
         assert (for_pi.source, for_pi.model) == ("user", "gpt-5.6-terra")
 
@@ -240,9 +236,6 @@ class TestModelAccessGating(APIBaseTest):
         assert resolved.source == "team"
         assert (resolved.runtime, resolved.model) == ("acp", "gpt-5.5")
 
-    # The run path evaluates this flag as `user_<id>` when a user carries no distinct_id, which is
-    # nullable. Resolving under a different identity would drop a stored Pi default for a run the
-    # harness gate would have allowed.
     def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
         User.objects.filter(id=self.user.id).update(distinct_id=None)
         self._set_user(PI_PREFS)

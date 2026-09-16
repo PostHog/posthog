@@ -20,7 +20,6 @@ import type {
 export interface AIRunPreferenceDraft {
     model: string | null
     reasoning_effort: string | null
-    /** Which harness the default runs on; null until a model is picked, since a harness alone is not a default. */
     runtime: TaskRuntimeEnumApi | null
 }
 
@@ -43,17 +42,10 @@ function draftFromStored(stored: TasksAIRunPreferencesApi | null | undefined): A
     return {
         model: stored?.model ?? null,
         reasoning_effort: stored?.reasoning_effort ?? null,
-        // A default stored before Pi was offered carries no harness, and runs on ACP.
         runtime: stored?.model ? (stored.runtime ?? TaskRuntimeEnumApi.Acp) : null,
     }
 }
 
-/**
- * One option value per (harness, model) pair, because Pi and the ACP adapters serve some of the
- * same model ids — `gpt-5.6-terra` is both Pi's default and a Codex model. Keyed on the model
- * alone, the two options collide and picking the Codex one reads as "no change", which leaves a
- * default on Pi that the person just moved off it.
- */
 export function encodeModelChoice(draft: Pick<AIRunPreferenceDraft, 'model' | 'runtime'>): string | null {
     return draft.model ? `${draft.runtime ?? TaskRuntimeEnumApi.Acp}:${draft.model}` : null
 }
@@ -71,8 +63,6 @@ export function decodeModelChoice(value: string | null): Pick<AIRunPreferenceDra
 
 // The adapter is a property of the model, so it comes off the catalogue rather than the model id's
 // spelling — the settings picker offers Codex models too, and a new harness must not be mislabelled.
-// A Pi default has no adapter at all, and its model may be one the ACP catalogue never lists, so it
-// is sent through untouched rather than run past the catalogue, which would relabel it as Claude.
 function payloadFromDraft(draft: AIRunPreferenceDraft, catalogue: ModelChoiceApi[]): TasksAIRunPreferencesApi {
     const runtime = draft.model ? (draft.runtime ?? TaskRuntimeEnumApi.Acp) : null
     const reasoning_effort = draft.model

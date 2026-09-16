@@ -20,14 +20,8 @@ passes through (the agent server owns the final fallback), a triple whose
 runtime adapter is no longer valid is skipped in favor of the next level, and
 a reasoning effort the resolved model doesn't support is dropped. This module
 never raises during resolution. The one hard gate is entitlement: a level whose
-model is behind an access flag the acting user doesn't hold is skipped, and so is a
-Pi level the acting user has no Pi harness access to, so a stored default can never
-launch something the run paths would refuse.
-
-`runtime` names the harness: `acp` for the claude/codex adapters, `pi` for the Pi
-harness. A row stored before Pi was offered carries no `runtime` key and reads as
-`acp`. A Pi level carries a model and no adapter, so an ACP caller reads it as "this
-user has no ACP default" — which is what a user who chose Pi means.
+model is behind an access flag the acting user doesn't hold is skipped, so a
+stored default can never launch a model the run paths would refuse.
 """
 
 from dataclasses import dataclass
@@ -67,7 +61,6 @@ class ResolvedAIRunConfig:
     model: str | None = None
     reasoning_effort: str | None = None
     source: Literal["explicit", "user", "team", "none"] = "none"
-    # Last, so the existing keyword construction and `asdict()` key order both hold.
     runtime: str = ACP
 
 
@@ -80,17 +73,13 @@ def resolve_ai_run_selection(
     model: str | None = None,
     reasoning_effort: str | None = None,
 ) -> ResolvedAIRunConfig:
-    """The effective runtime selection for a new run on `runtime`'s harness: the caller's
-    own selection when it pins anything, otherwise the stored defaults.
+    """The effective runtime selection for a new run: the caller's own selection when it
+    pins anything, otherwise the stored defaults.
 
     A partial pin (either `runtime_adapter` or `model` alone) is treated as explicit and
     returned untouched — filling in the other half from a preference would pair values
     the caller never chose together. When defaults apply, an explicitly passed
     `reasoning_effort` survives and the default's effort only fills a gap.
-
-    A stored default belonging to the other harness supplies nothing. Stating that here
-    rather than leaving it to the adapter null check keeps a Pi default from reaching an
-    ACP run as a model with no adapter.
     """
     if runtime_adapter or model:
         return ResolvedAIRunConfig(
@@ -183,10 +172,6 @@ def resolve_ai_run_defaults(
             organization_id = (
                 Team.objects.filter(id=canonical_team_id).values_list("organization_id", flat=True).first()
             )
-            # The same identity the run path evaluates this flag under (`pi_cloud_runtime_enabled`):
-            # `distinct_id` is nullable, and without the fallback a user who has none would lose a
-            # stored Pi default that their runs are entitled to. The model gate below keeps the raw
-            # value on purpose — an unidentifiable caller must not reach a gated model.
             pi_distinct_id = _distinct_id() or (f"user_{user_id}" if user_id is not None else None)
             if not is_pi_cloud_runtime_enabled(
                 distinct_id=pi_distinct_id, organization_id=str(organization_id) if organization_id else None
@@ -204,9 +189,6 @@ def resolve_ai_run_defaults(
             .first()
         )
     resolved = _resolve_from_preferences(user_preferences, source="user")
-    # A default naming a model or a harness the acting user isn't entitled to falls
-    # through to the next level, the same way an unusable pair does — a stored default
-    # must never launch something the cold run path would have refused.
     if resolved is not None and _level_usable(resolved):
         return resolved
 
@@ -234,9 +216,6 @@ def _resolve_from_preferences(
     if runtime == PI:
         if not model:
             return None
-        # No catalogue lookup: the ACP catalogue does not own Pi's model ids, and its
-        # effort map would drop depths Pi does support. A level that is no longer legal
-        # keeps its model and loses only the depth.
         if reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
             reasoning_effort = None
         return ResolvedAIRunConfig(

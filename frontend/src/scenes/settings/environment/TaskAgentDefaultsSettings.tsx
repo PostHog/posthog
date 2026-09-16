@@ -67,9 +67,6 @@ function PreferenceEditor({
         if (!isPi || !draft.model) {
             return adapterGroups
         }
-        // Pi runs models the ACP catalogue never lists, and the select cannot show a value it has no
-        // option for. Carrying the stored pick as its own group keeps a Pi default readable here, and
-        // leaves every other option free to move the default onto Claude or Codex.
         return [
             {
                 title: PI_HARNESS_LABEL,
@@ -92,8 +89,6 @@ function PreferenceEditor({
                     fullWidth
                     value={encodeModelChoice(draft)}
                     onChange={(value) => {
-                        // The option says which harness it belongs to, so picking the Codex entry for a
-                        // model Pi also serves moves the default off Pi rather than reading as no change.
                         const { model, runtime } = decodeModelChoice(value)
                         const staysOnPi = runtime === TaskRuntimeEnumApi.Pi
                         onChange({
