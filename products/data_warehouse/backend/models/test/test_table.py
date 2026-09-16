@@ -503,7 +503,7 @@ class TestTable(BaseTest):
     @parameterized.expand(
         [
             # A JSON file's object keys vary per row, so the described key list is only a sample.
-            ("json", DataWarehouseTable.TableFormat.JSON, "JSON", "NativeJSONDatabaseField"),
+            ("json", DataWarehouseTable.TableFormat.JSON, "JSON", "StringJSONDatabaseField"),
             # A Parquet file declares its struct fields, so the Tuple is accurate.
             ("parquet", DataWarehouseTable.TableFormat.Parquet, None, "StringJSONDatabaseField"),
         ]
@@ -1000,7 +1000,7 @@ class TestTable(BaseTest):
             url_pattern="https://example.com/runs/*.json",
             format=DataWarehouseTable.TableFormat.JSON,
             team=self.team,
-            columns={"usage": {"clickhouse": "JSON", "hogql": "NativeJSONDatabaseField"}},
+            columns={"usage": {"clickhouse": "JSON", "hogql": "StringJSONDatabaseField"}},
             credential=credential,
         )
 

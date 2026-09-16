@@ -1077,8 +1077,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 self.csv_allow_double_quotes if self.csv_allow_double_quotes is not None else False
             )
         if self._has_native_json_columns():
-            # The structure declares a JSON column, which ClickHouse refuses to create unless the setting is on. It is
-            # on by default on the cluster, and asking for it here keeps the table readable if that default changes.
+            # Insurance rather than a requirement: on 26.6 `enable_json_type` gates the type and the structure parses
+            # without this, but an older engine refuses to create the JSON column the structure declares.
             query_settings["allow_experimental_json_type"] = True
         if query_settings:
             table_def.top_level_settings = HogQLQuerySettings(**query_settings)

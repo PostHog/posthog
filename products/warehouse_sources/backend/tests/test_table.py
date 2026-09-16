@@ -304,7 +304,7 @@ class TestStructureAgainstTheEngine(BaseTest):
             url_pattern="s3://bucket/team_1/runs/*",
             columns={
                 "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True},
-                "usage": {"clickhouse": "JSON", "hogql": "NativeJSONDatabaseField", "valid": True},
+                "usage": {"clickhouse": "JSON", "hogql": "StringJSONDatabaseField", "valid": True},
             },
         )
 
