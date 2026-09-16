@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+    Streams one CloudWatch log group into PostHog Logs through an Amazon Data Firehose
+    HTTP endpoint destination. Add more subscription filters that point at the same stream
+    to include more log groups.
+
+Parameters:
+    PostHogEndpointUrl:
+        Type: String
+        Description: HTTP endpoint URL shown in PostHog under Settings > Logs > Cloud provider sources.
+        AllowedPattern: '^https://.+'
+    PostHogAccessKey:
+        Type: String
+        NoEcho: true
+        Description: Access key shown in PostHog. This is the project API key.
+    LogGroupName:
+        Type: String
+        Description: CloudWatch log group to stream, for example /aws/lambda/checkout-api.
+    BufferSizeMB:
+        Type: Number
+        Default: 1
+        MinValue: 1
+        MaxValue: 4
+        Description: Firehose buffer size in MB. 1 keeps each delivery inside PostHog's request size limit once the records are encoded; PostHog rejects deliveries above 8 MB.
+    BufferIntervalSeconds:
+        Type: Number
+        Default: 60
+        MinValue: 0
+        MaxValue: 900
+        Description: Firehose buffer interval in seconds.
+    RetryDurationSeconds:
+        Type: Number
+        Default: 300
+        MinValue: 0
+        MaxValue: 7200
+        Description: How long Firehose retries a failed delivery before writing it to the backup bucket.
+
+Resources:
+    BackupBucket:
+        Type: AWS::S3::Bucket
+        # Firehose may have written failed deliveries here; a non-empty bucket would otherwise block stack deletion.
+        DeletionPolicy: Retain
+        UpdateReplacePolicy: Retain
+        Properties:
+            BucketEncryption:
+                ServerSideEncryptionConfiguration:
+                    - ServerSideEncryptionByDefault:
+                          SSEAlgorithm: AES256
+            PublicAccessBlockConfiguration:
+                BlockPublicAcls: true
+                BlockPublicPolicy: true
+                IgnorePublicAcls: true
+                RestrictPublicBuckets: true
+            LifecycleConfiguration:
+                Rules:
+                    - Id: ExpireFailedDeliveries
+                      Status: Enabled
+                      ExpirationInDays: 14
+
+    FirehoseRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service: firehose.amazonaws.com
+                      Action: sts:AssumeRole
+                      Condition:
+                          StringEquals:
+                              sts:ExternalId: !Ref AWS::AccountId
+            Policies:
+                - PolicyName: WriteBackupBucket
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - s3:AbortMultipartUpload
+                                - s3:GetBucketLocation
+                                - s3:GetObject
+                                - s3:ListBucket
+                                - s3:ListBucketMultipartUploads
+                                - s3:PutObject
+                            Resource:
+                                - !GetAtt BackupBucket.Arn
+                                - !Sub '${BackupBucket.Arn}/*'
+
+    DeliveryStream:
+        Type: AWS::KinesisFirehose::DeliveryStream
+        Properties:
+            DeliveryStreamType: DirectPut
+            HttpEndpointDestinationConfiguration:
+                EndpointConfiguration:
+                    Name: PostHog
+                    Url: !Ref PostHogEndpointUrl
+                    AccessKey: !Ref PostHogAccessKey
+                RequestConfiguration:
+                    ContentEncoding: GZIP
+                BufferingHints:
+                    SizeInMBs: !Ref BufferSizeMB
+                    IntervalInSeconds: !Ref BufferIntervalSeconds
+                RetryOptions:
+                    DurationInSeconds: !Ref RetryDurationSeconds
+                RoleARN: !GetAtt FirehoseRole.Arn
+                S3BackupMode: FailedDataOnly
+                S3Configuration:
+                    BucketARN: !GetAtt BackupBucket.Arn
+                    RoleARN: !GetAtt FirehoseRole.Arn
+                    Prefix: failed/
+                    CompressionFormat: GZIP
+
+    LogsToFirehoseRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    - Effect: Allow
+                      Principal:
+                          Service: !Sub logs.${AWS::Region}.${AWS::URLSuffix}
+                      Action: sts:AssumeRole
+                      Condition:
+                          ArnLike:
+                              aws:SourceArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*
+            Policies:
+                - PolicyName: PutToDeliveryStream
+                  PolicyDocument:
+                      Version: '2012-10-17'
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - firehose:PutRecord
+                                - firehose:PutRecordBatch
+                            Resource: !GetAtt DeliveryStream.Arn
+
+    SubscriptionFilter:
+        Type: AWS::Logs::SubscriptionFilter
+        Properties:
+            LogGroupName: !Ref LogGroupName
+            FilterPattern: ''
+            DestinationArn: !GetAtt DeliveryStream.Arn
+            RoleArn: !GetAtt LogsToFirehoseRole.Arn
+
+Outputs:
+    DeliveryStreamArn:
+        Description: Point additional subscription filters at this stream to include more log groups.
+        Value: !GetAtt DeliveryStream.Arn
+    LogsToFirehoseRoleArn:
+        Description: Role to reuse for additional subscription filters.
+        Value: !GetAtt LogsToFirehoseRole.Arn
+    BackupBucketName:
+        Description: Deliveries that PostHog could not accept land here.
+        Value: !Ref BackupBucket
