@@ -882,12 +882,31 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export enum ScanEstimateTimeRange {
+    /** Both ends of the timestamp range were understood. */
+    Bounded = 'bounded',
+    /** At least one end was missing or unreadable, so a default range was assumed. */
+    Open = 'open',
+}
+
+/** How many events a query is expected to read, estimated before it runs. */
+export interface EventsScanEstimate {
+    rows: integer
+    /** Length of the timestamp range the estimate covers, in days. */
+    days: number
+    /** Event names the estimate was narrowed to. Empty when the query reads every event. */
+    events: string[]
+    time_range: ScanEstimateTimeRange
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
+    /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
+    events_scan_estimate?: EventsScanEstimate
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

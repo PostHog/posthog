@@ -6,6 +6,7 @@ scans. Rows without an estimate are excluded so the metric only judges queries t
 are excluded because their ``read_rows`` reflect where they stopped, not what they would have read. Only the
 initial query counts: ClickHouse logs one row per shard subquery too, each repeating the parent's tags, and
 they would otherwise multiply ``queries`` by the shard count.
+Byte accuracy excludes missing byte estimates without excluding those queries from row accuracy.
 """
 
 
@@ -17,8 +18,16 @@ SELECT
     count() AS queries,
     quantile(0.5)(greatest(estimated_rows / read_rows, read_rows / estimated_rows)) AS median_rows_q_error,
     quantile(0.9)(greatest(estimated_rows / read_rows, read_rows / estimated_rows)) AS p90_rows_q_error,
-    quantile(0.5)(greatest(estimated_bytes / read_bytes, read_bytes / estimated_bytes)) AS median_bytes_q_error,
-    quantile(0.9)(greatest(estimated_bytes / read_bytes, read_bytes / estimated_bytes)) AS p90_bytes_q_error
+    if(countIf(estimated_bytes > 0 AND read_bytes > 0) > 0,
+        quantileIf(0.5)(
+            greatest(estimated_bytes / nullIf(read_bytes, 0), read_bytes / nullIf(estimated_bytes, 0)),
+            estimated_bytes > 0 AND read_bytes > 0),
+        NULL) AS median_bytes_q_error,
+    if(countIf(estimated_bytes > 0 AND read_bytes > 0) > 0,
+        quantileIf(0.9)(
+            greatest(estimated_bytes / nullIf(read_bytes, 0), read_bytes / nullIf(estimated_bytes, 0)),
+            estimated_bytes > 0 AND read_bytes > 0),
+        NULL) AS p90_bytes_q_error
 FROM query_log
 WHERE event_date >= today() - {int(days)}
     AND status = 'QueryFinish'
@@ -26,8 +35,6 @@ WHERE event_date >= today() - {int(days)}
     AND plan_fingerprint != ''
     AND estimated_rows > 0
     AND read_rows > 0
-    AND estimated_bytes > 0
-    AND read_bytes > 0
 GROUP BY plan_fingerprint
 ORDER BY queries DESC
 """

@@ -5875,6 +5875,23 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type ScanEstimateTimeRange = typeof ScanEstimateTimeRange[keyof typeof ScanEstimateTimeRange];
+
+
+    export const ScanEstimateTimeRange = {
+      Bounded: 'bounded',
+      Open: 'open',
+    } as const;
+
+    export interface EventsScanEstimate {
+      /** Length of the timestamp range the estimate covers, in days. */
+      days: number;
+      /** Event names the estimate was narrowed to. Empty when the query reads every event. */
+      events: string[];
+      rows: number;
+      time_range: ScanEstimateTimeRange;
+    }
+
     export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
 
 
@@ -5930,6 +5947,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
+      events_scan_estimate?: EventsScanEstimate | null;
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
@@ -76064,6 +76083,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** Present when the query reads only the events table, directly or through subqueries, CTEs and UNIONs; absent for a join to any other table, or a team with no data. */
+      events_scan_estimate?: EventsScanEstimate | null;
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;

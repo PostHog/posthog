@@ -247,6 +247,7 @@ from posthog.schema_enums import (
     RetentionReference as RetentionReference,
     RetentionType as RetentionType,
     Scale as Scale,
+    ScanEstimateTimeRange as ScanEstimateTimeRange,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
@@ -5123,6 +5124,19 @@ class EventsHeatMapStructuredResult(BaseModel):
     rowAggregations: list[EventsHeatMapRowAggregationResult]
 
 
+class EventsScanEstimate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    days: float = Field(..., description="Length of the timestamp range the estimate covers, in days.")
+    events: list[str] = Field(
+        ...,
+        description=("Event names the estimate was narrowed to. Empty when the query reads every event."),
+    )
+    rows: int
+    time_range: ScanEstimateTimeRange
+
+
 class ExperimentApiEventSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6654,6 +6668,14 @@ class QueryResponseAlternative9(BaseModel):
     )
     ch_table_names: list[str] | None = None
     errors: list[HogQLNotice]
+    events_scan_estimate: EventsScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the query reads only the events table, directly or through"
+            " subqueries, CTEs and UNIONs; absent for a join to any other table, or a"
+            " team with no data."
+        ),
+    )
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
@@ -17748,6 +17770,14 @@ class HogQLMetadataResponse(BaseModel):
     )
     ch_table_names: list[str] | None = None
     errors: list[HogQLNotice]
+    events_scan_estimate: EventsScanEstimate | None = Field(
+        default=None,
+        description=(
+            "Present when the query reads only the events table, directly or through"
+            " subqueries, CTEs and UNIONs; absent for a join to any other table, or a"
+            " team with no data."
+        ),
+    )
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
