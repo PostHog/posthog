@@ -109,6 +109,7 @@ class HeartbeatDetails:
 class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
+    data_interval_end: str
     url: str
     token: str
 

@@ -802,6 +802,7 @@ class TestFileDownloadHogQL:
             ).aget(id=response.json()["id"])
 
         assert run.data_interval_start == run.data_interval_end
+        assert run.data_interval_end is not None
         assert before <= run.data_interval_end <= after
         on_demand = run.batch_export_on_demand
         assert on_demand is not None

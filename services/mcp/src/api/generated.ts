@@ -13246,6 +13246,8 @@ export namespace Schemas {
      */
     export interface BatchExportRun {
       readonly id: string;
+      /** The end of the data interval. */
+      data_interval_end: string;
       /** The status of this run.
        *
        * * `Cancelled` - Cancelled
@@ -13283,8 +13285,6 @@ export namespace Schemas {
          * @nullable
          */
       data_interval_start?: string | null;
-      /** The end of the data interval. */
-      data_interval_end: string;
       /**
          * An opaque cursor that may be used to resume.
          * @nullable
