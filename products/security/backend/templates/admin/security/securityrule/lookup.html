@@ -24,7 +24,9 @@
 {% block content %}
     <form method="get" class="lookup-form">
         <p>Look up an email address, email domain, IP address, user ID, organization ID or project ID.</p>
+        <label for="security-rule-query">Target</label>
         <input type="text"
+               id="security-rule-query"
                name="q"
                value="{{ query }}"
                placeholder="name@example.com"

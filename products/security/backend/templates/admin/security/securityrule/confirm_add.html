@@ -46,7 +46,14 @@
         {% if impact.address_count is not None %}
             Covers {{ impact.address_count }} address{{ impact.address_count|pluralize:"es" }}.
         {% elif impact.matched_active_accounts is not None %}
-            Matches {{ impact.matched_active_accounts }} active account{{ impact.matched_active_accounts|pluralize }} in this region.
+            Matches {{ impact.matched_active_accounts }}{% if impact.count_capped %} or more{% endif %}
+            {% if impact.count_basis == "organization" %}
+                active member{{ impact.matched_active_accounts|pluralize }} of this organization.
+            {% elif impact.count_basis == "project_organization" %}
+                active member{{ impact.matched_active_accounts|pluralize }} of the project's organization.
+            {% else %}
+                active account{{ impact.matched_active_accounts|pluralize }} in this region.
+            {% endif %}
         {% else %}
             Existing accounts are not affected. New signups that match are refused.
         {% endif %}

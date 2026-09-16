@@ -310,7 +310,7 @@ def subject_from_query(query: str) -> tuple[Subject, str] | None:
             return _subject_for_user(user), "a user ID"
         return Subject(organization_ids=frozenset({str(parsed)})), "an organization ID"
 
-    if query.isdigit():
+    if query.isdecimal():
         return Subject(team_ids=frozenset({int(query)})), "a project ID"
 
     try:

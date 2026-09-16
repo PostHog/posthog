@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -6,7 +7,7 @@ from posthog.models import User
 
 from products.security.backend.facade.enums import Effect, Scope, TargetType
 from products.security.backend.logic.guards import RuleDraft
-from products.security.backend.logic.impact import preview
+from products.security.backend.logic.impact import CountBasis, preview
 
 
 def _draft(target_type: TargetType, value: str, scope: Scope = Scope.ALL_ACCESS) -> RuleDraft:
@@ -47,6 +48,17 @@ class TestPreview(BaseTest):
         impact = preview(_draft(TargetType.EMAIL_ROOT, "farm.bot@example.com", scope=Scope.SIGNUP))
 
         assert impact.matched_active_accounts is None
+
+    def test_a_count_over_the_cap_stops_at_the_cap(self):
+        with patch("products.security.backend.logic.impact.COUNT_CAP", 2):
+            impact = preview(_draft(TargetType.EMAIL_ROOT, "farm.bot@example.com"))
+
+        assert (impact.matched_active_accounts, impact.count_capped) == (2, True)
+
+    def test_a_project_rule_counts_the_members_of_its_organization(self):
+        impact = preview(_draft(TargetType.TEAM_ID, str(self.team.id)))
+
+        assert (impact.matched_active_accounts, impact.count_basis) == (1, CountBasis.PROJECT_ORGANIZATION)
 
     def test_a_range_reports_its_size(self):
         assert preview(_draft(TargetType.IP, "93.184.216.0/24")).address_count == 256
