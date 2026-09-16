@@ -206,6 +206,12 @@ describe('modelPickerLogic', () => {
                     providerKeyId: 'key-2',
                 }))
             )
+            expect(logic.values.failedByokProviderKeyIds).toEqual(['key-1'])
+
+            const failedGroup = logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')
+            expect(failedGroup?.models).toEqual([])
+            expect(failedGroup?.disabledReason).toBeTruthy()
+            expect(failedGroup?.label).toContain('Unavailable')
         })
     })
 

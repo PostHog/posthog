@@ -32,6 +32,7 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
@@ -103,8 +104,15 @@ function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
 }
 
 function TaggerModelPicker({ id }: { id: string }): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
+    const {
+        hasByokKeys,
+        byokModels,
+        providerModelGroups,
+        byokModelsLoading,
+        providerKeysLoading,
+        failedByokProviderKeyIds,
+    } = useValues(modelPickerLogic)
+    const { loadByokModels } = useActions(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId } = useValues(llmTaggerLogic({ id }))
     const { selectModelFromPicker } = useActions(llmTaggerLogic({ id }))
 
@@ -135,6 +143,12 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
                         data-attr="tagger-model-selector"
                     />
                 </Field>
+                <ByokModelPickerNotice
+                    hasGroups={groups.length > 0}
+                    loading={loading}
+                    loadFailed={failedByokProviderKeyIds.length > 0}
+                    onRetry={loadByokModels}
+                />
             </div>
         </div>
     )

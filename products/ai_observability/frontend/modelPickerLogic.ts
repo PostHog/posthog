@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -12,7 +12,7 @@ import {
     toLLMProvider,
 } from './settings/llmProviderKeysLogic'
 import type { CreateLLMProviderKeyPayload, UpdateLLMProviderKeyPayload } from './settings/llmProviderKeysLogic'
-import { isUnhealthyProviderKeyState, providerKeyStateSuffix } from './settings/providerKeyStateUtils'
+import { isUnhealthyProviderKeyState, providerKeyStateSuffix, providerLabel } from './settings/providerKeyStateUtils'
 
 export interface ModelOption {
     id: string
@@ -28,8 +28,14 @@ export interface ProviderModelGroup {
     providerKeyId: string
     label: string
     models: ModelOption[]
-    disabled?: boolean
+    /** Set when the key cannot serve models. The picker lists the group but blocks selection. */
+    disabledReason?: string
 }
+
+const NO_FAILED_PROVIDER_KEYS: string[] = []
+const UNHEALTHY_KEY_REASON = 'This provider key has an issue. Check your provider settings.'
+const UNAVAILABLE_KEY_REASON = "Couldn't load models for this key. Try again in a moment."
+const UNAVAILABLE_KEY_SUFFIX = ' (Unavailable)'
 
 export function buildPlaygroundProviderModelGroups(models: ModelOption[]): ProviderModelGroup[] {
     const byProvider: Record<string, ModelOption[]> = {}
@@ -64,6 +70,7 @@ export interface modelPickerLogicValues {
     providerKeysLoading: boolean // llmProviderKeysLogic
     byokModels: ModelOption[]
     byokModelsLoading: boolean
+    failedByokProviderKeyIds: string[]
     hasByokKeys: boolean
     playgroundModels: ModelOption[]
     playgroundModelsLoading: boolean
@@ -109,6 +116,9 @@ export interface modelPickerLogicActions {
         providerKeys: LLMProviderKey[]
     } // llmProviderKeysLogic
     loadByokModels: () => any
+    setFailedByokProviderKeyIds: (providerKeyIds: string[]) => {
+        providerKeyIds: string[]
+    }
     loadByokModelsFailure: (
         error: string,
         errorObject?: any
@@ -145,7 +155,11 @@ export interface modelPickerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasByokKeys: (providerKeys: LLMProviderKey[]) => boolean
         playgroundProviderModelGroups: (playgroundModels: ModelOption[]) => ProviderModelGroup[]
-        providerModelGroups: (byokModels: ModelOption[], providerKeys: LLMProviderKey[]) => ProviderModelGroup[]
+        providerModelGroups: (
+            byokModels: ModelOption[],
+            providerKeys: LLMProviderKey[],
+            failedByokProviderKeyIds: string[]
+        ) => ProviderModelGroup[]
     }
 }
 
@@ -167,7 +181,11 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
         ],
     })),
 
-    loaders(({ values }) => ({
+    actions({
+        setFailedByokProviderKeyIds: (providerKeyIds: string[]) => ({ providerKeyIds }),
+    }),
+
+    loaders(({ values, actions }) => ({
         byokModels: {
             __default: [] as ModelOption[],
             loadByokModels: async (): Promise<ModelOption[]> => {
@@ -175,6 +193,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 if (validKeys.length === 0) {
                     return []
                 }
+                const failedProviderKeyIds: string[] = []
                 const results = await Promise.all(
                     validKeys.map(async (key: LLMProviderKey) => {
                         try {
@@ -193,10 +212,12 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 providerKeyId: key.id,
                             }))
                         } catch {
+                            failedProviderKeyIds.push(key.id)
                             return []
                         }
                     })
                 )
+                actions.setFailedByokProviderKeyIds(failedProviderKeyIds)
                 const dedupedModels = new Map<string, ModelOption>()
                 for (const models of results) {
                     for (const model of models) {
@@ -226,6 +247,18 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
             },
         },
     })),
+
+    reducers({
+        failedByokProviderKeyIds: [
+            NO_FAILED_PROVIDER_KEYS,
+            {
+                // Keep the array identity when nothing failed, so the group list is not rebuilt.
+                loadByokModels: (state: string[]) => (state.length === 0 ? state : NO_FAILED_PROVIDER_KEYS),
+                setFailedByokProviderKeyIds: (state: string[], { providerKeyIds }: { providerKeyIds: string[] }) =>
+                    providerKeyIds.length === 0 && state.length === 0 ? state : providerKeyIds,
+            },
+        ],
+    }),
 
     listeners(({ actions }) => ({
         // Refresh BYOK models whenever provider keys change so the
@@ -259,8 +292,12 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 buildPlaygroundProviderModelGroups(Array.isArray(playgroundModels) ? playgroundModels : []),
         ],
         providerModelGroups: [
-            (s) => [s.byokModels, s.providerKeys],
-            (byokModels: ModelOption[], providerKeys: LLMProviderKey[]): ProviderModelGroup[] => {
+            (s) => [s.byokModels, s.providerKeys, s.failedByokProviderKeyIds],
+            (
+                byokModels: ModelOption[],
+                providerKeys: LLMProviderKey[],
+                failedByokProviderKeyIds: string[]
+            ): ProviderModelGroup[] => {
                 const byKeyId: Record<string, ModelOption[]> = {}
                 for (const model of byokModels) {
                     const keyId = model.providerKeyId ?? ''
@@ -275,37 +312,43 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                     keysPerProvider[key.provider] = (keysPerProvider[key.provider] ?? 0) + 1
                 }
 
+                const failedKeyIds = new Set(failedByokProviderKeyIds)
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    // Show invalid/error keys as disabled entries with a state suffix.
-                    // Keys in 'unknown' state are skipped — they haven't been validated yet.
-                    if (isUnhealthyProviderKeyState(key.state) && models.length === 0) {
-                        const providerLabel = LLM_PROVIDER_LABELS[key.provider] ?? key.provider
-                        const suffix = providerKeyStateSuffix(key.state)
-                        const label =
-                            (keysPerProvider[key.provider] ?? 0) > 1
-                                ? `${providerLabel} (${key.name})${suffix}`
-                                : `${providerLabel}${suffix}`
-                        groups.push({
-                            provider: key.provider,
-                            providerKeyId: key.id,
-                            label,
-                            models: [],
-                            disabled: true,
-                        })
-                        continue
-                    }
+                    const groupLabel = (suffix: string): string =>
+                        (keysPerProvider[key.provider] ?? 0) > 1
+                            ? `${providerLabel(key.provider)} (${key.name})${suffix}`
+                            : `${providerLabel(key.provider)}${suffix}`
 
                     if (models.length === 0) {
+                        // A key that cannot serve models stays listed, so the picker shows why it is short.
+                        if (isUnhealthyProviderKeyState(key.state)) {
+                            groups.push({
+                                provider: key.provider,
+                                providerKeyId: key.id,
+                                label: groupLabel(providerKeyStateSuffix(key.state)),
+                                models: [],
+                                disabledReason: UNHEALTHY_KEY_REASON,
+                            })
+                        } else if (failedKeyIds.has(key.id)) {
+                            groups.push({
+                                provider: key.provider,
+                                providerKeyId: key.id,
+                                label: groupLabel(UNAVAILABLE_KEY_SUFFIX),
+                                models: [],
+                                disabledReason: UNAVAILABLE_KEY_REASON,
+                            })
+                        }
                         continue
                     }
 
-                    const providerLabel = LLM_PROVIDER_LABELS[key.provider] ?? key.provider
-                    const label =
-                        (keysPerProvider[key.provider] ?? 0) > 1 ? `${providerLabel} (${key.name})` : providerLabel
-
-                    groups.push({ provider: key.provider, providerKeyId: key.id, label, models })
+                    groups.push({
+                        provider: key.provider,
+                        providerKeyId: key.id,
+                        label: groupLabel(''),
+                        models,
+                    })
                 }
 
                 return groups.sort((a, b) => {

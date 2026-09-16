@@ -34,6 +34,7 @@ import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLM
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
@@ -803,8 +804,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
+    const {
+        hasByokKeys,
+        byokModels,
+        providerModelGroups,
+        byokModelsLoading,
+        providerKeysLoading,
+        failedByokProviderKeyIds,
+    } = useValues(modelPickerLogic)
+    const { loadByokModels } = useActions(modelPickerLogic)
     const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
@@ -834,6 +842,12 @@ function EvaluationModelPicker(): JSX.Element {
                             footerLink={footerLink}
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
+                        />
+                        <ByokModelPickerNotice
+                            hasGroups={groups.length > 0}
+                            loading={loading}
+                            loadFailed={failedByokProviderKeyIds.length > 0}
+                            onRetry={loadByokModels}
                         />
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
