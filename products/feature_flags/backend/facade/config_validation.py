@@ -3,7 +3,9 @@
 Boundary: a complete canonical candidate (the document a writer is about to persist, with
 server-assigned rule ids and seeds already resolved) plus explicit limits from the trusted
 caller -> ``validate_config`` -> ``ValidatedConfig``, the evaluated fields the rule warning
-detectors read, or ``ConfigValidationError`` carrying every field error in document order.
+detectors read, or ``ConfigValidationError`` carrying every field error in a fixed order
+(root fields, then each rule's fields in rule order), so the same document always yields
+the same list.
 Nothing here reads or writes the database, assigns ids or seeds, checks permissions, or
 mutates the input: a validated config says the document is well formed and admitted, not
 that the caller may store it. The later trusted write path resolves request input into

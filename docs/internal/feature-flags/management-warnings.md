@@ -39,7 +39,7 @@ An omitted `attr` and `attr: null` both mean no field and parse as `None`.
 Serialization omits `attr` when it is `None`, so explicit null normalizes to an omitted member.
 
 The five codes are the complete `warning_codes` list of the harness registry 2.0.0 in contract package 2.0.0, released in [posthog-sdk-test-harness 1.5.0](https://github.com/PostHog/posthog-sdk-test-harness/tree/e487249c34176c053f524d96bf0f99818dc91247/contracts/feature_flag_rules_v2); the DTO rejects any other code.
-`products/feature_flags/backend/test/rules_v2_contract/` vendors that release's config schema, registry, warning schema and config fixtures with a digest-checked pin.
+`products/feature_flags/backend/test/fixtures/rules_v2_contract/` vendors that release's config schema, registry, warning schema and config fixtures with a digest-checked pin.
 
 Share the diagnostic output type across callers.
 Define detector inputs alongside their implementations: rule checks need evaluated targeting and rollout fields, and lifecycle checks need the proposed operation.
@@ -65,7 +65,7 @@ Within a population, percentage rules split people by their assignment hash: rul
 
 - `UNREACHABLE_LOWER_RULE` fires for a rule that no path reaches because earlier applicable rules already settled everyone: a targeted release, a `return_default` rule or a 100% rollout that covers the rule's population, or same-seed rollouts that together close the hash space. A continuing partial rollout, a narrower conditional rule and a same-seed rollout that includes nobody do not block.
 - `ROLLOUT_MISS_CAN_ENTER_LOWER_RULE` fires when a continuing partial rollout serves a value to somebody and a lower rule with the same value provably serves it to people who missed that rollout: a covering targeted release, a rollout with another seed, or a same-seed rollout with a higher percentage. A lower rule with another value, a same-seed rollout at or below the upper percentage, a 0% rule, a terminal rule in between, and an inconclusive overlap all suppress it.
-- `RULE_ORDER_CHANGES_TRAFFIC` fires for a pair of rules present in both configs whose relative order flipped when some population provably settles on different values in the two orders. Equal values, disjoint or inconclusive targeting, an unmoved terminal rule above both, and rules added or removed by the edit do not produce it.
+- `RULE_ORDER_CHANGES_TRAFFIC` fires for a pair of rules present unchanged in both configs whose relative order flipped when some population provably settles on different values in the two orders. Equal values, disjoint or inconclusive targeting, an unmoved terminal rule above both, and rules added, removed or edited by the same change do not produce it: an edited rule is an edit, not a reorder.
 
 Warnings are deterministic and deduplicated per rule or rule pair; `attr` points at the affected rule and `detail` names the other rule by id, never a seed or property value.
 The two lifecycle codes are not detected here; they belong to the reset and conclusion previews.

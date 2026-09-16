@@ -28,7 +28,7 @@ from products.feature_flags.backend.facade.warnings import (
     serialize_management_warning,
 )
 
-CONTRACT_DIR = Path(__file__).parent / "rules_v2_contract" / "2.0.0"
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -317,6 +317,24 @@ class TestReorderWarnings:
                 [],
             ),
             ("added_rule_is_an_edit_not_a_reorder", cfg(targeted(A)), cfg(targeted(B, False), targeted(A)), []),
+            (
+                "edited_value_in_the_pair_is_an_edit_not_a_reorder",
+                cfg(targeted(A), targeted(B)),
+                cfg(targeted(B, False), targeted(A)),
+                [],
+            ),
+            (
+                "edited_targeting_in_the_pair_is_an_edit_not_a_reorder",
+                cfg(targeted(A), targeted(B, False, PRO)),
+                cfg(targeted(B, False, PRO), targeted(A, True, FREE)),
+                [],
+            ),
+            (
+                "edited_seed_in_the_pair_is_an_edit_not_a_reorder",
+                cfg(rollout(A, 50), targeted(B, False)),
+                cfg(targeted(B, False), rollout(A, 50, seed=OTHER_SEED)),
+                [],
+            ),
             ("removed_rule_is_an_edit_not_a_reorder", cfg(targeted(B, False), targeted(A)), cfg(targeted(A)), []),
         ]
     )

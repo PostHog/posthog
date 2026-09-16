@@ -28,7 +28,7 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 
 # Vendored from the released harness contract; SOURCE.json records the revision and digests.
-CONTRACT_DIR = Path(__file__).parent / "rules_v2_contract" / "2.0.0"
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 TARGETED_ID = "11111111-1111-4111-8111-111111111111"
@@ -525,7 +525,7 @@ class TestValidateConfig:
         if isinstance(document, dict | list):
             assert document == snapshot
 
-    def test_errors_are_collected_in_document_order(self) -> None:
+    def test_errors_are_collected_in_a_fixed_order(self) -> None:
         document = {**without(config(targeted(id="bad")), "default_value"), "future": 1}
         with pytest.raises(ConfigValidationError) as exc_info:
             validate_config(document, limits=LIMITS)
@@ -658,11 +658,14 @@ class TestReleasedContract:
             for path in CONTRACT_DIR.rglob("*")
             if path.is_file() and path.name not in ("SHA256SUMS", "SOURCE.json")
         ]
-        assert vendored
+        relatives = {path.relative_to(CONTRACT_DIR).as_posix() for path in vendored}
+        # A deliberate subset of the upstream index: the corpus and wire files stay with the Rust runner.
+        assert relatives <= set(index)
         for path in vendored:
             relative = path.relative_to(CONTRACT_DIR).as_posix()
             assert hashlib.sha256(path.read_bytes()).hexdigest() == index[relative], relative
         manifest = load_contract("manifest.json")
+        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= relatives
         assert manifest["contract"]["version"] == source["contract_version"]
         versions = {artifact["path"]: artifact.get("version") for artifact in manifest["artifacts"]}
         assert versions["schemas/config.schema.json"] == source["config_schema_version"]

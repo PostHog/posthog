@@ -69,13 +69,17 @@ def config_warnings(config: ValidatedConfig) -> tuple[ManagementWarning, ...]:
 def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tuple[ManagementWarning, ...]:
     """``RULE_ORDER_CHANGES_TRAFFIC`` for each inverted rule pair whose reorder provably changes a value.
 
-    A pair is inverted when both rules exist in both configs and their relative order
-    flipped. A change is proven when some population settles on different values in the
-    two orders before any inconclusive rule. Rules only present on one side are edits, not
-    reorders, so a value change they cause is never attributed to the order.
+    A pair is inverted when both rules exist unchanged in both configs and their relative
+    order flipped. A change is proven when some population settles on different values in
+    the two orders before any inconclusive rule. A rule that is only present on one side,
+    or whose evaluated content changed, is an edit rather than a reorder, so a value change
+    it causes is never attributed to the order.
     """
-    current_position = {rule.id: index for index, rule in enumerate(current.rules)}
-    proposed_position = {rule.id: index for index, rule in enumerate(proposed.rules)}
+    current_rules = {rule.id: (index, rule) for index, rule in enumerate(current.rules)}
+    proposed_rules = {rule.id: (index, rule) for index, rule in enumerate(proposed.rules)}
+    unchanged = {
+        rule_id for rule_id, (_, rule) in current_rules.items() if proposed_rules.get(rule_id, (None, None))[1] == rule
+    }
     inversions: dict[tuple[str, str], int] = {}
     for population in {rule.predicates for rule in (*current.rules, *proposed.rules)}:
         before = _walk(current, population)
@@ -86,12 +90,12 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
                     continue
                 earlier = current.rules[outcome_before.rule_index].id
                 later = proposed.rules[outcome_after.rule_index].id
-                if earlier == later or earlier not in proposed_position or later not in current_position:
+                if earlier == later or earlier not in unchanged or later not in unchanged:
                     continue
-                if current_position[earlier] < current_position[later] and (
-                    proposed_position[later] < proposed_position[earlier]
+                if current_rules[earlier][0] < current_rules[later][0] and (
+                    proposed_rules[later][0] < proposed_rules[earlier][0]
                 ):
-                    inversions[(earlier, later)] = proposed_position[later]
+                    inversions[(earlier, later)] = proposed_rules[later][0]
     return tuple(
         ManagementWarning(
             code="RULE_ORDER_CHANGES_TRAFFIC",
