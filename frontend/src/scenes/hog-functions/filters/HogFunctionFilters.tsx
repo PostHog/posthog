@@ -610,7 +610,6 @@ export function HogFunctionFilters({
     return (
         <MaxTool
             identifier="create_hog_function_filters"
-            active={!useMapping}
             context={{
                 current_filters: JSON.stringify(configuration?.filters ?? {}),
                 function_type: type,
