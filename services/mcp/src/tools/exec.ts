@@ -469,6 +469,37 @@ async function runBatchedCommands(
     return { output: sections.join('\n\n'), errorCount }
 }
 
+/** Batching wraps the single-command dispatcher rather than living inside it, so
+ *  the verb switch stays the one place a command is interpreted. */
+function withCommandBatching(tool: Tool<ExecSchema>, options: ExecToolOptions): Tool<ExecSchema> {
+    return {
+        ...tool,
+        handler: async (context, params) => {
+            const batched = splitBatchedCommands(params.command)
+            if (!batched) {
+                return tool.handler(context, params)
+            }
+            const unsupported = unsupportedBatchMessage(batched)
+            if (unsupported) {
+                options.trackCommand?.({ exec_verb: BATCH_VERB })
+                throw new ExecCommandError(unsupported, 'batched_command')
+            }
+            const { output, errorCount } = await runBatchedCommands(batched, (command) =>
+                tool.handler(context, { command })
+            )
+            // The executor merges these last-write-wins, so this has to land after
+            // the per-command reports — otherwise the whole batch is filed under
+            // whichever command happened to run last.
+            options.trackCommand?.({
+                exec_verb: BATCH_VERB,
+                exec_batch_size: batched.length,
+                exec_batch_error_count: errorCount,
+            })
+            return output
+        },
+    }
+}
+
 function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
@@ -1557,7 +1588,7 @@ export function createExecTool(
     const ExecSchema = makeExecSchema(commandReference)
     const flagGatedTools = options.flagGatedTools ?? []
 
-    return {
+    const singleCommand: Tool<ExecSchema> = {
         name: 'exec',
         title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
@@ -1565,517 +1596,484 @@ export function createExecTool(
         scopes: [],
         annotations: { ...EXEC_TOOL_ANNOTATIONS },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
-            let resolvedTools: Promise<Tool<ZodObjectAny>[]> | undefined
+            const { verb, rest } = parseCommand(params.command)
+            // Reported up front so a command that throws (unknown tool, bad regex) still
+            // records what was attempted — those are the failures worth counting.
+            options.trackCommand?.({ exec_verb: verb })
+
+            let gatewayTools: Promise<Tool<ZodObjectAny>[]> | undefined
             /** PostHog's tools plus any third-party tools the caller has connected.
-             *  Merged at most once per request, and only for commands that need a
-             *  roster — `learn` never touches the gateway. Every command in a batch
-             *  shares that one roster. Holding the promise rather than the value
-             *  keeps a concurrent batch from fetching the gateway once per command. */
-            const resolveTools = (): Promise<Tool<ZodObjectAny>[]> => {
+             *  Resolved at most once per command, and only for commands that need a
+             *  roster — `learn` never touches the gateway. Holding the promise rather
+             *  than the value keeps concurrent commands to one gateway fetch. */
+            const resolveTools = async (): Promise<Tool<ZodObjectAny>[]> => {
                 const provider = options.gatewayToolsProvider
                 if (!provider) {
-                    return Promise.resolve(allTools)
+                    return allTools
                 }
-                resolvedTools ??= provider().then((gatewayTools) =>
-                    gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
-                )
-                return resolvedTools
+                gatewayTools ??= provider()
+                const resolved = await gatewayTools
+                return resolved.length > 0 ? [...allTools, ...resolved] : allTools
             }
 
-            const batched = splitBatchedCommands(params.command)
-            if (batched) {
-                const unsupported = unsupportedBatchMessage(batched)
-                if (unsupported) {
-                    options.trackCommand?.({ exec_verb: BATCH_VERB })
-                    throw new ExecCommandError(unsupported, 'batched_command')
-                }
-                const { output, errorCount } = await runBatchedCommands(batched, runCommand)
-                // The executor merges these last-write-wins, so this has to land
-                // after the per-command reports — otherwise the whole batch is
-                // filed under whichever command happened to run last.
-                options.trackCommand?.({
-                    exec_verb: BATCH_VERB,
-                    exec_batch_size: batched.length,
-                    exec_batch_error_count: errorCount,
-                })
-                return output
-            }
-            return runCommand(params.command)
-
-            async function runCommand(command: string): Promise<unknown> {
-                const { verb, rest } = parseCommand(command)
-                // Reported up front so a command that throws (unknown tool, bad regex) still
-                // records what was attempted — those are the failures worth counting.
-                options.trackCommand?.({ exec_verb: verb })
-
-                switch (verb) {
-                    case 'learn': {
-                        const learnCatalog = options.learnCatalog
-                        if (!learnCatalog) {
-                            // `learn` is only advertised when a catalog exists, so without one
-                            // it's an unsupported verb rather than a misuse of a real command.
-                            throw new ExecCommandError(
-                                'The learn command is not available for this client.',
-                                'unknown_command'
-                            )
-                        }
-                        let learnResult: string
-                        try {
-                            learnResult = await learnCatalog.execute(rest)
-                        } catch (error) {
-                            throw classifyLearnError(error)
-                        }
-                        // Only skill loads count as "learned" — a search whose results are
-                        // then ignored is exactly the bypass the gate exists to catch.
-                        if (options.skillsSession && isSkillLoad(rest)) {
-                            await options.skillsSession.markLearned().catch(() => undefined)
-                        }
-                        return learnResult
-                    }
-
-                    case 'tools': {
-                        const names = allTools.map((t) => t.name)
-                        const connected = await resolveConnectedSummary(resolveTools, allTools.length)
-                        if (!connected) {
-                            return JSON.stringify(names)
-                        }
-                        // Summarize rather than list: a user with several connected servers can
-                        // have hundreds of third-party tools, and dumping them all here would
-                        // cost more context than `search` ever does.
-                        return JSON.stringify({ tools: names, connected_servers: connected })
-                    }
-
-                    case 'search': {
-                        if (!rest) {
-                            throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
-                        }
-                        // Bound the user-supplied pattern length to limit the blast
-                        // radius of a pathological (catastrophic-backtracking) regex.
-                        if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
-                            throw new ExecCommandError(
-                                `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`,
-                                'usage'
-                            )
-                        }
-
-                        // Route by pattern shape: a pattern with regex metacharacters
-                        // (e.g. `query-`, `feature-flag`) keeps the original regex
-                        // predicate; plain words — including multi-word, natural-
-                        // language queries — use forgiving token ranking.
-                        const searchableTools = await resolveTools()
-                        // `matches` is the page the agent sees; `matchedNames` is every match,
-                        // which is what the counts report — a truncated page would make a broad
-                        // query look as narrow as a precise one.
-                        let matchedNames: string[]
-                        let matches: string[]
-                        let gatedMatches: ScopeGatedTool[]
-                        let truncatedFrom = 0
-                        if (isRegexPattern(rest)) {
-                            try {
-                                matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
-                                matches = matchedNames
-                                gatedMatches = searchToolsRegex(scopeGatedTools, rest)
-                            } catch {
-                                throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
-                            }
-                        } else {
-                            const ranked = searchToolsRanked(searchableTools, rest)
-                            truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
-                            matchedNames = ranked.map((r) => r.name)
-                            matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
-                            // Preserve ranked order for gated matches too, then map
-                            // each name back to its ScopeGatedTool (for missingScopes).
-                            const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
-                            gatedMatches = searchToolsRanked(scopeGatedTools, rest)
-                                .map((r) => gatedByName.get(r.name))
-                                .filter((t): t is ScopeGatedTool => t !== undefined)
-                        }
-
-                        options.trackCommand?.({
-                            exec_verb: verb,
-                            exec_search_query: rest,
-                            exec_search_match_count: matchedNames.length,
-                            exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
-                        })
-
-                        if (gatedMatches.length > 0) {
-                            const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
-                            return JSON.stringify({
-                                matches,
-                                scope_gated_matches: gatedMatches.map((t) => ({
-                                    name: t.name,
-                                    missing_scopes: t.missingScopes,
-                                })),
-                                hint:
-                                    `These tools also match but are hidden because the API key is missing the ` +
-                                    `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
-                            })
-                        }
-                        if (matches.length === 0) {
-                            return JSON.stringify({
-                                matches: [],
-                                hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
-                            })
-                        }
-                        if (truncatedFrom > 0) {
-                            const catalogHint = catalogDiscoveryHint(allTools, matches)
-                            return JSON.stringify({
-                                matches,
-                                truncated: true,
-                                hint: [
-                                    catalogHint,
-                                    `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
-                                ]
-                                    .filter(Boolean)
-                                    .join(' '),
-                            })
-                        }
-                        const catalogHint = catalogDiscoveryHint(allTools, matches)
-                        if (catalogHint) {
-                            return JSON.stringify({ matches, hint: catalogHint })
-                        }
-                        return JSON.stringify(matches)
-                    }
-
-                    case 'info': {
-                        if (!rest) {
-                            throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
-                        }
-                        const forceJson = rest.startsWith('--json ') || rest === '--json'
-                        const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
-                        if (!infoArgs) {
-                            throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
-                        }
-                        const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
-                        // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
-                        // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
-                        // are optional and auto-filled. The default `io: 'output'` would list them as
-                        // required, misrepresenting them as mandatory input the caller must supply.
-                        const fullSchema =
-                            tool.rawInputSchema ??
-                            stripOutputFormatProperty(
-                                z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
-                            )
-                        // YAML for the top shape, but inputSchema stays as a JSON
-                        // string dumped inside the YAML — JSON Schema is conventionally
-                        // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
-                        const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
-                            if (forceJson) {
-                                return JSON.stringify({ ...payload, inputSchema: schema })
-                            }
-                            return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
-                        }
-
-                        const topShape = {
-                            name: tool.name,
-                            title: tool.title,
-                            description: tool.description,
-                            annotations: tool.annotations,
-                        }
-                        const fullOutput = serialize(topShape, fullSchema)
-
-                        if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
-                            return fullOutput
-                        }
-
-                        // Schema too large — return summary with drill-down hints.
-                        // Each complex field's `hint` carries the imperative to run
-                        // `schema` before populating it, so no separate directive is
-                        // needed here.
-                        const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
-                        return serialize(topShape, summary)
-                    }
-
-                    case 'schema': {
-                        if (!rest) {
-                            throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
-                        }
-                        const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                        const schemaTool = findTool(
-                            await resolveTools(),
-                            scopeGatedTools,
-                            flagGatedTools,
-                            schemaToolName
+            switch (verb) {
+                case 'learn': {
+                    const learnCatalog = options.learnCatalog
+                    if (!learnCatalog) {
+                        // `learn` is only advertised when a catalog exists, so without one
+                        // it's an unsupported verb rather than a misuse of a real command.
+                        throw new ExecCommandError(
+                            'The learn command is not available for this client.',
+                            'unknown_command'
                         )
-                        // See the `info` command: `io: 'input'` keeps this in sync with the advertised
-                        // schema and validation, so `.default()` fields aren't shown as required.
-                        const fullJsonSchema =
-                            schemaTool.rawInputSchema ??
-                            stripOutputFormatProperty(
-                                z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
-                            )
+                    }
+                    let learnResult: string
+                    try {
+                        learnResult = await learnCatalog.execute(rest)
+                    } catch (error) {
+                        throw classifyLearnError(error)
+                    }
+                    // Only skill loads count as "learned" — a search whose results are
+                    // then ignored is exactly the bypass the gate exists to catch.
+                    if (options.skillsSession && isSkillLoad(rest)) {
+                        await options.skillsSession.markLearned().catch(() => undefined)
+                    }
+                    return learnResult
+                }
 
-                        if (!fieldPath) {
-                            // The bare `schema <tool>` view is always a summary. Any
-                            // field that still needs drilling carries the imperative
-                            // in its own `hint`, so the summary stands on its own.
-                            return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
-                        }
+                case 'tools': {
+                    const names = allTools.map((t) => t.name)
+                    const connected = await resolveConnectedSummary(resolveTools, allTools.length)
+                    if (!connected) {
+                        return JSON.stringify(names)
+                    }
+                    // Summarize rather than list: a user with several connected servers can
+                    // have hundreds of third-party tools, and dumping them all here would
+                    // cost more context than `search` ever does.
+                    return JSON.stringify({ tools: names, connected_servers: connected })
+                }
 
-                        const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
-                        if (!resolved) {
-                            const available = listAvailablePaths(fullJsonSchema)
-                            throw new ExecCommandError(
-                                `Unknown path "${fieldPath}". Available: ${available.join(', ')}`,
-                                'usage'
-                            )
-                        }
-
-                        const serialized = JSON.stringify({
-                            field: fieldPath,
-                            schema: resolved,
-                        })
-                        if (serialized.length <= TOKEN_CHAR_LIMIT) {
-                            return serialized
-                        }
-
-                        // Field schema too large — return a summary instead. The
-                        // summary's complex sub-fields carry the drill-down `hint`,
-                        // so the response shape stays the same as the inline case
-                        // (`{ field, schema }`) — no separate top-level note.
-                        return JSON.stringify({
-                            field: fieldPath,
-                            schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
-                        })
+                case 'search': {
+                    if (!rest) {
+                        throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
+                    }
+                    // Bound the user-supplied pattern length to limit the blast
+                    // radius of a pathological (catastrophic-backtracking) regex.
+                    if (rest.length > MAX_SEARCH_PATTERN_LENGTH) {
+                        throw new ExecCommandError(
+                            `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`,
+                            'usage'
+                        )
                     }
 
-                    case 'call': {
-                        if (!rest) {
-                            throw new ExecCommandError(CALL_USAGE, 'usage')
-                        }
-                        if (!context) {
-                            // Deliberately untyped: a wiring fault, not an agent mistake, so it
-                            // belongs in the `internal` bucket its siblings are kept out of.
-                            throw new Error('Cannot call PostHog tools without an API context')
-                        }
-                        const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
-                        if (!callArgs) {
-                            throw new ExecCommandError(CALL_USAGE, 'usage')
-                        }
-                        const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                        const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
-                        const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
-                        if (gateMessage) {
-                            throw new ExecCommandError(gateMessage, 'skills_gate')
-                        }
-                        if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
-                            throw new ExecCommandError(
-                                `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
-                                'needs_confirmation'
-                            )
-                        }
-                        let input: Record<string, unknown>
-                        if (!jsonBody) {
-                            input = {}
-                        } else {
-                            try {
-                                input = JSON.parse(jsonBody) as Record<string, unknown>
-                            } catch (err) {
-                                const detail = err instanceof Error ? err.message : String(err)
-                                throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
-                            }
-                        }
-
-                        // `output_format` is hidden from exec-mode schemas — `--json` owns output
-                        // encoding. Honor a stray `output_format: "json"` as `--json` instead of
-                        // letting the handler skip the formatter only for the result to be
-                        // TOON-encoded anyway.
-                        let strayOutputFormat: unknown
-                        if ('output_format' in input) {
-                            ;({ output_format: strayOutputFormat, ...input } = input)
-                        }
-                        const useJson =
-                            forceJson ||
-                            strayOutputFormat === 'json' ||
-                            tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
-                        // Fold the flag back into the tool's own `output_format` field when it has
-                        // one: formatter-toggle tools then skip the server-side formatter (clean raw
-                        // JSON, no `__formatted_results_override` duplication), and tools where the
-                        // field is a real backend param (dashboard-insights-run) keep full function.
-                        const toolSchema = tool.schema
-                        if (useJson && schemaHasOutputFormat(toolSchema)) {
-                            input.output_format = 'json'
-                        }
-
-                        // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
-                        // otherwise bad input reaches the HTTP layer and builds URLs like
-                        // `.../actions/undefined/`, a misleading 404 that hides the offending
-                        // field. Dispatch the parsed output so coerced values and defaults apply.
-                        let validation = toolSchema.safeParse(input, { reportInput: true })
-                        if (!validation.success) {
-                            const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
-                            if (rewrapped) {
-                                input = rewrapped
-                                validation = toolSchema.safeParse(input, { reportInput: true })
-                            }
-                        }
-                        if (!validation.success) {
-                            const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
-                            trackInnerCall?.(tool.name, {
-                                duration_ms: 0,
-                                success: false,
-                                output_format: useJson ? 'json' : 'text',
-                                error_message: message,
-                                validation_error: true,
-                            })
-                            // Typed so the executor's catch skips exception capture and
-                            // classifies it as `validation`, not `internal`. The value-free
-                            // descriptor rides along so the errored `$mcp_tool_call` records
-                            // which field/alias was rejected — without the payload.
-                            throw new ToolInputValidationError(
-                                message,
-                                describeValidationError(validation.error, input, toolSchema)
-                            )
-                        }
-                        input = validation.data as Record<string, unknown>
-
-                        const startedAt = Date.now()
-                        let result: unknown
+                    // Route by pattern shape: a pattern with regex metacharacters
+                    // (e.g. `query-`, `feature-flag`) keeps the original regex
+                    // predicate; plain words — including multi-word, natural-
+                    // language queries — use forgiving token ranking.
+                    const searchableTools = await resolveTools()
+                    // `matches` is the page the agent sees; `matchedNames` is every match,
+                    // which is what the counts report — a truncated page would make a broad
+                    // query look as narrow as a precise one.
+                    let matchedNames: string[]
+                    let matches: string[]
+                    let gatedMatches: ScopeGatedTool[]
+                    let truncatedFrom = 0
+                    if (isRegexPattern(rest)) {
                         try {
-                            result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matches = matchedNames
+                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
+                        } catch {
+                            throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
+                        }
+                    } else {
+                        const ranked = searchToolsRanked(searchableTools, rest)
+                        truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
+                        matchedNames = ranked.map((r) => r.name)
+                        matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
+                        // Preserve ranked order for gated matches too, then map
+                        // each name back to its ScopeGatedTool (for missingScopes).
+                        const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
+                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                            .map((r) => gatedByName.get(r.name))
+                            .filter((t): t is ScopeGatedTool => t !== undefined)
+                    }
+
+                    options.trackCommand?.({
+                        exec_verb: verb,
+                        exec_search_query: rest,
+                        exec_search_match_count: matchedNames.length,
+                        exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                    })
+
+                    if (gatedMatches.length > 0) {
+                        const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
+                        return JSON.stringify({
+                            matches,
+                            scope_gated_matches: gatedMatches.map((t) => ({
+                                name: t.name,
+                                missing_scopes: t.missingScopes,
+                            })),
+                            hint:
+                                `These tools also match but are hidden because the API key is missing the ` +
+                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                        })
+                    }
+                    if (matches.length === 0) {
+                        return JSON.stringify({
+                            matches: [],
+                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
+                        })
+                    }
+                    if (truncatedFrom > 0) {
+                        const catalogHint = catalogDiscoveryHint(allTools, matches)
+                        return JSON.stringify({
+                            matches,
+                            truncated: true,
+                            hint: [
+                                catalogHint,
+                                `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                            ]
+                                .filter(Boolean)
+                                .join(' '),
+                        })
+                    }
+                    const catalogHint = catalogDiscoveryHint(allTools, matches)
+                    if (catalogHint) {
+                        return JSON.stringify({ matches, hint: catalogHint })
+                    }
+                    return JSON.stringify(matches)
+                }
+
+                case 'info': {
+                    if (!rest) {
+                        throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
+                    }
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
+                    }
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
+                    // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
+                    // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
+                    // are optional and auto-filled. The default `io: 'output'` would list them as
+                    // required, misrepresenting them as mandatory input the caller must supply.
+                    const fullSchema =
+                        tool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
+                    }
+
+                    const topShape = {
+                        name: tool.name,
+                        title: tool.title,
+                        description: tool.description,
+                        annotations: tool.annotations,
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
+
+                    if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
+                        return fullOutput
+                    }
+
+                    // Schema too large — return summary with drill-down hints.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    return serialize(topShape, summary)
+                }
+
+                case 'schema': {
+                    if (!rest) {
+                        throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
+                    }
+                    const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
+                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
+                    // See the `info` command: `io: 'input'` keeps this in sync with the advertised
+                    // schema and validation, so `.default()` fields aren't shown as required.
+                    const fullJsonSchema =
+                        schemaTool.rawInputSchema ??
+                        stripOutputFormatProperty(
+                            z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
+                        )
+
+                    if (!fieldPath) {
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
+                        return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
+                    }
+
+                    const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
+                    if (!resolved) {
+                        const available = listAvailablePaths(fullJsonSchema)
+                        throw new ExecCommandError(
+                            `Unknown path "${fieldPath}". Available: ${available.join(', ')}`,
+                            'usage'
+                        )
+                    }
+
+                    const serialized = JSON.stringify({
+                        field: fieldPath,
+                        schema: resolved,
+                    })
+                    if (serialized.length <= TOKEN_CHAR_LIMIT) {
+                        return serialized
+                    }
+
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
+                    return JSON.stringify({
+                        field: fieldPath,
+                        schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
+                    })
+                }
+
+                case 'call': {
+                    if (!rest) {
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
+                    }
+                    if (!context) {
+                        // Deliberately untyped: a wiring fault, not an agent mistake, so it
+                        // belongs in the `internal` bucket its siblings are kept out of.
+                        throw new Error('Cannot call PostHog tools without an API context')
+                    }
+                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
+                    if (!callArgs) {
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
+                    }
+                    const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
+                    if (gateMessage) {
+                        throw new ExecCommandError(gateMessage, 'skills_gate')
+                    }
+                    if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
+                        throw new ExecCommandError(
+                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
+                            'needs_confirmation'
+                        )
+                    }
+                    let input: Record<string, unknown>
+                    if (!jsonBody) {
+                        input = {}
+                    } else {
+                        try {
+                            input = JSON.parse(jsonBody) as Record<string, unknown>
                         } catch (err) {
-                            // PostHogValidationError is the API's 400 validation_error body.
-                            const apiError = findRecoverableApiError(err)
-                            // A skill lookup that misses is not a failure the agent should
-                            // read as one. Resolved before the report below, so telemetry
-                            // records which kind of miss it was alongside the 404.
-                            const lookupMiss = formatSkillLookupMiss(tool.name, err, input, options.builtInSkillHint)
-                            trackInnerCall?.(tool.name, {
-                                duration_ms: Date.now() - startedAt,
-                                success: false,
-                                output_format: useJson ? 'json' : 'text',
-                                error_message: err instanceof Error ? err.message : String(err),
-                                ...(apiError
-                                    ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
-                                    : {}),
-                                ...(lookupMiss ? { skill_lookup_miss_kind: lookupMiss.kind } : {}),
-                                input,
-                                error: err,
-                            })
-                            if (lookupMiss) {
-                                // The success path below serializes a string result under
-                                // `--json`, so encode this the same way. A `--json` caller
-                                // reaches for `JSON.parse`, and raw prose is the one reply
-                                // that would break in its hands.
-                                return useJson ? JSON.stringify(lookupMiss.message) : lookupMiss.message
-                            }
-                            throw err
+                            const detail = err instanceof Error ? err.message : String(err)
+                            throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
-                        const durationMs = Date.now() - startedAt
-                        const formattedOverride =
-                            result !== null && typeof result === 'object'
-                                ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-                                : undefined
-                        const isInformationalResponse =
-                            result !== null &&
-                            typeof result === 'object' &&
-                            (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+                    }
 
-                        // Native widgets cannot recover entity data from the optimized text. Preserve
-                        // the handler object before exec serializes it, including tools without UI apps.
-                        const includeAppData = mcpConsumer === 'posthog_ai'
+                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+                    // letting the handler skip the formatter only for the result to be
+                    // TOON-encoded anyway.
+                    let strayOutputFormat: unknown
+                    if ('output_format' in input) {
+                        ;({ output_format: strayOutputFormat, ...input } = input)
+                    }
+                    const useJson =
+                        forceJson ||
+                        strayOutputFormat === 'json' ||
+                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // Fold the flag back into the tool's own `output_format` field when it has
+                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+                    // JSON, no `__formatted_results_override` duplication), and tools where the
+                    // field is a real backend param (dashboard-insights-run) keep full function.
+                    const toolSchema = tool.schema
+                    if (useJson && schemaHasOutputFormat(toolSchema)) {
+                        input.output_format = 'json'
+                    }
 
-                        if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
-                            const outputText = JSON.stringify({ content: formattedOverride })
-                            trackInnerCall?.(tool.name, {
-                                duration_ms: durationMs,
-                                success: true,
-                                output_format: 'json',
-                                input_tokens: estimateTokens(input),
-                                output_tokens: estimateTokens(outputText),
-                                input,
-                                output: outputText,
-                            })
-                            if (!includeAppData) {
-                                return outputText
-                            }
-                            // The model still reads only the wrapped text this branch protects, so a
-                            // JSON request must not cost widgets the handler object the optimized path
-                            // carries. Copying drops the non-enumerable wrapper keys, as the payload
-                            // builder does.
-                            const appData = Array.isArray(result)
-                                ? [...result]
-                                : { ...(result as Record<string, unknown>) }
-                            return markExecPayload({
-                                content: [{ type: 'text', text: outputText }],
-                                _meta: { [APP_DATA_META_KEY]: appData as Record<string, unknown> },
-                            })
+                    // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
+                    // otherwise bad input reaches the HTTP layer and builds URLs like
+                    // `.../actions/undefined/`, a misleading 404 that hides the offending
+                    // field. Dispatch the parsed output so coerced values and defaults apply.
+                    let validation = toolSchema.safeParse(input, { reportInput: true })
+                    if (!validation.success) {
+                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        if (rewrapped) {
+                            input = rewrapped
+                            validation = toolSchema.safeParse(input, { reportInput: true })
                         }
-                        const isInlineUiAppHost =
-                            isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
-                        if (includeAppData || (tool._meta?.ui?.resourceUri && isInlineUiAppHost)) {
-                            const isStringResult = typeof result === 'string'
-                            const distinctId =
-                                !isStringResult && tool._meta?.ui?.resourceUri
-                                    ? await context.getDistinctId()
-                                    : undefined
-                            const payload = markExecPayload(
-                                buildToolResultPayload({
-                                    handlerResult: result,
-                                    toolMeta: tool._meta,
-                                    toolName: tool.name,
-                                    params: useJson ? { ...input, output_format: 'json' } : input,
-                                    // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
-                                    // surface `structuredContent` to the model in preference to the
-                                    // text content, which would bury a compact formatted table under
-                                    // the raw JSON. When such a table exists, re-home the UI app's data
-                                    // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
-                                    // table and the chart still renders. When there is no formatted table,
-                                    // the payload stays in the standard `structuredContent` field — which
-                                    // both the model and the app read — and the text channel carries a
-                                    // pointer rather than a second copy of the same rows.
-                                    forceUiDataToMeta: true,
-                                    includeAppData,
-                                    distinctId,
-                                    includeUiResponseMeta: isInlineUiAppHost,
-                                    includeRenderNote: isInlineUiAppHost,
-                                })
-                            )
-                            trackInnerCall?.(tool.name, {
-                                duration_ms: durationMs,
-                                success: true,
-                                output_format: 'structured',
-                                input_tokens: estimateTokens(input),
-                                output_tokens: estimateResponseTokens(payload),
-                                input,
-                                output: payload,
-                            })
-                            return payload
-                        }
+                    }
+                    if (!validation.success) {
+                        const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: 0,
+                            success: false,
+                            output_format: useJson ? 'json' : 'text',
+                            error_message: message,
+                            validation_error: true,
+                        })
+                        // Typed so the executor's catch skips exception capture and
+                        // classifies it as `validation`, not `internal`. The value-free
+                        // descriptor rides along so the errored `$mcp_tool_call` records
+                        // which field/alias was rejected — without the payload.
+                        throw new ToolInputValidationError(
+                            message,
+                            describeValidationError(validation.error, input, toolSchema)
+                        )
+                    }
+                    input = validation.data as Record<string, unknown>
 
-                        // Serialize once so the token estimate measures the exact text
-                        // returned to the client, not the raw object.
-                        let outputText: string
-                        if (useJson) {
-                            outputText = JSON.stringify(result)
-                        } else {
-                            // Optimized mode: when the handler attached a backend-formatted table
-                            // via `__formatted_results_override`, return ONLY that string. The raw
-                            // `results`/`_posthogUrl` payload would otherwise duplicate the table
-                            // and crowd it out — buildToolResultPayload makes the same choice for
-                            // the non-exec path, this keeps exec consistent.
-                            outputText =
-                                typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                    const startedAt = Date.now()
+                    let result: unknown
+                    try {
+                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                    } catch (err) {
+                        // PostHogValidationError is the API's 400 validation_error body.
+                        const apiError = findRecoverableApiError(err)
+                        // A skill lookup that misses is not a failure the agent should
+                        // read as one. Resolved before the report below, so telemetry
+                        // records which kind of miss it was alongside the 404.
+                        const lookupMiss = formatSkillLookupMiss(tool.name, err, input, options.builtInSkillHint)
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: Date.now() - startedAt,
+                            success: false,
+                            output_format: useJson ? 'json' : 'text',
+                            error_message: err instanceof Error ? err.message : String(err),
+                            ...(apiError
+                                ? { error_status: apiError instanceof PostHogApiError ? apiError.status : 400 }
+                                : {}),
+                            ...(lookupMiss ? { skill_lookup_miss_kind: lookupMiss.kind } : {}),
+                            input,
+                            error: err,
+                        })
+                        if (lookupMiss) {
+                            // The success path below serializes a string result under
+                            // `--json`, so encode this the same way. A `--json` caller
+                            // reaches for `JSON.parse`, and raw prose is the one reply
+                            // that would break in its hands.
+                            return useJson ? JSON.stringify(lookupMiss.message) : lookupMiss.message
                         }
+                        throw err
+                    }
+                    const durationMs = Date.now() - startedAt
+                    const formattedOverride =
+                        result !== null && typeof result === 'object'
+                            ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+                            : undefined
+                    const isInformationalResponse =
+                        result !== null &&
+                        typeof result === 'object' &&
+                        (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+
+                    // Native widgets cannot recover entity data from the optimized text. Preserve
+                    // the handler object before exec serializes it, including tools without UI apps.
+                    const includeAppData = mcpConsumer === 'posthog_ai'
+
+                    if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
+                        const outputText = JSON.stringify({ content: formattedOverride })
                         trackInnerCall?.(tool.name, {
                             duration_ms: durationMs,
                             success: true,
-                            output_format: useJson ? 'json' : 'text',
+                            output_format: 'json',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
                             output: outputText,
                         })
-                        return outputText
+                        if (!includeAppData) {
+                            return outputText
+                        }
+                        // The model still reads only the wrapped text this branch protects, so a
+                        // JSON request must not cost widgets the handler object the optimized path
+                        // carries. Copying drops the non-enumerable wrapper keys, as the payload
+                        // builder does.
+                        const appData = Array.isArray(result) ? [...result] : { ...(result as Record<string, unknown>) }
+                        return markExecPayload({
+                            content: [{ type: 'text', text: outputText }],
+                            _meta: { [APP_DATA_META_KEY]: appData as Record<string, unknown> },
+                        })
+                    }
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    if (includeAppData || (tool._meta?.ui?.resourceUri && isInlineUiAppHost)) {
+                        const isStringResult = typeof result === 'string'
+                        const distinctId =
+                            !isStringResult && tool._meta?.ui?.resourceUri ? await context.getDistinctId() : undefined
+                        const payload = markExecPayload(
+                            buildToolResultPayload({
+                                handlerResult: result,
+                                toolMeta: tool._meta,
+                                toolName: tool.name,
+                                params: useJson ? { ...input, output_format: 'json' } : input,
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
+                                // surface `structuredContent` to the model in preference to the
+                                // text content, which would bury a compact formatted table under
+                                // the raw JSON. When such a table exists, re-home the UI app's data
+                                // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
+                                // table and the chart still renders. When there is no formatted table,
+                                // the payload stays in the standard `structuredContent` field — which
+                                // both the model and the app read — and the text channel carries a
+                                // pointer rather than a second copy of the same rows.
+                                forceUiDataToMeta: true,
+                                includeAppData,
+                                distinctId,
+                                includeUiResponseMeta: isInlineUiAppHost,
+                                includeRenderNote: isInlineUiAppHost,
+                            })
+                        )
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'structured',
+                            input_tokens: estimateTokens(input),
+                            output_tokens: estimateResponseTokens(payload),
+                            input,
+                            output: payload,
+                        })
+                        return payload
                     }
 
-                    default:
-                        throw new ExecCommandError(
-                            `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
-                            'unknown_command'
-                        )
+                    // Serialize once so the token estimate measures the exact text
+                    // returned to the client, not the raw object.
+                    let outputText: string
+                    if (useJson) {
+                        outputText = JSON.stringify(result)
+                    } else {
+                        // Optimized mode: when the handler attached a backend-formatted table
+                        // via `__formatted_results_override`, return ONLY that string. The raw
+                        // `results`/`_posthogUrl` payload would otherwise duplicate the table
+                        // and crowd it out — buildToolResultPayload makes the same choice for
+                        // the non-exec path, this keeps exec consistent.
+                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                    }
+                    trackInnerCall?.(tool.name, {
+                        duration_ms: durationMs,
+                        success: true,
+                        output_format: useJson ? 'json' : 'text',
+                        input_tokens: estimateTokens(input),
+                        output_tokens: estimateTokens(outputText),
+                        input,
+                        output: outputText,
+                    })
+                    return outputText
                 }
+
+                default:
+                    throw new ExecCommandError(
+                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        'unknown_command'
+                    )
             }
         },
     }
+
+    return withCommandBatching(singleCommand, options)
 }
