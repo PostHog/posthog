@@ -1801,9 +1801,15 @@ def claim_and_fail_stranded_cloud_run(
     it, so a row that moved since the scan matches nothing and the claim is lost instead.
     Intentionally cross-team (janitor sweep).
     """
+    from celery.exceptions import SoftTimeLimitExceeded  # noqa: PLC0415 (only this janitor path needs it)
+
     from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
         handle_loop_run_terminal,
     )
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 (keeps the redis client off the api import path)
+        publish_task_run_stream_complete,
+    )
+    from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
 
     claimed = TaskRun.objects.filter(
         id=run_id,
@@ -1821,8 +1827,21 @@ def claim_and_fail_stranded_cloud_run(
         # Swallowed so a bookkeeping failure never undoes the reap that already landed.
         try:
             handle_loop_run_terminal(run, error_type=error_type)
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.warning("Failed loop terminal bookkeeping for reaped run %s", run_id, exc_info=True)
+        # `mark_failed` published the terminal state frame, but a durable watch ends only on the
+        # stream's completion sentinel, and the activity that publishes it lives in the workflow
+        # that already died. Without this an attached desktop session reconnects indefinitely and
+        # keeps showing the run in progress while the row reads FAILED.
+        try:
+            if not publish_task_run_stream_complete(str(run_id), run_uses_dedicated_stream(run.state)):
+                logger.warning("Could not complete the event stream for reaped run %s", run_id)
+        except SoftTimeLimitExceeded:
+            raise
+        except Exception:
+            logger.warning("Failed to complete the event stream for reaped run %s", run_id, exc_info=True)
         resume_workflow_step_for_run(run)
     return True
 

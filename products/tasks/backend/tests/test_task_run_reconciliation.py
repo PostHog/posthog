@@ -97,6 +97,33 @@ class TestReconcileStaleInProgressTaskRuns(TestCase):
             with self.assertRaises(SoftTimeLimitExceeded):
                 self.reconcile("gone")
 
+    def test_reaped_run_closes_its_event_stream_after_the_terminal_frame(self):
+        run = self.create_run(age=STALE_AFTER + timedelta(minutes=1))
+        frames: list[str] = []
+
+        def record_event(_run_id, event, *_args, **_kwargs):
+            frames.append(str(event.get("type")))
+
+        def record_sentinel(*_args, **_kwargs):
+            frames.append("STREAM_STATUS.complete")
+            return True
+
+        with (
+            patch("products.tasks.backend.models.publish_task_run_stream_event", side_effect=record_event),
+            patch(
+                "products.tasks.backend.logic.stream.redis_stream.publish_task_run_stream_complete",
+                side_effect=record_sentinel,
+            ) as sentinel,
+        ):
+            outcomes = self.reconcile("gone")
+
+        run.refresh_from_db()
+        self.assertEqual(outcomes.get("reaped"), 1)
+        # The dead workflow can never publish the sentinel, and a durable watch ends only on it.
+        # It has to come after the terminal frame, or the watcher stops before it sees the status.
+        self.assertEqual(frames, ["task_run_state", "STREAM_STATUS.complete"])
+        sentinel.assert_called_once_with(str(run.id), False)
+
     def test_reaped_loop_run_drives_loop_bookkeeping(self):
         loop = Loop(
             team=self.team,
