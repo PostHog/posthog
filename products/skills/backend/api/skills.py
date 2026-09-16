@@ -1,10 +1,14 @@
+import hashlib
 from collections.abc import Sequence
+from difflib import get_close_matches
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBase
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 import psycopg
 import structlog
@@ -30,10 +34,12 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
+from posthog.permissions import AccessControlPermission, is_scout_sandbox_request, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
@@ -56,7 +62,14 @@ from ..marketplace.credentials import (
     marketplace_credential_label,
     marketplace_repo_url,
 )
-from ..marketplace.packaging import SkillExport, SkillImportError, build_skill_zip, parse_skill_zip
+from ..marketplace.packaging import (
+    SkillExport,
+    SkillImportError,
+    build_skill_zip,
+    frontmatter_document,
+    parse_skill_zip,
+    render_skill_md,
+)
 from ..models.skills import LLMSkill, LLMSkillFile
 from .community_publish_services import (
     CommunitySkillPublishError,
@@ -83,8 +96,10 @@ from .skill_serializers import (
     LLMSkillImportSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
+    LLMSkillMarkdownSerializer,
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
+    LLMSkillPublishConflictSerializer,
     LLMSkillPublishSerializer,
     LLMSkillPublishToCommunitySerializer,
     LLMSkillRenameSerializer,
@@ -118,7 +133,6 @@ from .skill_services import (
     delete_skill_file,
     duplicate_skill,
     get_active_skill_queryset,
-    get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
     rename_skill,
@@ -130,7 +144,15 @@ from .skill_services import (
     set_skill_owners,
     skill_name_is_well_formed,
     skill_names_owned_by,
+    team_skills_version,
 )
+
+
+@frozen
+class SkillsListValidators:
+    version: str
+    etag: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -141,6 +163,11 @@ SKILL_SEARCH_RESULT_LIMIT = 10
 SKILL_SEARCH_MATCH_LIMIT = 2
 SKILL_SEARCH_EXCERPT_LENGTH = 300
 SKILL_SEARCH_TIMEOUT_MS = 5_000
+# A 404 offers a few near-miss names, not a listing: `skill-list` is still the way to browse.
+MAX_SKILL_NAME_SUGGESTIONS = 3
+SKILL_NAME_SUGGESTION_CUTOFF = 0.6
+# Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
+MAX_SKILL_NAME_MATCH_CANDIDATES = 500
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -354,6 +381,16 @@ class SkillSearchSustainedThrottle(_SkillUserThrottle):
     rate = SustainedRateThrottle.rate
 
 
+class SkillListBurstThrottle(_SkillUserThrottle):
+    scope = "skills_list_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillListSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_list_sustained"
+    rate = SustainedRateThrottle.rate
+
+
 class ZipRenderer(BaseRenderer):
     """Lets ``Accept: application/zip`` through content negotiation on the zip actions.
 
@@ -426,6 +463,8 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action == "list":
+            return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -465,9 +504,49 @@ class LLMSkillViewSet(
             )
         return None
 
-    def _skill_not_found_response(self, skill_name: str) -> Response:
+    def _skill_not_found_response(self, skill_name: str, version: int | None = None) -> Response:
+        """A 404 that answers from the same rows `list` returns.
+
+        An agent that lists a skill and then cannot read it concludes the store is inconsistent
+        and abandons the skill, so a miss has to say which of the two lookups it is: an unknown
+        name (near-miss names the caller can actually read) or a known name at an absent version
+        (the versions it does hold).
+        """
+        visible = self._visible_skills_queryset()
+        if version is not None:
+            available_versions = list(
+                visible.filter(name=skill_name).order_by("version").values_list("version", flat=True)
+            )
+            if available_versions:
+                return Response(
+                    {
+                        "detail": (
+                            f"Skill with name '{skill_name}' has no version {version}. "
+                            f"Available versions: {', '.join(str(v) for v in available_versions)}."
+                        ),
+                        "type": "skill_version_not_found",
+                        "skill_name": skill_name,
+                        "available_versions": available_versions,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        suggestions = get_close_matches(
+            skill_name,
+            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            n=MAX_SKILL_NAME_SUGGESTIONS,
+            cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
+        )
+        detail = f"Skill with name '{skill_name}' not found."
+        if suggestions:
+            detail += " Did you mean " + ", ".join(f"'{name}'" for name in suggestions) + "?"
         return Response(
-            {"detail": f"Skill with name '{skill_name}' not found."},
+            {
+                "detail": detail,
+                "type": "skill_not_found",
+                "skill_name": skill_name,
+                "suggestions": suggestions,
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
@@ -531,14 +610,7 @@ class LLMSkillViewSet(
         return None
 
     def _is_scout_sandbox_caller(self) -> bool:
-        """Whether the request is authenticated with a Signals scout sandbox token.
-
-        The scout harness's sandbox token is the only issuer of `signal_scout_internal:*`
-        scopes, so their presence identifies a scout run. Session auth and ordinary API
-        keys never carry them.
-        """
-        scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return scopes is not None and any(scope.startswith("signal_scout_internal:") for scope in scopes)
+        return is_scout_sandbox_request(self.request)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -577,12 +649,17 @@ class LLMSkillViewSet(
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
+    def _visible_skills_queryset(self) -> QuerySet[LLMSkill]:
+        """Every active skill row this caller may read. `list` and every by-name read share it, so
+        a name the list returned can never be denied by a read as if it did not exist."""
+        return self.user_access_control.filter_queryset_by_access_level(
+            get_active_skill_queryset(self.team), resource="llm_skill"
+        )
+
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
         params = self._get_list_params(request)
 
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            get_latest_skills_queryset(self.team), resource="llm_skill"
-        )
+        queryset = self._visible_skills_queryset().filter(is_latest=True)
 
         search = params.get("search", "").strip()
         if search:
@@ -779,7 +856,7 @@ class LLMSkillViewSet(
                 return redirect
 
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         # Cap the first page when the caller doesn't page explicitly, so body_next_offset is a
         # valid continuation offset even when the full body would be truncated in transit.
@@ -994,7 +1071,7 @@ class LLMSkillViewSet(
             str(version_id) if version_id else None,
         )
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         limit = cast(int, query_params["limit"])
         offset = cast(int | None, query_params.get("offset"))
@@ -1015,6 +1092,42 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={200: LLMSkillMarkdownSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/skill-md",
+        required_scopes=["llm_skill:read"],
+    )
+    @llma_track_latency("llma_skills_skill_md")
+    @monitor(feature=None, endpoint="llma_skills_skill_md", method="GET")
+    def skill_md(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        """The rendered SKILL.md plus its frontmatter as JSON, for a host that serves the file.
+
+        Both halves come from one renderer, so a digest a client takes over ``content`` still
+        describes the fields it reads from ``frontmatter``.
+        """
+        version_params = self._get_requested_version_params(request)
+        version = cast(int | None, version_params.get("version"))
+        skill = self._load_skill_with_object_access(request, skill_name, version)
+        if skill is None:
+            return self._skill_not_found_response(skill_name, version)
+
+        # SKILL.md never carries the bundled files, so don't load them just to render it.
+        export = skill.to_export()
+        payload = LLMSkillMarkdownSerializer(
+            instance={
+                "name": skill.name,
+                "version": skill.version,
+                "content": render_skill_md(export),
+                "frontmatter": frontmatter_document(export),
+            }
+        )
+        return Response(payload.data)
+
+    @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
@@ -1026,7 +1139,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         export = load_skill_export(skill)
         problems = _spec_problem_messages(export)
@@ -1476,7 +1589,10 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(renamed_skill))
 
-    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @extend_schema(
+        request=LLMSkillPublishToCommunitySerializer,
+        responses={201: CommunitySkillPublishResultSerializer, 409: LLMSkillPublishConflictSerializer},
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1496,6 +1612,17 @@ class LLMSkillViewSet(
 
         payload = LLMSkillPublishToCommunitySerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+
+        if (
+            skill.id != payload.validated_data["expected_skill_id"]
+            or skill.version != payload.validated_data["expected_version"]
+        ):
+            return Response(
+                {
+                    "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
         supplied_tags = payload.validated_data.get("tags")
@@ -1590,7 +1717,7 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
-            return self._skill_not_found_response(skill_name)
+            return self._skill_not_found_response(skill_name, version)
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")
@@ -1825,10 +1952,30 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(published_skill))
 
-    @extend_schema(parameters=[LLMSkillListQuerySerializer])
+    @extend_schema(
+        parameters=[LLMSkillListQuerySerializer],
+        responses={
+            200: LLMSkillListSerializer,
+            304: OpenApiResponse(
+                description="Not modified. The client sent an If-None-Match that matches the current list."
+            ),
+        },
+    )
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        version = team_skills_version(self.team)
+        list_response = self._list_response(request)
+        validators = self._list_validators(request, list_response, version)
+        # Validate and apply access rules before a conditional response can reuse a cached body.
+        response = get_conditional_response(request._request, etag=validators.etag) or list_response
+        response["ETag"] = validators.etag
+        response["X-Skills-Version"] = validators.version
+        patch_cache_control(response, private=True, no_cache=True)
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        return response
+
+    def _list_response(self, request: Request) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -1841,6 +1988,22 @@ class LLMSkillViewSet(
         serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data
         return Response({"count": len(data), "results": data})
+
+    def _list_validators(self, request: Request, response: Response, version: str) -> SkillsListValidators:
+        seed = urlencode(
+            [
+                ("rev", get_git_commit_short() or ""),
+                ("user", request.user.pk),
+                *sorted(request.query_params.lists()),
+            ],
+            doseq=True,
+        )
+        body = SafeJSONRenderer().render(response.data)
+        # A weak ETag identifies the data across renderer formatting and content encodings.
+        return SkillsListValidators(
+            version=version,
+            etag='W/"' + hashlib.sha256(seed.encode() + b"\0" + body).hexdigest() + '"',
+        )
 
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.

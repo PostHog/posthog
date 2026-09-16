@@ -98,6 +98,17 @@ class GitHubCommitAuthor:
     is_bot: bool = False
 
 
+@frozen
+class GitHubAuthorLastCommit:
+    """When an account last landed a commit on a repository's default branch.
+
+    ``last_commit_at`` is None when GitHub answered and the account has no commit there. A
+    caller that could not ask GitHub at all gets no instance, so the two cases stay apart.
+    """
+
+    last_commit_at: datetime | None
+
+
 @dataclass(frozen=True)
 class GitHubCommitAttribution:
     """GitHub's own commit→account attribution, from the commits listing."""
@@ -111,7 +122,11 @@ class GitHubCommitAttribution:
 
 @frozen
 class PullRequestRef:
-    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+    """A pull request or an issue's coordinates, parsed from its GitHub HTML URL.
+
+    One shape for both, because GitHub numbers issues and pull requests in one sequence per
+    repository and answers for both on the issues endpoints.
+    """
 
     owner: str
     repo: str
@@ -936,6 +951,60 @@ class GitHubIntegrationBase:
             is_bot=author.get("type") == "Bot",
         )
 
+    def get_author_last_commit(self, repository: str, login: str) -> GitHubAuthorLastCommit | None:
+        """When ``login`` last committed to ``repository``'s default branch.
+
+        Returns None when GitHub could not be asked or did not answer in a readable shape, so a
+        caller can hold its behavior instead of acting on a failed probe. Rate limits raise
+        ``GitHubRateLimitError`` (from ``api_request``).
+        """
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits",
+            endpoint="/repos/{owner}/{repo}/commits",
+            params={"author": login, "per_page": 1},
+        )
+        if response is None:
+            return None
+        if response.status_code != 200:
+            logger.info(
+                "GitHub API non-200 for author last-commit lookup",
+                status_code=response.status_code,
+                repository=repository,
+            )
+            return None
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: failed to parse author last-commit JSON", repository=repository, exc_info=True
+            )
+            return None
+        if not isinstance(body, list):
+            return None
+        if not body:
+            return GitHubAuthorLastCommit(last_commit_at=None)
+        commit = body[0].get("commit") if isinstance(body[0], dict) else None
+        if not isinstance(commit, dict):
+            return None
+        author = commit.get("author")
+        committer = commit.get("committer")
+        raw_date = (author.get("date") if isinstance(author, dict) else None) or (
+            committer.get("date") if isinstance(committer, dict) else None
+        )
+        if not isinstance(raw_date, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw_date)
+        except ValueError:
+            logger.warning(
+                "GitHubIntegration: unparseable author last-commit date", repository=repository, exc_info=True
+            )
+            return None
+        # Every GitHub commit date carries a zone; a naive one would break the caller's arithmetic.
+        if parsed.tzinfo is None:
+            return None
+        return GitHubAuthorLastCommit(last_commit_at=parsed)
+
     def list_commit_attributions(
         self,
         repository: str,
@@ -1015,27 +1084,40 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
-        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
+    def _parse_repo_item_url(url: str, item_path: str) -> PullRequestRef | None:
+        """Parse a ``/{owner}/{repo}/{item_path}/{number}[/...]`` GitHub URL.
 
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
+        Returns ``None`` when the URL is not one. Only the first four path segments are read, so a
+        caller that rebuilds an API path from the result cannot be steered by anything after them.
         """
         try:
-            parsed = urlparse(pr_url)
+            parsed = urlparse(url)
         except Exception:
             return None
         if parsed.netloc not in {"github.com", "www.github.com"}:
             return None
         parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
+        if len(parts) < 4 or parts[2] != item_path:
             return None
-        owner, repo, _, pr_number_str = parts[:4]
+        owner, repo, _, number_str = parts[:4]
+        if not number_str.isdigit():
+            return None
         try:
-            pr_number = int(pr_number_str)
+            # ``isdigit`` is true for digits ``int`` rejects, such as a superscript.
+            number = int(number_str)
         except ValueError:
             return None
-        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
+        return PullRequestRef(owner=owner, repo=repo, number=number)
+
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(pr_url, "pull")
+
+    @staticmethod
+    def parse_issue_url(issue_url: str) -> PullRequestRef | None:
+        """Parse a GitHub issue URL. Returns ``None`` when the URL is not one."""
+        return GitHubIntegrationBase._parse_repo_item_url(issue_url, "issues")
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -1261,6 +1343,15 @@ class GitHubIntegrationBase:
         head_sha = pr.get("head_sha")
         if not head_sha:
             return {"success": False, "error": "Pull request has no head commit"}
+
+        permissions = self.integration.config.get("permissions")
+        if isinstance(permissions, dict) and permissions and permissions.get("checks") not in {"read", "write"}:
+            return {
+                "success": False,
+                "error": "GitHub App is missing permission to read check runs",
+                "error_code": "github_checks_permission_missing",
+            }
+
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         checks: list[dict[str, Any]] = []

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeActiveSteps,
+  isFinalActiveStepRemoved,
   isFirstStep,
   isLastStep,
   nearestActiveStep,
@@ -97,12 +98,9 @@ describe("stepGatePending", () => {
     );
   });
 
-  it.each<OnboardingStep>(["connect-github", "select-repo"])(
-    "never holds %s, which no gate can drop",
-    (step) => {
-      expect(stepGatePending(step, allSteps)).toBe(false);
-    },
-  );
+  it("never holds connect-github, which no gate can drop", () => {
+    expect(stepGatePending("connect-github", allSteps)).toBe(false);
+  });
 });
 
 describe("nearestActiveStep", () => {
@@ -119,24 +117,19 @@ describe("nearestActiveStep", () => {
     );
   });
 
-  it.each<{ removed: OnboardingStep; expected: OnboardingStep }>([
-    // install-cli vanished under the user: continue forward to select-repo,
-    // not back to the start (the regression that reset onboarding mid-flow).
-    { removed: "install-cli", expected: "select-repo" },
-  ])(
-    "moves forward to $expected when $removed drops out",
-    ({ removed, expected }) => {
-      expect(nearestActiveStep(withoutConditionals, removed)).toBe(expected);
-    },
-  );
+  it("moves forward when install-cli drops out", () => {
+    expect(nearestActiveStep(withoutConditionals, "install-cli")).toBe(
+      "connect-github",
+    );
+  });
 
   it("falls back to the closest earlier step when nothing follows", () => {
     const onlyEarlySteps: OnboardingStep[] = ["project-select", "consent"];
-    expect(nearestActiveStep(onlyEarlySteps, "select-repo")).toBe("consent");
+    expect(nearestActiveStep(onlyEarlySteps, "connect-github")).toBe("consent");
   });
 
   it("returns the step itself when no steps are active", () => {
-    expect(nearestActiveStep([], "select-repo")).toBe("select-repo");
+    expect(nearestActiveStep([], "connect-github")).toBe("connect-github");
   });
 });
 
@@ -153,6 +146,40 @@ describe("step navigation", () => {
     expect(isFirstStep(1)).toBe(false);
     expect(isLastStep(steps, steps.length - 1)).toBe(true);
     expect(isLastStep(steps, 0)).toBe(false);
+  });
+
+  it.each([
+    {
+      gates: { hasGithubIntegration: true, cliReady: false },
+      finalStep: "connect-github",
+    },
+    {
+      gates: { hasGithubIntegration: false, cliReady: false },
+      finalStep: "install-cli",
+    },
+  ] as const)(
+    "ends with $finalStep for the resolved gates",
+    ({ gates, finalStep }) => {
+      const activeSteps = computeActiveSteps({ ...allSteps, ...gates });
+      expect(activeSteps.at(-1)).toBe(finalStep);
+    },
+  );
+
+  it("identifies when a final active step is removed", () => {
+    const previousActiveSteps = computeActiveSteps({
+      ...allSteps,
+      hasGithubIntegration: false,
+      cliReady: false,
+    });
+    const activeSteps = computeActiveSteps({
+      ...allSteps,
+      hasGithubIntegration: true,
+      cliReady: false,
+    });
+
+    expect(
+      isFinalActiveStepRemoved(previousActiveSteps, activeSteps, "install-cli"),
+    ).toBe(true);
   });
 
   it("advances and retreats within bounds", () => {
