@@ -131,7 +131,7 @@ def _context_outputs(context_target: dict | None) -> dict:
     }
 
 
-def render_context_target_block(context_target: dict | None) -> str:
+def render_context_target_block(context_target: dict | None, *, loop_id: str) -> str:
     """The publish contract appended to a loop's prompt when it maintains a context's deliverables.
 
     Empty for an unattached loop or a feed-only attachment — filing the run into the feed needs no
@@ -181,9 +181,9 @@ def render_context_target_block(context_target: dict | None) -> str:
     lines.append(
         f"- Read failures with `tasks-list`, channel={channel_id}, status=failed, internal=all, and archived=all. "
         "Use hog_flow_id for workflow-backed loops and `tasks-runs-list` for earlier runs of a task. "
-        "When available, `loops-runs-retrieve` also accepts status=failed and next_cursor. Show task/run links "
-        f"and stored errors in the {destination}, not a saved Enabled label. If a read fails, report the failure "
-        "in the task response; do not mark the work complete."
+        f"When available, `loops-runs-retrieve` with id={loop_id} also accepts status=failed and next_cursor. "
+        f"Show task/run links and stored errors in the {destination}, not a saved Enabled label. If a read fails, "
+        "report the failure in the task response; do not mark the work complete."
     )
     return "\n".join(lines)
 
@@ -716,7 +716,7 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
         raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
-    context_block = render_context_target_block(context_target)
+    context_block = render_context_target_block(context_target, loop_id=str(loop.id))
     execution_context = "\n\n".join(part for part in [LOOP_FRAMING_BLOCK, context_block, trigger_context] if part)
     pending_user_message = render_loop_run_message(loop.instructions, execution_context)
 

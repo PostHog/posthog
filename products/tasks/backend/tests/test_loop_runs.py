@@ -88,6 +88,7 @@ class TestRenderTriggerContext(SimpleTestCase):
 class TestRenderContextTargetBlock(SimpleTestCase):
     CHANNEL_ID = "0199c0de-0000-4000-8000-000000000001"
     CANVAS_ID = "0199c0de-0000-4000-8000-000000000002"
+    LOOP_ID = "0199c0de-0000-4000-8000-000000000003"
 
     @parameterized.expand(
         [
@@ -97,9 +98,18 @@ class TestRenderContextTargetBlock(SimpleTestCase):
         ]
     )
     def test_failures_are_published_to_a_deliverable_the_target_has(self, _name, outputs, destination):
-        block = render_context_target_block({"channel_id": self.CHANNEL_ID, "name": "Growth", "outputs": outputs})
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "name": "Growth", "outputs": outputs}, loop_id=self.LOOP_ID
+        )
 
         self.assertIn(f"stored errors in the {destination}", block)
+
+    def test_failure_history_names_the_firing_loop(self):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "outputs": {"update_context": True}}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"`loops-runs-retrieve` with id={self.LOOP_ID}", block)
 
 
 class LoopRunsTestCase(TestCase):
