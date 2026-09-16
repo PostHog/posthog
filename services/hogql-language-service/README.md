@@ -32,6 +32,8 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
 
 Validation resolves table CTEs in the language service, validates their projected fields, and reports only the
 underlying catalog tables in `tableNames`.
+Each validation request can expand up to 16,384 projected CTE fields. Larger projections return a `query_limit`
+diagnostic and ask the user to select fewer fields.
 
 Diagnostics contain byte offsets and up to five visible typo suggestions ranked by case-insensitive Levenshtein
 distance. Dynamic properties use the same cached namespaces as autocomplete.

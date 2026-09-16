@@ -45,9 +45,15 @@ type cteBinding struct {
 	name       string
 	query      *clickhouse.SelectQuery
 	scope      *queryScope
+	budget     *projectionBudget
 	fields     []catalog.Entry
 	fieldsDone bool
 	resolving  bool
+}
+
+type projectionBudget struct {
+	remaining int
+	exceeded  bool
 }
 
 type queryScope struct {
@@ -76,8 +82,9 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	var diagnostics []Diagnostic
 	var referencedTableNames []string
 	seenTableNames := map[string]bool{}
+	budget := projectionBudget{remaining: querylimits.MaxCTEProjectedFields}
 	for _, statement := range statements {
-		scopes := queryScopes(statement)
+		scopes := queryScopes(statement, &budget)
 		ignoredIdents := map[*clickhouse.Ident]bool{}
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
@@ -140,19 +147,18 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
 			case *clickhouse.NestedIdentifier:
-				ignoredIdents[typed.Ident] = true
-				if typed.DotIdent == nil || typed.DotIdent.Name == "*" {
+				if typed.DotIdent == nil {
 					return true
 				}
 				ignoredIdents[typed.DotIdent] = true
 				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
 				if binding, ok := bindings[strings.ToLower(typed.Ident.Name)]; ok {
-					validateField(&diagnostics, seen, binding, typed.DotIdent)
+					ignoredIdents[typed.Ident] = true
+					if typed.DotIdent.Name != "*" {
+						validateField(&diagnostics, seen, binding, typed.DotIdent, &budget)
+					}
 				}
 			case *clickhouse.Path:
-				for _, field := range typed.Fields {
-					ignoredIdents[field] = true
-				}
 				if len(typed.Fields) < 2 {
 					return true
 				}
@@ -169,11 +175,21 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					bindingNames[name] = binding.name
 				}
 				if namespace, ok := propertyresolver.Resolve(parts, bindingNames); ok {
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
 					validateProperty(&diagnostics, seen, schema.Properties(namespace), typed.Fields[len(typed.Fields)-1])
 					return true
 				}
 				if binding, ok := bindings[strings.ToLower(typed.Fields[0].Name)]; ok {
-					validateField(&diagnostics, seen, binding, typed.Fields[1])
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
+					validateField(&diagnostics, seen, binding, typed.Fields[1], &budget)
+				} else {
+					for _, field := range typed.Fields[1:] {
+						ignoredIdents[field] = true
+					}
 				}
 			case *clickhouse.Ident:
 				if ignoredIdents[typed] || typed.Name == "*" {
@@ -181,16 +197,24 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				}
 				bindings := visibleBindings(innermostScope(scopes, int(node.Pos()), int(node.End())))
 				if len(bindings) > 0 {
-					validateUnqualifiedField(&diagnostics, seen, bindings, typed)
+					validateUnqualifiedField(&diagnostics, seen, bindings, typed, &budget)
 				}
 			}
 			return true
+		})
+		if budget.exceeded {
+			break
+		}
+	}
+	if budget.exceeded && len(diagnostics) < querylimits.MaxDiagnostics {
+		diagnostics = append(diagnostics, Diagnostic{
+			Code: "query_limit", Message: querylimits.ErrCTEProjectionTooLarge.Error(), Start: 0, End: len(query),
 		})
 	}
 	return result(diagnostics, referencedTableNames, started)
 }
 
-func queryScopes(statement clickhouse.Expr) []*queryScope {
+func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {
 	var scopes []*queryScope
 	byQuery := map[*clickhouse.SelectQuery]*queryScope{}
 	clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
@@ -221,7 +245,7 @@ func queryScopes(statement clickhouse.Expr) []*queryScope {
 			if !nameOK || !queryOK {
 				continue
 			}
-			cte := &cteBinding{name: name.Name, query: query, scope: byQuery[query]}
+			cte := &cteBinding{name: name.Name, query: query, scope: byQuery[query], budget: budget}
 			if cte.scope != nil {
 				cte.scope.cteRoot = true
 			}
@@ -346,11 +370,14 @@ func tableReference(expr *clickhouse.TableExpr) (name, alias string, start, end 
 	return name, alias, int(identifier.Pos()), int(identifier.End()), true
 }
 
-func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding tableBinding, ident *clickhouse.Ident) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding tableBinding, ident *clickhouse.Ident, budget *projectionBudget) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || budget.exceeded {
 		return
 	}
 	if _, ok := bindingField(binding, ident.Name); ok {
+		return
+	}
+	if budget.exceeded {
 		return
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
@@ -364,8 +391,8 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding tabl
 	})
 }
 
-func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings map[string]tableBinding, ident *clickhouse.Ident) {
-	if len(*diagnostics) >= querylimits.MaxDiagnostics {
+func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings map[string]tableBinding, ident *clickhouse.Ident, budget *projectionBudget) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || budget.exceeded {
 		return
 	}
 	uniqueTables := map[string]tableBinding{}
@@ -374,10 +401,16 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 		if _, ok := bindingField(binding, ident.Name); ok {
 			return
 		}
+		if budget.exceeded {
+			return
+		}
 	}
 	candidates := make([]catalog.Entry, 0)
 	for _, binding := range uniqueTables {
 		candidates = append(candidates, bindingFields(binding)...)
+		if budget.exceeded {
+			return
+		}
 	}
 	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
 	if seen[key] {
@@ -413,36 +446,42 @@ func bindingFields(binding tableBinding) []catalog.Entry {
 }
 
 func (c *cteBinding) projectedFields() []catalog.Entry {
-	if c.fieldsDone || c.resolving || c.scope == nil {
+	if c.fieldsDone || c.resolving || c.scope == nil || c.budget.exceeded {
 		return c.fields
 	}
 	c.resolving = true
 	for _, item := range c.query.SelectItems {
 		if item.Alias != nil {
-			c.fields = append(c.fields, catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
+			c.appendField(catalog.Entry{Name: item.Alias.Name, Type: projectedType(c.scope, item.Expr)})
+			if c.budget.exceeded {
+				break
+			}
 			continue
 		}
 		switch expr := item.Expr.(type) {
 		case *clickhouse.Ident:
 			if expr.Name == "*" {
-				c.fields = append(c.fields, wildcardFields(c.scope, "")...)
+				c.appendWildcardFields(c.scope, "")
 			} else {
-				c.fields = append(c.fields, catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)})
+				c.appendField(catalog.Entry{Name: expr.Name, Type: projectedType(c.scope, expr)})
 			}
 		case *clickhouse.Path:
 			if len(expr.Fields) > 0 {
-				c.fields = append(c.fields, catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)})
+				c.appendField(catalog.Entry{Name: expr.Fields[len(expr.Fields)-1].Name, Type: projectedType(c.scope, expr)})
 			}
 		case *clickhouse.NestedIdentifier:
 			if expr.DotIdent != nil && expr.DotIdent.Name == "*" {
-				c.fields = append(c.fields, wildcardFields(c.scope, expr.Ident.Name)...)
+				c.appendWildcardFields(c.scope, expr.Ident.Name)
 			} else if expr.DotIdent != nil {
-				c.fields = append(c.fields, catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)})
+				c.appendField(catalog.Entry{Name: expr.DotIdent.Name, Type: projectedType(c.scope, expr)})
 			} else {
-				c.fields = append(c.fields, catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)})
+				c.appendField(catalog.Entry{Name: expr.Ident.Name, Type: projectedType(c.scope, expr)})
 			}
 		default:
-			c.fields = append(c.fields, catalog.Entry{Name: item.Expr.String()})
+			c.appendField(catalog.Entry{Name: item.Expr.String()})
+		}
+		if c.budget.exceeded {
+			break
 		}
 	}
 	c.resolving = false
@@ -450,21 +489,45 @@ func (c *cteBinding) projectedFields() []catalog.Entry {
 	return c.fields
 }
 
-func wildcardFields(scope *queryScope, qualifier string) []catalog.Entry {
+func (c *cteBinding) appendField(field catalog.Entry) {
+	if c.budget.take(1) == 1 {
+		c.fields = append(c.fields, field)
+	}
+}
+
+func (c *cteBinding) appendFields(fields []catalog.Entry) {
+	count := c.budget.take(len(fields))
+	c.fields = append(c.fields, fields[:count]...)
+}
+
+func (c *cteBinding) appendWildcardFields(scope *queryScope, qualifier string) {
 	bindings := visibleBindings(scope)
 	if qualifier != "" {
-		return bindingFields(bindings[strings.ToLower(qualifier)])
+		c.appendFields(bindingFields(bindings[strings.ToLower(qualifier)]))
+		return
 	}
-	fields := make([]catalog.Entry, 0)
 	seen := map[string]bool{}
 	for _, binding := range bindings {
 		if seen[binding.name] {
 			continue
 		}
 		seen[binding.name] = true
-		fields = append(fields, bindingFields(binding)...)
+		c.appendFields(bindingFields(binding))
+		if c.budget.exceeded {
+			return
+		}
 	}
-	return fields
+}
+
+func (b *projectionBudget) take(count int) int {
+	if count <= b.remaining {
+		b.remaining -= count
+		return count
+	}
+	taken := b.remaining
+	b.remaining = 0
+	b.exceeded = true
+	return taken
 }
 
 func projectedType(scope *queryScope, expr clickhouse.Expr) string {

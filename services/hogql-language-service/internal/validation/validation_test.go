@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -197,6 +198,33 @@ func TestValidateRejectsUnknownCommonTableExpressionField(t *testing.T) {
 	}
 	if len(result.TableNames) != 1 || result.TableNames[0] != "events" {
 		t.Fatalf("table names = %#v", result.TableNames)
+	}
+}
+
+func TestValidateRejectsUnknownQualifiedFields(t *testing.T) {
+	for _, query := range []string{
+		"SELECT missing.event FROM events",
+		"SELECT missing.properties.value FROM events",
+		"SELECT missing.* FROM events",
+	} {
+		result := Validate(schema(), query)
+		if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "unknown_field" {
+			t.Fatalf("query %q returned %#v", query, result)
+		}
+	}
+}
+
+func TestValidateBoundsCommonTableExpressionProjectionExpansion(t *testing.T) {
+	ctes := []string{"c0 AS (SELECT * FROM events)"}
+	for index := 1; index < 14; index++ {
+		ctes = append(ctes, fmt.Sprintf(
+			"c%d AS (SELECT left_side.*, right_side.* FROM c%d AS left_side JOIN c%d AS right_side ON 1 = 1)",
+			index, index-1, index-1,
+		))
+	}
+	result := Validate(schema(), "WITH "+strings.Join(ctes, ", ")+" SELECT missing FROM c13")
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
