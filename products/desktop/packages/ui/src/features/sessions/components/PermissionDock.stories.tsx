@@ -3,8 +3,11 @@ import {
   buildQuestionToolCallData,
   type QuestionItem,
 } from "@posthog/agent/adapters/claude/questions/utils";
+import { BypassPermissionsHint } from "@posthog/ui/features/permissions/BypassPermissionsHint";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import type { PermissionToolCall } from "@posthog/ui/features/permissions/types";
 import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const wordyQuestions: QuestionItem[] = [
@@ -84,4 +87,51 @@ export const WordyQuestion: Story = {
       </PermissionDock>
     </ChatColumn>
   ),
+};
+
+const commandToolCall = {
+  toolCallId: "call-bypass-hint",
+  title: "Execute command",
+  kind: "execute",
+  content: [
+    {
+      type: "content",
+      content: { type: "text", text: "pnpm --filter @posthog/ui test" },
+    },
+  ],
+} as unknown as PermissionToolCall;
+
+/** The approval prompt with the way out of approvals underneath it. */
+export const ApprovalWithBypassHint: Story = {
+  render: () => {
+    useSettingsStore.setState({
+      allowBypassPermissions: false,
+      tipsEnabled: true,
+      hints: {},
+      _hasHydrated: true,
+    });
+    return (
+      <ChatColumn>
+        <PermissionDock
+          compact={false}
+          footer={<BypassPermissionsHint toolCall={commandToolCall} />}
+        >
+          <PermissionSelector
+            toolCall={commandToolCall}
+            options={[
+              { optionId: "allow", name: "Yes", kind: "allow_once" },
+              {
+                optionId: "allow_always",
+                name: "Yes, and don't ask again",
+                kind: "allow_always",
+              },
+              { optionId: "reject", name: "No", kind: "reject_once" },
+            ]}
+            onSelect={() => {}}
+            onCancel={() => {}}
+          />
+        </PermissionDock>
+      </ChatColumn>
+    );
+  },
 };
