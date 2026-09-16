@@ -159,6 +159,7 @@ export function InsightVizDisplay({
         insightDataLoading,
         hasRenderableResults,
         erroredQueryId,
+        erroredQueryStatus,
         timedOutQueryId,
         vizSpecificOptions,
         query,
@@ -274,6 +275,7 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    titleStatus={erroredQueryStatus}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
