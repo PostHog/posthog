@@ -62,7 +62,6 @@ interface MlStoredKeyMismatch {
     teamId: number
     expectedOrganizationId: string
     storedOrganizationId?: string
-    hasWrappedKey: boolean
 }
 
 function storedKeyId(identity: MlKeyIdentity): TableKey {
@@ -133,7 +132,8 @@ export class MlKeyBatch {
         for (const [id, item] of await this.db.read(remaining, deadline)) {
             this.state.set(id, item)
         }
-        const mismatched: MlStoredKeyMismatch[] = []
+        const unusable: MlStoredKeyMismatch[] = []
+        const rehomed: MlStoredKeyMismatch[] = []
         await Promise.all(
             [...keyIdentities].map(async ([id, identity]) => {
                 const item = this.state.get(id)
@@ -141,17 +141,27 @@ export class MlKeyBatch {
                     return
                 }
                 if (item) {
-                    if (!item.wrapped_key?.B || item.organization_id?.S !== identity.organizationId) {
-                        mismatched.push({
+                    const storedOrganizationId = item.organization_id?.S
+                    if (!item.wrapped_key?.B || !storedOrganizationId) {
+                        unusable.push({
                             id,
                             teamId: identity.teamId,
                             expectedOrganizationId: identity.organizationId,
-                            storedOrganizationId: item.organization_id?.S,
-                            hasWrappedKey: Boolean(item.wrapped_key?.B),
+                            storedOrganizationId,
                         })
                         return
                     }
-                    this.keys.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
+                    // The key was wrapped under the organization the row names, and KMS only unwraps it under that same context, so a team that moved organizations keeps its key under the old one.
+                    if (storedOrganizationId !== identity.organizationId) {
+                        rehomed.push({
+                            id,
+                            teamId: identity.teamId,
+                            expectedOrganizationId: identity.organizationId,
+                            storedOrganizationId,
+                        })
+                    }
+                    const storedIdentity = { ...identity, organizationId: storedOrganizationId }
+                    this.keys.set(id, await this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B)))
                 } else {
                     let candidate = this.candidates.get(id)
                     if (!candidate) {
@@ -162,13 +172,21 @@ export class MlKeyBatch {
                 }
             })
         )
-        // A stored key that names another organization, or has lost its wrapped key without a tombstone, cannot serve this batch. The sessions behind it are dropped like blocked ones so one bad row cannot stop the lane, and the log names the row so the data can be repaired.
-        if (mismatched.length) {
-            MlMirrorMetrics.incrementMlKeyIdentityMismatch(mismatched.length)
-            logger.error('🔑', 'ml_key_stored_identity_mismatch', {
-                count: mismatched.length,
-                teamIds: [...new Set(mismatched.map((entry) => entry.teamId))].slice(0, 20),
-                sample: mismatched.slice(0, 5),
+        if (rehomed.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('organization_changed', rehomed.length)
+            logger.warn('🔑', 'ml_key_organization_changed', {
+                count: rehomed.length,
+                teamIds: [...new Set(rehomed.map((entry) => entry.teamId))].slice(0, 20),
+                sample: rehomed.slice(0, 5),
+            })
+        }
+        // A row with no wrapped key and no tombstone cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
+        if (unusable.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
+            logger.error('🔑', 'ml_key_stored_key_unusable', {
+                count: unusable.length,
+                teamIds: [...new Set(unusable.map((entry) => entry.teamId))].slice(0, 20),
+                sample: unusable.slice(0, 5),
             })
         }
     }
