@@ -25,7 +25,8 @@ import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/ic
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
-import { AddContextPanel } from "./AddContextPanel";
+import { AddContextDialog } from "./AddContextDialog";
+import { connectLabel, unconnectedWarning } from "./addContextRows";
 import { KnowledgeBriefing } from "./KnowledgeBriefing";
 import { KIND_ICONS } from "./kindIcons";
 
@@ -73,17 +74,15 @@ export function KnowledgeList({
         <Text size="xs" weight="medium" variant="muted">
           Business knowledge
         </Text>
-        {adding ? null : (
-          <Button
-            variant="link-muted"
-            size="xs"
-            disabled={isSaving}
-            onClick={() => setAdding(true)}
-          >
-            <PlusIcon size={12} />
-            Add context
-          </Button>
-        )}
+        <Button
+          variant="link-muted"
+          size="xs"
+          disabled={isSaving}
+          onClick={() => setAdding(true)}
+        >
+          <PlusIcon size={12} />
+          Add context…
+        </Button>
       </div>
 
       <ul className="flex flex-col divide-y divide-border border-border border-y">
@@ -168,20 +167,12 @@ export function KnowledgeList({
       </ul>
 
       {adding ? (
-        <div className="pt-3">
-          <AddContextPanel
-            isSaving={isSaving}
-            onAddLink={async (link) => {
-              await onLinksChange([...links, link]);
-              setAdding(false);
-            }}
-            onAddObject={async (object) => {
-              await onObjectsChange([...objects, object]);
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-          />
-        </div>
+        <AddContextDialog
+          isSaving={isSaving}
+          onAddLink={(link) => onLinksChange([...links, link])}
+          onAddObject={(object) => onObjectsChange([...objects, object])}
+          onClose={() => setAdding(false)}
+        />
       ) : null}
     </section>
   );
@@ -210,26 +201,14 @@ function LinkRow({
   const unconnected = state !== undefined && state.status !== "connected";
   const kind = parsed?.item.label ?? null;
   const name = state?.source.name ?? "";
-  const warning = !state
-    ? null
-    : state.needsCredentials
-      ? `${name} is not connected. It needs an API key, so it connects from the MCP servers page.`
-      : state.status === "needs_reauth"
-        ? `${name} needs to be authorized again before agents can read this.`
-        : state.status === "pending_oauth"
-          ? `Authorization for ${name} was not finished, so agents cannot read this yet.`
-          : `${name} is not connected, so agents cannot read this yet.`;
+  const warning = state ? unconnectedWarning(state) : null;
   const action = !state
     ? null
     : state.connecting
       ? "Waiting"
       : state.needsCredentials
-        ? "Open MCP servers"
-        : state.status === "needs_reauth"
-          ? `Reconnect ${name}`
-          : state.status === "pending_oauth"
-            ? "Finish authorizing"
-            : `Connect ${name}`;
+        ? connectLabel(state)
+        : `${connectLabel(state)} ${name}`;
   return (
     <KnowledgeRow
       icon={
