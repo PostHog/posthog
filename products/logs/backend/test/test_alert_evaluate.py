@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_source_cycle import evaluate_logs_configurations
+from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 _MODULE = "products.logs.backend.alert_source_cycle"
@@ -59,8 +59,9 @@ class TestLogsAlertSourceCycle(APIBaseTest):
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery", side_effect=_build_query) as query,
         ):
-            configuration_ids = [str(alert.id) for alert in alerts]
-            return evaluate_logs_configurations(configuration_ids, now or datetime.now(UTC)), query
+            cutoff = now or datetime.now(UTC)
+            slot = (alerts[0].next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
+            return evaluate_logs_batch(self.team.id, slot, cutoff), query
 
     def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
         alert = self._breaching_alert()

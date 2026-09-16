@@ -26,11 +26,24 @@ class DemandDiscoveryInputs:
 
 
 @frozen
-class AlertDemand:
-    """Due configuration IDs per source, bounded so the payload stays small. `omitted_by_source` counts
-    what discovery left out; that work is due again next tick."""
+class AlertBatchKey:
+    """Names a chunk of due work by what it holds rather than by where it was cut.
 
-    configuration_ids_by_source: dict[SourceKind, list[str]]
+    `slot` is `next_check_at` floored to the minute, so a chunk keeps its identity across ticks:
+    a slow evaluation of a key is still the same key when the next tick rediscovers it.
+    """
+
+    team_id: int
+    slot: str
+
+
+@frozen
+class AlertDemand:
+    """Due batch keys per source, bounded so the payload stays small. A key costs a fixed amount and
+    does not grow with a team's alert count. `omitted_by_source` counts keys discovery left out;
+    that work is due again next tick."""
+
+    batch_keys_by_source: dict[SourceKind, list[AlertBatchKey]]
     omitted_by_source: dict[SourceKind, int] = field(default_factory=dict)
 
 
@@ -41,9 +54,8 @@ class SourceDispatchInputs:
     tick_id: str
     source: SourceKind
     page: int
-    configuration_ids: list[str]
-    # Defaulted so a run started before this field existed still replays.
-    cutoff: str = ""
+    batch_keys: list[AlertBatchKey]
+    cutoff: str
 
 
 @frozen
@@ -51,17 +63,21 @@ class SourceDispatchReport:
     source: SourceKind
     page: int
     dispatched: int
-    remaining_ids: list[str]
-    evaluation_workflow_id: str | None
+    remaining_keys: list[AlertBatchKey]
+    evaluation_workflow_ids: list[str]
 
 
 @frozen
 class SourceEvaluationInputs:
-    """What a source's own evaluation workflow receives from its dispatcher."""
+    """What a source's own evaluation workflow receives from its dispatcher.
+
+    The key, not a list of ids. The evaluation loads full configurations anyway, so shipping ids
+    through the orchestrator would be transit cost, and re-reading gives it the fresher set.
+    """
 
     source: SourceKind
     cutoff: str
-    configuration_ids: list[str]
+    batch_key: AlertBatchKey
 
 
 @frozen
@@ -102,7 +118,7 @@ class OrchestrateInputs:
     deadline: str | None = None  # stop starting pages after this
     hard_deadline: str | None = None  # the execution timeout lands here; no page may run past it
     page: int = 0
-    demand: dict[SourceKind, list[str]] | None = None
+    demand: dict[SourceKind, list[AlertBatchKey]] | None = None
     pages: list[TickPage] | None = None
     omitted: int = 0  # due work discovery left out of the bounded manifest; counted as remaining
 
