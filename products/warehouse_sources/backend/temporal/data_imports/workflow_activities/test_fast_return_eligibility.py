@@ -42,11 +42,8 @@ def _schema(**config_overrides) -> ExternalDataSchema:
     )
 
 
-def _run(schema: ExternalDataSchema, *, enrichment=False, statistics=False, data_quality=False, flag_enabled=True):
-    with (
-        patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=data_quality),
-        patch(f"{_MODULE}.is_fast_return_enabled", return_value=flag_enabled),
-    ):
+def _run(schema: ExternalDataSchema, *, enrichment=False, statistics=False, data_quality=False):
+    with patch(f"{_MODULE}.data_quality_checks_needed_for", return_value=data_quality):
         return _fast_return_eligible(
             schema=schema,
             team_id=1,
@@ -108,6 +105,3 @@ class TestFastReturnEligibility:
     )
     def test_outstanding_repair_work_blocks_eligibility(self, _name: str, gates: dict):
         assert _run(_schema(), **gates) is False
-
-    def test_rollout_flag_off_is_not_eligible(self):
-        assert _run(_schema(), flag_enabled=False) is False

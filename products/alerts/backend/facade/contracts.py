@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
@@ -26,7 +27,58 @@ class DemandDiscoveryInputs:
 
 @frozen
 class AlertDemand:
+    """Due configuration IDs per source, bounded so the payload stays small. `omitted_by_source` counts
+    what discovery left out; that work is due again next tick."""
+
     configuration_ids_by_source: dict[SourceKind, list[str]]
+    omitted_by_source: dict[SourceKind, int] = field(default_factory=dict)
+
+
+@frozen
+class SourceDispatchInputs:
+    """Everything the tick knows about one source. The dispatcher decides how much of it to take."""
+
+    tick_id: str
+    source: SourceKind
+    page: int
+    configuration_ids: list[str]
+
+
+@frozen
+class SourceDispatchReport:
+    source: SourceKind
+    page: int
+    dispatched: int
+    remaining_ids: list[str]
+    evaluation_workflow_id: str | None
+
+
+@frozen
+class TickPage:
+    page: int
+    run_id: str
+    dispatched: int
+    remaining: int
+
+
+@frozen
+class OrchestrateInputs:
+    """Empty on the first run. A continued run carries the tick's cutoff, deadlines, demand and pages."""
+
+    cutoff: str | None = None
+    deadline: str | None = None  # stop starting pages after this
+    hard_deadline: str | None = None  # the execution timeout lands here; no page may run past it
+    page: int = 0
+    demand: dict[SourceKind, list[str]] | None = None
+    pages: list[TickPage] | None = None
+    omitted: int = 0  # due work discovery left out of the bounded manifest; counted as remaining
+
+
+@frozen
+class OrchestrateResult:
+    pages: list[TickPage]
+    remaining: int
+    deadline_reached: bool
 
 
 class DestinationType(StrEnum):
