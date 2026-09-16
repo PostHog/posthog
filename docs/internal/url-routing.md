@@ -21,5 +21,21 @@ Event deletion is available only with `TEST`.
 The Temporal codec endpoint is registered once when either setting is enabled.
 These conditions control registration, not only view behavior.
 
-Product DRF routes continue to register through `products/<product>/backend/routes.py`.
-Root-level product routes remain explicit in `posthog/urls.py`.
+## Product root routes
+
+A product declares its root paths in `products/<product>/backend/routes.py`, as a `urlpatterns` list beside `register_routes`.
+`posthog/product_urls.py` collects every product's list, and `posthog/urls.py` splices it into one slot: after all core routes, and before the `^api.+` fallback and the frontend catch-all.
+Precedence stays one list to read, and a product that adds a path does not touch core.
+
+Each pattern must start with `api/<product>/` or `webhooks/<product>/`, where `<product>` is the product directory name.
+A pattern outside those prefixes raises `ProductRouteError` when the URL conf loads.
+The check is fail-closed because a product path in core's namespace can shadow a core route, and the winner would then depend on app iteration order.
+
+`register_routes(routers)` stays the way to add DRF routes.
+Use `urlpatterns` only for a plain Django path that no router can carry, such as an inbound webhook endpoint.
+
+### Who owns a webhook route
+
+The owner of the third-party App registration owns the route.
+The customer-facing GitHub App is shared: one endpoint fans out to several products, so core mounts it.
+An App a single product registers, such as Stamphog's GitHub App or the SES topic behind `webhooks/workflows/ses-events`, is mounted by that product.

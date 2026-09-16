@@ -37,6 +37,7 @@ from posthog.frontend_views import home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
+from posthog.product_urls import ProductRootRoutes
 from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
@@ -310,6 +311,9 @@ urlpatterns = [
         HogliClientMetadataView.as_view(),
         name="hogli-client-metadata",
     ),
+    # The one slot for root routes products declare themselves, after every core route and before
+    # the API fallback and the frontend catch-all. See docs/internal/url-routing.md.
+    *ProductRootRoutes.collect(),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
