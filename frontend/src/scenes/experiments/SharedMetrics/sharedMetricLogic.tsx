@@ -225,6 +225,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         createSharedMetric: async () => {
+            if (values.metricSaving) {
+                return
+            }
+            actions.setMetricSaving(true)
             try {
                 const response = await api.create(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
@@ -243,6 +247,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
+            if (values.metricSaving) {
+                return
+            }
+            actions.setMetricSaving(true)
             try {
                 const response = await api.update(
                     `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
@@ -286,8 +294,6 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         metricSaving: [
             false,
             {
-                createSharedMetric: () => true,
-                updateSharedMetric: () => true,
                 setMetricSaving: (_, { saving }) => saving,
             },
         ],
