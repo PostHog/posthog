@@ -11,7 +11,7 @@ import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { MlKeyBatchController } from './keys/batch-controller'
-import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './keys/transport'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
@@ -252,6 +252,7 @@ export function createProduceCollectedUrlsStep<
         for (const { entry } of publishable) {
             const group = byDomain.get(entry.domain)
             const record: FrontierJob = {
+                ...(key ? { sessionId } : {}),
                 originalRef: entry.ref,
                 currentUrl: entry.url,
                 remainingHops: 10,
@@ -279,7 +280,7 @@ export function createProduceCollectedUrlsStep<
                     } satisfies CollectedUrlsMessage)
                 )
                 MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, ...encryptedKafkaValue(key, 'image-frontier', value) }
+                return { key: domain, ...mlKafkaRecord(mlWireVersion(key), value) }
             })
         )
 
