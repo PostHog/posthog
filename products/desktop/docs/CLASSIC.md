@@ -24,7 +24,9 @@ Electron uses this layout too, not injected CSS.
 Both the Desktop build and the web app changes from this PR must be deployed together.
 Use the web sidebar's resize handle or press `[` inside Classic to collapse its navigation.
 The Desktop sidebar state stays unchanged for other destinations.
-The preview stays in the selected project. Select another project in Desktop, not in the embedded web account menu.
+Desktop's native project picker controls Classic's project.
+Classic hides the web account and project pickers, including in collapsed navigation and fullscreen views.
+Selecting another project in Desktop reloads Classic for that project.
 Organization-level document routes outside `/project/<id>/` and external sign-in or popup flows are not supported in this preview.
 
 The remote page has no preload script, Node access, or desktop IPC bridge.

@@ -181,6 +181,7 @@ export function NavBar(): JSX.Element {
                 <div
                     className={cn(
                         'flex justify-between items-center',
+                        classicEmbedContext && !isLayoutNavCollapsed && 'hidden',
                         isLayoutNavCollapsed ? 'justify-center' : 'h-[var(--scene-layout-header-height)]'
                     )}
                 >
@@ -189,7 +190,7 @@ export function NavBar(): JSX.Element {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}
                     >
-                        <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                        {!classicEmbedContext && <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />}
 
                         {/* Collapsed nav has no room for the search bar, so it keeps the icon-only trigger */}
                         {isLayoutNavCollapsed && <NavSearchButton toggleCommand={toggleCommand} />}

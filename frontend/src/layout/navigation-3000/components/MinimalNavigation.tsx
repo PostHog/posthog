@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
+import { classicEmbedContext } from '../classicEmbed'
 import { navigation3000Logic } from '../navigationLogic'
 import { ZenModeButton } from './ZenModeButton'
 
@@ -42,7 +43,7 @@ export function MinimalNavigation(): JSX.Element {
             )}
             <div className="flex items-center justify-end gap-2 flex-1">
                 <ZenModeButton />
-                {(currentOrganization?.teams?.length ?? 0) > 1 ? (
+                {!classicEmbedContext && (currentOrganization?.teams?.length ?? 0) > 1 ? (
                     <ProjectMenu
                         buttonProps={{
                             size: 'lg',
@@ -50,16 +51,18 @@ export function MinimalNavigation(): JSX.Element {
                         }}
                     />
                 ) : null}
-                <AccountMenu
-                    align="end"
-                    side="bottom"
-                    alignOffset={10}
-                    trigger={
-                        <LemonButton type="tertiary" icon={<ProfilePicture user={user} size="md" />}>
-                            {user?.first_name || user?.email}
-                        </LemonButton>
-                    }
-                />
+                {!classicEmbedContext && (
+                    <AccountMenu
+                        align="end"
+                        side="bottom"
+                        alignOffset={10}
+                        trigger={
+                            <LemonButton type="tertiary" icon={<ProfilePicture user={user} size="md" />}>
+                                {user?.first_name || user?.email}
+                            </LemonButton>
+                        }
+                    />
+                )}
             </div>
         </nav>
     )
