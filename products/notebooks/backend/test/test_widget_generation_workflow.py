@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -19,7 +20,7 @@ from products.notebooks.backend.temporal.widget_generation import (
 )
 
 
-def test_generation_workflow_start_has_an_execution_timeout() -> None:
+def test_generation_workflow_start_has_an_execution_timeout_and_reuses_a_live_run() -> None:
     temporal = MagicMock()
     job_id = str(uuid.uuid4())
 
@@ -35,6 +36,7 @@ def test_generation_workflow_start_has_an_execution_timeout() -> None:
         f"notebook-widget-generate-{job_id}",
         WidgetGenerationInput(job_id=job_id, team_id=123),
         execution_timeout=timedelta(minutes=30),
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
     )
 
 

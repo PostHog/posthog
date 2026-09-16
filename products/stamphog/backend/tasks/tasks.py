@@ -421,10 +421,11 @@ def _upsert_pull_request(repo_config: StamphogRepoConfig, pr_payload: dict[str, 
 def _start_review_workflow(review_run_id: str, team_id: int) -> None:
     """Start the review workflow, treating an already-live workflow as a no-op.
 
-    The workflow id is derived from ``review_run_id`` (see temporal/client.py) under
-    ``ALLOW_DUPLICATE_FAILED_ONLY``, so re-issuing a start for a run whose workflow is
-    already running raises ``WorkflowAlreadyStartedError`` — safe to swallow. Any other
-    failure (Temporal unreachable) propagates so the caller can retry the Celery task.
+    The workflow id is derived from ``review_run_id`` (see temporal/client.py). A start
+    against a running workflow attaches to it under ``USE_EXISTING``, but a closed run
+    still re-enters ``ALLOW_DUPLICATE_FAILED_ONLY`` and raises
+    ``WorkflowAlreadyStartedError`` — safe to swallow. Any other failure (Temporal
+    unreachable) propagates so the caller can retry the Celery task.
     """
     # Function-local: this module sits on the webhook view's import path (every web boot), and the
     # startup-import-budget test's policy is that only workers and call-time paths load temporalio.
