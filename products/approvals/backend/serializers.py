@@ -4,6 +4,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
+from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
 
 
@@ -240,6 +241,13 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
+    # See experiment_policy_sync.py.
+    def validate_action_key(self, value: str) -> str:
+        if value in SYNCED_ACTION_KEYS:
+            raise serializers.ValidationError("This approval action isn't available yet.")
+        return value
 
     def validate_approver_config(self, value):
         quorum = value.get("quorum", 0)

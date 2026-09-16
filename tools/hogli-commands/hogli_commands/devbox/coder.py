@@ -1283,7 +1283,7 @@ def _start_app_param(start_app: bool | None) -> dict[str, str]:
 
 def create_workspace(
     name: str,
-    disk_size: int,
+    disk_size: int | None,
     git_name: str | None = None,
     git_email: str | None = None,
     dotfiles_uri: str | None = None,
@@ -1315,10 +1315,11 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
+    if disk_size is not None:
+        parameters[DISK_SIZE_PARAMETER] = str(disk_size)
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
     if git_email:

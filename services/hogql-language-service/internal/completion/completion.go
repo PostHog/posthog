@@ -3,16 +3,17 @@ package completion
 import (
 	"encoding/base64"
 	"fmt"
+	"iter"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
-	clickhouse "github.com/orian/clickhouse-sql-parser/parser"
-
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/analysis"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
-	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 )
@@ -46,7 +47,6 @@ var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
-var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
 var hogQLKeywords = map[string]struct{}{
 	"ALL": {}, "AND": {}, "ANTI": {}, "ANY": {}, "ARRAY": {}, "AS": {}, "ASC": {}, "ASCENDING": {}, "ASOF": {},
@@ -102,28 +102,23 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
-	bindings, parseErr := tableBindings(repaired)
-	for binding, tableName := range bindings {
-		if table, ok := schema.Table(tableName); ok {
-			bindings[binding] = table.Name
-		}
-	}
-	for binding, tableName := range fallbackBindings(repaired, schema) {
-		bindings[binding] = tableName
-	}
+	document, bindings, qualified, parseErr := cursorBindings(schema, repaired, start, qualifier)
 
 	var suggestions []Suggestion
-	if namespace, propertyPrefix, ok := propertyContext(query[:position], bindings); ok {
-		return indexedResult(schema.Properties(namespace).Prefix(propertyPrefix), "property", offset, parseErr), nil
+	namespace, propertyPrefix, propertyOK := propertyContext(query[:position], bindings)
+	if document != nil && document.LimitError() != nil {
+		return Result{}, document.LimitError()
+	}
+	if propertyOK {
+		return indexedResult(slices.Values(schema.Properties(namespace).Prefix(propertyPrefix)), "property", offset, parseErr), nil
 	} else if qualifier != "" {
-		if tableName, ok := bindings[strings.ToLower(qualifier)]; ok {
-			if table, exists := schema.Table(tableName); exists {
-				return indexedResult(table.Fields.Prefix(lowerPrefix), "field", offset, parseErr), nil
-			}
+		entries := qualified.Prefix(lowerPrefix)
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
 		}
-		return indexedResult(nil, "field", offset, parseErr), nil
+		return indexedResult(entries, "field", offset, parseErr), nil
 	} else if mode == completionModeTable {
-		return indexedResult(schema.Tables().Prefix(lowerPrefix), "table", offset, parseErr), nil
+		return indexedResult(slices.Values(schema.Tables().Prefix(lowerPrefix)), "table", offset, parseErr), nil
 	} else if mode == completionModeComparison {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 	} else if mode == completionModeBetweenSeparator {
@@ -134,15 +129,28 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else {
-		seen := map[string]bool{}
-		for _, tableName := range bindings {
-			if seen[tableName] {
+		aliases := map[string]bool{}
+		for alias := range bindings.SelectAliases(lowerPrefix) {
+			aliases[alias.Name] = true
+			suggestions = appendFields(suggestions, slices.Values([]catalog.Entry{alias}))
+		}
+		seen := map[analysis.Relation]bool{}
+		for _, relation := range bindings.All() {
+			if seen[relation] {
 				continue
 			}
-			seen[tableName] = true
-			if table, ok := schema.Table(tableName); ok {
-				suggestions = appendFields(suggestions, table, lowerPrefix)
+			seen[relation] = true
+			fields := func(yield func(catalog.Entry) bool) {
+				for field := range relation.Prefix(lowerPrefix) {
+					if !aliases[field.Name] && !yield(field) {
+						return
+					}
+				}
 			}
+			suggestions = appendFields(suggestions, fields)
+		}
+		if document != nil && document.LimitError() != nil {
+			return Result{}, document.LimitError()
 		}
 		if mode == completionModeExpression {
 			suggestions = appendFunctions(suggestions, lowerPrefix)
@@ -159,7 +167,11 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
-		return strings.ToLower(suggestions[i].Label) < strings.ToLower(suggestions[j].Label)
+		left, right := strings.ToLower(suggestions[i].Label), strings.ToLower(suggestions[j].Label)
+		if left == right {
+			return suggestions[i].Label < suggestions[j].Label
+		}
+		return left < right
 	})
 	for index := range suggestions {
 		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
@@ -179,10 +191,10 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	return result, nil
 }
 
-func indexedResult(entries []catalog.Entry, kind string, offset int, parseErr error) Result {
-	result := Result{Suggestions: make([]Suggestion, 0, min(PageSize, len(entries)))}
+func indexedResult(entries iter.Seq[catalog.Entry], kind string, offset int, parseErr error) Result {
+	result := Result{Suggestions: make([]Suggestion, 0, PageSize)}
 	rank := strconv.Itoa(suggestionRank(kind)) + "-"
-	for _, entry := range entries {
+	for entry := range entries {
 		if !supportedHogQLIdentifier(entry.Name) {
 			continue
 		}
@@ -208,20 +220,20 @@ func utf16OffsetToByteOffset(value string, offset int) int {
 	return byteOffset
 }
 
-func propertyContext(input string, bindings map[string]string) (string, string, bool) {
+func propertyContext(input string, bindings analysis.Bindings) (string, string, bool) {
 	start := len(input)
 	for start > 0 {
-		character := input[start-1]
-		if character != '.' && character != '$' && !isIdentifier(rune(character)) {
+		character, size := utf8.DecodeLastRuneInString(input[:start])
+		if character != '.' && !isIdentifier(character) {
 			break
 		}
-		start--
+		start -= size
 	}
 	parts := strings.Split(input[start:], ".")
 	if len(parts) < 2 {
 		return "", "", false
 	}
-	namespace, ok := propertyresolver.Resolve(parts, bindings)
+	namespace, ok := bindings.PropertyNamespace(parts)
 	return namespace, parts[len(parts)-1], ok
 }
 
@@ -244,25 +256,8 @@ func encodeCursor(offset int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }
 
-// The ClickHouse grammar accepts database.table while HogQL warehouse names may have more segments.
-// Keep parser-derived bindings as the primary path and fill that syntax gap until the grammar supports it.
-func fallbackBindings(query string, schema *catalog.PreparedCatalog) map[string]string {
-	bindings := map[string]string{}
-	for _, match := range tableReference.FindAllStringSubmatch(query, -1) {
-		table, ok := schema.Table(match[1])
-		if !ok {
-			continue
-		}
-		bindings[strings.ToLower(table.Name)] = table.Name
-		if match[2] != "" && !strings.EqualFold(match[2], "FINAL") {
-			bindings[strings.ToLower(match[2])] = table.Name
-		}
-	}
-	return bindings
-}
-
-func appendFields(out []Suggestion, table *catalog.PreparedTable, lowerPrefix string) []Suggestion {
-	for _, field := range table.Fields.Prefix(lowerPrefix) {
+func appendFields(out []Suggestion, fields iter.Seq[catalog.Entry]) []Suggestion {
+	for field := range fields {
 		if !supportedHogQLIdentifier(field.Name) {
 			continue
 		}
@@ -344,15 +339,23 @@ func suggestionRank(kind string) int {
 
 func cursorWord(input string) (prefix, qualifier string, start int) {
 	start = len(input)
-	for start > 0 && isIdentifier(rune(input[start-1])) {
-		start--
+	for start > 0 {
+		character, size := utf8.DecodeLastRuneInString(input[:start])
+		if !isIdentifier(character) {
+			break
+		}
+		start -= size
 	}
 	prefix = input[start:]
 	if start > 0 && input[start-1] == '.' {
 		qualifierEnd := start - 1
 		qualifierStart := qualifierEnd
-		for qualifierStart > 0 && isIdentifier(rune(input[qualifierStart-1])) {
-			qualifierStart--
+		for qualifierStart > 0 {
+			character, size := utf8.DecodeLastRuneInString(input[:qualifierStart])
+			if !isIdentifier(character) {
+				break
+			}
+			qualifierStart -= size
 		}
 		qualifier = input[qualifierStart:qualifierEnd]
 	}
@@ -365,42 +368,4 @@ func isIdentifier(r rune) bool {
 
 func hasLowerPrefix(value, lowerPrefix string) bool {
 	return strings.HasPrefix(strings.ToLower(value), lowerPrefix)
-}
-
-func tableBindings(query string) (map[string]string, error) {
-	statements, err := clickhouse.NewParser(query).ParseStmts()
-	if err != nil {
-		return map[string]string{}, fmt.Errorf("parse incomplete SQL: %w", err)
-	}
-	bindings := map[string]string{}
-	for _, statement := range statements {
-		clickhouse.Walk(statement, func(node clickhouse.Expr) bool {
-			tableExpr, ok := node.(*clickhouse.TableExpr)
-			if !ok {
-				return true
-			}
-			tableNode := tableExpr.Expr
-			var aliasName string
-			if aliased, ok := tableNode.(*clickhouse.AliasExpr); ok {
-				tableNode = aliased.Expr
-				if alias, ok := aliased.Alias.(*clickhouse.Ident); ok {
-					aliasName = alias.Name
-				}
-			}
-			identifier, ok := tableNode.(*clickhouse.TableIdentifier)
-			if !ok || identifier.Table == nil {
-				return true
-			}
-			name := identifier.Table.Name
-			if identifier.Database != nil {
-				name = identifier.Database.Name + "." + name
-			}
-			bindings[strings.ToLower(name)] = name
-			if aliasName != "" {
-				bindings[strings.ToLower(aliasName)] = name
-			}
-			return false
-		})
-	}
-	return bindings, nil
 }
