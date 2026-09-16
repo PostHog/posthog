@@ -3,7 +3,7 @@ import time
 import asyncio
 from dataclasses import field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLQuery,
     LifecycleQuery,
     PathsQuery,
+    QueryScanSummary,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -49,6 +50,12 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
+from posthog.query_scan.serve import analysis_with_prompt
+from posthog.query_scan.slot import (
+    QueryScanSlot,
+    get as get_query_scan_slot,
+)
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -65,6 +72,7 @@ from ee.hogai.context.insight.format import (
     StickinessResultsFormatter,
     TrendsResultsFormatter,
     format_access_control_warnings,
+    format_query_scan_warnings,
     format_warehouse_sync_warnings,
     get_boxplot_results,
     is_boxplot_query,
@@ -95,6 +103,9 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+# A killed run's error carries the compact scan block whole. The budget is sized for two findings
+# with the longest copy, the goal and the rules, with the ClickHouse error line above them.
+_KILLED_RUN_SUMMARY_CHARS = 3000
 
 
 @frozen
@@ -145,6 +156,8 @@ class AssistantQueryExecutor:
     """
 
     WAIT_TIME_S = 0.5
+    SCAN_POLL_INTERVAL_S = 0.5
+    SCAN_POLL_TIMEOUT_S = 5.0
 
     def __init__(
         self,
@@ -204,6 +217,11 @@ class AssistantQueryExecutor:
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
 
+            # A caller that takes the raw response never renders the findings, so waiting there would only
+            # delay the reply.
+            if isinstance(response_dict, dict):
+                await self._await_query_scan(response_dict)
+
             try:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
@@ -223,7 +241,9 @@ class AssistantQueryExecutor:
                     capture_exception(err, properties={"tag": "max_ai"})
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
-                fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+                fallback_results = self._warning_prefix(response_dict) + json.dumps(
+                    response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":")
+                )
                 fallback_elapsed = time.time() - fallback_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -464,6 +484,14 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
+            scan_block = await self._query_scan_block_for_error(err)
+            if scan_block:
+                # The failure the agent has to act on goes first, and the block after it says what
+                # to change. The summary budget covers both, where the default would cut the block
+                # before its first finding.
+                raise MaxToolRetryableError(
+                    f"{err_message}\n\n{scan_block}", summary_max_length=_KILLED_RUN_SUMMARY_CHARS
+                )
             raise MaxToolRetryableError(err_message)
         except Exception as err:
             elapsed = time.time() - start_time
@@ -492,6 +520,90 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
         return response_dict
 
+    def _query_scan_poll_flag(self, scan: dict[str, Any]) -> QueryScanFlag | None:
+        """The flag to poll this run's analysis under, or None when waiting cannot change the reply: the
+        run asked for no analysis, it already carries one, or the flag no longer shows findings. The
+        thresholds go with the read so a slot from other ratios is not served.
+        """
+        if not scan.get("analysis_requested") or scan.get("analysis") is not None:
+            return None
+        flag = get_query_scan_flag(self._team)
+        if flag is None or flag.mode != QueryScanMode.SHOW:
+            return None
+        return flag
+
+    async def _await_query_scan(self, response: dict) -> None:
+        """Wait for a slow run's analysis so its findings reach the same reply as the results. A failure
+        costs the advice, never the results.
+        """
+        try:
+            await self._fold_query_scan(response)
+        except Exception:
+            logger.warning(f"{TIMING_LOG_PREFIX} query scan poll failed", exc_info=True)
+
+    async def _fold_query_scan(self, response: dict[str, Any]) -> None:
+        """Put the stored analysis of the run behind ``response`` on it, findings included, waiting for
+        the analysis when this run enqueued it.
+        """
+        scan = response.get("query_scan")
+        cache_key = response.get("cache_key")
+        if not isinstance(scan, dict) or not isinstance(cache_key, str):
+            return
+        flag = self._query_scan_poll_flag(scan)
+        if flag is None:
+            return
+        slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
+        if slot is None or slot.analysis is None:
+            return
+        summary = QueryScanSummary.model_validate(scan)
+        summary.analysis = analysis_with_prompt(
+            slot.analysis, rows_read=summary.rows_read, duration_ms=summary.duration_ms, killed=bool(summary.killed)
+        )
+        response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    async def _poll_query_scan_slot(self, cache_key: str, thresholds: str) -> QueryScanSlot | None:
+        deadline = time.monotonic() + self.SCAN_POLL_TIMEOUT_S
+        while True:
+            # Redis, not Postgres, but it blocks the same way, so keep it off the event loop.
+            slot = await database_sync_to_async(get_query_scan_slot, thread_sensitive=True)(
+                self._team.pk, cache_key, thresholds=thresholds
+            )
+            if slot is not None and slot.analysis is not None:
+                return slot
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(self.SCAN_POLL_INTERVAL_S)
+
+    async def _query_scan_block_for_error(self, error: Exception) -> str:
+        """The scan block for a run ClickHouse stopped, from the scan the runner put on the exception. Every
+        retry dies the same way, so this reply is the only place to say what to change.
+        """
+        try:
+            scan = getattr(error, "query_scan", None)
+            cache_key = getattr(error, "cache_key", None)
+            if not isinstance(scan, dict) or not isinstance(cache_key, str):
+                return ""
+            response: dict[str, Any] = {"query_scan": dict(scan), "cache_key": cache_key}
+            await self._fold_query_scan(response)
+            return format_query_scan_warnings(response, compact=True).strip()
+        except Exception:
+            logger.warning(f"{TIMING_LOG_PREFIX} query scan block for a killed run failed", exc_info=True)
+            return ""
+
+    def _warning_prefix(self, response: dict) -> str:
+        """The blocks that go above the results, however the results are rendered. A failure costs the
+        warnings, never the results.
+        """
+        try:
+            return (
+                format_query_scan_warnings(response)
+                + format_warehouse_sync_warnings(response)
+                + format_access_control_warnings(response)
+            )
+        except Exception:
+            logger.warning(f"{TIMING_LOG_PREFIX} warning prefix failed", exc_info=True)
+            return ""
+
     async def _compress_results(
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
@@ -518,6 +630,10 @@ class AssistantQueryExecutor:
 
         if not is_supported_query(query):
             raise NotImplementedError(f"Unsupported query type: {query_type}")
+
+        # Outside the try, because the caller answers a formatter failure with raw JSON and the
+        # warnings belong above that answer too.
+        warning_prefix = self._warning_prefix(response)
 
         try:
             # Handle assistant-specific query types with direct formatting
@@ -568,10 +684,7 @@ class AssistantQueryExecutor:
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
 
-            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
-            if warning_prefix:
-                result = warning_prefix + result
-            return result
+            return warning_prefix + result if warning_prefix else result
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
