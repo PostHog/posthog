@@ -276,19 +276,16 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         loadAccount: async (_, breakpoint) => {
             try {
                 const projectId = props.projectId
-                if (!projectId || props.invalidRoute || (!props.externalId && !props.accountId)) {
+                const identifier = props.externalId ?? props.accountId
+                if (!projectId || props.invalidRoute || !identifier) {
                     actions.loadAccountFailure(null)
                     return
                 }
                 const account = props.externalId
-                    ? await accountsByExternalIdRetrieve(String(projectId), { external_id: props.externalId })
-                    : props.accountId
-                      ? await accountsRetrieve(String(projectId), props.accountId)
-                      : null
+                    ? await accountsByExternalIdRetrieve(String(projectId), { external_id: identifier })
+                    : await accountsRetrieve(String(projectId), identifier)
                 await breakpoint()
-                if (account) {
-                    actions.loadAccountSuccess(account)
-                }
+                actions.loadAccountSuccess(account)
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
