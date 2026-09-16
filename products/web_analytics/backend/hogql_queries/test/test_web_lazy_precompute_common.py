@@ -931,12 +931,23 @@ class TestStickyWarmShapes(BaseTest):
         )
         client.hset(STICKY_WARM_SHAPES_KEY, "9999:oldmark", json.dumps({"team_id": 9999, "recorded_at": aged}))
         client.hset(STICKY_WARM_SHAPES_KEY, "9999:garbage", "not json")
+        # Fresh but malformed full entries: decodable JSON whose team_id is
+        # missing or non-numeric must be pruned, never handed to the warmer —
+        # one corrupt field would otherwise fail the whole hourly warm op.
+        client.hset(
+            STICKY_WARM_SHAPES_KEY, "9999:noteam", json.dumps({"recorded_at": time.time(), "query": {"kind": "x"}})
+        )
+        client.hset(
+            STICKY_WARM_SHAPES_KEY,
+            "9999:badteam",
+            json.dumps({"team_id": "not-a-number", "recorded_at": time.time(), "query": {"kind": "x"}}),
+        )
 
         entries = get_sticky_warm_shapes()
         assert len(entries) == 1
         assert entries[0]["team_id"] == self.team.id
-        # Aged entries, aged markers, and garbage are pruned from Redis too, not
-        # just filtered from the return value.
+        # Aged entries, aged markers, garbage, and malformed entries are pruned
+        # from Redis too, not just filtered from the return value.
         assert client.hlen(STICKY_WARM_SHAPES_KEY) == 1
 
 

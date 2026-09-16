@@ -474,9 +474,13 @@ def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
 def get_sticky_warm_shapes() -> list[dict]:
     """Full sticky entries for the warmer: `[{team_id, recorded_at, query}]`.
     First-touch markers (no `query`) are skipped while fresh and pruned once
-    aged, like full entries. Pruning happens on read — the hourly warmer is the
-    single reader, so the lazy HDEL cannot race another consumer. Fails open to
-    an empty list — the warmer then runs on the demand selection alone."""
+    aged, like full entries; entries that do not decode to that shape are
+    pruned too, so one corrupt field can never fail the warm pass that
+    consumes this list. Pruning happens on read. The lazy HDEL can race a
+    concurrent writer: a second miss may upgrade an aged marker between the
+    HGETALL and the HDEL, deleting the fresh entry — bounded loss, the shape
+    re-earns stickiness on its next two misses. Fails open to an empty list —
+    the warmer then runs on the demand selection alone."""
     try:
         raw = redis.get_client().hgetall(STICKY_WARM_SHAPES_KEY)
     except Exception:
@@ -492,6 +496,9 @@ def get_sticky_warm_shapes() -> list[dict]:
                 dead_fields.append(hash_field)
                 continue
             if "query" in entry:
+                # A missing or non-numeric team_id raises here, routing the
+                # entry into the prune below instead of into the warmer.
+                entry["team_id"] = int(entry["team_id"])
                 entries.append(entry)
         except Exception:
             dead_fields.append(hash_field)
