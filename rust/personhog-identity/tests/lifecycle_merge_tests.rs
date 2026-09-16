@@ -49,7 +49,7 @@ impl MergeHarness {
     async fn new_with_tables(tables: personhog_identity::config::IdentityTables) -> Self {
         let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
-        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
         let driver = MergeDriver::new(
             leader.clone(),
             ctx.tables.clone(),
@@ -132,23 +132,25 @@ impl MergeHarness {
     /// A mark row held by a different (still-live) op.
     async fn foreign_mark(&self, person_id: i64) -> Uuid {
         let foreign_op = Uuid::now_v7();
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
-            VALUES ($1, 'delete', $2, 'marked', '{}'::jsonb)
+            INSERT INTO {} (op_id, op_type, team_id, step, request)
+            VALUES ($1, 'delete', $2, 'marked', '{{}}'::jsonb)
             "#,
-        )
+            self.ctx.tables.lifecycle_op
+        ))
         .bind(foreign_op)
         .bind(self.ctx.team_id as i32)
         .execute(&self.ctx.pool)
         .await
         .expect("insert foreign op");
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status)
+            INSERT INTO {} (op_id, team_id, person_id, person_uuid, role, status)
             VALUES ($1, $2, $3, $4, 'victim', 'marked')
             "#,
-        )
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(foreign_op)
         .bind(self.ctx.team_id as i32)
         .bind(person_id)
@@ -192,9 +194,10 @@ impl MergeHarness {
     }
 
     async fn op_person_status(&self, op_id: Uuid, person_id: i64) -> String {
-        sqlx::query_scalar(
-            "SELECT status FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT status FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -205,9 +208,10 @@ impl MergeHarness {
     /// The `sealed` payload of an op's per-person row (the fence snapshot
     /// for sources, the folded survivor for the target).
     async fn op_person_sealed(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
-        sqlx::query_scalar(
-            "SELECT sealed FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT sealed FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -218,9 +222,10 @@ impl MergeHarness {
     /// The `moved` payload of an op's per-person row (the repointed
     /// mappings for sources, the claim record for the target).
     async fn op_person_moved(&self, op_id: Uuid, person_id: i64) -> Option<serde_json::Value> {
-        sqlx::query_scalar(
-            "SELECT moved FROM lifecycle_op_person WHERE op_id = $1 AND person_id = $2",
-        )
+        sqlx::query_scalar(&format!(
+            "SELECT moved FROM {} WHERE op_id = $1 AND person_id = $2",
+            self.ctx.tables.lifecycle_op_person
+        ))
         .bind(op_id)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -1024,7 +1029,7 @@ async fn a_stale_drivers_fold_refusal_defers_instead_of_unfencing_the_new_owners
     // could land and be destroyed. The stale drive defers to the row.
     let err = h
         .driver
-        .run_step(&h.ctx.pool, &stale_row)
+        .run_step(&h.ctx.pools, &stale_row)
         .await
         .expect_err("the stale drive defers rather than settling");
     assert!(matches!(err, SagaError::Busy));
@@ -1086,7 +1091,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
     .expect("insert parked op");
 
     let sweep_engine = Engine::new(
-        h.ctx.pool.clone(),
+        h.ctx.pools.clone(),
         personhog_identity::lifecycle::engine::EngineConfig {
             lease: std::time::Duration::from_secs(3600),
             execute_timeout: std::time::Duration::from_secs(10),
@@ -1094,6 +1099,7 @@ async fn the_sweeper_drives_an_abandoned_merge_to_completion() {
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        h.ctx.tables.clone(),
     );
     let resumed = sweep_engine.sweep(&[&h.driver]).await.expect("sweep runs");
     assert!(resumed >= 1, "the abandoned merge was resumed");

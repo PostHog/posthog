@@ -183,18 +183,6 @@ async def check_managed_warehouse_shadow_eligibility_activity(
     return await _check_managed_warehouse_shadow_eligibility(inputs)
 
 
-@activity.defn
-async def check_duckgres_shadow_enabled_activity(team_id: int) -> bool:
-    """Replay the activity type recorded by workflows started before the naming patch."""
-    return await _check_managed_warehouse_shadow_enabled_activity(team_id)
-
-
-@activity.defn
-async def check_duckgres_shadow_eligibility_activity(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
-    """Replay the activity type recorded by workflows started before the naming patch."""
-    return await check_managed_warehouse_shadow_eligibility_activity(inputs)
-
-
 @database_sync_to_async_pool
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
@@ -326,12 +314,4 @@ async def _materialize_view_managed_warehouse(
 async def materialize_view_managed_warehouse_activity(
     inputs: ManagedWarehouseShadowInputs,
 ) -> ManagedWarehouseShadowResult:
-    return await _materialize_view_managed_warehouse(inputs)
-
-
-@activity.defn
-async def materialize_view_duckgres_activity(
-    inputs: ManagedWarehouseShadowInputs,
-) -> ManagedWarehouseShadowResult:
-    """Replay the activity type recorded by workflows started before the naming patch."""
     return await _materialize_view_managed_warehouse(inputs)

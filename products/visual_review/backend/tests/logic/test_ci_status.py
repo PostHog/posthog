@@ -143,7 +143,7 @@ class TestCommitStatusChecks:
         run.refresh_from_db()
         assert run.metadata["github_comment_id"] is not None
 
-    def test_subsequent_run_updates_existing_comment(self, github_repo, mock_github_api):
+    def test_subsequent_run_posts_a_new_comment(self, github_repo, mock_github_api):
         github_repo.enable_pr_comments = True
         github_repo.save(update_fields=["enable_pr_comments"])
 
@@ -175,11 +175,13 @@ class TestCommitStatusChecks:
         )
         runs.finish_processing(run2.id)
 
+        # A silent edit of the first comment gives reviewers no cue that new changes
+        # arrived, so the second run deletes it and posts its prompt at the bottom.
         created = [c for c in mock_github_api.issue_comments if c["action"] == "created"]
-        updated = [c for c in mock_github_api.issue_comments if c["action"] == "updated"]
-        assert len(created) == 1
-        assert len(updated) == 1
-        assert f"/visual_review/runs/{run2.id}" in updated[0]["body"]
+        deleted = [c for c in mock_github_api.issue_comments if c["action"] == "deleted"]
+        assert len(created) == 2
+        assert [c["id"] for c in deleted] == [created[0]["id"]]
+        assert f"/visual_review/runs/{run2.id}" in created[1]["body"]
 
     def test_complete_run_does_not_comment_twice_on_retry(self, github_repo, mock_github_api):
         github_repo.enable_pr_comments = True

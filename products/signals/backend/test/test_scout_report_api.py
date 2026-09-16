@@ -56,6 +56,7 @@ CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganaly
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
 CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
+SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_scout_report_repository"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
@@ -753,7 +754,7 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
-        receiver_embed = "products.signals.backend.receivers.emit_report_embedding"
+        receiver_embed = "products.signals.backend.receivers.emit_report_embeddings"
         receiver_tombstone = "products.signals.backend.receivers.emit_report_tombstone"
         with (
             _safe_judge(),
@@ -779,7 +780,10 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert full.status_code == status.HTTP_200_OK, full.json()
         assert (tombstone.call_count, embed.call_count) == (0, 1)
-        assert embed.call_args.kwargs["content"] == "full rewrite\n\njudged alongside the title"
+        assert embed.call_args.kwargs["documents"] == {
+            "title_summary_v1": "full rewrite\n\njudged alongside the title",
+            "title_v1": "full rewrite",
+        }
 
     def test_edit_core_rechecks_stale_run_status(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -1060,6 +1064,9 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["repository_set"] is True
+        # Read back from the report, not echoed from the request: a correction the caller believes
+        # landed but that the report never took leaves it routed at the wrong codebase.
+        assert response.json()["repository"] == "acme/gadgets"
         selection = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION)
         assert selection is not None
         content = json.loads(selection.content)
@@ -1086,9 +1093,59 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["repository_set"] is True
+        assert response.json()["repository"] is None
         selection = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
         assert selection is not None
         assert json.loads(selection.content)["repository"] is None
+
+    def test_edit_report_fails_when_the_repository_does_not_stick(self) -> None:
+        # A write that reports success without moving the report is the failure this read-back exists
+        # for: the scout takes the report as corrected, while every later run still works the old
+        # codebase. The call fails instead, and autostart never runs for a target the report rejected.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(repository="acme/widgets"), format="json"
+            ).json()
+        with (
+            _safe_judge(),
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+            patch(SET_REPOSITORY_PATH, return_value=True),
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "repository": "acme/gadgets"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        autostart.assert_not_awaited()
+        selection = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert selection is not None
+        assert json.loads(selection.content)["repository"] == "acme/widgets"
+
+    def test_edit_report_rejects_a_field_this_backend_does_not_know(self) -> None:
+        # The tool definition a scout reads and this endpoint ship separately, so a scout can name a
+        # field a running backend has yet to learn. Dropping it silently would apply the rest of the
+        # edit and report success, which is how a correction disappears without anyone seeing it.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(repository="acme/widgets"), format="json"
+            ).json()
+        with _safe_judge() as judge:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "append_note": "the fix belongs in the gadgets service",
+                    "repo": "acme/gadgets",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        judge.assert_not_awaited()
+        note = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.NOTE)
+        assert note is None or "gadgets service" not in note.content
 
     @parameterized.expand(
         [

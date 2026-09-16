@@ -841,6 +841,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         dropped_duplicate_cards: response.dropped_duplicate_cards,
                         used_exposure_fallback: response.used_exposure_fallback,
                         duration_ms: Math.round(performance.now() - startedAt),
+                        compared_persons: response.variants.reduce((total, variant) => total + variant.persons, 0),
+                        // The same floor the shelves apply, so a reported count of one matches the
+                        // one-sided copy the viewer saw.
+                        compared_variants: response.variants.filter(
+                            (variant) => variant.persons >= response.min_variant_persons
+                        ).length,
+                        compared_enrollment_hours: dayjs(response.date_to).diff(
+                            dayjs(response.date_from),
+                            'hour',
+                            true
+                        ),
+                        sessions_truncated: response.sessions_truncated,
+                        events_truncated: response.events_truncated,
                     })
                     return response
                 },

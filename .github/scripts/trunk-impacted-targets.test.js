@@ -1039,6 +1039,7 @@ test('editor and agent configuration shares one lane', () => {
         '.trunk/trunk.yaml',
         '.trunk/.gitignore',
         // The same class of file, one per root path rather than one per tree.
+        '.coderabbit.yaml',
         '.cursorignore',
         '.editorconfig',
         '.gitattributes',

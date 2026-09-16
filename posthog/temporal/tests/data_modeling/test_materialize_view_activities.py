@@ -46,7 +46,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
     ManagedWarehouseShadowInputs,
-    materialize_view_duckgres_activity,
+    materialize_view_managed_warehouse_activity,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
@@ -100,9 +100,7 @@ async def _make_job(
 
 
 class TestMaterializeViewManagedWarehouseActivity:
-    async def test_legacy_activity_records_failure_against_the_job_engine(
-        self, activity_environment, ateam, anode, ajob, adag
-    ):
+    async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
         ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
         await database_sync_to_async(ajob.save)(update_fields=["engine"])
         inputs = ManagedWarehouseShadowInputs(
@@ -124,7 +122,7 @@ class TestMaterializeViewManagedWarehouseActivity:
                 return_value=False,
             ) as mock_maybe_suspend,
         ):
-            await activity_environment.run(materialize_view_duckgres_activity, inputs)
+            await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
 
         mock_maybe_suspend.assert_awaited_once()
         assert mock_maybe_suspend.await_args is not None
@@ -522,8 +520,7 @@ class TestQualityBlockMaterializationActivity:
 
 
 class TestNodeSuspension:
-    @pytest.mark.parametrize("enforced", [True, False])
-    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag, enforced):
+    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -537,25 +534,22 @@ class TestNodeSuspension:
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
         jobs.append(job)
 
-        with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.utils.is_suspension_enforced", return_value=enforced
-        ):
-            suspended = await maybe_suspend_node_for_engine(
-                node_id=str(anode.id),
-                team_id=ateam.pk,
-                dag_id=str(adag.id),
-                saved_query_id=asaved_query.id,
-                engine=DataModelingJobEngine.CLICKHOUSE,
-                reason="boom",
-                job_id=str(job.id),
-            )
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason="boom",
+            job_id=str(job.id),
+        )
 
         assert suspended is True
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
         assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         await database_sync_to_async(job.refresh_from_db)()
-        assert ("has been suspended" in job.error) is enforced
+        assert "has been suspended" in job.error
 
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for j in jobs:
@@ -566,6 +560,7 @@ class TestNodeSuspension:
         [
             "Code: 202. DB::Exception: Too many simultaneous queries",
             "Cannot connect to host ch-offline.example.com:8443",
+            'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
@@ -602,7 +597,7 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):
@@ -1175,13 +1170,21 @@ class TestPrepareQueryableTableActivity:
             assert warehouse_table.row_count == 250
         await database_sync_to_async(warehouse_table.delete)()
 
-    async def test_retypes_view_node_to_matview_once_a_table_is_linked(
-        self, activity_environment, ateam, asaved_query, anode, ajob
+    @pytest.mark.parametrize(
+        "is_materialized,expected_type",
+        [(True, NodeType.MAT_VIEW), (False, NodeType.VIEW)],
+    )
+    async def test_linking_a_table_retypes_the_node_only_while_the_query_asks_to_materialize(
+        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type
     ):
-        # revert_materialization leaves the node typed VIEW; every scheduled DAG run then treats
-        # it as ephemeral and skips materialization without recording a job.
+        # A node left typed VIEW is treated as ephemeral by every scheduled DAG run, which skips
+        # materialization without recording a job. Linking a table is where that gets repaired —
+        # unless the query was reverted mid-run, where retyping would resurrect a materialization
+        # the customer just turned off.
         anode.type = NodeType.VIEW
         await database_sync_to_async(anode.save)()
+        asaved_query.is_materialized = is_materialized
+        await database_sync_to_async(asaved_query.save)()
 
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
@@ -1211,7 +1214,7 @@ class TestPrepareQueryableTableActivity:
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
-        assert anode.type == NodeType.MAT_VIEW
+        assert anode.type == expected_type
         await database_sync_to_async(warehouse_table.delete)()
 
 

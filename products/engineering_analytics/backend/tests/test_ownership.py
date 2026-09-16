@@ -32,6 +32,7 @@ teams:
 
 _OWNERS = {
     "owners.yaml": _ROOT_OWNERS,
+    "services/mcp/tests/owners.yaml": "version: 1\nowners: [mcp-analytics]\n",
     "nodejs/src/owners.yaml": "version: 1\nowners: [team-ingestion]\n",
     "frontend/src/scenes/owners.yaml": "version: 1\nowners: [team-product-analytics]\n",
     "rust/owners.yaml": "version: 1\nowners: [team-rust]\n",
@@ -39,6 +40,7 @@ _OWNERS = {
 }
 
 _TRACKED = {
+    "services/mcp/tests/tools/projects.integration.test.ts",
     "nodejs/src/cdp/cdp-e2e.serial.test.ts",
     "frontend/src/scenes/insights/SQLBoxPlot.stories.tsx",
     "products/product_analytics/backend/tests/test_insight.py",
@@ -76,6 +78,12 @@ def _placements(files: _FakeRepoFiles) -> list[PlacedTest]:
 class TestRepoOwnership(SimpleTestCase):
     @parameterized.expand(
         [
+            (
+                "tests/tools/projects.integration.test.ts",
+                "",
+                "services/mcp/tests/tools/projects.integration.test.ts",
+                "mcp-analytics",
+            ),
             # nodejs and frontend suites both report 'src/...', so placing by the reported path
             # alone hands one team's test to the other.
             ("src/cdp/cdp-e2e.serial.test.ts", "", "nodejs/src/cdp/cdp-e2e.serial.test.ts", "team-ingestion"),

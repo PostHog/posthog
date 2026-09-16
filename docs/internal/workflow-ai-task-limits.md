@@ -7,7 +7,9 @@ Workflow-created AI tasks have two rolling 24-hour limits:
 
 These defaults prevent a broadly matching event trigger from sustaining unbounded agent runs. The project-wide limit also prevents multiple workflows from multiplying the per-workflow allowance.
 
-Staff can override either limit for a project in Django admin under **Team workflows configs**. Leave a value blank to use the default. Set it to zero to pause new workflow-created tasks at that scope.
+A project admin sets either limit in **Settings → Workflows → AI task limits**, up to 5x the default: 500 per workflow and 2,500 per project. Leave a value blank to use the default. Set it to zero to pause new workflow-created tasks at that scope.
+
+Staff raise a project past those ceilings in Django admin under **Team workflows configs**, which does not use the API serializer that holds them.
 
 When a limit blocks task creation, the Create AI task step records the API reason as an error. The workflow then follows the step's `on_error` configuration.
 
@@ -18,7 +20,7 @@ Keep both limits enabled when raising capacity. Set the per-workflow limit for t
 A workflow run pauses at an AI task step or a scout step until the run it started reaches a terminal status.
 After success, the next step sees the dispatch IDs, `status: completed`, and a capped `final_message` (tasks) or `summary` (scouts). The result also includes `pr_urls` when present.
 A failed or cancelled run fails the step. The step's `on_error` setting decides whether the workflow continues.
-With `on_error: continue`, the dispatch IDs remain available. The failed step does not store the terminal status, message, or `error_message` in its result.
+With `on_error: continue`, the next step sees the dispatch IDs, the terminal `status`, and `error_message`, so a condition step can route a failed run to a notification.
 
 ### Fields the agent returns
 
