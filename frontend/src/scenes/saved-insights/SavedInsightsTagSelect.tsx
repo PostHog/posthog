@@ -21,6 +21,7 @@ export function SavedInsightsTagSelect({
     const { tagPageError, tagPageLoading, tagResults, tagSearch } = useValues(logic)
     const { loadMoreTagResults, retryTagResults, setTagPopoverOpen, setTagSearch } = useActions(logic)
     const tagListScrollRef = useScrollObserver({ onScrollBottom: loadMoreTagResults })
+    const displayedTags = Array.from(new Set([...value, ...tagResults]))
 
     const handleTagToggle = (tag: string): void => {
         const selected = new Set(value)
@@ -55,7 +56,7 @@ export function SavedInsightsTagSelect({
                         data-attr="saved-insights-tags-list"
                     >
                         <ul className="deprecated-space-y-px">
-                            {tagResults.map((tag) => (
+                            {displayedTags.map((tag) => (
                                 <li key={tag}>
                                     <LemonButton
                                         fullWidth
@@ -84,7 +85,13 @@ export function SavedInsightsTagSelect({
                         </ul>
                     </div>
                     {tagPageError && (
-                        <LemonButton fullWidth size="small" type="secondary" onClick={retryTagResults}>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            type="secondary"
+                            loading={tagPageLoading}
+                            onClick={retryTagResults}
+                        >
                             Couldn't load tags. Try again.
                         </LemonButton>
                     )}
