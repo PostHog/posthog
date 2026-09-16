@@ -1099,7 +1099,7 @@ jobs:
               shell: bash
               run: |
                   script=.github/scripts/trunk-codeowners.sh
-                  if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners"; fi
+                  if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners" "playwright/junit-results.xml"; fi
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
             # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only

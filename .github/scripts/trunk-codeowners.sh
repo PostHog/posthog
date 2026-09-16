@@ -10,14 +10,33 @@
 set -uo pipefail
 
 output_dir="${1:-}"
+junit_paths="${2:-}"
 if [ -z "$output_dir" ]; then
-    echo "usage: $0 OUTPUT_DIR" >&2
+    echo "usage: $0 OUTPUT_DIR [JUNIT_PATHS]" >&2
     exit 0
 fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # The file has to carry this name: the uploader takes a directory and looks for CODEOWNERS in it.
 target="$output_dir/CODEOWNERS"
+
+# Trunk reads the owner off the file attribute, so a report without one cannot be attributed however
+# good the map is. cargo-nextest, playwright and vitest all write the path as `classname` instead,
+# which Trunk does not read. Those suites skip the work rather than pay for a map nothing consults.
+reports_carry_a_file_attribute() {
+    [ -n "$junit_paths" ] || return 0
+    local patterns report
+    IFS=',' read -r -a patterns <<<"$junit_paths"
+    for pattern in "${patterns[@]}"; do
+        for report in $pattern; do
+            [ -f "$report" ] || continue
+            if grep -qE '<test(case|suite)[^>]*[[:space:]]file(path)?="' "$report"; then
+                return 0
+            fi
+        done
+    done
+    return 1
+}
 
 generate() {
     # uv first, because CI images carry uv more often than a python with pyyaml, and --no-project
@@ -35,6 +54,11 @@ fall_back() {
     echo "::notice::$1; Trunk falls back to .github/CODEOWNERS for test ownership"
     exit 0
 }
+
+if ! reports_carry_a_file_attribute; then
+    echo "No JUnit report carries a file attribute, so Trunk cannot attribute these tests; skipping the ownership map"
+    exit 0
+fi
 
 mkdir -p "$output_dir" || fall_back "Could not create $output_dir"
 
