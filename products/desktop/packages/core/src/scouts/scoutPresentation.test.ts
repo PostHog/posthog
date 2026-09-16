@@ -33,7 +33,6 @@ import {
   scoutCreatorDisplayName,
   scoutCreatorKey,
   scoutCronScheduleError,
-  scoutDisplayName,
   scoutRunOutcomeLabel,
   scoutScheduleNamesClockTime,
   sortConfigsForDisplay,
@@ -84,20 +83,6 @@ describe("naming", () => {
     );
     expect(prettifyScoutSkillName("custom_thing")).toBe("Custom thing");
   });
-
-  // The acronym cases are why the label exists: the derived fallback reads "Apm", and a scout
-  // that states its own name must never fall back to it.
-  it.each<[string, string | undefined, string]>([
-    ["signals-scout-apm", "APM", "APM"],
-    ["signals-scout-apm", undefined, "Apm"],
-    ["signals-scout-apm", "", "Apm"],
-    ["signals-scout-apm", "   ", "Apm"],
-  ])(
-    "names %s with display_name %p as %s",
-    (skill_name, display_name, expected) => {
-      expect(scoutDisplayName({ skill_name, display_name })).toBe(expected);
-    },
-  );
 
   it.each<[string, string[], string]>([
     [

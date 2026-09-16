@@ -2,8 +2,8 @@ import type { ScoutDetailTab } from "@posthog/core/scouts/scoutDetailTabs";
 import {
   computeScoutRollups,
   getScoutOrigin,
+  prettifyScoutSkillName,
   resolveScoutRouteName,
-  scoutDisplayName,
 } from "@posthog/core/scouts/scoutPresentation";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAgentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
@@ -39,6 +39,7 @@ export function ScoutDetailView({
     isError: configsError,
   } = configsQuery;
   const skillName = resolveScoutRouteName(routeName, configs);
+  const displayName = prettifyScoutSkillName(skillName);
   const runsQuery = useScoutRuns(skillName);
   const {
     data: runsWindow,
@@ -50,9 +51,6 @@ export function ScoutDetailView({
   const { updateConfig } = useScoutConfigMutations();
 
   const config = configs?.find((entry) => entry.skill_name === skillName);
-  // Before the configs land there is no display name to read, so the route slug carries the
-  // heading until it does.
-  const displayName = scoutDisplayName(config ?? { skill_name: skillName });
   const scoutRuns = useMemo(
     () =>
       (runsWindow?.runs ?? []).filter((run) => run.skill_name === skillName),

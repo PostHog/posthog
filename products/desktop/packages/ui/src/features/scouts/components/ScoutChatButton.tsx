@@ -1,11 +1,11 @@
 import { SparkleIcon } from "@phosphor-icons/react";
+import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { buildScoutCheckinPrompt } from "@posthog/core/scouts/scoutPrompts";
 import { Button } from "@posthog/quill";
 import type { ScoutSurface } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useMemo } from "react";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
-import { useScoutDisplayName } from "../hooks/useScoutDisplayName";
 
 /**
  * One-click check-in on a scout: creates an auto-mode cloud task that asks
@@ -20,10 +20,9 @@ export function ScoutChatButton({
   surface: ScoutSurface;
   label?: string;
 }) {
-  const displayName = useScoutDisplayName(skillName);
   const prompt = useMemo(
-    () => buildScoutCheckinPrompt(skillName, displayName),
-    [skillName, displayName],
+    () => buildScoutCheckinPrompt(skillName, prettifyScoutSkillName(skillName)),
+    [skillName],
   );
   const { runTask, isRunning } = useScoutChatTask({
     prompt,
