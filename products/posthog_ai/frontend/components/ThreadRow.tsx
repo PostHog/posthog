@@ -4,46 +4,19 @@ import { IconWrench } from '@posthog/icons'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
-import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
-
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
-import { resolveToolCall } from '../utils/toolResolver'
+import { toolInvocationToMessage } from '../utils/toolCallMessage'
 import { Activity } from './ActivityPrimitives'
 import { RunErrorRow } from './RunErrorRow'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
 
 type ToolInvocations = typeof runStreamLogic.values.toolInvocations
-
-/** Maps a raw merged `ToolInvocation` into the flat `ToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(invocation: ReturnType<ToolInvocations['get']>): ToolCallMessage | null {
-    if (!invocation) {
-        return null
-    }
-    const resolved = resolveToolCall(invocation)
-    return {
-        id: invocation.toolCallId,
-        resolvedKey: resolved.resolvedKey,
-        rawServerName: invocation.rawServerName,
-        rawToolName: invocation.rawToolName,
-        innerToolName: resolved.innerToolName,
-        claudeToolName: resolved.claudeToolName,
-        rawInput: invocation.input,
-        innerInput: resolved.innerInput,
-        rawOutput: invocation.output,
-        content: invocation.contentBlocks,
-        status: invocation.status,
-        title: invocation.title,
-        kind: invocation.kind,
-        locations: invocation.locations,
-        error: invocation.error,
-    }
-}
 
 function progressStepText(step: ProgressStep): string {
     return step.detail ? `${step.label}\n\n${step.detail}` : step.label

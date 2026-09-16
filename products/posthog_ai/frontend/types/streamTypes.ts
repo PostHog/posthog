@@ -272,13 +272,29 @@ export interface ScoutSuggestionDraft {
     cadence: ScoutSuggestionCadence
 }
 
-/** A validated `_posthog/turn_suggestion` frame, keyed to the completed turn it belongs to. */
-export interface TurnSuggestion {
+/** The notebook the classifier proposed for a diagnostic turn: the saved conversation's title and lead. */
+export interface NotebookSuggestionDraft {
+    title: string
+    summary: string
+}
+
+interface TurnSuggestionBase {
     turnIndex: number
-    kind: 'scout'
     intent: string
     confidence: number
     title: string
     description: string
+}
+
+export interface ScoutTurnSuggestion extends TurnSuggestionBase {
+    kind: 'scout'
     scout: ScoutSuggestionDraft
 }
+
+export interface NotebookTurnSuggestion extends TurnSuggestionBase {
+    kind: 'notebook'
+    notebook: NotebookSuggestionDraft
+}
+
+/** A validated `_posthog/turn_suggestion` frame, keyed to the completed turn it belongs to. */
+export type TurnSuggestion = ScoutTurnSuggestion | NotebookTurnSuggestion

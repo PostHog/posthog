@@ -424,6 +424,10 @@ export interface PosthogTurnSuggestionParams {
         body?: string
         cadence?: string
     }
+    notebook?: {
+        title?: string
+        summary?: string
+    }
 }
 
 export interface PosthogNotificationParamsByMethod {

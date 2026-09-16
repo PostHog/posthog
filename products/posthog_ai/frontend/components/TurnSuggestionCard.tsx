@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
+import { NotebookSuggestionCard } from './NotebookSuggestionCard'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
 
 /** Time between the turn's end and the card appearing, so the answer lands before the offer does. */
@@ -18,7 +19,8 @@ export interface TurnSuggestionCardProps {
 
 /**
  * Per-turn slot for the server-classified suggestion. Renders nothing until the classifier has
- * published one for this turn, the turn is the latest, and the reveal delay has passed.
+ * published one for this turn, the turn is the latest, and the reveal delay has passed; then picks
+ * the card for the suggestion's kind.
  */
 export function TurnSuggestionCard({
     streamKey,
@@ -44,7 +46,11 @@ export function TurnSuggestionCard({
     }
     return (
         <div className="animate-fade-in [animation-duration:600ms] motion-reduce:animate-none">
-            <ScoutSuggestionCard streamKey={streamKey} turnIndex={turnIndex} sessionId={sessionId} />
+            {suggestion.kind === 'scout' ? (
+                <ScoutSuggestionCard streamKey={streamKey} turnIndex={turnIndex} sessionId={sessionId} />
+            ) : (
+                <NotebookSuggestionCard streamKey={streamKey} turnIndex={turnIndex} sessionId={sessionId} />
+            )}
         </div>
     )
 }

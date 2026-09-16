@@ -17,7 +17,8 @@ const validParams = {
 
 describe('turnSuggestions', () => {
     test.each([
-        ['a non-scout kind', { ...validParams, kind: 'notebook' }],
+        ['an unknown kind', { ...validParams, kind: 'dashboard' }],
+        ['a notebook without a title', { ...validParams, kind: 'notebook', notebook: { title: ' ', summary: 'x' } }],
         ['a missing turn index', { ...validParams, turnIndex: undefined }],
         ['an empty scout prompt', { ...validParams, scout: { ...validParams.scout, body: '   ' } }],
         ['an unknown cadence', { ...validParams, scout: { ...validParams.scout, cadence: 'hourly' } }],
@@ -38,8 +39,33 @@ describe('turnSuggestions', () => {
         })
     })
 
+    it('parseTurnSuggestionParams keeps a notebook suggestion with its drafted title', () => {
+        expect(
+            parseTurnSuggestionParams({
+                turnIndex: 0,
+                kind: 'notebook',
+                intent: 'diagnostic',
+                confidence: 0.8,
+                title: 'Save this investigation to a notebook',
+                description: 'Keep the queries and findings together.',
+                notebook: { title: 'Why signups dropped on Tuesday', summary: 'A checkout error was the cause.' },
+            })
+        ).toEqual({
+            turnIndex: 0,
+            kind: 'notebook',
+            intent: 'diagnostic',
+            confidence: 0.8,
+            title: 'Save this investigation to a notebook',
+            description: 'Keep the queries and findings together.',
+            notebook: { title: 'Why signups dropped on Tuesday', summary: 'A checkout error was the cause.' },
+        })
+    })
+
     it('buildScoutCreatePayload maps the cadence to a cron and the channel to a Slack destination', () => {
-        const suggestion = parseTurnSuggestionParams(validParams)!
+        const suggestion = parseTurnSuggestionParams(validParams)
+        if (suggestion?.kind !== 'scout') {
+            throw new Error('expected a scout suggestion')
+        }
 
         expect(
             buildScoutCreatePayload({
