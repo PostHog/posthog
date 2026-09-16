@@ -175,7 +175,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 }}
                 dataAttrKey={RESOURCE_TYPE}
                 disabledReasons={{
-                    'You must save the insight first before sharing it as a template': !isSavedInsight,
+                    'You must save the insight first before sharing it': !isSavedInsight,
                     ...(sharingDisabledReason ? { [sharingDisabledReason]: true } : {}),
                 }}
             />
