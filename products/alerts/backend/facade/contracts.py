@@ -29,6 +29,51 @@ class AlertDemand:
     configuration_ids_by_source: dict[SourceKind, list[str]]
 
 
+@frozen
+class SourceDispatchInputs:
+    """Everything the tick knows about one source. The dispatcher decides how much of it to take."""
+
+    tick_id: str
+    source: SourceKind
+    page: int
+    configuration_ids: list[str]
+
+
+@frozen
+class SourceDispatchReport:
+    source: SourceKind
+    page: int
+    dispatched: int
+    remaining_ids: list[str]
+    evaluation_workflow_id: str | None
+
+
+@frozen
+class TickPage:
+    page: int
+    run_id: str
+    dispatched: int
+    remaining: int
+
+
+@frozen
+class OrchestrateInputs:
+    """Empty on the first run. A continued run carries the tick's cutoff, deadline, demand and pages."""
+
+    cutoff: str | None = None
+    deadline: str | None = None
+    page: int = 0
+    demand: dict[SourceKind, list[str]] | None = None
+    pages: list[TickPage] | None = None
+
+
+@frozen
+class OrchestrateResult:
+    pages: list[TickPage]
+    remaining: int
+    deadline_reached: bool
+
+
 class DestinationType(StrEnum):
     SLACK = "slack"
     DISCORD = "discord"

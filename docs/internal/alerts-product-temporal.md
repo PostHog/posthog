@@ -10,8 +10,9 @@ The Alerts product registers three queues through `products/alerts/backend/facad
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
 Shared orchestration registers the orchestration workflow and a synthetic demand-discovery activity.
-Each schedule tick starts orchestration, which discovers demand before awaiting an evaluation child on the evaluation queue.
-Evaluation runs the probe and starts its independent delivery child on the delivery queue.
+The evaluation queue registers the source dispatcher, the evaluation workflow (`alerts-product-check-due`) and the probe activity.
+Each schedule tick starts orchestration, which discovers demand once and then pages source dispatchers until the demand is exhausted or its dispatch budget is spent.
+Each dispatcher starts one evaluation child for its source. Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
 
 ```bash
@@ -82,9 +83,9 @@ docker exec posthog-temporal-admin-tools-1 \
 The empty `--input '{}'` becomes the empty `AlertsProductInputs`.
 Watch orchestration, its evaluation child, and the delivery grandchild in the Temporal UI at <http://localhost:8081>.
 
-All three workflows accept an empty `AlertsProductInputs` dataclass.
-Orchestration awaits one evaluation child, with a 40-second execution timeout and one workflow attempt.
-The evaluation child ID includes the orchestration run ID, so each tick starts a distinct evaluation.
+Evaluation and delivery accept an empty `AlertsProductInputs` dataclass; orchestration accepts `OrchestrateInputs` with all fields defaulted.
+Orchestration pages source dispatchers, which start evaluation children with a 40-second execution timeout and one workflow attempt.
+Evaluation child IDs carry the tick ID, source and page, so each tick starts distinct evaluations.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
 Evaluation has one attempt; delivery retains at most three attempts.
@@ -93,6 +94,31 @@ The child ID includes the evaluation run ID, so repeated runs of the same evalua
 `ParentClosePolicy.ABANDON` lets delivery continue after evaluation closes.
 Delivery has a one-minute execution timeout for the noop.
 Real notification delivery guarantees remain undecided.
+
+## Tick loop and source dispatchers
+
+One tick is one `alerts-product-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
+The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
+Discovery runs once per tick. The loop then starts one `alerts-product-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the evaluation queue.
+Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
+Each dispatcher has a 30-second execution timeout and one attempt.
+
+The orchestrator passes a dispatcher every remaining ID for its source. The dispatcher decides how much to take and returns the rest.
+Today it takes everything: no adapter has said yet how many alerts one evaluation can hold, so nothing remains and a tick is one page.
+The limit that will matter is the evaluation workflow's own history, which depends on the adapter's query shape; it arrives with the first real adapter.
+It starts one `alerts-product-check-due` child, ID `{dispatcher_id}-eval`, with `ParentClosePolicy.ABANDON`, a 40-second execution timeout and one attempt.
+It waits for the child to start, never for it to finish, then returns the dispatched count and the remaining IDs.
+Members are not passed to evaluation yet: evaluation keeps the probe path until claims exist.
+
+After every page the orchestrator records a `TickPage` (page, run ID, dispatched, remaining).
+When nothing remains it returns `OrchestrateResult(remaining=0, deadline_reached=False)`.
+When work remains and the deadline has passed it returns cleanly with the remaining count and `deadline_reached=True`; the next minute's tick discovers that work again.
+A tick that exits with remaining work is a load signal. A tick that hits the schedule's 50-second execution timeout is a breakage signal: a clean exit never times out.
+The orchestrator calls `continue_as_new` only when Temporal reports `is_continue_as_new_suggested()`. The continued run receives the cutoff, deadline, demand and pages in its input and does not rerun discovery.
+The schedule's execution timeout spans continued runs, so a rollover cannot extend the tick.
+
+If the tick times out mid-page, Temporal terminates that page's dispatcher after the tick closes. Already started evaluations and their delivery children are abandoned and complete on their own.
+The previous `workflow.patched` gate around discovery is gone: the loop cannot run without discovery, and dev histories live under a minute.
 
 ## Synthetic demand discovery
 
@@ -105,9 +131,8 @@ Only nonempty groups are returned. Discovery does not reserve or claim IDs.
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
 two eligible logs configurations and one eligible insight configuration, plus future and disabled configurations that are excluded.
 There are no configuration-table reads, new database entities, or real evaluations of these IDs.
-The result is visible in the activity history; orchestration still runs the existing independent probe/delivery smoke path without passing it synthetic IDs.
-Source-specific child workflows, batching, TTL claims, and continuation are not implemented here.
-The discovery command is patch-gated so existing workflow histories still replay without it.
+The result feeds the tick loop above. Evaluation still runs the probe/delivery smoke path without receiving synthetic IDs.
+TTL claims are not implemented here.
 Discovery has a five-second start-to-close timeout, a ten-second schedule-to-close timeout, and at most three attempts.
 
 ## Postgres connectivity probe
