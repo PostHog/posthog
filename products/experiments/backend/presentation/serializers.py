@@ -23,7 +23,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
-    ExperimentEventExposureConfig,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -40,7 +39,6 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
@@ -560,22 +558,13 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_effective_exposure_event(self, obj: Experiment) -> str | None:
         try:
-            # Resolved through the same helper the results queries use, so the reported event
-            # cannot drift from the one they read.
-            params = get_exposure_config_params_for_builder(
+            return ExperimentService.resolve_effective_exposure_event(
                 obj.exposure_criteria, obj.team, obj.start_date or timezone.now()
             )
         except PydanticValidationError:
             # Criteria written before the shape validation landed can still fail the strict parse.
             # Those experiments already break in the results queries; reading them must not 500.
             return None
-        if params.activation_config is not None:
-            # Activation mode counts an activation event that follows a flag exposure, so no
-            # single event describes the exposures.
-            return None
-        if not isinstance(params.exposure_config, ExperimentEventExposureConfig):
-            return None
-        return params.exposure_config.event or None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
