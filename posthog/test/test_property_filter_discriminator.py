@@ -296,7 +296,11 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
             (MCPFailureGroupsQuery, "MCPFailureGroupsQuery"),
         ]
     )
-    def test_mcp_analytics_query_properties_use_the_discriminated_filter(self, query_cls: type, kind: str) -> None:
+    def test_mcp_analytics_query_properties_use_the_discriminated_filter(
+        self,
+        query_cls: type[MCPModelBreakdownQuery] | type[MCPOverviewSummaryQuery] | type[MCPFailureGroupsQuery],
+        kind: str,
+    ) -> None:
         query = query_cls.model_validate(
             {
                 "kind": kind,
