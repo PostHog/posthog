@@ -174,7 +174,9 @@ def validate_prompt_references(team_id: int, *, prompt_name: str, prompt_payload
                 .first()
             )
             locked_target = (
-                LLMPrompt.objects.select_for_update().filter(pk=label.prompt_id).first() if label is not None else None
+                LLMPrompt.objects.select_for_update().filter(pk=label.prompt_id, team_id=team_id).first()
+                if label is not None
+                else None
             )
             if locked_target is None or locked_target.deleted:
                 exists = LLMPrompt.objects.filter(team_id=team_id, name=reference.name, deleted=False).exists()
