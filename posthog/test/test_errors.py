@@ -43,6 +43,13 @@ class TestWrapClickhouseQueryError:
             # These are exposed but their raw CH message embeds a per-row data value, so they carry a
             # fixed user_safe string. The assertion guards against a revert to user_safe=True, which
             # would pass the raw ClickHouse text (and the source value) straight through.
+            # 10 carries a fixed string for a different reason: its CH message embeds the planner
+            # block, which echoes the query text.
+            (
+                10,
+                "NOT_FOUND_COLUMN_IN_BLOCK",
+                "Could not resolve a column in your query. Check the column names and aliases, and any window functions in the query.",
+            ),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
             (
                 70,
