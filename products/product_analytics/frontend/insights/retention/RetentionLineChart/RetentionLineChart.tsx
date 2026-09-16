@@ -6,6 +6,7 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { hexToRGBA } from 'lib/utils/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -23,6 +24,7 @@ import {
     buildRetentionLineChartConfig,
     buildRetentionSeries,
     type RetentionSeriesMeta,
+    retentionSeriesOpacity,
     type RetentionTrendSeriesEntry,
 } from '../shared/retentionChartTransforms'
 
@@ -78,14 +80,24 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode && canOpenPersonModal
 
+    // Opacity only separates lines that are cohorts of one thing. The interval and
+    // mean-per-breakdown views draw one line per breakdown value, which needs its own color.
+    const fadeCohorts =
+        retentionFilter?.chartStyle?.seriesColorMode === 'opacity' && !isIntervalView && !shouldShowMeanPerBreakdown
+
     const series = useMemo(
         () =>
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
                 incompletenessOffsetFromEnd,
                 isIntervalView,
-                getColor: (entry, index) => getRetentionColor(entry.rawBreakdownValue, index),
+                getColor: (entry, index) => {
+                    const color = getRetentionColor(entry.rawBreakdownValue, fadeCohorts ? 0 : index)
+                    return fadeCohorts && color
+                        ? hexToRGBA(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
+                        : color
+                },
             }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, getRetentionColor]
+        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, getRetentionColor, fadeCohorts]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)

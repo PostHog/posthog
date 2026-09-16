@@ -42,6 +42,7 @@ import { ChartDisplayType } from '~/types'
 
 import { RetentionCohortLabelStartIndexPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDashboardDisplayPicker'
+import { RetentionSeriesColorModePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionSeriesColorModePicker'
 import { ConfidenceLevelInput } from 'products/product_analytics/frontend/insights/trends/filters/ConfidenceLevelInput'
 import { MovingAverageIntervalsInput } from 'products/product_analytics/frontend/insights/trends/filters/MovingAverageIntervalsInput'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -248,6 +249,7 @@ export const DisplayOptions = {
     DecimalPrecision,
     RetentionDashboardDisplay: RetentionDashboardDisplayPicker,
     RetentionCohortLabelStart: RetentionCohortLabelStartIndexPicker,
+    RetentionSeriesColorMode: RetentionSeriesColorModePicker,
 } satisfies Record<string, () => JSX.Element | null>
 
 export type DisplayOption = (typeof DisplayOptions)[keyof typeof DisplayOptions]

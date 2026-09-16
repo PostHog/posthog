@@ -15,6 +15,7 @@ import {
     formatRetentionCohortLabel,
     type RetentionResultLike,
     type RetentionSeriesMeta,
+    retentionSeriesOpacity,
     type RetentionTrendSeriesEntry,
     sortRetentionCohorts,
 } from './retentionChartTransforms'
@@ -178,6 +179,16 @@ describe('retentionChartTransforms', () => {
             timezone: 'America/Chicago',
         })
         expect(config.xAxis).toEqual({ interval: 'day', timezone: 'America/Chicago' })
+    })
+
+    describe('retentionSeriesOpacity', () => {
+        it.each<[string, number, number, number]>([
+            ['newest cohort stays solid', 4, 5, 1],
+            ['oldest cohort fades', 0, 5, 0.25],
+            ['a lone cohort stays solid', 0, 1, 1],
+        ])('%s', (_name, index, total, expected) => {
+            expect(retentionSeriesOpacity(index, total)).toBeCloseTo(expected)
+        })
     })
 
     describe('buildRetentionLineChartConfig', () => {

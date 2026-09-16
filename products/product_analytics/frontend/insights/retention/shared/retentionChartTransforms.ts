@@ -87,6 +87,16 @@ export function buildRetentionSeries(
     })
 }
 
+/** Opacity for one cohort line when every line shares a color: the newest cohort is fully opaque
+ *  and earlier ones fade, so the lines stay separable without a palette. */
+export function retentionSeriesOpacity(index: number, total: number): number {
+    const MIN_OPACITY = 0.25
+    if (total <= 1) {
+        return 1
+    }
+    return MIN_OPACITY + (1 - MIN_OPACITY) * (index / (total - 1))
+}
+
 export interface BuildRetentionChartConfigOpts {
     isPercentage: boolean
     goalLines?: GoalLineLike[] | null

@@ -49,8 +49,8 @@ function makeTrendsQuery(
     }
 }
 
-function makeRetentionQuery(): RetentionQuery {
-    return { kind: NodeKind.RetentionQuery, retentionFilter: {} }
+function makeRetentionQuery(retentionFilter: NonNullable<RetentionQuery['retentionFilter']> = {}): RetentionQuery {
+    return { kind: NodeKind.RetentionQuery, retentionFilter }
 }
 
 function makeStickinessQuery(display?: ChartDisplayType): StickinessQuery {
@@ -274,7 +274,9 @@ describe('InsightDisplayConfig', () => {
                 makeRetentionQuery(),
                 {
                     tabs: [],
-                    sections: { General: ['On dashboards', 'Cohort labels start at', 'Style', 'Overlays'] },
+                    sections: {
+                        General: ['On dashboards', 'Cohort labels start at', 'Style', 'Cohort line colors', 'Overlays'],
+                    },
                     overlayItems: ['Show trend lines'],
                 },
             ],
@@ -383,6 +385,19 @@ describe('InsightDisplayConfig', () => {
 
             const plainHeader = screen.getByText('On dashboards').closest('h5')!
             expect(plainHeader.querySelector('svg')).not.toBeInTheDocument()
+        })
+    })
+
+    describe('retention cohort line colors', () => {
+        it('keeps the line curve when switching to one shade', async () => {
+            setupAndRender(makeRetentionQuery({ chartStyle: { curve: 'linear' } }))
+            await openOptionsMenu()
+
+            await userEvent.click(within(getPanel()).getByText('One shade'))
+
+            expect(
+                (insightVizDataLogic(insightProps).values.querySource as RetentionQuery).retentionFilter.chartStyle
+            ).toEqual({ curve: 'linear', seriesColorMode: 'opacity' })
         })
     })
 

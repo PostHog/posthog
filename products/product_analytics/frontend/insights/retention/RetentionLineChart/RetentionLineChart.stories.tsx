@@ -84,3 +84,21 @@ const realisticFixture = {
 export const RealisticCurve: Story = {
     render: () => renderRetentionLineChart(realisticFixture),
 }
+
+const singleShadeFixture = {
+    ...realisticFixture,
+    query: {
+        ...retentionFixture.query,
+        source: {
+            ...retentionFixture.query.source,
+            retentionFilter: {
+                ...retentionFixture.query.source.retentionFilter,
+                chartStyle: { seriesColorMode: 'opacity' },
+            },
+        },
+    },
+}
+
+export const SingleShade: Story = {
+    render: () => renderRetentionLineChart(singleShadeFixture),
+}
