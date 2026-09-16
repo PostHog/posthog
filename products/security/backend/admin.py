@@ -94,6 +94,7 @@ class StatusFilter(admin.SimpleListFilter):
     title = "status"
     parameter_name = "status"
 
+    # nosemgrep: tuple-return-prefer-dataclass -- Django reads (value, label) pairs from SimpleListFilter.lookups.
     def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
         return [("active", "Active"), ("expired", "Expired"), ("revoked", "Revoked")]
 

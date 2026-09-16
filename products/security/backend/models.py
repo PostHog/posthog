@@ -22,14 +22,17 @@ SCOPE_LABELS = {
 
 # Callables, so a new member adds no migration. Django resolves them lazily and the
 # migration records only the function path, so keep these names and this module.
+# nosemgrep: tuple-return-prefer-dataclass -- Django reads (value, label) pairs from a field's choices.
 def target_type_choices() -> list[tuple[str, str]]:
     return [(target_type.value, TARGETS[target_type].label) for target_type in TargetType]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django reads (value, label) pairs from a field's choices.
 def effect_choices() -> list[tuple[str, str]]:
     return [(effect.value, label) for effect, label in EFFECT_LABELS.items()]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django reads (value, label) pairs from a field's choices.
 def scope_choices() -> list[tuple[str, str]]:
     return [(scope.value, label) for scope, label in SCOPE_LABELS.items()]
 
