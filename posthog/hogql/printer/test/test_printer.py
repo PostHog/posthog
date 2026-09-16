@@ -8207,6 +8207,39 @@ class TestMySQLPrinter(BaseTest):
             ("start_of_day", "toStartOfDay(timestamp)", "CAST(DATE(events.timestamp) AS DATETIME)"),
             ("start_of_year", "toStartOfYear(timestamp)", "MAKEDATE(YEAR(events.timestamp), 1)"),
             (
+                "start_of_second",
+                "toStartOfSecond(timestamp)",
+                "DATE_ADD(DATE(events.timestamp), INTERVAL (HOUR(events.timestamp) * 3600 + "
+                "MINUTE(events.timestamp) * 60 + SECOND(events.timestamp)) SECOND)",
+            ),
+            (
+                "start_of_minute",
+                "toStartOfMinute(timestamp)",
+                "DATE_ADD(DATE(events.timestamp), INTERVAL (HOUR(events.timestamp) * 60 + "
+                "MINUTE(events.timestamp)) MINUTE)",
+            ),
+            (
+                "start_of_quarter",
+                "toStartOfQuarter(timestamp)",
+                "DATE_ADD(MAKEDATE(YEAR(events.timestamp), 1), INTERVAL (QUARTER(events.timestamp) - 1) QUARTER)",
+            ),
+            (
+                "start_of_iso_year",
+                "toStartOfISOYear(timestamp)",
+                "DATE_SUB(MAKEDATE(FLOOR(YEARWEEK(events.timestamp, 3) / 100), 4), "
+                "INTERVAL WEEKDAY(MAKEDATE(FLOOR(YEARWEEK(events.timestamp, 3) / 100), 4)) DAY)",
+            ),
+            (
+                "start_of_week_sunday",
+                "toStartOfWeek(timestamp, 0)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL (DAYOFWEEK(events.timestamp) - 1) DAY)",
+            ),
+            (
+                "start_of_week_iso",
+                "toStartOfWeek(timestamp, 1)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL WEEKDAY(events.timestamp) DAY)",
+            ),
+            (
                 "start_of_month",
                 "toStartOfMonth(timestamp)",
                 "DATE_SUB(DATE(events.timestamp), INTERVAL (DAYOFMONTH(events.timestamp) - 1) DAY)",
@@ -8230,6 +8263,16 @@ class TestMySQLPrinter(BaseTest):
     )
     def test_mysql_date_functions(self, _name: str, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("week_mode_2", "toStartOfWeek(timestamp, 2)", "Unsupported toStartOfWeek mode `2`"),
+            ("date_trunc_unit", "date_trunc('millisecond', timestamp)", "Unsupported date_trunc unit 'millisecond'"),
+        ]
+    )
+    def test_mysql_date_truncation_rejects_unsupported(self, _name: str, expr: str, message: str):
+        with self.assertRaisesMessage(QueryError, message):
+            self._expr(expr)
 
     @parameterized.expand(
         [
