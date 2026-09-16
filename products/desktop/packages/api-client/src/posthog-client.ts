@@ -598,6 +598,13 @@ export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
 export interface ScoutConfig {
   id: string;
   skill_name: string;
+  /**
+   * The name people read, kept as the author typed it. `skill_name` stays the scout's identity,
+   * so this moves on a rename and that does not. Empty string when the scout has no name of its
+   * own, and absent entirely on backends predating the field; `scoutDisplayName` covers both by
+   * deriving a label from the slug.
+   */
+  display_name?: string;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;

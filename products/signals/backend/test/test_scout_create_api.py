@@ -327,7 +327,82 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert not LLMSkill.objects.filter(team=self.team, name=self._payload()["name"], deleted=False).exists()
 
 
+class TestSignalScoutCreateDisplayNameAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/"
+
+    def _payload(self, **overrides: object) -> dict:
+        return {
+            "description": "Investigates meaningful checkout_failed spikes.",
+            "body": "# Checkout failure scout\n\nInvestigate the `checkout_failed` signal.",
+            **overrides,
+        }
+
+    def _create(self, **overrides: object):
+        return self.client.post(self._url(), data=self._payload(**overrides), format="json")
+
+    def test_display_name_is_stored_verbatim_under_a_generated_slug(self) -> None:
+        response = self._create(display_name="  My APM scout  ")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        body = response.json()
+        assert body["config"]["display_name"] == "My APM scout"
+        assert body["skill"]["name"] == "my-apm-scout"
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name="my-apm-scout")
+        assert config.display_name == "My APM scout"
+
+    def test_a_second_scout_of_the_same_name_gets_its_own_identity(self) -> None:
+        # Duplicate labels are allowed, so the slug is what has to stay unique. The first scout's
+        # skill, config, and body must be untouched — attaching to it would silently hand the
+        # second author someone else's scout.
+        first = self._create(display_name="Checkout failures")
+        second = self._create(display_name="Checkout failures", body="# A different scout\n\nWatch refunds.")
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["skill"]["name"] == "checkout-failures"
+        assert second.json()["skill"]["name"] == "checkout-failures-2"
+        assert second.json()["config"]["display_name"] == "Checkout failures"
+        assert (
+            LLMSkill.objects.get(team=self.team, name="checkout-failures", is_latest=True).body
+            == (self._payload()["body"])
+        )
+
+    def test_a_name_that_slugifies_to_nothing_still_creates_a_scout(self) -> None:
+        # A name in a script that does not transliterate leaves no slug to derive. Falling back to
+        # a generated one keeps the scout creatable under the name its author wrote.
+        response = self._create(display_name="監視")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"]["display_name"] == "監視"
+        assert response.json()["skill"]["name"].startswith("scout-")
+
+    def test_an_explicit_name_is_kept_alongside_the_display_name(self) -> None:
+        # The identifier a caller picks is the one it gets, so a client that stored the name
+        # before display names existed keeps working, display name or not.
+        response = self._create(name="signals-scout-checkout-failures", display_name="Checkout failures")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["skill"]["name"] == "signals-scout-checkout-failures"
+        assert response.json()["config"]["display_name"] == "Checkout failures"
+
+
 class TestSignalScoutCreateSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("neither name is given", {}, False),
+            ("the display name is blank", {"display_name": "   "}, False),
+            ("a display name alone", {"display_name": "My APM scout"}, True),
+            ("a skill name alone", {"name": "signals-scout-checkout-failures"}, True),
+        ]
+    )
+    def test_a_scout_must_be_called_something(self, _name: str, names: dict, expected_valid: bool) -> None:
+        serializer = SignalScoutCreateSerializer(data={"description": "Watches checkout.", "body": "# Body", **names})
+
+        assert serializer.is_valid() is expected_valid
+        if not expected_valid:
+            assert "display_name" in serializer.errors
+
     @parameterized.expand(
         [
             ("over the spec cap is rejected", SPEC_DESCRIPTION_MAX_LENGTH + 1, False),

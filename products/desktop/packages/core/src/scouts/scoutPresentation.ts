@@ -274,7 +274,12 @@ export function scoutSummarySentence(
   return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
 }
 
-/** "signals-scout-error-tracking" → "Error tracking" */
+/**
+ * "signals-scout-error-tracking" → "Error tracking"
+ *
+ * The fallback for a scout with no name of its own. Sentence-casing a slug gets acronyms wrong,
+ * so a scout that cares states its label in `display_name` instead of being fixed up here.
+ */
 export function prettifyScoutSkillName(skillName: string): string {
   const cleaned = skillName
     .replace(/^signals-scout-/, "")
@@ -282,6 +287,18 @@ export function prettifyScoutSkillName(skillName: string): string {
     .trim();
   if (!cleaned) return skillName;
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+/**
+ * What to call a scout. Its `display_name` when it has one, else a label derived from the slug.
+ *
+ * Every surface that shows a scout to a person goes through here, so a rename reaches all of them
+ * at once and none of them fall back to the identifier while the others move.
+ */
+export function scoutDisplayName(
+  config: Pick<ScoutConfig, "skill_name" | "display_name">,
+): string {
+  return config.display_name?.trim() || prettifyScoutSkillName(config.skill_name);
 }
 
 /**
@@ -1021,7 +1038,7 @@ export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
     .map((config) => ({
       config,
       systemPaused: deriveScoutLifecycle(config).isSystemPaused,
-      name: prettifyScoutSkillName(config.skill_name),
+      name: scoutDisplayName(config),
     }))
     .sort((a, b) => {
       if (a.config.enabled !== b.config.enabled) {
