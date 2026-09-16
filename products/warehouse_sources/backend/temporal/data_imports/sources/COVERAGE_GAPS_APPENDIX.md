@@ -1197,14 +1197,14 @@ Note: apidocs.callrail.com serves the entire v3 reference as one ~890 KB HTML pa
 
 ## CampaignMonitor — gaps
 
-Today (17): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_opens`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `draft_campaigns`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `templates`, `unsubscribed_subscribers`
+Today (25): `active_subscribers`, `bounced_subscribers`, `campaign_bounces`, `campaign_clicks`, `campaign_opens`, `campaign_recipients`, `campaign_spam_complaints`, `campaign_summary`, `campaign_unsubscribes`, `campaigns`, `clients`, `draft_campaigns`, `journey_email_bounces`, `journey_email_clicks`, `journey_email_opens`, `journey_email_recipients`, `journey_email_summary`, `journey_email_unsubscribes`, `journeys`, `lists`, `scheduled_campaigns`, `segments`, `suppression_list`, `templates`, `unsubscribed_subscribers`
 
 Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 
-- [ ] `Campaign recipients (/campaigns/{id}/recipients)` — who a campaign was sent to; without it the opens/clicks/bounces tables have no denominator (high)
-- [ ] `Getting journeys (/clients/{id}/journeys)` — the automation product is entirely unsynced; journeys is the lookup every journey metric hangs off (high)
-- [ ] `Journey email recipients / opens / clicks / bounces / unsubscribes (/journeys/email/{id}/...)` — per-email engagement events for automations, mirroring the campaign\_\* tables we already expose (high)
-- [ ] `Getting journey summary (/journeys/email/{id}/summary)` — vendor-computed automation performance, the journey equivalent of campaign_summary (high)
+- [x] `Campaign recipients (/campaigns/{id}/recipients)` — who a campaign was sent to; without it the opens/clicks/bounces tables have no denominator (high)
+- [x] `Getting journeys (/clients/{id}/journeys)` — the automation product is entirely unsynced; journeys is the lookup every journey metric hangs off (high)
+- [x] `Journey email recipients / opens / clicks / bounces / unsubscribes (/journeys/email/{id}/...)` — per-email engagement events for automations, mirroring the campaign\_\* tables we already expose (high)
+- [x] `Getting journey summary (/journeys/{id})` — vendor-computed automation performance, the journey equivalent of campaign_summary (high). Audited as `/journeys/email/{id}/summary`, which does not exist; the summary is journey-scoped. Synced as `journey_email_summary`, one row per journey email from the summary's nested `Emails` array — which is also the only place the API exposes a journey email id, so every `journeys/email/{id}/...` table fans out through it.
 - [ ] `List custom fields (/lists/{id}/customfields)` — lookup resolving the custom field keys carried on every subscriber row (high)
 - [ ] `Campaign lists and segments (/campaigns/{id}/listsandsegments)` — lookup joining campaigns we sync to the lists and segments they targeted (high)
 - [ ] `Campaign email client usage (/campaigns/{id}/emailclientusage)` — breakdown dimension on opens (client/device), a standard email reporting cut (medium)
@@ -1214,7 +1214,7 @@ Diffed against: <https://www.campaignmonitor.com/api/v3-3/campaigns/>
 - [ ] `Getting a subscriber's history (/subscribers/history)` — per-subscriber event history across campaigns, for lifecycle analysis (medium)
 - [ ] `Getting tags (/clients/{id}/tags)` — lookup resolving the tags applied to campaigns and clients (low)
 
-Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, but the entire Journeys (automation) product and the transactional product are absent, and campaign_recipients — the denominator for every open/click rate — is missing.
+Note: Diffed against the v3.3 reference section index (account, campaigns, clients, journeys, lists, segments, subscribers, transactional), each page fetched and its operation headings parsed. Campaign engagement coverage is strong, and the Journeys (automation) product and campaign_recipients are now synced. The transactional product remains absent.
 
 ## Campayn — adequate
 
