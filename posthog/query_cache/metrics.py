@@ -13,6 +13,7 @@ class CacheMetrics(NamedTuple):
     hit_counter: Counter
     write_counter: Counter
     bytes_counter: Counter
+    schema_drift_counter: Counter
     size_histogram: Histogram
 
 
@@ -83,6 +84,13 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
         registry=registry,
     )
 
+    schema_drift_counter = Counter(
+        name="posthog_query_cache_schema_drift_total",
+        documentation="When a cache entry was discarded because another schema version wrote it.",
+        labelnames=["response_type"],
+        registry=registry,
+    )
+
     size_histogram = Histogram(
         name="posthog_query_cache_write_size_bytes",
         documentation="Distribution of cache write data sizes in bytes (uncompressed JSON)",
@@ -99,7 +107,7 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
         registry=registry,
     )
 
-    return CacheMetrics(hit_counter, write_counter, bytes_counter, size_histogram)
+    return CacheMetrics(hit_counter, write_counter, bytes_counter, schema_drift_counter, size_histogram)
 
 
 def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:
@@ -141,3 +149,9 @@ def count_cache_write_data(data_size: int) -> None:
         metrics.write_counter.inc()
         metrics.bytes_counter.inc(data_size)
         metrics.size_histogram.observe(data_size)
+
+
+def count_query_cache_schema_drift(response_type: str) -> None:
+    """Count cache entries discarded because another schema version wrote them."""
+    with get_cache_metrics_context("query_cache_schema_drift") as metrics:
+        metrics.schema_drift_counter.labels(response_type=response_type).inc()
