@@ -9,8 +9,8 @@ The Alerts product registers three queues through `products/alerts/backend/facad
 | `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`     |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
-Shared orchestration registers only the orchestration workflow, with no activities.
-Each schedule tick starts orchestration, which awaits an evaluation child on the evaluation queue.
+Shared orchestration registers the orchestration workflow and a synthetic demand-discovery activity.
+Each schedule tick starts orchestration, which discovers demand before awaiting an evaluation child on the evaluation queue.
 Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Start one worker for each queue:
 
@@ -86,13 +86,29 @@ All three workflows accept an empty `AlertsProductInputs` dataclass.
 Orchestration awaits one evaluation child, with a 40-second execution timeout and one workflow attempt.
 The evaluation child ID includes the orchestration run ID, so each tick starts a distinct evaluation.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
-Each activity has a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
+Evaluation and delivery activities each have a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
 Evaluation has one attempt; delivery retains at most three attempts.
 Evaluation starts one delivery child on the delivery queue and waits for confirmation that it started, without waiting for completion.
 The child ID includes the evaluation run ID, so repeated runs of the same evaluation workflow ID start different children.
 `ParentClosePolicy.ABANDON` lets delivery continue after evaluation closes.
 Delivery has a one-minute execution timeout for the noop.
 Real notification delivery guarantees remain undecided.
+
+## Synthetic demand discovery
+
+The first orchestration activity, `alerts_product_discover_demand_activity`, accepts a timezone-aware ISO-8601 cutoff.
+Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow start time.
+Activity retries retain the same cutoff rather than reading the activity's clock.
+The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
+Only nonempty groups are returned. Discovery does not reserve or claim IDs.
+
+For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
+two eligible logs configurations and one eligible insight configuration, plus future and disabled configurations that are excluded.
+There are no configuration-table reads, new database entities, or real evaluations of these IDs.
+The result is visible in the activity history; orchestration still runs the existing independent probe/delivery smoke path without passing it synthetic IDs.
+Source-specific child workflows, batching, TTL claims, and continuation are not implemented here.
+The discovery command is patch-gated so existing workflow histories still replay without it.
+Discovery has a five-second start-to-close timeout, a ten-second schedule-to-close timeout, and at most three attempts.
 
 ## Postgres connectivity probe
 
@@ -132,7 +148,8 @@ Worker registration does not deploy workers. The dev schedule sets the orchestra
 
 ## Activity logs
 
-Both Alerts queues use an activity-only interceptor that emits `alerts_product_activity_started` and `alerts_product_activity_finished` through the shared write-only logger.
+The evaluation and delivery queues use an activity-only interceptor that emits `alerts_product_activity_started` and `alerts_product_activity_finished` through the shared write-only logger.
+Discovery has SDK metrics and traces but does not use this logging interceptor.
 The shared logger's async methods keep log processing and writes off the activity event loop.
 Each retry emits its own start and finish events.
 The shared logger supplies `activity_id`, `activity_type`, `attempt`, `task_queue`, `workflow_id`, `workflow_namespace`, `workflow_run_id`, and `workflow_type`.
