@@ -98,6 +98,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
+    '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/transformations': ['Transformations', 'transformations'],
@@ -584,6 +585,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automatically find the best model to predict user behavior and score your users daily.',
         iconType: 'experiment',
     },
+    AutoresearchNew: { name: 'New model', projectBased: true },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -2046,7 +2048,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'experiment',
         tags: ['alpha'],
         sceneKey: 'Autoresearch',
-        sceneKeys: ['Autoresearch'],
+        sceneKeys: ['Autoresearch', 'AutoresearchNew'],
     },
     {
         path: 'Business knowledge',

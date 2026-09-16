@@ -18,6 +18,7 @@ export enum Scene {
     Alerts = 'Alerts',
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
+    AutoresearchNew = 'AutoresearchNew',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
