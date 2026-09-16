@@ -10,6 +10,15 @@ import { personsLogic } from './personsLogic'
 
 const URL_DISTINCT_ID = 'user@example.com'
 
+// Shape that drf-exceptions-hog renders for the `distinct_ids_to_split` ValidationError raised
+// by `posthog/api/person.py`
+const STALE_DISTINCT_ID_RESPONSE = {
+    type: 'validation_error',
+    code: 'invalid',
+    detail: "not on this person: ['user-456']",
+    attr: 'distinct_ids_to_split',
+}
+
 const MOCK_PERSON = {
     id: '123',
     uuid: 'abc-123',
@@ -113,6 +122,64 @@ describe('mergeSplitPersonLogic', () => {
                 logic.actions.setDistinctIdsToSplit(['user-456'])
             }).toMatchValues({
                 splitMode: 'partial',
+                distinctIdsToSplit: ['user-456'],
+            })
+        })
+
+        it('recovers in place when a selected distinct ID has moved off the person', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:project_id/persons/123/': {
+                        ...MOCK_PERSON,
+                        distinct_ids: [URL_DISTINCT_ID],
+                    },
+                },
+                post: {
+                    '/api/person/123/split/': () => [400, STALE_DISTINCT_ID_RESPONSE],
+                },
+            })
+            personsLogicInstance.actions.setSplitMergeModalShown(true)
+            logic.actions.setSplitMode('partial')
+            logic.actions.setDistinctIdsToSplit(['user-456'])
+
+            await expectLogic(logic, () => {
+                logic.actions.execute()
+            })
+                // executeSuccess, not executeFailure: the generic loader handler would toast the
+                // raw backend string and report the validation error to error tracking
+                .toDispatchActions(['execute', 'splitRejected', 'executeSuccess'])
+                .toFinishListeners()
+
+            await expectLogic(logic).toMatchValues({
+                staleDistinctIds: ['user-456'],
+                distinctIdsToSplit: [],
+                person: expect.objectContaining({ distinct_ids: [URL_DISTINCT_ID] }),
+            })
+            await expectLogic(personsLogicInstance).toMatchValues({
+                splitMergeModalShown: true,
+            })
+        })
+
+        it('still recovers when the current distinct IDs cannot be loaded', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:project_id/persons/123/': () => [500, {}],
+                },
+                post: {
+                    '/api/person/123/split/': () => [400, STALE_DISTINCT_ID_RESPONSE],
+                },
+            })
+            logic.actions.setSplitMode('partial')
+            logic.actions.setDistinctIdsToSplit(['user-456'])
+
+            await expectLogic(logic, () => {
+                logic.actions.execute()
+            })
+                .toDispatchActions(['execute', 'splitRejected', 'executeSuccess'])
+                .toFinishListeners()
+
+            await expectLogic(logic).toMatchValues({
+                staleDistinctIds: [],
                 distinctIdsToSplit: ['user-456'],
             })
         })
