@@ -537,7 +537,35 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('loads table fields on expansion and defers joined fields until the join expands', async () => {
+        it.each([
+            ['lazy_table', false],
+            ['view', false],
+            ['materialized_view', false],
+            ['view', true],
+        ] as const)('hydrates a %s join and its nested join (restored: %s)', async (type, restored) => {
+            const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+            await expectLogic(viewsLogic).toFinishAllListeners()
+            viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess([
+                {
+                    id: 'saved-view',
+                    name: 'saved_events',
+                    status: 'Completed',
+                    columns: [],
+                    managed_viewset_kind: null,
+                } as unknown as DataWarehouseSavedQuery,
+            ])
+            const savedView = {
+                id: 'saved-view',
+                name: 'saved_events',
+                type: 'view' as const,
+                fields: {},
+                query: { kind: NodeKind.HogQLQuery as const, query: 'SELECT event FROM events' },
+            }
+            dbLogic.actions.loadDatabaseSuccess({
+                tables: { ...dbLogic.values.database!.tables, saved_events: savedView },
+                joins: [],
+            })
+            dbLogic.actions.setDatabaseFieldsComplete(false)
             const placeholder = findTableNode()?.children?.[0]
             expect(placeholder?.type).toEqual('loading-indicator')
             expect(placeholder?.record?.pendingTableName).toEqual('events')
@@ -555,11 +583,12 @@ describe('queryDatabaseLogic', () => {
                     type: 'posthog',
                     fields: {
                         uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
-                        person: {
-                            name: 'person',
-                            hogql_value: 'person',
-                            type: 'lazy_table',
-                            table: 'persons',
+                        saved: {
+                            name: 'saved',
+                            hogql_value: 'saved',
+                            type,
+                            table: '`saved_events`',
+                            fields: ['event', 'person'],
                             schema_valid: true,
                         },
                     },
@@ -567,11 +596,46 @@ describe('queryDatabaseLogic', () => {
             })
 
             const columnNames = findTableNode()?.children?.map((child: any) => child.name)
-            expect(columnNames).toEqual(['uuid', 'person'])
+            expect(columnNames).toEqual(['uuid', 'saved'])
             expect(performQuery).toHaveBeenCalledTimes(1)
-            const joinNode = findTableNode()?.children?.find((child: any) => child.record?.type === 'lazy-table')
+            const findJoin = (): any => findTableNode()?.children?.find((child: any) => child.name === 'saved')
+            const joinNode = findJoin()
             expect(joinNode).toBeTruthy()
-            logic.actions.toggleFolderOpen(joinNode.id, false)
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({
+                tables: {
+                    saved_events: {
+                        ...savedView,
+                        fields: {
+                            event: { name: 'event', hogql_value: 'event', type: 'string', schema_valid: true },
+                            person: {
+                                name: 'person',
+                                hogql_value: 'person',
+                                type: 'lazy_table',
+                                table: 'persons',
+                                schema_valid: true,
+                            },
+                        },
+                    },
+                },
+                joins: [],
+            })
+            if (restored) {
+                logic.actions.setExpandedFolders(['sources', 'source-posthog', 'table-events', joinNode.id], null)
+            } else {
+                logic.actions.toggleFolderOpen(joinNode.id, false)
+            }
+            await expectLogic(dbLogic).toFinishAllListeners()
+            expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['saved_events'] }))
+            expect(findJoin()?.children).toEqual([
+                expect.objectContaining({
+                    name: 'event',
+                    record: expect.objectContaining({ field: expect.objectContaining({ type: 'string' }) }),
+                }),
+                expect.objectContaining({ name: 'person', record: expect.objectContaining({ type: 'lazy-table' }) }),
+            ])
+            expect(performQuery).toHaveBeenCalledTimes(2)
+            const nestedJoin = findJoin().children[1]
+            logic.actions.toggleFolderOpen(nestedJoin.id, false)
             await expectLogic(dbLogic).toFinishAllListeners()
             expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
         })

@@ -260,6 +260,14 @@ export const LazySchema: Story = {
                                 type: 'posthog',
                                 fields: {
                                     uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                                    saved: {
+                                        name: 'saved',
+                                        hogql_value: 'saved',
+                                        type: 'view',
+                                        schema_valid: true,
+                                        table: 'saved_events',
+                                        fields: ['event', 'person'],
+                                    },
                                     person: {
                                         name: 'person',
                                         hogql_value: 'person',

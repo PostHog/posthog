@@ -316,7 +316,10 @@ const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
     if ((record.type === 'table' || record.type === 'endpoint') && record.table?.name) {
         return [record.table.name]
     }
-    if ((record.type === 'lazy-table' || record.type === 'field-traverser') && record.referencedTable) {
+    if (
+        (record.type === 'lazy-table' || record.type === 'view-table' || record.type === 'field-traverser') &&
+        record.referencedTable
+    ) {
         const name = normalizeTableLookupKey(record.referencedTable)
         return name ? [name] : []
     }
@@ -857,6 +860,7 @@ const createExpandedLazyTableChildren = (
 }
 
 const createViewTableChildren = (
+    nodeId: string,
     tableName: string,
     field: DatabaseSchemaField,
     isSearch: boolean,
@@ -868,6 +872,16 @@ const createViewTableChildren = (
     const referencedTable = field.table
         ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
         : undefined
+
+    if (referencedTable) {
+        const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
+        if (state === 'pending') {
+            return [createPendingFieldsNode(nodeId, referencedTable.name)]
+        }
+        if (state === 'error') {
+            return [createFieldsErrorNode(nodeId)]
+        }
+    }
 
     if (!referencedTable) {
         if (!field.fields) {
@@ -1117,10 +1131,19 @@ const createFieldNode = (
     }
 
     if (field.type === 'view' || field.type === 'materialized_view') {
-        const children = createViewTableChildren(tableName, field, isSearch, columnPath, tableLookup, nextOptions)
+        const nodeId = `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`
+        const children = createViewTableChildren(
+            nodeId,
+            tableName,
+            field,
+            isSearch,
+            columnPath,
+            tableLookup,
+            nextOptions
+        )
 
         return {
-            id: `${isSearch ? 'search-' : ''}view-table-${tableName}-${columnPath}`,
+            id: nodeId,
             name: field.name,
             type: 'node',
             record: {
