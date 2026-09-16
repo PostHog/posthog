@@ -59,6 +59,7 @@ from posthog.models.event.sql import (
     json_property_presence_expr,
 )
 from posthog.models.person.bulk_delete import (
+    PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
@@ -1411,6 +1412,16 @@ def delete_person_profiles_op(
         return person_removal
 
     result = delete_persons_profile(person_removal.team_id, persons, actor=None)
+    postgres_failures = [f for f in result.failures if f.step is PersonDeletionStep.DELETE_POSTGRES]
+    if postgres_failures:
+        # Best-effort covers per-person failures only. A failed batch delete leaves every
+        # tombstoned person in Postgres, so the request must not finalize as COMPLETED.
+        raise dagster.Failure(
+            description=(
+                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
+                f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
+            )
+        )
     metadata: dict[str, dagster.MetadataValue] = {
         "deleted_count": dagster.MetadataValue.int(result.deleted_count),
         "errors": dagster.MetadataValue.int(len(result.errors)),

@@ -12,6 +12,7 @@ from posthog.models.person import Person
 from posthog.models.person.bulk_delete import process_queued_person_deletion
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +59,7 @@ def queue_person_deletion(
 
 @shared_task(
     ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
     max_retries=3,
     retry_backoff=60,

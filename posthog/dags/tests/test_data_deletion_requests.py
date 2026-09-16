@@ -2,7 +2,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import patch
@@ -55,6 +55,7 @@ from posthog.models.deletion_targets import (
     placement_for,
 )
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -2384,7 +2385,7 @@ def test_delete_person_profiles_op_calls_helper_when_enabled():
         drop_recordings=False,
     )
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
-        deleter.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        deleter.return_value = PersonProfileDeletionResult(deleted_count=1)
         delete_person_profiles_op(build_op_context(), ctx)
         deleter.assert_called_once()
 
@@ -2423,7 +2424,14 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
     )
     op_context = build_op_context()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
-        deleter.return_value = type("R", (), {"deleted_count": 0, "errors": [p_uuid]})()
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.TOMBSTONE_CLICKHOUSE, person_uuid=UUID(p_uuid), error="RuntimeError: x"
+                )
+            ],
+        )
         with patch.object(op_context.log, "warning") as warn:
             result = delete_person_profiles_op(op_context, ctx)
 
@@ -2433,6 +2441,32 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
     assert warn.called
     warn_message = warn.call_args.args[0] if warn.call_args.args else ""
     assert "1 per-person failures" in warn_message
+
+
+@pytest.mark.django_db
+def test_delete_person_profiles_op_raises_when_the_postgres_delete_fails():
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0,
+            failures=[
+                PersonDeletionFailure(
+                    step=PersonDeletionStep.DELETE_POSTGRES, person_uuid=UUID(p_uuid), error="RuntimeError: down"
+                )
+            ],
+        )
+        with pytest.raises(dagster.Failure, match="Postgres delete failed"):
+            delete_person_profiles_op(build_op_context(), ctx)
 
 
 @pytest.mark.django_db
@@ -2453,7 +2487,7 @@ def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseClust
         patch("posthog.dags.data_deletion_requests.delete_persons_profile") as profile,
         patch("posthog.dags.data_deletion_requests.queue_person_recording_deletion"),
     ):
-        profile.return_value = type("R", (), {"deleted_count": 1, "errors": []})()
+        profile.return_value = PersonProfileDeletionResult(deleted_count=1)
         result = data_deletion_request_person_removal.execute_in_process(
             run_config={
                 "ops": {

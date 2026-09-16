@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
@@ -400,15 +401,14 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
 
+    @parameterized.expand([("by_ids",), ("by_distinct_ids",)])
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
-    def test_bulk_delete_async_queues_persons_and_deletes_in_background(self):
+    def test_bulk_delete_async_queues_persons_and_deletes_in_background(self, lookup):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])
         p2 = self._seed_person(team=self.team, distinct_ids=["did-2"])
+        payload = {"ids": [str(p1.uuid), str(p2.uuid)]} if lookup == "by_ids" else {"distinct_ids": ["did-1", "did-2"]}
 
-        resp = self.client.post(
-            "/api/person/bulk_delete/",
-            {"ids": [str(p1.uuid), str(p2.uuid)]},
-        )
+        resp = self.client.post("/api/person/bulk_delete/", payload)
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
         data = resp.json()
