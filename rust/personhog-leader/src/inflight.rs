@@ -19,10 +19,10 @@ use dashmap::{DashMap, DashSet};
 ///   stale view — accepting it would advance the Kafka HWM past the point
 ///   warming snapshots, silently losing the write from the new owner.
 ///
-/// Callers obtain a guard via `begin(partition)` and drop it when the
-/// handler completes; the handoff protocol fences the partition, then
-/// calls `wait_until_empty(partition)` to block until all inflight
-/// handlers have returned.
+/// Callers obtain a guard via `begin(partition)` and drop it once the
+/// write's outcome is known; the handoff protocol fences the partition,
+/// then calls `wait_until_empty(partition)` to block until every inflight
+/// write has resolved.
 #[derive(Default)]
 pub struct InflightTracker {
     partitions: DashMap<u32, Arc<AtomicUsize>>,

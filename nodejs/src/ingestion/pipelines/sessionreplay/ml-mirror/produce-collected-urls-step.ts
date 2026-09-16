@@ -10,10 +10,10 @@ import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-ima
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
+import { MlKeyBatchController } from './keys/batch-controller'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
-import { encryptedKafkaValue, validateImageOwner } from './privacy/transport'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
@@ -62,7 +62,7 @@ export interface CollectedUrlsMessage {
 }
 
 export interface ProduceCollectedUrlsOptions {
-    privacy?: MlPrivacyBatchController
+    keyManager?: MlKeyBatchController
     producedRefCacheMax?: number
     producedRefCacheWindowMs?: number
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
@@ -171,7 +171,7 @@ export function createProduceCollectedUrlsStep<
         const sessionId = input.headers?.session_id
         const key =
             sessionId && usesRawSessionIdentifiers(sessionId) && input.team
-                ? options.privacy?.keys(input.team.teamId, sessionId)?.session
+                ? options.keyManager?.keys(input.team.teamId, sessionId)?.session
                 : undefined
         const collected = input.collectedUrls
         if (!collected?.length) {
@@ -252,6 +252,7 @@ export function createProduceCollectedUrlsStep<
         for (const { entry } of publishable) {
             const group = byDomain.get(entry.domain)
             const record: FrontierJob = {
+                ...(key ? { sessionId } : {}),
                 originalRef: entry.ref,
                 currentUrl: entry.url,
                 remainingHops: 10,
@@ -279,10 +280,12 @@ export function createProduceCollectedUrlsStep<
                     } satisfies CollectedUrlsMessage)
                 )
                 MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, ...encryptedKafkaValue(key, 'image-frontier', value) }
+                return { key: domain, ...mlKafkaRecord(mlWireVersion(key), value) }
             })
         )
 
+        // The fetch consumer counts records, so the producer counts records too and the two rates compare.
+        const recordCount = messages.length
         // The failure handler captures only the cache keys, so that a produce which is not yet
         // delivered does not hold the URL strings alive longer than the messages themselves.
         const producedCacheKeys = publishable.map(({ cacheKey }) => cacheKey)
@@ -291,6 +294,7 @@ export function createProduceCollectedUrlsStep<
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
                 MlMirrorMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
+                MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), recordCount)
                 for (const [registrableDomain, jobs] of byDomain) {
                     producedUrlsByRegistrableDomain.record({ registrable_domain: registrableDomain }, jobs.length)
                 }

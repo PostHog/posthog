@@ -321,6 +321,10 @@ export class RecordingService {
 
         await this.propagateDeletion(
             deleted.map((r) => r.sessionId),
+            // A shred that already happened still gets its derived data cleaned up. Cleanup is
+            // best-effort, so without this a failed pass is never retried: the next delete of the
+            // same recording reports already_deleted and skips it.
+            [...deleted, ...alreadyDeleted].map((r) => r.sessionId),
             teamId,
             deletedBy
         )
@@ -353,13 +357,18 @@ export class RecordingService {
      * Failures are non-fatal — the key shred already makes the recording unplayable (410).
      * Stale metadata from failed propagation is harmless but won't be automatically cleaned up.
      */
-    private async propagateDeletion(sessionIds: string[], teamId: number, deletedBy: string): Promise<void> {
-        if (sessionIds.length === 0) {
+    private async propagateDeletion(
+        sessionIds: string[],
+        cleanupSessionIds: string[],
+        teamId: number,
+        deletedBy: string
+    ): Promise<void> {
+        if (sessionIds.length === 0 && cleanupSessionIds.length === 0) {
             return
         }
         const [kafka, postgres, activity] = await Promise.allSettled([
             this.emitDeletionEvents(sessionIds, teamId),
-            this.deletePostgresRecords(sessionIds, teamId),
+            this.deletePostgresRecords(cleanupSessionIds, teamId),
             this.logActivity(sessionIds, teamId, deletedBy),
         ])
         if (kafka.status === 'rejected') {
@@ -399,7 +408,13 @@ export class RecordingService {
             return
         }
 
-        const tables = ['ee_single_session_summary', 'posthog_exportedrecording', 'posthog_comment'] as const
+        const tables = [
+            'ee_single_session_summary',
+            'posthog_exportedrecording',
+            'posthog_comment',
+            'replay_vision_replayobservation',
+            'posthog_exportedasset',
+        ] as const
         const results = await Promise.allSettled([
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -418,6 +433,46 @@ export class RecordingService {
                 `DELETE FROM posthog_comment WHERE team_id = $1 AND scope = 'recording' AND item_id = ANY($2)`,
                 [teamId, sessionIds],
                 'deleteRecordingComments'
+            ),
+            // One statement: the children's foreign keys are NO ACTION, so separate deletes would have to run child-first.
+            // The AsyncDeletion row (deletion_type 5 = Event) queues the observation's $recording_observed event for the ClickHouse sweep, atomically with the delete.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `WITH observations AS (
+                     SELECT id FROM replay_vision_replayobservation
+                     WHERE team_id = $1 AND session_id = ANY($2)
+                 ), queued_events AS (
+                     INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_at)
+                     SELECT 5, $1, id::text, now() FROM observations
+                     ON CONFLICT DO NOTHING
+                 ), deleted_labels AS (
+                     DELETE FROM replay_vision_replayobservationlabel
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_views AS (
+                     DELETE FROM replay_vision_replayobservationview
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 ), deleted_matches AS (
+                     DELETE FROM replay_vision_visionalertmatch
+                     WHERE observation_id IN (SELECT id FROM observations)
+                 )
+                 DELETE FROM replay_vision_replayobservation
+                 WHERE id IN (SELECT id FROM observations)`,
+                [teamId, sessionIds],
+                'deleteReplayVisionObservations'
+            ),
+            // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
+            this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                // `= ANY` over jsonb so the planner can use exportedasset_system_session; a subquery cannot.
+                `UPDATE posthog_exportedasset
+                 SET expires_after = now()
+                 WHERE team_id = $1
+                   AND is_system
+                   AND export_format = 'video/mp4'
+                   AND expires_after > now()
+                   AND export_context -> 'session_recording_id' = ANY($2::jsonb[])`,
+                [teamId, sessionIds.map((sessionId) => JSON.stringify(sessionId))],
+                'expireRenderedRecordingVideos'
             ),
         ])
 

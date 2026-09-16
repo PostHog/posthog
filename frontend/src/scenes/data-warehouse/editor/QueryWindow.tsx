@@ -135,10 +135,13 @@ export function QueryWindow({
         [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
     )
 
-    useAttachedContext(
-        [{ type: 'sql_editor_state', value: JSON.stringify(executeSqlToolContext), label: 'Current query' }],
-        { active: showQueryPanel }
+    const attachedContextItems = useMemo(
+        () => [
+            { type: 'sql_editor_state' as const, value: JSON.stringify(executeSqlToolContext), label: 'Current query' },
+        ],
+        [executeSqlToolContext]
     )
+    useAttachedContext(attachedContextItems, { active: showQueryPanel })
 
     const executeSqlToolContextDescription = useMemo(
         () => ({

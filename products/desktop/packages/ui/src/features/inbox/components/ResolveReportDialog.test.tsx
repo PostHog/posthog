@@ -1,5 +1,6 @@
 import type { SignalReport } from "@posthog/shared/types";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ResolveReportDialog } from "./ResolveReportDialog";
 
@@ -16,6 +17,44 @@ const report = {
 } satisfies SignalReport;
 
 describe("ResolveReportDialog", () => {
+  it("selects the other reason when the user enters a note first", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <ResolveReportDialog
+        open
+        onOpenChange={vi.fn()}
+        report={report}
+        isSubmitting={false}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const submitButton = screen.getByRole("button", {
+      name: "Resolve report",
+    });
+    expect(submitButton).toHaveAttribute("aria-disabled", "true");
+
+    await user.type(
+      screen.getByPlaceholderText(
+        "Optional: link to the fix or explain what changed",
+      ),
+      "The fix is in another service.",
+    );
+
+    expect(
+      screen.getByRole("radio", { name: "Something else…" }),
+    ).toBeChecked();
+    expect(submitButton).toHaveAttribute("aria-disabled", "false");
+
+    await user.click(submitButton);
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      reason: "other",
+      note: "The fix is in another service.",
+    });
+  });
+
   it("preselects a context-menu reason and focuses the note", () => {
     render(
       <ResolveReportDialog
