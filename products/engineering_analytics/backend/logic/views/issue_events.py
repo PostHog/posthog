@@ -15,7 +15,13 @@ READY_FOR_REVIEW_EVENT = "ready_for_review"
 CONVERT_TO_DRAFT_EVENT = "convert_to_draft"
 
 
-def build_query(table_name: str) -> str:
+def build_query(table_name: str, *, created_floor: bool = False) -> str:
+    # With ``created_floor`` the raw-string floor sits in its own innermost SELECT, so the scan can prune
+    # on it. The parsing SELECT below aliases the parsed timestamp as created_at, and a WHERE there would
+    # compare the parsed DateTime with the string. Callers register {event_created_floor}.
+    table_source = (
+        f"(SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})" if created_floor else table_name
+    )
     # A row whose timestamp parses to NULL cannot be ordered and would poison the per-PR argMax.
     return f"""
         SELECT id, event, pr_number, actor_login, created_at
@@ -26,7 +32,7 @@ def build_query(table_name: str) -> str:
                 JSONExtractInt(issue, 'number') AS pr_number,
                 ifNull(JSONExtractString(actor, 'login'), '') AS actor_login,
                 parseDateTimeBestEffort(created_at) AS created_at
-            FROM {table_name}
+            FROM {table_source}
             WHERE event IN ('{READY_FOR_REVIEW_EVENT}', '{CONVERT_TO_DRAFT_EVENT}')
         )
         WHERE created_at IS NOT NULL

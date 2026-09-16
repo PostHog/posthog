@@ -36,6 +36,9 @@ tools:
     llm-skills-name-publish-community-create:
         operation: llm_skills_name_publish_community_create
         enabled: false
+    llm-skills-name-skill-md-retrieve:
+        operation: llm_skills_name_skill_md_retrieve
+        enabled: false
     llm-skills-search-retrieve:
         operation: llm_skills_search_retrieve
         enabled: false
@@ -124,6 +127,13 @@ tools:
             Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version.
             Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version'
             field to chain further edits via base_version. Supply base_version for optimistic concurrency.
+        param_overrides:
+            file_path:
+                description: >
+                    The file's path, copied from the `path` field of a skill-get manifest entry (e.g.
+                    `references/limits.md`). Sending it as `path` also works.
+                aliases:
+                    - path
     skill-file-get:
         operation: llm_skills_name_files_retrieve
         enabled: true
@@ -138,6 +148,13 @@ tools:
             Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to
             discover available files. Supports progressive disclosure — only load files when needed rather than fetching
             all content upfront.
+        param_overrides:
+            file_path:
+                description: >
+                    The file's path, copied from the `path` field of a skill-get manifest entry (e.g.
+                    `references/limits.md`). Sending it as `path` also works.
+                aliases:
+                    - path
     skill-file-rename:
         operation: llm_skills_name_files_rename_create
         enabled: true

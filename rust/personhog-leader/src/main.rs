@@ -212,6 +212,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("grpc_server_request_duration_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -398,9 +402,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
             kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
-            // One producer per owned partition, so the shared producer's
-            // queue limits are an aggregate to divide rather than a
-            // per-producer figure to copy.
+            // One producer per lane per owned partition, so the shared
+            // producer's queue limits are an aggregate to divide rather
+            // than a per-producer figure to copy.
             kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
@@ -415,6 +419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 window: Duration::from_millis(config.fencing_window_ms),
                 window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
+                lanes: config.fencing_lanes,
             })
             .with_repair_nudge(repair_nudge),
         ))

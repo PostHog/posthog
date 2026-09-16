@@ -5,7 +5,7 @@ import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topi
 import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
-    AI_RESEARCH_REPLAY_PRIVACY_TABLE: string
+    AI_RESEARCH_REPLAY_KEY_TABLE: string
     AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
     AI_RESEARCH_REPLAY_AWS_REGION: string
     AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: number
@@ -218,12 +218,12 @@ export type MlMirrorConfig = {
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
     return {
-        AI_RESEARCH_REPLAY_PRIVACY_TABLE: '',
+        AI_RESEARCH_REPLAY_KEY_TABLE: '',
         AI_RESEARCH_REPLAY_KMS_KEY_ARN: '',
         AI_RESEARCH_REPLAY_AWS_REGION: 'us-east-1',
-        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 100,
-        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 10_000,
-        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 60_000,
+        AI_RESEARCH_REPLAY_KMS_REQUESTS_PER_SECOND: 150,
+        AI_RESEARCH_REPLAY_KEY_CACHE_MAX: 100_000,
+        AI_RESEARCH_REPLAY_KEY_CACHE_LIFETIME_MS: 1_800_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
