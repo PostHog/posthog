@@ -3266,6 +3266,7 @@ export interface CredentialApi {
  * * `Substack` - Substack
  * * `ElectricityMaps` - ElectricityMaps
  * * `Amplemarket` - Amplemarket
+ * * `Quo` - Quo
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4611,6 +4612,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Substack: 'Substack',
     ElectricityMaps: 'ElectricityMaps',
     Amplemarket: 'Amplemarket',
+    Quo: 'Quo',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
