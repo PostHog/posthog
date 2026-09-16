@@ -5,9 +5,11 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.fields import empty
+from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import Pipeline, PipelineWrite
@@ -29,6 +31,10 @@ OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
 _FORBIDDEN_TARGET_EVENT_CHARS = re.compile(r"[\x00-\x1f\x7f`{}]")
 
 _OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_$.\-]*$")
+
+# The scopes the Actions API accepts for a read. Resolving an action target reveals whether the
+# id exists and, through the response, its name, so a scoped token needs one of these first.
+_ACTION_READ_SCOPES = ("action:read", "action:write", "*")
 
 
 def _validate_target_event_value(value: str, *, error_key: str) -> None:
@@ -53,11 +59,18 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
+def _require_action_scope(request: Request | None) -> None:
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+        raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
+
+
 def resolve_target(
     *,
     team: Any,
     target_event: str,
     target_definition: dict[str, Any] | None,
+    request: Request | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Validate and normalize a prediction target, returning (target_event, target_definition).
@@ -90,6 +103,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
+        _require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -546,6 +560,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
                 team=team,
                 target_event=self._value(data, "target_event", ""),
                 target_definition=self._value(data, "target_definition"),
+                request=self.context.get("request"),
             )
             updates["target_event"] = target_event
             updates["target_definition"] = target_definition
@@ -756,7 +771,10 @@ class ResolveTemplateRequestSerializer(serializers.Serializer):
 
 
 class ResolvedTemplateSerializer(serializers.Serializer):
-    template_key = serializers.CharField(help_text="The template key that was resolved.")
+    template_key = serializers.ChoiceField(
+        choices=TEMPLATE_KEY_CHOICES,
+        help_text="The template key that was resolved. Pass it back to re-resolve with a different target_event.",
+    )
     display_name = serializers.CharField(help_text="Human-readable template name.")
     description = serializers.CharField(help_text="What this template predicts.")
     suggested_name = serializers.CharField(

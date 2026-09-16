@@ -79534,8 +79534,14 @@ export namespace Schemas {
     export type ResolvedTemplateInferencePopulation = { [key: string]: unknown };
 
     export interface ResolvedTemplate {
-      /** The template key that was resolved. */
-      template_key: string;
+      /** The template key that was resolved. Pass it back to re-resolve with a different target_event.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      template_key: TemplateKeyEnum;
       /** Human-readable template name. */
       display_name: string;
       /** What this template predicts. */

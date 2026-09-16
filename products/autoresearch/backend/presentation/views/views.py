@@ -143,13 +143,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
-    # The actions that query ClickHouse on every call. Both run several unsampled scans over a
-    # caller-chosen window, so a personal API key gets the ClickHouse budget rather than the
-    # general endpoint allowance.
-    _QUERY_ACTIONS = ("resolve_template", "validate_definition")
-
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self._QUERY_ACTIONS:
+        # Both actions run several unsampled ClickHouse scans over a caller-chosen window, so a
+        # personal API key gets the ClickHouse budget rather than the general endpoint allowance.
+        if self.action in ("resolve_template", "validate_definition"):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
@@ -311,6 +308,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             team=self.team,
             target_event=data.get("target_event", ""),
             target_definition=data.get("target_definition"),
+            request=request,
         )
         result = api.validate_definition(
             self.team_id,

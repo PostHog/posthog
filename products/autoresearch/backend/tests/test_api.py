@@ -268,6 +268,33 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_query}")
         assert self.client.post(f"{self.base_url}/{path}/", body, format="json").status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("validate", "validate/", ["autoresearch:read", "query:read"], status.HTTP_200_OK),
+            ("create", "", ["autoresearch:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_action_targets_need_the_action_scope(
+        self, _name: str, path: str, scopes: list[str], ok_status: int, _mock: MagicMock
+    ):
+        action = Action.objects.create(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
+        )
+        body = {"name": "Action Pipeline", "target_definition": {"type": "action", "action_id": action.id}}
+        self.client.logout()
+        without = self.create_personal_api_key_with_scopes(scopes)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
+        resp = self.client.post(f"{self.base_url}/{path}", body, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == "target_definition"
+        with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
+        assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
+
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
