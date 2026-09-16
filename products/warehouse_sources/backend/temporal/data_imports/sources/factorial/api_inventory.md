@@ -70,8 +70,10 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 | job_postings          | `/resources/ats/job_postings`                         | —             |
 | applications          | `/resources/ats/applications`                         | created_at    |
 
-Primary key is the integer `id` on every list resource. Partition keys are `created_at` where the field is
-reliably present on every row (transactional records); lookup/config resources are left unpartitioned.
+Primary key is the `id` column on every list resource. It is serialized as an integer on `2025-04-01` and
+`2026-04-01`, and as an opaque string on `2026-07-01` (see Identifier serialization above), so the column type is
+left to inference. Partition keys are `created_at` where the field is reliably present on every row
+(transactional records); lookup/config resources are left unpartitioned.
 
 ## Rate limits
 

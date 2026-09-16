@@ -21,7 +21,7 @@ class FactorialEndpointConfig:
 
 # A focused, canonical HRIS stream set cross-referenced against the Airbyte/Fivetran Factorial
 # connectors: people & org structure, contracts, time off, attendance, expenses, payroll, project
-# time tracking, and recruiting (ATS). Every list resource is keyed by a unique integer `id`.
+# time tracking, and recruiting (ATS). Every list resource is keyed by a unique `id`.
 FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "employees": FactorialEndpointConfig(
         name="employees",
