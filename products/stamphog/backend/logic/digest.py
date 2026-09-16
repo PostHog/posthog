@@ -796,12 +796,14 @@ class _AudienceMerges:
 
     ``partial_indexes`` names the positions the team owns only part of, for the scope check. They
     are read off the same walk that decided which positions survive, because the prompt hands the
-    model those positions as its indexes.
+    model those positions as its indexes. ``partial_keys`` names the same merges by (repository,
+    number), which is how the headline step finds them among the picked changes.
     """
 
     prs: list[PullRequest]
     audiences: list[PullRequestAudience] | None
     partial_indexes: frozenset[int]
+    partial_keys: frozenset[tuple[str, int]]
 
 
 def _drop_unaddressed(
@@ -815,11 +817,12 @@ def _drop_unaddressed(
     diff and found nothing to say about this team's files, so it is somebody else's news.
     """
     if not audiences:
-        return _AudienceMerges(prs=prs, audiences=audiences, partial_indexes=frozenset())
+        return _AudienceMerges(prs=prs, audiences=audiences, partial_indexes=frozenset(), partial_keys=frozenset())
 
     kept_prs: list[PullRequest] = []
     kept_audiences: list[PullRequestAudience] = []
     partial_indexes: set[int] = set()
+    partial_keys: set[tuple[str, int]] = set()
     for pr, audience in zip(prs, audiences):
         if _grazed(pr, audience):
             logger.info(
@@ -839,9 +842,15 @@ def _drop_unaddressed(
             continue
         if partly_owned:
             partial_indexes.add(len(kept_prs))
+            partial_keys.add((pr.repo_config.repository, pr.pr_number))
         kept_prs.append(pr)
         kept_audiences.append(audience)
-    return _AudienceMerges(prs=kept_prs, audiences=kept_audiences, partial_indexes=frozenset(partial_indexes))
+    return _AudienceMerges(
+        prs=kept_prs,
+        audiences=kept_audiences,
+        partial_indexes=frozenset(partial_indexes),
+        partial_keys=frozenset(partial_keys),
+    )
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -915,12 +924,9 @@ def _request_headline(
     away the good half of the work.
     """
     sources = {(pr.repo_config.repository, pr.pr_number): pr for pr in told.prs}
-    partly_owned = frozenset(
-        (told.prs[index].repo_config.repository, told.prs[index].pr_number) for index in told.partial_indexes
-    )
     try:
         bounded = client.with_options(timeout=_HEADLINE_TIMEOUT_SECONDS, max_retries=_HEADLINE_MAX_RETRIES)
-        prompt = _build_headline_prompt(picked, sources, team_slug, partly_owned)
+        prompt = _build_headline_prompt(picked, sources, team_slug, told.partial_keys)
         return _parse_headline(
             _complete(bounded, team_id, prompt, max_tokens=_HEADLINE_MAX_TOKENS, effort=_HEADLINE_EFFORT)
         )

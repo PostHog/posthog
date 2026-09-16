@@ -209,6 +209,10 @@ def _registry_answer(context: RoutingContext, slug: str, repository: str) -> Tea
     return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
 
 
+def _silenced(answer: TeamChannel) -> bool:
+    return answer.declared and answer.channel is None
+
+
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
     """Where this audience's merges from ``repository`` go, or None when they go nowhere.
 
@@ -225,10 +229,10 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
         return _match(context, channel_name, ChannelResolutionSource.STAMPHOG_CONFIG, allow_shared=True)
 
     answer = _registry_answer(context, audience_key, repository)
+    if _silenced(answer):
+        logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
+        return None
     if answer.declared:
-        if answer.channel is None:
-            logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
-            return None
         # A registry entry can name a channel for a team the declaring repo does not own, so the
         # shared-channel guard stays on: an externally shared match here leaves the workspace.
         return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
@@ -245,11 +249,9 @@ def opted_out(context: RoutingContext, audience_key: str) -> bool:
     """
     if audience_key.startswith(REPO_AUDIENCE_PREFIX) or not context.registry_by_repo:
         return False
-    for repository in context.registry_by_repo:
-        answer = _registry_answer(context, audience_key, repository)
-        if not answer.declared or answer.channel is not None:
-            return False
-    return True
+    return all(
+        _silenced(_registry_answer(context, audience_key, repository)) for repository in context.registry_by_repo
+    )
 
 
 def _match(
