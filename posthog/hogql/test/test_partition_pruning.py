@@ -82,6 +82,16 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
             ("scan inside a cte body", "WITH e AS (SELECT * FROM events) SELECT count() FROM e", 1),
             ("another table", "SELECT count() FROM persons", 0),
             ("every branch of a union", "SELECT count() FROM events UNION ALL SELECT count() FROM events", 2),
+            (
+                "limit carries into the branches of a union all",
+                "SELECT * FROM (SELECT event FROM events UNION ALL SELECT event FROM events) LIMIT 1",
+                0,
+            ),
+            (
+                "limit cannot cap an except",
+                "SELECT * FROM (SELECT event FROM events EXCEPT SELECT event FROM events) LIMIT 1",
+                2,
+            ),
         ]
     )
     def test_scan_classification(self, _name: str, query: str, expected: int) -> None:

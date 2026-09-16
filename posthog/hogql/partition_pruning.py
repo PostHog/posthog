@@ -99,6 +99,14 @@ _BOUNDING_COMPARE_OPS = frozenset(
     }
 )
 
+# Set operators that let a row limit outside the set stop the read early. UNION ALL concatenates its
+# branches, so the limit is satisfied from the branches read so far. EXCEPT and INTERSECT have to
+# compute the whole of the other side before they know which rows qualify, so `(A EXCEPT B) LIMIT 1`
+# reads all of B and reads A until one row survives the exclusion. A DISTINCT variant has to read every
+# repeat of a value to produce one more distinct row, which is the same reason _terminates_early
+# rejects a query that is DISTINCT.
+_EARLY_TERMINATING_SET_OPERATORS = frozenset({"UNION ALL", "UNION ALL BY NAME"})
+
 
 @frozen
 class QueryTextEdit:
@@ -184,8 +192,9 @@ def _collect_scans(
     the rows it consumes. Either one keeps a scan under `node` off the report.
     """
     if isinstance(node, ast.SelectSetQuery):
+        branch_capped = capped and _set_terminates_early(node)
         for branch in node.select_queries():
-            _collect_scans(branch, bounded=bounded, capped=capped, shadowed=shadowed, scans=scans)
+            _collect_scans(branch, bounded=bounded, capped=branch_capped, shadowed=shadowed, scans=scans)
         return
     if not isinstance(node, ast.SelectQuery):
         return
@@ -420,6 +429,11 @@ def _terminates_early(query: ast.SelectQuery) -> bool:
     # An inline `OVER (...)` is a WindowFunction in the select list and leaves window_exprs unset, so
     # the clause check above does not see it. A window still orders the whole partition first.
     return not any(_contains_aggregation(expr) or _contains_window_function(expr) for expr in query.select)
+
+
+def _set_terminates_early(query: ast.SelectSetQuery) -> bool:
+    """True when a row limit outside `query` still caps what its branches read."""
+    return all(node.set_operator in _EARLY_TERMINATING_SET_OPERATORS for node in query.subsequent_select_queries)
 
 
 class _AggregationFinder(TraversingVisitor):
