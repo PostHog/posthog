@@ -5092,6 +5092,10 @@ snapshots:
         hash: v1.k794b7964.fda088b86665fa1e7f42ac158d9c5acf12b2afc030a90ad385d3d0fe16170d46.WqmQ9-wSSHQj0J-kUbJKkFI8DhDljOP6queW3e6jxDQ
     marketing-analytics-customer-acquisition-cards--unconfigured--light:
         hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
+    marketing-analytics-retention-return-table--all-users--dark:
+        hash: v1.k794b7964.6264efbb674f1d2ad948b6e8856f69a094d69e17470207337238c52738d18184.joOXUxWScKUZyVj5-taM4nWB9gqzB22I8iJwgRauNOA
+    marketing-analytics-retention-return-table--all-users--light:
+        hash: v1.k794b7964.0a973ec5c9d94ed2ee1f27fc8a4c413a4e6fad4e5d680feb6261ecb0b453bfc5.68pa0YliERtpe8_vooGChjNDotzdaAyCJISwOQhQQCc
     marketing-analytics-retention-return-table--default--dark:
         hash: v1.k794b7964.10eab46ec9f4b1ab6c0e0498982027ca451613de6a5ea37cdf9d8ce79c5095eb.T7Q483dORAWSLxcHH1-RJKXoIMORzWToVbXG9NWnH-o
     marketing-analytics-retention-return-table--default--light:
