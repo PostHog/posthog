@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -30,8 +31,12 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
-import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
-import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
+import {
+    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
+    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
+    RETENTION_UNLINKABLE_REASON,
+} from '../utils'
+import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import {
     type ExperimentRecordingsNarrowingAction,
     type ExperimentReplayRecording,
@@ -1010,8 +1015,166 @@ describe('experimentReplayTabLogic', () => {
             selected_metric_count: 0,
             is_bucketed: false,
             watch_card_kind: null,
+            entry_point: null,
         })
         filled.unmount()
+    })
+
+    it('reports the entry point a deep link set, and clears it when the viewer moves a facet', async () => {
+        // The entry point is what separates a list a results row opened from one somebody narrowed
+        // by hand, so an empty rate can be read per entry point. Left set after a manual change, it
+        // would credit the results row with lists it never asked for.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        router.actions.push('/experiments/63', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 63, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({ entry_point: 'results_button', variant: 'test' })
+
+        fromResults.actions.setSelectedVariantKey(null)
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+        expect(listsRendered(captureSpy, 63)[1][1]).toMatchObject({ entry_point: null, variant: null })
+        fromResults.unmount()
+    })
+
+    it('drops the entry point once the viewer narrows the list from the playlist bar', async () => {
+        // A filter added in the playlist bar narrows the list past what the link asked for, so the
+        // results row must stop being credited with it. The variant facet is left alone here, since
+        // moving one is the other way to clear the entry point and would hide this one failing.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        router.actions.push('/experiments/67', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 67, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        fromResults.actions.playlistFiltersChanged({
+            ...fromResults.values.recordingsFilters,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                    },
+                ],
+            },
+        })
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.entryPoint).toBe('results_button')
+        expect(listsRendered(captureSpy, 67)[0][1]).toMatchObject({ entry_point: null, variant: 'test' })
+        fromResults.unmount()
+    })
+
+    it('applies a deep link once and takes its params out of the URL', async () => {
+        router.actions.push('/experiments/64', {
+            tab: 'recordings',
+            variant: 'test',
+            metric_uuid: 'metric-purchase',
+            metric_filter: 'no_metric_activity',
+            entry: 'results_menu',
+        })
+        const deepLinked = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 64 } as Experiment })
+        deepLinked.mount()
+        await expectLogic(deepLinked).toFinishAllListeners()
+
+        expect(deepLinked.values.selectedVariantKey).toBe('test')
+        expect(deepLinked.values.effectiveMetricUuids).toEqual(['metric-purchase'])
+        expect(deepLinked.values.metricFilterMode).toBe('no_metric_activity')
+        // Which control opened the tab has to survive the trip, or a menu selection and a plain
+        // button click become the same row in the report.
+        expect(deepLinked.values.entryPoint).toBe('results_menu')
+        // One request for the three facets: they arrive in one dispatch, and afterMount asks for
+        // the same bucket, so a second call here means the two are no longer collapsing.
+        expect(experimentsSessionBucketsCreate).toHaveBeenCalledTimes(1)
+        expect(experimentsSessionBucketsCreate).toHaveBeenLastCalledWith(expect.any(String), 64, {
+            bucket: 'no_metric_activity',
+            metric_uuids: ['metric-purchase'],
+            variant: 'test',
+        })
+        // The tab the link named stays; the three it consumed go, so a later remount reads the
+        // persisted state instead of applying the link again.
+        expect(router.values.searchParams).toEqual({ tab: 'recordings' })
+        deepLinked.unmount()
+    })
+
+    it('leaves a change made after a deep link in place when the tab remounts', async () => {
+        router.actions.push('/experiments/65', {
+            tab: 'recordings',
+            metric_uuid: 'metric-purchase',
+            metric_filter: 'no_metric_activity',
+        })
+        const deepLinked = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 65 } as Experiment })
+        deepLinked.mount()
+        await expectLogic(deepLinked).toFinishAllListeners()
+        deepLinked.actions.setMetricFilterMode('fired_all')
+        deepLinked.unmount()
+
+        // The tab bar renders only the active tab, so this logic unmounts on a tab switch and
+        // mounts again on return. A link still in the URL would re-apply and undo the change.
+        const remounted = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 65 } as Experiment })
+        remounted.mount()
+        await expectLogic(remounted).toFinishAllListeners()
+        expect(remounted.values.metricFilterMode).toBe('fired_all')
+        remounted.unmount()
+    })
+
+    it('starts a deep link from the whole exposed set, whatever scope the last visit left', async () => {
+        // The scope persists, and 'in_session' narrows to the sessions carrying exposure evidence.
+        // Left in place it would cut the population the row's label promised, with nothing on
+        // screen saying why.
+        const earlier = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        earlier.mount()
+        await expectLogic(earlier).toFinishAllListeners()
+        earlier.actions.setExposureScope('in_session')
+        await expectLogic(earlier).toMatchValues({ effectiveExposureScope: 'in_session' })
+        earlier.unmount()
+
+        router.actions.push('/experiments/68', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 68 } as Experiment })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.effectiveExposureScope).toBe('all_exposed')
+        expect(fromResults.values.recordingsFilters.experiment_exposure).toEqual({
+            experiment_id: 68,
+            variant: 'test',
+        })
+        fromResults.unmount()
+    })
+
+    it('degrades a deep link the experiment cannot answer to the tab defaults', async () => {
+        router.actions.push('/experiments/66', {
+            tab: 'recordings',
+            variant: 'nope',
+            metric_uuid: 'nope',
+            metric_filter: 'nope',
+        })
+        const stale = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 66 } as Experiment })
+        stale.mount()
+        await expectLogic(stale).toFinishAllListeners()
+
+        // A link that names a renamed variant, a deleted metric, or a mode that no longer exists
+        // has to land on the tab's own defaults rather than on a stuck filter or a refused request.
+        expect(stale.values.effectiveVariantKey).toBeNull()
+        // The facet persists, so a variant the experiment doesn't have must never be written: it
+        // would outlive this visit and show as a selection on the next one.
+        expect(stale.values.selectedVariantKey).toBeNull()
+        expect(stale.values.effectiveMetricUuids).toEqual([])
+        expect(stale.values.metricFilterMode).toBe('fired_all')
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        stale.unmount()
     })
 
     it.each([
@@ -1205,7 +1368,7 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
-    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff'] as const)(
+    it.each(['fired_any', 'no_metric_activity', 'funnel_dropoff', 'funnel_completed'] as const)(
         'leaves the list untouched when %s has no metric to apply',
         async (mode) => {
             await expectLogic(logic).toFinishAllListeners()
@@ -1234,6 +1397,26 @@ describe('experimentReplayTabLogic', () => {
             logic.actions.playlistFiltersChanged({ ...logic.values.recordingsFilters, session_ids: undefined })
         }).toMatchValues({ metricFilterMode: 'fired_all' })
         expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+    })
+
+    it("matches the funnel's last step for finished funnels, without asking the endpoint", async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('funnel_completed')
+        }).toFinishAllListeners()
+
+        // Every other mode matches a funnel on its entry step, which is where a session starts the
+        // funnel rather than finishes it. Completion is an ordinary event filter on the last step,
+        // so it stays exact and uncapped instead of going to the capped bucket endpoint.
+        expect(logic.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        expect(logic.values.recordingsFilters.session_ids).toBeUndefined()
+        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ id: 'client_step', name: 'client_step', type: 'events', properties: [] }],
+            },
+        ])
     })
 
     it('takes one funnel metric for drop-off and leaves the rest unselectable', async () => {
@@ -1297,6 +1480,14 @@ describe('experimentReplayTabLogic', () => {
         // Nothing is asked of the endpoint, which would refuse this funnel anyway.
         expect(unmatchableFinish.values.sessionBucketRequest).toBeNull()
         expect(unmatchableFinish.values.recordingsFilters.session_ids).toBeUndefined()
+
+        // Both funnel modes read the same last step, so the one that filters client-side has to
+        // refuse the funnel too rather than matching on a step that isn't the completion.
+        await expectLogic(unmatchableFinish, () =>
+            unmatchableFinish.actions.setMetricFilterMode('funnel_completed')
+        ).toFinishAllListeners()
+        expect(unmatchableFinish.values.effectiveMetricUuids).toEqual([])
+        expect(unmatchableFinish.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         unmatchableFinish.unmount()
     })
 

@@ -82,7 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
+import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -164,6 +164,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    OIDC = 'oidc',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     XAA_AUTHENTICATION = 'xaa_authentication',
@@ -268,7 +269,7 @@ export enum Region {
     DEV = 'DEV',
 }
 
-export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml' | 'oidc'
 export type LoginMethod = SSOProvider | 'password' | 'passkey' | null
 
 export interface AuthBackends {
@@ -276,6 +277,7 @@ export interface AuthBackends {
     gitlab?: boolean
     github?: boolean
     saml?: boolean
+    oidc?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'
@@ -843,6 +845,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_trigger_groups?: SessionRecordingTriggerGroupsConfig | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
+    heatmaps_screenshot_secret?: string | null
     conversations_enabled?: boolean
     conversations_settings?: ConversationsSettings | null
     web_analytics_pre_aggregated_tables_enabled?: boolean
@@ -6297,6 +6300,8 @@ export interface DataModelingNode {
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
     suspended?: NodeApiSuspended
+    /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
+    endpoint?: NodeEndpointApi | null
 }
 
 export interface DataModelingEdge {

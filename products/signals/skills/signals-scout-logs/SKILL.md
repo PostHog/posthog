@@ -1,5 +1,6 @@
 ---
 name: signals-scout-logs
+scout-display-name: Logs
 description: >
   Signals scout for PostHog logs. Watches for emerging and rate-shifted message patterns, volume
   bursts, severity-distribution shifts, service silence, and trace-correlated bursts.

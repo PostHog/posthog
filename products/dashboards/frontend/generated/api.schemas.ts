@@ -1623,6 +1623,8 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
@@ -2778,9 +2780,18 @@ export const CurveApi = {
     Smooth: 'smooth',
 } as const
 
+export type SeriesColorModeApi = (typeof SeriesColorModeApi)[keyof typeof SeriesColorModeApi]
+
+export const SeriesColorModeApi = {
+    Palette: 'palette',
+    Opacity: 'opacity',
+} as const
+
 export interface ChartStyleApi {
     /** Line interpolation: straight segments or a smoothed curve through the points. */
     curve?: CurveApi | null
+    /** How series are told apart: one color per series, or one color at stepped opacities. */
+    seriesColorMode?: SeriesColorModeApi | null
 }
 
 export type DetailedResultsAggregationTypeApi =
@@ -3707,6 +3718,8 @@ export interface RetentionFilterApi {
     returningEntity?: RetentionEntityApi | null
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: number | null
+    /** Draw the mean across cohorts as one line on the retention graph. */
+    showMeanLine?: boolean | null
     showTrendLines?: boolean | null
     targetEntity?: RetentionEntityApi | null
     /** The time window mode to use for retention calculations */

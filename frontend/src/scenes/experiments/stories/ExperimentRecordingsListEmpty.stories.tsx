@@ -168,3 +168,33 @@ export const ExperimentRecordingsEmptyMetricFilterFailed: Story = {
     decorators: [mswDecorator({ post: { [SESSION_BUCKETS_PATH]: [400, { detail: 'Could not resolve the filter' }] } })],
     play: pickFiredNone,
 }
+
+/**
+ * The same matched-nothing state, reached by a results-row link rather than by hand. This is the
+ * one place the whole deep link runs end to end: the scene keeps the params through its first URL
+ * pass, and the tab applies them on mount, so the variant facet and the drop-off trigger label are
+ * already set when the list lands.
+ */
+export const ExperimentRecordingsEmptyFromResultsRow: Story = {
+    parameters: {
+        pageUrl: `${urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id)}?tab=recordings&variant=test-1&metric_uuid=${
+            EXPERIMENT_WITH_FUNNEL_METRIC.metrics[0].uuid
+        }&metric_filter=funnel_dropoff`,
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-empty-state"] .LemonBanner' },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                [SESSION_BUCKETS_PATH]: {
+                    session_ids: [],
+                    truncated: false,
+                    considered_metrics: [{ metric_uuid: 'funnel', metric_name: 'Checkout funnel' }],
+                    excluded_metrics: [],
+                    date_from: '2025-05-25T00:00:00Z',
+                    date_to: '2025-06-01T00:00:00Z',
+                    filter_test_accounts: true,
+                },
+            },
+        }),
+    ],
+}

@@ -71,4 +71,24 @@ The project API stores the key in `logs_settings.json_parse_logs_attribute_key`,
 - The default is off. An empty string disables parsing.
 - The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
 
-Saving a key records your choice. Ingestion does not read it yet, so no fields are extracted from the attribute.
+Saving a key records your choice. No fields are extracted from the attribute yet.
+
+### Measure-only ingestion probe
+
+Operators can set `LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS` to a comma-separated list of project IDs to enable a JSON-prefix probe. The default is empty (disabled); `*` enables all projects with a nonempty `json_parse_logs_attribute_key`. This probe runs only on logs, never traces.
+
+The Prometheus counter `logs_ingestion_json_attribute_sniff_total` has `team_id` and `outcome` labels. Each inspected record increments one outcome:
+
+- `missing_key`: the configured key is absent from the log attributes.
+- `looks_like_json`: the first 64 characters start with `{` or `[`, allowing leading whitespace and a JSON string's opening quote and escaped whitespace.
+- `other`: the key exists but does not match that prefix.
+
+This is a heuristic, not JSON validation. The probe does not parse JSON, flatten values, extract fields, or change records. Attribute names and values are not included in the metric. Records are inspected after existing PII scrubbing and body enrichment, before drop rules.
+
+Enabling the probe can add Avro decoding for traffic that would otherwise pass through untouched. Probe-only batches retain their original bytes without re-encoding. Use a small project allowlist to limit that cost and metric cardinality.
+
+To break down the observed record rate by project and outcome in Grafana:
+
+```promql
+sum by (team_id, outcome) (rate(logs_ingestion_json_attribute_sniff_total[5m]))
+```

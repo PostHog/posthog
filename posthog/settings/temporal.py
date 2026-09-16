@@ -25,6 +25,10 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
+# pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
+# pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
+ASYNCIFY_MAX_WORKERS: int = get_from_env("ASYNCIFY_MAX_WORKERS", 32, type_cast=int)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
