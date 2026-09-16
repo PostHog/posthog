@@ -41,7 +41,12 @@ def _replay_kwargs(request: HttpRequest, headers: Mapping[str, str]) -> dict[str
     except RawPostDataException:
         # `requests` mints a fresh multipart boundary for the rebuilt body, so the original
         # Content-Type, which names the boundary of the body that is gone, must not travel with it.
-        rebuilt_headers = {key: value for key, value in headers.items() if key.lower() != "content-type"}
+        # The rebuilt body also has its own length, and `requests` keeps an explicit Content-Length,
+        # so the original one makes the other region read a short body or wait for bytes that never
+        # come.
+        rebuilt_headers = {
+            key: value for key, value in headers.items() if key.lower() not in {"content-type", "content-length"}
+        }
         fields = [(key, value) for key, values in request.POST.lists() for value in values]
         files: list[ReplayFile] = []
         for field_name in request.FILES:
