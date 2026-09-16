@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCopy, IconEye, IconPlay, IconRefresh, IconX } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -19,6 +19,7 @@ import { ObservationResultSummary, ObservationStatusTag } from '../../components
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../search/observationQueries'
 import { shortBackfillId } from '../../utils/backfills'
 import {
     OBSERVATIONS_PAGE_SIZE,
@@ -239,18 +240,35 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             title: '',
             key: 'actions',
             width: 1,
-            render: (_, obs) => (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconEye />}
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="whitespace-nowrap"
-                    data-attr="vision-observation-view-details"
-                >
-                    View details
-                </LemonButton>
-            ),
+            render: (_, obs) => {
+                const similarUrl = similarSearchUrl(obs)
+                return (
+                    <div className="flex items-center gap-1">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconEye />}
+                            to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                            className="whitespace-nowrap"
+                            data-attr="vision-observation-view-details"
+                        >
+                            View details
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconSearch />}
+                            to={similarUrl ?? undefined}
+                            onClick={() => markSimilarSearchIntent(obs)}
+                            disabledReason={similarUrl ? undefined : 'This observation has no text to search with'}
+                            tooltip="Find similar observations across scanners"
+                            // A `to` renders a Link, which skips LemonButton's tooltip-to-aria-label fallback.
+                            aria-label="Find similar observations across scanners"
+                            data-attr="vision-observation-find-similar"
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
@@ -267,6 +285,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     · {observationStats.inFlight.toLocaleString()} in flight
                 </span>
                 <div className="ml-auto flex flex-wrap items-center gap-3 xl:flex-nowrap">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSearch />}
+                        to={searchTabUrl({ scanner: scannerId })}
+                        data-attr="vision-observations-search"
+                    >
+                        Search observations
+                    </LemonButton>
                     <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>

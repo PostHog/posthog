@@ -12,6 +12,7 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS, OBSERVATION_LIST_URL_PARAM_KEYS } from '../replay_scanners/types'
+import { searchBreadcrumb } from '../search/observationQueries'
 import {
     OBSERVATION_ORIGIN_PARAM,
     WATCH_FEED_ORIGIN,
@@ -70,8 +71,7 @@ export function observationParentUrl(
  */
 export function scannerReturnParams(searchParams: Record<string, unknown>): Record<string, string> {
     const params: Record<string, string> = {}
-    // `tab` and `q` (the Search tab's query) sit alongside the observations table's own params.
-    for (const key of ['tab', 'q', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
+    for (const key of ['tab', 'q', 'scanner', 'similar', ...OBSERVATION_LIST_URL_PARAM_KEYS]) {
         const value = searchParams[key]
         // The router coerces a param by shape: `page=2` to a number, `q=true` to a boolean. Keep every
         // scalar and stringify it; dropping the coerced ones would lose that filter on the way back.
@@ -321,10 +321,13 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         // to the feed rather than the scanner that owns the row.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
             const { searchParams } = router.values
+            const returnParams = scannerReturnParams(searchParams)
             replayObservationSceneLogic().actions.setParentBreadcrumb(
                 searchParams[OBSERVATION_ORIGIN_PARAM] === WATCH_FEED_ORIGIN
                     ? watchFeedBreadcrumb()
-                    : observationParentBreadcrumb(observation, scannerReturnParams(searchParams))
+                    : returnParams.tab === 'search'
+                      ? searchBreadcrumb(returnParams)
+                      : observationParentBreadcrumb(observation, returnParams)
             )
         }
         return {

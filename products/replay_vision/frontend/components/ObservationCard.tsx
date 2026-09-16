@@ -15,6 +15,7 @@ import {
     parseFailureReason,
     parseIneligibleReason,
 } from '../replay_scanners/types'
+import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -414,6 +415,7 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
+    const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
         observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
@@ -439,6 +441,16 @@ export function ObservationDockCard({
                     <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
                         View details
                     </Link>
+                    {similarUrl && (
+                        <Link
+                            to={similarUrl}
+                            onClick={() => markSimilarSearchIntent(observation)}
+                            className="text-xs whitespace-nowrap"
+                            data-attr="vision-dock-find-similar"
+                        >
+                            Find similar
+                        </Link>
+                    )}
                 </div>
             </div>
 
