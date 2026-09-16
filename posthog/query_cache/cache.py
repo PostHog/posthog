@@ -107,21 +107,22 @@ class QueryCache:
         return QuerySingleFlight(self.cache_key, budget, variant)
 
     def store_result(self, *, response: dict, target_age: Optional[datetime]) -> bool:
-        if isinstance(response.get("results"), list):
-            # Split format keeps `results` as its own JSON segment so cache hits can skip
-            # parsing it (see CachedEntry). Pods that predate the format treat split entries
-            # as cache misses and recompute once during a rolling deploy. Accepted: deploys
-            # are quick.
-            fresh_response_serialized = encode_split_cached_response(response)
-        else:
-            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
-        data_size = len(fresh_response_serialized)
-
         # The tracker budgets the bytes actually stored in Redis (compressed blob or pointer);
         # the write metrics below keep counting the uncompressed payload. Caching is an
         # optimization: the query has already run, so a failure in this block must not fail
-        # the response.
+        # the response. Serialization is inside the guard because a payload the serializer
+        # rejects must degrade to "not cached" as well.
         try:
+            if isinstance(response.get("results"), list):
+                # Split format keeps `results` as its own JSON segment so cache hits can skip
+                # parsing it (see CachedEntry). Pods that predate the format treat split entries
+                # as cache misses and recompute once during a rolling deploy. Accepted: deploys
+                # are quick.
+                fresh_response_serialized = encode_split_cached_response(response)
+            else:
+                fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
+            data_size = len(fresh_response_serialized)
+
             storage_bytes = encode_inline_value(fresh_response_serialized)
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, storage_bytes, self.ttl)
