@@ -48,7 +48,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
+from products.signals.backend.report_embeddings import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_PRODUCT,
+    EMBEDDING_RENDERING_TITLE_SUMMARY,
+)
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -502,7 +506,9 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
             {
                 "product": EMBEDDING_PRODUCT,
                 "document_type": EMBEDDING_DOCUMENT_TYPE,
-                "rendering": EMBEDDING_RENDERING,
+                # One rendering per snapshot. The title-only rendering is emitted too, and gets its
+                # own snapshot when the model is ready to compare the two.
+                "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
                 "snapshot_end": snapshot_end.replace(tzinfo=None),
             },
             settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
@@ -542,7 +548,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
             "report_team_id": team_ids,
             "embedding_small": embeddings,
             "embedding_inserted_at": inserted_ats,
-            "embedding_rendering": [EMBEDDING_RENDERING] * row_count,
+            "embedding_rendering": [EMBEDDING_RENDERING_TITLE_SUMMARY] * row_count,
             "is_tombstone": tombstone_flags,
         },
         schema=EMBEDDINGS_SCHEMA,

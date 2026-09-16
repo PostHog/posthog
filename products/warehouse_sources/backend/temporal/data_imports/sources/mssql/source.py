@@ -2,17 +2,15 @@ from typing import Optional, cast
 
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
@@ -111,6 +109,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # whose definition selects a column that's no longer present. Fixed source-data shape,
             # so retrying won't help.
             "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
+            # SQL Server error 209 — a name in the object we select from resolves to more than one
+            # column. Our SELECT reads a single qualified object and only ever names columns
+            # discovered from information_schema, so the ambiguity is inside a view body: most often
+            # a `SELECT *` over a join that went stale when a base table gained a same-named column.
+            # The view keeps failing until it is refreshed or rewritten, so retrying replays the
+            # identical 209. Match the stable error text, not the column name that follows it.
+            "Ambiguous column name": "A view you're syncing has a column name that exists in more than one of the tables it reads, so SQL Server can't resolve it. Fix or refresh the view definition at the source, then re-enable the sync.",
             # SQL Server error 245 — an implicit type conversion fails on a specific row's value
             # (e.g. converting the varchar 'SFDR' to int). Our SELECT does no casts and the
             # incremental predicate only ever compares like types, so this conversion lives in the
@@ -182,7 +187,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MSSQL,
+            name=ExternalDataSourceType.MSSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             # This connector is also how you connect Azure SQL Database, but nothing in the label
             # or name carries "Azure", so a search for it fuzzy-matched unrelated sources instead.

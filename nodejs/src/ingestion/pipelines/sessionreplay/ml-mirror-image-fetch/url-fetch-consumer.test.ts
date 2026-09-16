@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
@@ -123,6 +124,21 @@ function build(dryRun = false, deadLettersEnabled = true): Harness {
 
 describe('UrlFetchConsumer', () => {
     afterEach(() => jest.restoreAllMocks())
+
+    it('dead-letters an unsupported version while processing valid records in the same batch', async () => {
+        const harness = build()
+        const invalid = { ...message([candidate('a')]), headers: [{ [INGESTION_VERSION_HEADER]: Buffer.from('3') }] }
+        await harness.consumer.handleBatch([invalid, message([candidate('b')])], NOW_MS)
+        expect(harness.park).toHaveBeenCalledWith(invalid, 'malformed')
+        expect(harness.run.mock.calls[0][0].map((item) => item.originalRef)).toEqual([candidate('b').originalRef])
+    })
+
+    it('fails on v2 without key manager configuration instead of dead-lettering the record', async () => {
+        const harness = build()
+        const v2 = { ...message([candidate('a')]), headers: [{ [INGESTION_VERSION_HEADER]: Buffer.from('2') }] }
+        await expect(harness.consumer.handleBatch([v2], NOW_MS)).rejects.toThrow('requires key manager configuration')
+        expect(harness.park).not.toHaveBeenCalled()
+    })
 
     it.each([Number.NaN, 0, 3_599, 3_600.5])('refuses an invalid crawl-history TTL of %p', (seenTtlSeconds) => {
         expect(

@@ -12,7 +12,7 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, ProxyError
 
 from posthog.integration_secrets.errors import (
     IntegrationServiceMisconfiguredError,
@@ -316,6 +316,66 @@ async def test_temporary_host_resolution_error_reraised_as_non_reportable():
     assert "db.example.com" in str(exc_info.value)
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@parameterized.expand(
+    [
+        (
+            "tunnel_429",
+            "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/things "
+            "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 429 Too Many Requests')))",
+        ),
+        (
+            "connect_refused",
+            "HTTPSConnectionPool(host='login.example.com', port=443): Max retries exceeded with url: /oauth2/token "
+            "(Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('<urllib3.connection.HTTPSConnection "
+            "object at 0x7f>: Failed to establish a new connection: [Errno 111] Connection refused')))",
+        ),
+    ]
+)
+@pytest.mark.asyncio
+async def test_transient_egress_proxy_error_reraised_as_non_reportable_without_source_opt_in(_name: str, message: str):
+    error = ProxyError(message)
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == message
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proxy_auth_failure_is_still_reported():
+    error = ProxyError(
+        "HTTPSConnectionPool(host='api.example.com', port=443): Max retries exceeded with url: /v1/things "
+        "(Caused by ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 407 Proxy Authentication Required')))"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(ProxyError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio

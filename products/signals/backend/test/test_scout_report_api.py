@@ -754,7 +754,7 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
-        receiver_embed = "products.signals.backend.receivers.emit_report_embedding"
+        receiver_embed = "products.signals.backend.receivers.emit_report_embeddings"
         receiver_tombstone = "products.signals.backend.receivers.emit_report_tombstone"
         with (
             _safe_judge(),
@@ -780,7 +780,10 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert full.status_code == status.HTTP_200_OK, full.json()
         assert (tombstone.call_count, embed.call_count) == (0, 1)
-        assert embed.call_args.kwargs["content"] == "full rewrite\n\njudged alongside the title"
+        assert embed.call_args.kwargs["documents"] == {
+            "title_summary_v1": "full rewrite\n\njudged alongside the title",
+            "title_v1": "full rewrite",
+        }
 
     def test_edit_core_rechecks_stale_run_status(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")

@@ -1,16 +1,14 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -27,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_collection_names,
     get_leading_index_keys,
     get_schemas as get_mongo_schemas,
+    get_server_metadata as get_mongo_server_metadata,
     mongo_client,
     mongo_source,
 )
@@ -63,6 +62,11 @@ _MONGO_ATLAS_SQL_MESSAGE = (
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SERVER_TOO_OLD_MESSAGE = (
+    "This MongoDB server runs a version PostHog no longer supports. Upgrade the cluster to "
+    "MongoDB 4.2 or newer, then try again."
 )
 
 _MONGO_AUTHENTICATION_FAILED_MESSAGE = (
@@ -113,6 +117,11 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
+# pymongo raises ConfigurationError from server selection when every server's wire version is
+# below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
+# address and version numbers; this fragment stays fixed.
+_SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -124,6 +133,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
             "The DNS query name does not exist": None,
+            _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -336,6 +346,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SERVER_TOO_OLD_MARKER in message:
+                return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
             capture_exception(e)
@@ -347,6 +359,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None
+
+    def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
+        return get_mongo_server_metadata(config.connection_string, team_id)
 
     def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return mongo_source(
@@ -364,7 +379,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MONGO_DB,
+            name=ExternalDataSourceType.MONGODB,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             keywords=["mongo"],
@@ -378,12 +393,17 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                 [
                     SourceFieldInputConfig(
                         name="connection_string",
-                        label="Connection String",
+                        label="Connection string",
                         # The connection string is this source's only credential, so `password` keeps
                         # it editable on update for rotation.
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
+                        caption=(
+                            "In MongoDB Atlas, open your cluster and click **Connect → Drivers** to copy this, "
+                            "then replace `<db_password>` with your database user's password. Self-hosted "
+                            "clusters use the host and port form in the placeholder, keeping `tls=true`."
+                        ),
                         secret=True,
                     ),
                     SourceFieldInputConfig(

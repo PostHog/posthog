@@ -180,6 +180,29 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   navigateToReport(reportId);
 }
 
+/**
+ * Back to the list a report was opened from. Triage's place in the queue rides
+ * along in history state, because TanStack blanks that state on a plain
+ * navigate and the queue would restart at the top. The caller passes the report
+ * id rather than the origin object, so this file keeps no import of the feature
+ * module that augments the router's history state. That import reaches the
+ * route-tree cycle described above and drops the augmentations in the web host.
+ */
+export function navigateToReportSource(
+  href: string,
+  triageReportId: string | null,
+): void {
+  void getRouterOrNull()?.navigate({
+    href,
+    state: (previous) => ({
+      ...previous,
+      ...(triageReportId
+        ? { inboxTriageOrigin: { reportId: triageReportId } }
+        : {}),
+    }),
+  });
+}
+
 export function navigateToInboxReportDetail(
   reportId: string,
   options?: { returnToTriage?: boolean },

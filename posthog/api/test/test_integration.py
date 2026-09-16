@@ -2577,6 +2577,22 @@ class TestIntegrationAPIKeyAccess:
         assert len(results) == 1
         assert results[0]["kind"] == "twilio"
 
+    def test_paginated_list_covers_every_integration_once(self, client: HttpClient):
+        client.force_login(self.user)
+        now = timezone.now()
+        # Write the rows in the reverse of the order the endpoint must return, so a page that trusts
+        # the physical row order fails this.
+        Integration.objects.filter(pk=self.github_integration.pk).update(created_at=now)
+        Integration.objects.filter(pk=self.twilio_integration.pk).update(created_at=now - timedelta(minutes=1))
+
+        paged_ids = []
+        for offset in [0, 1]:
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/?limit=1&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged_ids += [result["id"] for result in response.json()["results"]]
+
+        assert paged_ids == [self.twilio_integration.id, self.github_integration.id]
+
 
 class TestGithubAccountTypeHelper:
     @parameterized.expand(
@@ -5853,6 +5869,64 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestAliasedOauthCallbackKind:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db, settings):
+        settings.SALESFORCE_CONSUMER_KEY = "salesforce-client-id"
+        settings.SALESFORCE_CONSUMER_SECRET = "salesforce-client-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.instance_url = "https://acme.my.salesforce.com"
+        self.salesforce = Integration.objects.create(
+            team=self.team,
+            kind="salesforce",
+            integration_id=self.instance_url,
+            config={"instance_url": self.instance_url},
+            sensitive_config={"access_token": "CRM_TOKEN", "refresh_token": "CRM_REFRESH"},
+        )
+
+    @pytest.mark.parametrize(
+        "state_kind,expected_kind,expected_salesforce_token",
+        [
+            # pardot borrows the Salesforce app, so its state may rename the callback.
+            ("pardot", "pardot", "CRM_TOKEN"),
+            # hubspot borrows nothing, so the path wins and this stays a Salesforce reconnect.
+            ("hubspot", "salesforce", "NEW_TOKEN"),
+        ],
+    )
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_state_kind_is_promoted_only_when_the_alias_table_allows_it(
+        self, mock_post, state_kind, expected_kind, expected_salesforce_token, client: HttpClient
+    ):
+        # A client built before the Pardot callback moved posts "salesforce" while it carries a
+        # Pardot grant. Both kinds key on the same instance URL, so that grant would land on the
+        # team's Salesforce row.
+        mock_post.return_value = MagicMock(status_code=200)
+        mock_post.return_value.json.return_value = {
+            "access_token": "NEW_TOKEN",
+            "refresh_token": "NEW_REFRESH",
+            "instance_url": self.instance_url,
+        }
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {
+                "kind": "salesforce",
+                "config": {"state": f"token=csrf-tok&kind={state_kind}", "code": "oauth-code"},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["kind"] == expected_kind
+        self.salesforce.refresh_from_db()
+        assert self.salesforce.sensitive_config["access_token"] == expected_salesforce_token
 
 
 class TestSlackPostHogCodeKindDeprecated:

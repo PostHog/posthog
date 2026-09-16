@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.ashby.ashby import (
     AUTH_ERROR_HINT,
     DEFAULT_PROBE_PATH,
@@ -45,7 +43,7 @@ class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASHBY,
+            name=ExternalDataSourceType.ASHBY,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Ashby",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -98,7 +96,7 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
         if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
             return False, f"Unknown Ashby schema '{schema_name}'"
 
-        path = ASHBY_ENDPOINTS[schema_name].path if schema_name is not None else DEFAULT_PROBE_PATH
+        path = ASHBY_ENDPOINTS[schema_name].probe_path if schema_name is not None else DEFAULT_PROBE_PATH
         status, message = check_access(config.api_key, path)
 
         if status == 200:
