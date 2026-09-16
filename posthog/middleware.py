@@ -34,7 +34,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthConnectionError, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -1461,6 +1461,11 @@ class SocialAuthExceptionMiddleware:
                 "reauth_user_mismatch",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
+
+        # The text of a connection error holds the request URL and the proxy status, so it is an
+        # internal detail. The code alone goes to the frontend, which has curated copy for it.
+        if isinstance(exception, AuthConnectionError):
+            return redirect(sso_failure_redirect_url(request, "social_login_unavailable"))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
