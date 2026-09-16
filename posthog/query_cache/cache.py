@@ -13,6 +13,7 @@ from posthog.query_cache.freshness_index import remove_last_refresh, update_targ
 from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import EntryFreshness, fetch_entry, fetch_entry_freshness
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
+from posthog.query_cache.single_flight import QuerySingleFlight
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 from posthog.query_cache.storage import encode_inline_value, schedule_upload_for_pointer
 
@@ -92,7 +93,10 @@ class QueryCache:
     def clear_failure(self) -> None:
         QueryFailureCache(self.cache_key).clear()
 
-    def store_result(self, *, response: dict, target_age: Optional[datetime]) -> None:
+    def flight(self, budget: Budget, variant: str = "") -> QuerySingleFlight:
+        return QuerySingleFlight(self.cache_key, budget, variant)
+
+    def store_result(self, *, response: dict, target_age: Optional[datetime]) -> bool:
         if isinstance(response.get("results"), list):
             # Split format keeps `results` as its own JSON segment so cache hits can skip
             # parsing it (see CachedEntry). Pods that predate the format treat split entries
@@ -125,7 +129,7 @@ class QueryCache:
             )
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
-            return
+            return False
 
         if target_age:
             update_target_age(
@@ -138,3 +142,4 @@ class QueryCache:
             remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
 
         count_cache_write_data(data_size)
+        return True

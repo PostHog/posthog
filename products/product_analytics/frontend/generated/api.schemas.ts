@@ -279,12 +279,96 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
 export interface ActionConversionGoalApi {
     actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
@@ -303,7 +387,7 @@ export interface DateRangeApi {
     /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
     date_to?: string | null
     /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
     daysOfWeek?: DaysOfWeekEnumApi[] | null
@@ -574,67 +658,6 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
-export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
-
-export const PropertyOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    StartsWith: 'starts_with',
-    NotStartsWith: 'not_starts_with',
-    EndsWith: 'ends_with',
-    NotEndsWith: 'not_ends_with',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Gt: 'gt',
-    Gte: 'gte',
-    Lt: 'lt',
-    Lte: 'lte',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateBefore: 'is_date_before',
-    IsDateAfter: 'is_date_after',
-    Between: 'between',
-    NotBetween: 'not_between',
-    Min: 'min',
-    Max: 'max',
-    In: 'in',
-    NotIn: 'not_in',
-    IsCleanedPathExact: 'is_cleaned_path_exact',
-    FlagEvaluatesTo: 'flag_evaluates_to',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
-    SemverGt: 'semver_gt',
-    SemverGte: 'semver_gte',
-    SemverLt: 'semver_lt',
-    SemverLte: 'semver_lte',
-    SemverTilde: 'semver_tilde',
-    SemverCaret: 'semver_caret',
-    SemverWildcard: 'semver_wildcard',
-    IcontainsMulti: 'icontains_multi',
-    NotIcontainsMulti: 'not_icontains_multi',
-} as const
-
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export interface PersonMetadataPropertyFilterApi {
     key: string
     label?: string | null
@@ -667,23 +690,6 @@ export interface EventMetadataPropertyFilterApi {
     operator: PropertyOperatorApi
     type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
@@ -3449,6 +3455,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'

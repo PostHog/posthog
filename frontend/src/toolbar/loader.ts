@@ -25,6 +25,12 @@ type ToolbarModule = typeof import('~/toolbar/index')
 // build-time public path (set for posthog-js versioned CDN bundles) is the fallback.
 const scriptSrc = (document.currentScript as HTMLScriptElement | null)?.src
 
+// Share the origin the loader was served from with the app bundle. The app (ToolbarApp) is a
+// separately imported module and cannot read document.currentScript once it renders, so it
+// resolves its own sibling assets - the stylesheet - from this value. It follows the same
+// reverse proxy as the JS this way, instead of the baked absolute CDN host.
+;(window as any).__POSTHOG_TOOLBAR_SCRIPT_SRC__ = scriptSrc
+
 function resolveAppUrl(fileName: string): string {
     const base = scriptSrc || __POSTHOG_TOOLBAR_PUBLIC_PATH__
     if (!base) {

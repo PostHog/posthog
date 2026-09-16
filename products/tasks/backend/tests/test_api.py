@@ -5162,6 +5162,10 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertFalse(response.json()["internal"])
 
 
+_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
+_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
+
+
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
     SUMMARY_FIELDS = {
@@ -5238,6 +5242,8 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": valid_run.status,
                 "environment": valid_run.environment,
                 "mode": "background",
+                "pr_url": None,
+                "pr_state": None,
             },
         )
 
@@ -5274,11 +5280,80 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
                 "status": run.status,
                 "environment": run.environment,
                 "mode": expected_mode,
+                "pr_url": None,
+                "pr_state": None,
             }
             if run
             else None
         )
         self.assertEqual(payload["latest_run"], expected_run)
+
+    @parameterized.expand(
+        [
+            ("no_pr", {}, None, None),
+            ("null_output", None, None, None),
+            ("invalid_pr_url", {"pr_url": {"unexpected": "value"}}, None, None),
+            ("pr_without_state", {"pr_url": _PR_URL}, _PR_URL, "unknown"),
+            ("invalid_pr_state", {"pr_url": _PR_URL, "pr_state": "unexpected"}, _PR_URL, "unknown"),
+            ("open_pr", {"pr_url": _PR_URL, "pr_state": "open"}, _PR_URL, "open"),
+            ("merged_by_state", {"pr_url": _PR_URL, "pr_state": "merged"}, _PR_URL, "merged"),
+            ("merged_by_webhook_flag", {"pr_url": _PR_URL, "pr_state": "open", "pr_merged": True}, _PR_URL, "merged"),
+        ]
+    )
+    def test_summaries_latest_run_pull_request(self, _name, output, expected_pr_url, expected_pr_state):
+        task = self.create_task("Task")
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            output=output,
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(payload["latest_run"]["pr_url"], expected_pr_url)
+        self.assertEqual(payload["latest_run"]["pr_state"], expected_pr_state)
+
+    def test_summaries_refresh_latest_pr_in_one_query(self):
+        tasks = [self.create_task(f"Task {index}") for index in range(3)]
+        task_updated_at = tasks[0].updated_at
+        for task in tasks:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": _PR_URL, "pr_state": "open"},
+            )
+        latest_pr_url = "https://github.com/example/project/pull/2"
+        latest_run = TaskRun.objects.create(
+            team=self.team,
+            task=tasks[0],
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": latest_pr_url, "pr_state": "open", "pr_merged": False},
+        )
+        for pr_state, pr_merged, expected_state in [
+            ("open", False, "open"),
+            ("closed", False, "closed"),
+            ("open", True, "merged"),
+        ]:
+            with self.subTest(pr_state=pr_state, pr_merged=pr_merged):
+                TaskRun.update_output_atomic(latest_run.id, updates={"pr_state": pr_state, "pr_merged": pr_merged})
+                with self.assertNumQueries(1):
+                    summaries = tasks_facade.get_task_summaries(
+                        self.team.id, self.user.id, ids=[task.id for task in tasks]
+                    )
+                self.assertEqual(len(summaries), len(tasks))
+                summary = next(summary for summary in summaries if summary.id == tasks[0].id)
+                assert summary.latest_run is not None
+                self.assertEqual(str(summary.latest_run.id), str(latest_run.id))
+                self.assertEqual(summary.latest_run.pr_url, latest_pr_url)
+                self.assertEqual(summary.latest_run.pr_state, expected_state)
+                tasks[0].refresh_from_db()
+                self.assertEqual(tasks[0].updated_at, task_updated_at)
+                self.assertEqual(summary.updated_at, task_updated_at)
 
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
@@ -5313,10 +5388,6 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
     def test_summaries_rejects_invalid_payload(self, _name, ids_factory):
         response = self.post_summaries(ids_factory())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-_PR_URL = "https://github.com/posthog/posthog-js/pull/1"
-_OTHER_PR_URL = "https://github.com/posthog/posthog-js/pull/2"
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
@@ -5626,6 +5697,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
         pending_external_followups = [
             {
                 "message": "server queued message",
@@ -5644,6 +5716,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "github_credential_source": "caller_token",
+                "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
@@ -5703,6 +5776,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {
                     "github_credential_source": "server_integration",
+                    "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
@@ -5814,6 +5888,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
+        assert run.state["systemPrompt"] == system_prompt
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -5821,6 +5896,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
                     "github_credential_source",
@@ -5897,6 +5973,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert "scratch" not in run.state  # non-protected key removed
+        assert run.state["systemPrompt"] == system_prompt
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state_append": {"systemPrompt": "Caller-controlled instructions", "scratch": "ok"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scratch"] == ["ok"]
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
