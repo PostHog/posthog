@@ -340,11 +340,13 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
             segments.append(TextSegment(value=chunk))
         # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
         for raw_seconds in re.findall(r"\d+", match.group(1)):
-            timestamp_ms = clock.video_s_to_session_ms(float(raw_seconds))
-            # Drop citations past the recording end (a video time the model invented). 1s slack spares a genuine
-            # final-second citation from a sub-second start-time skew. The marker is stripped either way.
-            if timestamp_ms <= duration_ms + 1000:
-                segments.append(ChipSegment(timestamp_ms=timestamp_ms))
+            video_s = float(raw_seconds)
+            # Drop citations past the video's end (a time the model invented) before converting, because the
+            # clock clamps past its last span and would turn any such value into the recording endpoint. 1s
+            # slack spares a genuine final-second citation. The marker is stripped either way.
+            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            if longest_citable_s is not None and video_s <= longest_citable_s + 1:
+                segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
     trailing = text[last_end:]
     plain_parts.append(trailing)

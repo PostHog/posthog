@@ -6,8 +6,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.temporal.activities.call_scanner_provider import _load_video_clock
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _extract_segments,
+    _load_video_clock,
+)
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
+from products.replay_vision.backend.temporal.scanners.base import ChipSegment
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
 # 0-58s kept, 58-62s cut, 62-80s kept: the second stretch starts 4s behind the session clock.
@@ -93,3 +97,18 @@ class TestMissingCutMapIsRefusedUnlessProvablyUncut:
     ) -> None:
         with pytest.raises(ScannerFailureError):
             self._load(export_context, session_duration_s)
+
+
+class TestCitationsPastTheVideoEnd:
+    def test_an_invented_time_is_dropped_rather_than_clamped_to_the_end(self) -> None:
+        # The clock clamps past its last span, so without an explicit bound this lands on the recording end.
+        clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
+        _, segments = _extract_segments("stuck here (t 9999)", 80_000, clock)
+        assert [s for s in segments if isinstance(s, ChipSegment)] == []
+
+    def test_a_genuine_final_moment_still_becomes_a_chip(self) -> None:
+        clock = video_clock_from_export_context({"inactivity_periods": _PERIODS})
+        assert clock is not None
+        _, segments = _extract_segments("ends here (t 76)", 80_000, clock)
+        assert [s.timestamp_ms for s in segments if isinstance(s, ChipSegment)] == [80_000]
