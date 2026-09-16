@@ -15,19 +15,27 @@ import { ok } from '~/ingestion/framework/results'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { MlKeyBatchController } from './batch-controller'
-import { MlKeyEncryption } from './crypto'
+import { MlDataKey, MlKeyEncryption } from './crypto'
 import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
+import {
+    MlSessionIdentity,
+    TableKey,
+    imageKeyId,
+    monthKeyIndexId,
+    sessionKeyId,
+    tableKeyString,
+    teamBlockId,
+} from './schema'
 import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
     teamId: 7,
-    organizationId: 'organization-test',
     sessionId: '01994569-4380-7000-8000-000000000007',
 }
 const table = 'ml-keys-test'
@@ -77,20 +85,29 @@ describe('ML session key batches', () => {
     let store: MlSessionKeyStore
     let reader: MlKeyReader
     let generated: number
+    let kmsSend: jest.Mock
 
     beforeEach(() => {
         boundary = new DynamoBoundary()
         generated = 0
+        // Like KMS, a wrapped key only unwraps under the exact encryption context it was wrapped with.
+        const wrappedUnder = new Map<string, string>()
+        const contextKey = (context?: Record<string, string>): string =>
+            JSON.stringify(Object.entries(context ?? {}).sort())
+        kmsSend = jest.fn((command) => {
+            if (command instanceof GenerateDataKeyCommand) {
+                const bytes = Buffer.alloc(32, ++generated)
+                wrappedUnder.set(bytes.toString('base64'), contextKey(command.input.EncryptionContext))
+                return Promise.resolve({ Plaintext: bytes, CiphertextBlob: bytes })
+            }
+            const wrapped = Buffer.from(command.input.CiphertextBlob)
+            if (wrappedUnder.get(wrapped.toString('base64')) !== contextKey(command.input.EncryptionContext)) {
+                return Promise.reject(transientError('InvalidCiphertextException'))
+            }
+            return Promise.resolve({ Plaintext: wrapped })
+        })
         encryption = new MlKeyEncryption(
-            {
-                send: jest.fn((command) => {
-                    if (command instanceof GenerateDataKeyCommand) {
-                        const bytes = Buffer.alloc(32, ++generated)
-                        return Promise.resolve({ Plaintext: bytes, CiphertextBlob: bytes })
-                    }
-                    return Promise.resolve({ Plaintext: command.input.CiphertextBlob })
-                }),
-            } as unknown as KMSClient,
+            { send: kmsSend } as unknown as KMSClient,
             'test-key',
             1000,
             60000,
@@ -289,6 +306,93 @@ describe('ML session key batches', () => {
         expect(inFlight.get(session.teamId, session.sessionId)).toBeUndefined()
         expect((await reader.read(locations)).size).toBe(0)
     })
+
+    it('wraps new keys without an organization and stores none on the row', async () => {
+        const batch = await store.prepare([session])
+        await batch.commit()
+        const generates = kmsSend.mock.calls
+            .map(([command]) => command)
+            .filter((c) => c instanceof GenerateDataKeyCommand)
+        expect(generates).toHaveLength(2)
+        for (const command of generates) {
+            expect(command.input.EncryptionContext).not.toHaveProperty('organization_id')
+        }
+        const stored = boundary.items.get(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))!
+        expect(stored).not.toHaveProperty('organization_id')
+    })
+
+    it('unwraps a key stored under the organization it was wrapped with', async () => {
+        const legacyOrganization = 'organization-legacy'
+        const sessionKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionId: session.sessionId,
+            organizationId: legacyOrganization,
+        })
+        const imageKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionMonth: '2025-09',
+            organizationId: legacyOrganization,
+        })
+        const rows: Array<[TableKey, MlDataKey]> = [
+            [sessionKeyId(session.teamId, session.sessionId), sessionKey],
+            [imageKeyId(session.teamId, '2025-09'), imageKey],
+        ]
+        for (const [location, key] of rows) {
+            boundary.items.set(tableKeyString(location), {
+                ...encodeKey(location),
+                wrapped_key: { B: key.wrapped },
+                organization_id: { S: legacyOrganization },
+                team_id: { N: String(session.teamId) },
+                session_month: { S: '2025-09' },
+            })
+        }
+        encryption.clear()
+        const next = await store.prepare([session])
+        const keys = next.get(session.teamId, session.sessionId)!
+        expect(keys.session.plaintext).toEqual(sessionKey.plaintext)
+        expect(keys.image.plaintext).toEqual(imageKey.plaintext)
+        expect(keys.session.identity.organizationId).toBe(legacyOrganization)
+        await next.commit()
+        expect(boundary.writes).toBe(0)
+    })
+
+    it('cannot unwrap a stored key under a context it was not wrapped with', async () => {
+        const sessionKey = await encryption.generate({
+            teamId: session.teamId,
+            sessionId: session.sessionId,
+            organizationId: 'organization-legacy',
+        })
+        const location = sessionKeyId(session.teamId, session.sessionId)
+        boundary.items.set(tableKeyString(location), {
+            ...encodeKey(location),
+            wrapped_key: { B: sessionKey.wrapped },
+            team_id: { N: String(session.teamId) },
+            session_month: { S: '2025-09' },
+        })
+        encryption.clear()
+        await expect(store.prepare([session])).rejects.toThrow('InvalidCiphertextException')
+    })
+
+    it.each([
+        ['session', () => sessionKeyId(session.teamId, session.sessionId)],
+        ['monthly image', () => imageKeyId(session.teamId, '2025-09')],
+    ])(
+        'drops the sessions behind a stored %s key that has no wrapped key and no tombstone, reporting it once',
+        async (_kind, keyId) => {
+            const first = await store.prepare([session])
+            await first.commit()
+            const location = tableKeyString(keyId())
+            const { wrapped_key: _wrapped, ...stored } = boundary.items.get(location)!
+            boundary.items.set(location, stored)
+            const unusable = jest.spyOn(MlMirrorMetrics, 'incrementMlKeyIdentityMismatch')
+            const next = await store.prepare([session])
+            expect(next.get(session.teamId, session.sessionId)).toBeUndefined()
+            await next.commit()
+            expect(boundary.items.get(location)).toEqual(stored)
+            expect(unusable).toHaveBeenCalledTimes(1)
+            expect(unusable).toHaveBeenCalledWith('wrapped_key_missing', 1)
+        }
+    )
 
     it('adopts a competing writer key', async () => {
         const first = await store.prepare([session])
