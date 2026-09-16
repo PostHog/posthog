@@ -1,4 +1,5 @@
 import { logger } from '~/common/utils/logger'
+import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
@@ -56,6 +57,11 @@ export interface MlSessionKeys {
     image: MlDataKey
 }
 
+interface MlStoredKeyMismatch {
+    id: string
+    teamId: number
+}
+
 function storedKeyId(identity: MlKeyIdentity): TableKey {
     return identity.sessionId
         ? sessionKeyId(identity.teamId, identity.sessionId)
@@ -88,6 +94,8 @@ export class MlKeyBatch {
     private readonly candidates = new Map<string, MlDataKey>()
     private readonly keys = new Map<string, MlDataKey>()
     private committed = false
+    // persist re-reads the batch after its writes and on every retry, so a row is reported the first time this batch meets it and not on each pass.
+    private readonly reportedUnusable = new Set<string>()
 
     constructor(
         private readonly db: MlKeyDynamoDB,
@@ -114,7 +122,6 @@ export class MlKeyBatch {
             for (const sessionId of [identity.sessionId, undefined]) {
                 const keyIdentity = {
                     teamId: identity.teamId,
-                    organizationId: identity.organizationId,
                     ...(sessionId ? { sessionId } : { sessionMonth: sessionStartMonth(identity.sessionId) }),
                 }
                 keyIdentities.set(tableKeyString(storedKeyId(keyIdentity)), keyIdentity)
@@ -124,6 +131,7 @@ export class MlKeyBatch {
         for (const [id, item] of await this.db.read(remaining, deadline)) {
             this.state.set(id, item)
         }
+        const unusable: MlStoredKeyMismatch[] = []
         await Promise.all(
             [...keyIdentities].map(async ([id, identity]) => {
                 const item = this.state.get(id)
@@ -131,10 +139,17 @@ export class MlKeyBatch {
                     return
                 }
                 if (item) {
-                    if (!item.wrapped_key?.B || item.organization_id?.S !== identity.organizationId) {
-                        throw new Error('Invalid stored ML key identity')
+                    if (!item.wrapped_key?.B) {
+                        if (!this.reportedUnusable.has(id)) {
+                            this.reportedUnusable.add(id)
+                            unusable.push({ id, teamId: identity.teamId })
+                        }
+                        return
                     }
-                    this.keys.set(id, await this.encryption.decrypt(identity, Buffer.from(item.wrapped_key.B)))
+                    // A key wrapped while the organization was part of the KMS context only unwraps under that organization, which the row still names.
+                    const organizationId = item.organization_id?.S
+                    const storedIdentity = { ...identity, ...(organizationId ? { organizationId } : {}) }
+                    this.keys.set(id, await this.encryption.decrypt(storedIdentity, Buffer.from(item.wrapped_key.B)))
                 } else {
                     let candidate = this.candidates.get(id)
                     if (!candidate) {
@@ -145,6 +160,15 @@ export class MlKeyBatch {
                 }
             })
         )
+        // A row with no wrapped key and no tombstone cannot serve this batch; its sessions are dropped like blocked ones so one bad row cannot stop the lane, and the log names it so the data can be repaired.
+        if (unusable.length) {
+            MlMirrorMetrics.incrementMlKeyIdentityMismatch('wrapped_key_missing', unusable.length)
+            logger.error('🔑', 'ml_key_stored_key_unusable', {
+                count: unusable.length,
+                teamIds: [...new Set(unusable.map((entry) => entry.teamId))],
+                rows: unusable.map((entry) => entry.id),
+            })
+        }
     }
 
     public get(teamId: number, sessionId: string): MlSessionKeys | undefined {
@@ -175,7 +199,6 @@ export class MlKeyBatch {
                     location,
                     {
                         wrapped_key: { B: key.wrapped },
-                        organization_id: { S: key.identity.organizationId },
                         team_id: { N: String(key.identity.teamId) },
                         session_month: { S: keySessionMonth(key.identity) },
                     },
