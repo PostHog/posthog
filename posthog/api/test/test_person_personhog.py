@@ -12,6 +12,7 @@ from django.test import override_settings
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -425,6 +426,10 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert set(calls[0].request.person_uuids) == {str(p1.uuid), str(p2.uuid)}
         assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is None
         assert get_person_by_uuid(self.team.pk, str(p2.uuid)) is None
+        # The task rebuilds the actor and organization from serialized ids; the log row proves it did.
+        logs = ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", activity="deleted")
+        assert {log.item_id for log in logs} == {str(p1.pk), str(p2.pk)}
+        assert {(log.user_id, log.organization_id) for log in logs} == {(self.user.pk, self.organization.id)}
 
     @override_settings(PERSON_BULK_DELETE_ASYNC=True)
     @mock.patch("posthog.models.person.bulk_delete._start_recording_workflows")
