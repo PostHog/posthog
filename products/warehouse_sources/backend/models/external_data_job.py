@@ -18,10 +18,18 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
 
-    # Overridden from CreatedMetaFields to drop the implicit foreign-key index. Import
-    # workflows create every job row, so the column is always NULL, and the index only cost
-    # an index write on each insert.
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    # Overridden from CreatedMetaFields. Import workflows create every job row, so the column is
+    # always NULL, and its index only cost a write per insert. With no index, a user delete would
+    # seq-scan this table twice (Django's SET_NULL update, then the Postgres FK check), so the
+    # constraint goes too and Django's cascade skips it.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+    )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
