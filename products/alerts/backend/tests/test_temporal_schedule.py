@@ -14,16 +14,12 @@ MODULE = "products.alerts.backend.temporal.schedule"
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deployment", ["US", "EU", "E2E", "", None])
-@pytest.mark.parametrize("shared_orchestration_enabled", [False, True])
-async def test_schedule_does_not_access_temporal_outside_dev(
-    deployment: str | None, shared_orchestration_enabled: bool
-) -> None:
+async def test_schedule_does_not_access_temporal_outside_dev(deployment: str | None) -> None:
     client = MagicMock(spec=Client)
     with (
         override_settings(
             CLOUD_DEPLOYMENT=deployment,
             DEBUG=True,
-            ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED=shared_orchestration_enabled,
         ),
         patch(f"{MODULE}.a_schedule_exists") as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
@@ -38,10 +34,7 @@ async def test_schedule_does_not_access_temporal_outside_dev(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("already_exists, paused", [(False, False), (True, False), (True, True)])
-@pytest.mark.parametrize("shared_orchestration_enabled", [None, False, True])
-async def test_dev_schedule_creates_or_updates_with_bounded_policy(
-    already_exists: bool, paused: bool, shared_orchestration_enabled: bool | None
-) -> None:
+async def test_dev_schedule_creates_or_updates_with_bounded_policy(already_exists: bool, paused: bool) -> None:
     client = MagicMock(spec=Client)
     state = ScheduleState(paused=paused, note="Operator-controlled state")
     client.get_schedule_handle.return_value.describe = AsyncMock(
@@ -52,13 +45,6 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(
             CLOUD_DEPLOYMENT="DEV",
             ALERTS_PRODUCT_EVALUATION_TASK_QUEUE="evaluation-test-queue",
             ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE="orchestration-test-queue",
-        ),
-        override_settings(
-            **(
-                {"ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED": shared_orchestration_enabled}
-                if shared_orchestration_enabled is not None
-                else {}
-            )
         ),
         patch(f"{MODULE}.a_schedule_exists", return_value=already_exists) as exists,
         patch(f"{MODULE}.a_create_schedule") as create,
@@ -77,12 +63,10 @@ async def test_dev_schedule_creates_or_updates_with_bounded_policy(
     schedule = called.await_args.args[2]
     action = schedule.action
     assert isinstance(action, ScheduleActionStartWorkflow)
-    assert action.workflow == "alerts-product-check-due"
+    assert action.workflow == "alerts-product-orchestrate"
     assert list(action.args) == [{}]
     assert action.id == SCHEDULE_ID
-    assert action.task_queue == (
-        "orchestration-test-queue" if shared_orchestration_enabled else "evaluation-test-queue"
-    )
+    assert action.task_queue == "orchestration-test-queue"
     assert action.execution_timeout == dt.timedelta(seconds=50)
     assert action.retry_policy is not None
     assert action.retry_policy.maximum_attempts == 1

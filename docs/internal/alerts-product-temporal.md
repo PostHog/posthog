@@ -2,15 +2,16 @@
 
 The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                   |
-| ------------------------------------------------ | ------------------------------------------------ | -------------------------- |
-| `ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-product-shared-orchestration-task-queue` | `alerts-product-check-due` |
-| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-check-due` |
-| `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`   |
+| Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                     |
+| ------------------------------------------------ | ------------------------------------------------ | ---------------------------- |
+| `ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-product-shared-orchestration-task-queue` | `alerts-product-orchestrate` |
+| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-check-due`   |
+| `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`     |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
-Shared orchestration registers only the tick workflow, with no activities.
-The evaluation worker retains the tick registration for queued or running work and routing rollback.
+Shared orchestration registers only the orchestration workflow, with no activities.
+Each schedule tick starts orchestration, which awaits an evaluation child on the evaluation queue.
+Evaluation runs the probe and starts its independent delivery child on the delivery queue.
 Probe activities always use the evaluation queue; the delivery workflow and its activity stay on the delivery queue.
 Start one worker for each queue:
 
@@ -32,10 +33,8 @@ only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this
 Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
 It does not delete schedules created manually in those environments.
 
-The schedule starts `alerts-product-check-due` with `{}` every minute (UTC).
-It uses the evaluation queue by default.
-`ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED=true` switches the dev schedule action to the shared orchestration queue during reconciliation.
-The flag defaults to false and does not enable production schedules or change activity routing.
+The schedule starts `alerts-product-orchestrate` with `{}` on the orchestration queue every minute (UTC).
+There is no routing flag: the flow is tick → orchestration → evaluation → delivery.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
@@ -51,41 +50,41 @@ Enable production only in a separate rollout after dev verification.
 
 The deployment identity is `temporal-worker-alerts-product-shared-orchestration`.
 It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
-Deployment configuration is a separate change. Verify that the deployed image contains the new worker registration before enabling routing.
+Worker deployment configuration lives outside this repository. Deploying this code must be coordinated with starting the orchestration worker.
+Schedule reconciliation now routes directly to orchestration; merging the code alone does not start a worker process.
 
-1. Keep `ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED` unset or false while releasing the code and promoting the dev orchestration worker.
-   Verify the worker is healthy and polling `alerts-product-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
-2. Only after worker readiness is verified, set the flag to true on the dev process that runs `python manage.py schedule_temporal_workflows`.
-   The normal owner is `bin/migrate` in its `temporal-schedules` scope, not the worker deployment.
-   Keep that setting consistent for subsequent reconciliations; setting it only on a worker has no effect.
-3. Reconcile the schedule in a separately approved operation and verify its task queue and existing pause state.
-   A paused schedule stays paused; resuming it requires a separate operator action.
-   For an unpaused schedule, verify the tick runs on orchestration, the probe runs on evaluation, and the child and its activity run on delivery.
+1. Pause the existing dev schedule before deployment so migration-time reconciliation cannot send ticks to a worker that is not ready.
+2. Deploy the code and start the orchestration worker with the command above.
+   Verify it polls `alerts-product-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
+3. Run `python manage.py schedule_temporal_workflows` and verify the action starts `alerts-product-orchestrate` on the orchestration queue.
+   Existing pause state is preserved. Resume only after all three workers are ready, then verify the complete workflow chain.
 
-To roll back future starts, set the flag to false on the same schedule-management process and reconcile again.
-Verify the action uses the evaluation queue and retains its pause state.
-Keep both workflow registrations and all three workers available until outstanding work on the orchestration queue drains.
-Changing the schedule queue does not move queued or running workflows, and pausing does not stop them.
-Do not roll back the code or remove the orchestration worker before that drain completes.
+To stop future starts, pause the schedule. Keep all three workers running until orchestration, evaluation, and delivery work drains.
+For rollback, restore the previous schedule action (`alerts-product-check-due` on the evaluation queue) after draining, then roll back the code.
+Do not reconcile with the new code after restoring the old action: reconciliation would route back to orchestration.
+Pausing or changing the schedule does not move or stop queued or running workflows.
 
 ### Manual local runs
 
-For local development, start an evaluation run by hand.
+For local development, start an orchestration run by hand.
 The `execute_temporal_workflow` and `start_temporal_workflow` commands do not know these workflows and reject the name, so use the Temporal CLI in the dev stack:
 
 ```bash
 docker exec posthog-temporal-admin-tools-1 \
     temporal workflow start --address temporal:7233 --namespace default \
-    --task-queue alerts-product-evaluation-task-queue \
-    --type alerts-product-check-due \
-    --workflow-id "alerts-product-check-due-manual-$(date +%Y%m%d%H%M%S)" \
+    --task-queue alerts-product-shared-orchestration-task-queue \
+    --type alerts-product-orchestrate \
+    --workflow-id "alerts-product-orchestrate-manual-$(date +%Y%m%d%H%M%S)" \
+    --execution-timeout 50s \
     --input '{}'
 ```
 
 The empty `--input '{}'` becomes the empty `AlertsProductInputs`.
-Watch the evaluation run and its delivery child in the Temporal UI at <http://localhost:8081>.
+Watch orchestration, its evaluation child, and the delivery grandchild in the Temporal UI at <http://localhost:8081>.
 
-Both workflows accept an empty `AlertsProductInputs` dataclass.
+All three workflows accept an empty `AlertsProductInputs` dataclass.
+Orchestration awaits one evaluation child, with a 40-second execution timeout and one workflow attempt.
+The evaluation child ID includes the orchestration run ID, so each tick starts a distinct evaluation.
 Evaluation runs a Postgres connectivity probe; delivery runs an empty activity with no I/O.
 Each activity has a 10-second start-to-close timeout and a 30-second schedule-to-close timeout.
 Evaluation has one attempt; delivery retains at most three attempts.
@@ -128,7 +127,7 @@ Verify a successful probe, statement timeout and transaction reset through the c
 `SELECT 1` alone does not verify the intended database identity, application grants, schema, or write readiness.
 These tests do not replace deployment verification.
 
-Worker registration does not deploy workers. The dev schedule sets the evaluation workflow's
+Worker registration does not deploy workers. The dev schedule sets the orchestration workflow's
 50-second execution timeout; manually started workflows must set their own timeout.
 
 ## Activity logs
@@ -145,7 +144,7 @@ When a valid OpenTelemetry span is active, both events include hexadecimal `trac
 The interceptor does not log inputs, headers, exception messages, or locals, and does not capture exceptions separately.
 Telemetry errors cannot replace an activity's result, exception, or cancellation.
 Cancellation before the activity starts still propagates; cancellation while writing its finish log cannot replace the completed activity's outcome.
-Workflow logging and workflow bodies are unchanged.
+Evaluation and delivery workflow logging are unchanged.
 
 ## Metrics
 
@@ -171,7 +170,7 @@ The shared startup command initializes Temporal's replay-safe provider, and the 
 Do not add the legacy tracing interceptor or another provider.
 
 The activity logs use the plugin's active attempt span.
-Evaluation, child delivery, and their activity spans retain their trace relationships even when delivery runs after evaluation finishes.
+Orchestration, evaluation, child delivery, and their activity spans retain their trace relationships even when delivery runs after evaluation finishes.
 Retries have separate activity attempt spans.
 
 Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.

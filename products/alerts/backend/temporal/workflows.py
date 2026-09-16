@@ -86,8 +86,23 @@ class AlertsProductCheckDueWorkflow(PostHogWorkflow):
         )
 
 
-SHARED_ORCHESTRATION_WORKFLOWS = [AlertsProductCheckDueWorkflow]
-# Keep the tick registered for queued/running evaluation work and routing rollback.
+@workflow.defn(name="alerts-product-orchestrate")
+class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
+    inputs_cls = AlertsProductInputs
+
+    @workflow.run
+    async def run(self, inputs: AlertsProductInputs) -> None:
+        await workflow.execute_child_workflow(
+            AlertsProductCheckDueWorkflow.run,
+            inputs,
+            id=f"alerts-product-check-due-{workflow.info().run_id}",
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            execution_timeout=dt.timedelta(seconds=40),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+SHARED_ORCHESTRATION_WORKFLOWS = [AlertsProductOrchestrateWorkflow]
 EVALUATION_WORKFLOWS = [AlertsProductCheckDueWorkflow]
 EVALUATION_ACTIVITIES = [alerts_product_check_due_activity]
 DELIVERY_WORKFLOWS = [AlertsProductDeliverWorkflow]

@@ -267,10 +267,6 @@ VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.
 ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-product-shared-orchestration-task-queue"
-# Enable only in the dev schedule reconciler after the orchestration worker is ready.
-ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED = get_from_env(
-    "ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED", False, type_cast=str_to_bool
-)
 ALERTS_PRODUCT_EVALUATION_TASK_QUEUE = "alerts-product-evaluation-task-queue"
 ALERTS_PRODUCT_DELIVERY_TASK_QUEUE = "alerts-product-delivery-task-queue"
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")

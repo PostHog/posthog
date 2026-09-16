@@ -80,8 +80,11 @@ def postgres_cursor() -> Iterator[MagicMock]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_error", [False, True])
 @pytest.mark.parametrize(
-    "tick_queue",
-    [settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE],
+    "tick_workflow, tick_queue",
+    [
+        ("alerts-product-check-due", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE),
+        ("alerts-product-orchestrate", settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE),
+    ],
 )
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
@@ -91,6 +94,7 @@ async def test_each_tick_starts_independent_delivery(
     activity_logs,
     postgres_cursor: MagicMock,
     database_error: bool,
+    tick_workflow: str,
     tick_queue: str,
 ) -> None:
     if database_error:
@@ -126,7 +130,7 @@ async def test_each_tick_starts_independent_delivery(
     ):
         for _ in range(2):
             parent = await client.start_workflow(
-                "alerts-product-check-due",
+                tick_workflow,
                 AlertsProductInputs(),
                 id=workflow_id,
                 task_queue=tick_queue,
@@ -134,6 +138,29 @@ async def test_each_tick_starts_independent_delivery(
             )
             assert await parent.result() is None
             history = await parent.fetch_history()
+            evaluation_run_id = parent.first_execution_run_id
+            if tick_workflow == "alerts-product-orchestrate":
+                assert not any(
+                    event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED for event in history.events
+                )
+                evaluations = [
+                    event.start_child_workflow_execution_initiated_event_attributes
+                    for event in history.events
+                    if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                ]
+                assert len(evaluations) == 1
+                evaluation = evaluations[0]
+                assert evaluation.workflow_type.name == "alerts-product-check-due"
+                assert evaluation.task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
+                assert evaluation.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
+                assert evaluation.retry_policy.maximum_attempts == 1
+                assert parent.first_execution_run_id is not None
+                assert parent.first_execution_run_id in evaluation.workflow_id
+                evaluation_handle = client.get_workflow_handle(evaluation.workflow_id)
+                evaluation_description = await evaluation_handle.describe()
+                assert evaluation_description.status == WorkflowExecutionStatus.COMPLETED
+                evaluation_run_id = evaluation_description.run_id
+                history = await evaluation_handle.fetch_history()
             scheduled = [
                 event.activity_task_scheduled_event_attributes
                 for event in history.events
@@ -154,8 +181,8 @@ async def test_each_tick_starts_independent_delivery(
             ]
             assert len(children) == 1
             child_id = children[0].workflow_execution.workflow_id
-            assert parent.first_execution_run_id is not None
-            assert parent.first_execution_run_id in child_id
+            assert evaluation_run_id is not None
+            assert evaluation_run_id in child_id
             assert children[0].workflow_type.name == "alerts-product-deliver"
             child_ids.add(child_id)
             child_description = await client.get_workflow_handle(child_id).describe()
@@ -205,7 +232,7 @@ async def test_each_tick_starts_independent_delivery(
     assert len(spans_by_id) == len(spans)
     workflow_spans = [span for span in spans if span.name.startswith("RunWorkflow:")]
     activity_spans = [span for span in spans if span.name.startswith("RunActivity:")]
-    assert len(workflow_spans) == 4
+    assert len(workflow_spans) == (6 if tick_workflow == "alerts-product-orchestrate" else 4)
     assert len(activity_spans) == 6
     for delivery in (span for span in workflow_spans if span.name == "RunWorkflow:alerts-product-deliver"):
         assert delivery.parent is not None
