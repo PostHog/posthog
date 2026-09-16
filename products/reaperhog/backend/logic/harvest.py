@@ -24,6 +24,12 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = logging.getLogger(__name__)
 
 _OPEN_STATUSES = (ClusterStatus.HARVESTING, ClusterStatus.REAPED)
+_CLAIMED_STATUSES = (
+    ClusterStatus.HARVESTING,
+    ClusterStatus.REAPED,
+    ClusterStatus.BURIED,
+    ClusterStatus.DECLINED,
+)
 _SLUG = re.compile(r"[^a-z0-9]+")
 
 
@@ -54,6 +60,7 @@ class HarvestResult:
     dispatched: int = 0
     skipped_budget: int = 0
     skipped_size: int = 0
+    skipped_duplicate: int = 0
     open_before: int = 0
 
 
@@ -211,6 +218,21 @@ def load_dead_clusters(*, team_id: int, repository: str, scope: str) -> list[Har
         return candidates
 
 
+def claimed_hashes(*, team_id: int, repository: str) -> set[str]:
+    """Cluster hashes this repository already took to harvest, in any scope.
+
+    Scopes overlap by design, so one root gets a cluster row per scope and every copy carries the same
+    hash. Without this, two scopes harvest the same root and open two pull requests that delete the
+    same code.
+    """
+    with team_scope(team_id):
+        return set(
+            ReaperCluster.objects.filter(
+                inventory__repository=repository, status__in=[status.value for status in _CLAIMED_STATUSES]
+            ).values_list("hash", flat=True)
+        )
+
+
 def open_pr_count(*, team_id: int, repository: str) -> int:
     with team_scope(team_id):
         return ReaperCluster.objects.filter(
@@ -219,11 +241,16 @@ def open_pr_count(*, team_id: int, repository: str) -> int:
 
 
 def dispatch_harvest(request: HarvestRequest) -> HarvestResult:
-    candidates = load_dead_clusters(team_id=request.team_id, repository=request.repository, scope=request.scope)
+    found = load_dead_clusters(team_id=request.team_id, repository=request.repository, scope=request.scope)
+    claimed = claimed_hashes(team_id=request.team_id, repository=request.repository)
+    candidates = [candidate for candidate in found if candidate.view.hash not in claimed]
     open_before = open_pr_count(team_id=request.team_id, repository=request.repository)
     selection = select_harvest(candidates, open_count=open_before, max_prs=request.max_prs)
     result = HarvestResult(
-        skipped_budget=selection.skipped_budget, skipped_size=selection.skipped_size, open_before=open_before
+        skipped_budget=selection.skipped_budget,
+        skipped_size=selection.skipped_size,
+        skipped_duplicate=len(found) - len(candidates),
+        open_before=open_before,
     )
     if not selection.selected:
         return result
@@ -306,7 +333,8 @@ def _note(cluster: ReaperCluster, body: str) -> None:
 def render_harvest_summary(result: HarvestResult) -> str:
     return (
         f"Harvest: {result.dispatched} pull request task(s) dispatched "
-        f"({result.open_before} already open, {result.skipped_budget} held for budget, {result.skipped_size} too big).\n"
+        f"({result.open_before} already open, {result.skipped_budget} held for budget, {result.skipped_size} too big, "
+        f"{result.skipped_duplicate} already harvested under another scope).\n"
     )
 
 

@@ -36,6 +36,7 @@ Convergence (`logic/converge.py`) groups hits by root, ranks them (decisive hit 
 Verdicts persist as artefacts; the cluster becomes `dead` only on `is_dead` with high confidence.
 
 **Harvest** (`logic/harvest.py`) selects dead clusters under `MAX_OPEN_REAPER_PRS` and `MAX_FILES_PER_PR`, renders the evidence PR body and dispatches a Tasks coding-agent run with `create_pr=True` (the experiments flag-cleanup path).
+Scopes overlap, so a root that another scope already took to harvest is skipped instead of opening a second pull request for the same deletion.
 The prompt pins the deletion plan, the checks to run, the hard floors, the branch name and the draft PR title and label.
 `sync_harvest` maps the task run's PR into `reaped`, then polls the PR through the GitHub egress transport into `buried` (merged) or `declined` (closed).
 
