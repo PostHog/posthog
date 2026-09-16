@@ -44,6 +44,7 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -107,6 +108,7 @@ NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalEndInFutureError,
     HogQLQueryResourceLimitExceededError,
     InvalidFilterError,
+    UnsupportedHogQLQueryError,
 )
 
 
@@ -330,13 +332,6 @@ async def insert_into_internal_stage_activity(
         Heartbeater(),
         set_status_to_running_task(run_id=inputs.run_id),
     ):
-        _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
-            inputs.team_id,
-            inputs.batch_export_model,
-            inputs.batch_export_schema,
-            inputs.batch_export_id,
-            is_backfill=inputs.backfill_details is not None,
-        )
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -360,6 +355,13 @@ async def insert_into_internal_stage_activity(
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
         try:
+            _, record_batch_model, model_name, fields, filters, extra_query_parameters = resolve_batch_exports_model(
+                inputs.team_id,
+                inputs.batch_export_model,
+                inputs.batch_export_schema,
+                inputs.batch_export_id,
+                is_backfill=inputs.backfill_details is not None,
+            )
             records_total = await _stage_query_results(
                 inputs,
                 record_batch_model=record_batch_model,
@@ -700,11 +702,11 @@ async def _write_batch_export_record_batches_to_internal_stage(
         delta = dt.timedelta(minutes=1)
     interval_start, interval_end = full_range
 
-    if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
-        # Some tests create data in the future, so we do not check this.
-        raise DataIntervalEndInFutureError(interval_end)
-
     if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+        if _is_local_dev_or_test() is False and interval_end > dt.datetime.now(dt.UTC):
+            # Some tests create data in the future, so we do not check this.
+            raise DataIntervalEndInFutureError(interval_end)
+
         with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
             await wait_for_delta_past_data_interval_end(interval_end, delta)
 
