@@ -6,6 +6,7 @@ from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeou
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    DELIMITED_ROW_SPLIT_MISMATCH_MESSAGE,
     QueryErrorCategory,
     classify_query_error,
     clickhouse_error_type,
@@ -213,6 +214,59 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            # A CSV row that the chosen quote setting mis-splits. The per-column dump repeats the
+            # customer's own rows, so the wrapper replaces the whole message.
+            ServerException(
+                "Code: 27. DB::Exception: Cannot parse input: expected ',' before: "
+                "'Ltd\",Bristol,2026-03-04\\n': (at row 12)\n: \nRow 12:\n"
+                'Column 0,   name: account,   type: Nullable(String), parsed text: "Acme, Ltd"\n'
+                'Column 1,   name: city,      type: Nullable(String), parsed text: "Bristol"\n'
+                ": While executing CSVRowInputFormat: While executing ReadFromObjectStorage. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorDelimitedRowSplitMismatch",
+            DELIMITED_ROW_SPLIT_MISMATCH_MESSAGE,
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
+            # Same code, but a JSON file the reader rejects. The quote setting is not the fix, and
+            # the message carries file content, so this one stays internal.
+            ServerException(
+                "DB::Exception: Cannot parse input: expected '{' before: "
+                "'\"value\": 3}]': (while reading the value of key items): (at row 1)\n"
+                ": (in file/uri example-bucket/exports/orders.jsonl): While executing "
+                "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+                "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+                code=27,
+            ),
+            "CHQueryErrorCannotParseInputAssertionFailed",
+            "Code: 27.\nDB::Exception: Cannot parse input: expected '{' before: "
+            "'\"value\": 3}]': (while reading the value of key items): (at row 1)\n"
+            ": (in file/uri example-bucket/exports/orders.jsonl): While executing "
+            "ParallelParsingBlockInputFormat. Stack trace:\n\n"
+            "0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000015979590",
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
+        (
+            # Same code again, raised by a value that fails to convert inside a query. Nothing here
+            # is about a file, and the message carries the value, so it stays internal too.
+            ServerException(
+                "DB::Exception: Cannot parse infinity: while converting 'gold' to Float64: "
+                "while executing 'FUNCTION equals(accurateCastOrNull(__table1.mat_tier, 'Float64'_String) :: 2, "
+                "'gold'_String :: 4) -> equals(...) Nullable(UInt8) : 3'.",
+                code=27,
+            ),
+            "CHQueryErrorCannotParseInputAssertionFailed",
+            "Code: 27.\nDB::Exception: Cannot parse infinity: while converting 'gold' to Float64: "
+            "while executing 'FUNCTION equals(accurateCastOrNull(__table1.mat_tier, 'Float64'_String) :: 2, "
+            "'gold'_String :: 4) -> equals(...) Nullable(UInt8) : 3'.",
+            27,
+            "CHQueryErrorCannotParseInputAssertionFailed",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
@@ -286,3 +340,14 @@ def test_a_driver_error_the_wrapper_passes_through_is_not_its_own_cause():
 
     assert raised.value is error
     assert raised.value.__cause__ is None
+
+
+def test_a_mis_split_csv_row_is_the_customers_file_not_a_platform_failure():
+    error = ServerException(
+        "Code: 27. DB::Exception: Cannot parse input: expected ',' at end of stream: (at row 4)\n: \nRow 4:\n"
+        'Column 0,   name: region,   type: Nullable(String), parsed text: "north, west"\n'
+        ": While executing CSVRowInputFormat. Stack trace:\n\n0. DB::Exception::Exception() @ 0x0000000015979590",
+        code=27,
+    )
+
+    assert classify_query_error(wrap_clickhouse_query_error(error)) == QueryErrorCategory.USER_ERROR
