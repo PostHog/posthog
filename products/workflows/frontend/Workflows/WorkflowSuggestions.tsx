@@ -4,6 +4,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
+import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
 import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
@@ -11,6 +12,7 @@ import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
 export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     const {
         pendingProposals,
+        approvedProposals,
         appliedProposals,
         outcomes,
         optimisationEnabled,
@@ -40,7 +42,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         return <WorkflowSuggestionsIntroduction id={id} enabled={false} />
     }
 
-    if (pendingProposals.length === 0 && measuredApplied.length === 0) {
+    if (pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0) {
         return <WorkflowSuggestionsIntroduction id={id} enabled />
     }
 
@@ -63,6 +65,14 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                     ))
                 )}
             </div>
+            {approvedProposals.length > 0 && (
+                <div className="flex flex-col gap-2">
+                    <h3 className="mb-0">Staged as draft</h3>
+                    {approvedProposals.map((proposal) => (
+                        <WorkflowStagedSuggestion key={proposal.id} id={id} proposal={proposal} />
+                    ))}
+                </div>
+            )}
             {measuredApplied.length > 0 && (
                 <div className="flex flex-col gap-2">
                     <h3 className="mb-0">Applied</h3>

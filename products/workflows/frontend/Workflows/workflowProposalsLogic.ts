@@ -38,6 +38,10 @@ export interface workflowProposalsLogicValues {
     appliedProposals: WorkflowProposalApi[]
     appliedResponse: PaginatedWorkflowProposalListApi | null
     appliedResponseLoading: boolean
+    approvedProposals: WorkflowProposalApi[]
+    approvedResponse: PaginatedWorkflowProposalListApi | null
+    approvedResponseLoading: boolean
+    lastSeenDraftStamp: string | null
     lastSeenVersion: number | null
     optimisation: HogFlowOptimisationApi | null
     optimisationEnabled: boolean
@@ -81,6 +85,21 @@ export interface workflowProposalsLogicActions {
         appliedResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
+    loadApproved: () => any
+    loadApprovedFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadApprovedSuccess: (
+        approvedResponse: PaginatedWorkflowProposalListApi,
+        payload?: any
+    ) => {
+        approvedResponse: PaginatedWorkflowProposalListApi
+        payload?: any
+    }
     loadOptimisation: () => any
     loadOptimisationFailure: (
         error: string,
@@ -119,6 +138,9 @@ export interface workflowProposalsLogicActions {
     }
     removeResolvedProposal: (proposalId: string) => {
         proposalId: string
+    }
+    setLastSeenDraftStamp: (stamp: string | null) => {
+        stamp: string | null
     }
     setLastSeenVersion: (version: number | null) => {
         version: number | null
@@ -167,6 +189,7 @@ export interface workflowProposalsLogicActions {
 export interface workflowProposalsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        approvedProposals: (approvedResponse: any) => WorkflowProposalApi[]
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimisationEnabled: (optimisation: HogFlowOptimisationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
@@ -202,6 +225,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         }),
         loadOutcome: (proposalId: string) => ({ proposalId }),
         setLastSeenVersion: (version: number | null) => ({ version }),
+        setLastSeenDraftStamp: (stamp: string | null) => ({ stamp }),
         setOptimisationUnreadable: (unreadable: boolean) => ({ unreadable }),
         setOptimisationEnabled: (enabled: boolean) => ({ enabled }),
         setOutcome: (proposalId: string, outcome: WorkflowProposalOutcomeApi) => ({ proposalId, outcome }),
@@ -248,6 +272,12 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 setLastSeenVersion: (_, { version }) => version,
             },
         ],
+        lastSeenDraftStamp: [
+            null as string | null,
+            {
+                setLastSeenDraftStamp: (_, { stamp }) => stamp,
+            },
+        ],
         // Merge each finished request's entry here at reducer time, not inside the request. A request
         // that read prior state to build the merged map would read it stale, so two near-simultaneous
         // loads would drop each other's entry.
@@ -259,6 +289,23 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         ],
     }),
     loaders(({ actions, props, values }) => ({
+        approvedResponse: [
+            null as PaginatedWorkflowProposalListApi | null,
+            {
+                loadApproved: async () => {
+                    try {
+                        return await hogFlowsProposalsList(String(values.currentTeamIdStrict), props.id, {
+                            status: 'approved',
+                        })
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return { count: 0, results: [] }
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
         appliedResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
@@ -318,6 +365,10 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         ],
     })),
     selectors({
+        approvedProposals: [
+            (s) => [s.approvedResponse],
+            (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
+        ],
         appliedProposals: [
             (s) => [s.appliedResponse],
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
@@ -367,6 +418,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 actions.removeResolvedProposal(proposalId)
                 workflowLogic({ id: props.id }).actions.loadWorkflow()
                 actions.loadProposals()
+                actions.loadApproved()
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
                     if (error.code === 'proposal_already_resolved') {
@@ -449,20 +501,31 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         },
     })),
     listeners(({ actions, values, props }) => ({
-        // Publish, discard and restore happen outside this panel; the version and the draft stamp cover all three.
+        // Publishing, discarding and restoring happen outside this panel and each one changes what it
+        // should say. A publish moves the version; a discard or a restore moves the draft stamp. Keying
+        // on those two keeps an ordinary reload from refetching the queue.
         [workflowLogic({ id: props.id }).actionTypes.loadWorkflowSuccess]: () => {
             const version = values.originalWorkflow?.version ?? null
-            if (version === null || version === values.lastSeenVersion) {
+            const draftStamp = values.originalWorkflow?.draft_updated_at ?? null
+            const versionMoved = version !== null && version !== values.lastSeenVersion
+            const draftMoved = draftStamp !== values.lastSeenDraftStamp
+            if (!versionMoved && !draftMoved) {
                 return
             }
             actions.setLastSeenVersion(version)
+            actions.setLastSeenDraftStamp(draftStamp)
             actions.loadProposals()
-            actions.loadApplied()
+            actions.loadApproved()
+            if (versionMoved) {
+                actions.loadApplied()
+            }
         },
     })),
     afterMount(({ actions, values }) => {
         actions.setLastSeenVersion(values.originalWorkflow?.version ?? null)
+        actions.setLastSeenDraftStamp(values.originalWorkflow?.draft_updated_at ?? null)
         actions.loadProposals()
+        actions.loadApproved()
         actions.loadApplied()
         actions.loadOptimisation()
     }),
