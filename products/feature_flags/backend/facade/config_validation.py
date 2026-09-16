@@ -23,8 +23,8 @@ decimal places, byte limits) come from its literal registry.
 """
 
 import re
+import sys
 import json
-import math
 from collections.abc import Callable, Mapping
 from dataclasses import field
 from decimal import Decimal
@@ -520,20 +520,30 @@ def _is_int(value: object) -> bool:
 def _is_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
-    try:
-        return math.isfinite(value)
-    except OverflowError:  # an int too large for a float is not a usable number either
-        return False
+    return -sys.float_info.max <= value <= sys.float_info.max
+
+
+def _has_finite_numbers(value: object) -> bool:
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int | float):
+        return _is_number(value)
+    if isinstance(value, Mapping):
+        return all(_has_finite_numbers(item) for item in value.values())
+    if isinstance(value, list | tuple):
+        return all(_has_finite_numbers(item) for item in value)
+    return True
 
 
 def _encoded_size(value: object, *, allow_nan: bool = True) -> int | None:
     """Encoded byte size with the same encoding as the v1 filter-size check, or None when the value is not JSON.
 
-    With ``allow_nan=False`` a NaN or infinity anywhere inside the value also reads as
-    not JSON, which is what Postgres and every strict JSON parser would say.
+    With ``allow_nan=False``, numbers must fit the finite binary64 range used by the flag service.
     """
     try:
         encoded = json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False, allow_nan=allow_nan)
+        if not allow_nan and not _has_finite_numbers(value):
+            return None
     except (TypeError, ValueError):
         return None
     return len(encoded.encode("utf-8"))

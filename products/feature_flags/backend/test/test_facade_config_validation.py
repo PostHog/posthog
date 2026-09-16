@@ -1,4 +1,5 @@
 import re
+import sys
 import json
 import hashlib
 from copy import deepcopy
@@ -102,6 +103,20 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
     ("targeted_false_value", config(targeted(value=False))),
     ("description_and_metadata", config(targeted(description="Preview accounts", metadata={"color": "blue"}))),
     ("empty_metadata", config(targeted(metadata={}))),
+    (
+        "exact_finite_number_boundaries",
+        config(
+            targeted(
+                targeting={
+                    "properties": [person(value=[sys.float_info.max, -sys.float_info.max, int(sys.float_info.max)])]
+                }
+            )
+        ),
+    ),
+    (
+        "metadata_finite_number_boundaries",
+        config(targeted(metadata={"n": [int(sys.float_info.max), -int(sys.float_info.max), True, None, "1e400"]})),
+    ),
     ("percentage_two_decimals", config(rollout(rollout_percentage=33.33))),
     ("percentage_zero", config(rollout(rollout_percentage=0))),
     ("percentage_hundred", config(rollout(rollout_percentage=100))),
@@ -412,6 +427,21 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         config(targeted(targeting={"properties": [person(value=[1, {"n": float("inf")}])]})),
         [("invalid", "filters.rules[0].targeting.properties[0].value")],
     ),
+    *[
+        (
+            name,
+            config(targeted(targeting={"properties": [person(value=value)]})),
+            [("invalid", "filters.rules[0].targeting.properties[0].value")],
+        )
+        for name, value in [
+            ("exact_huge_integer", 10**400),
+            ("exact_negative_huge_integer", -(10**400)),
+            ("exact_integer_above_binary64_range", int(sys.float_info.max) + 1),
+            ("exact_integer_below_binary64_range", -int(sys.float_info.max) - 1),
+            ("exact_array_huge_integer", [10**400]),
+            ("exact_object_nested_huge_integer", {"n": [1, {"n": -(10**400)}]}),
+        ]
+    ],
     (
         "person_with_group_type_index",
         config(targeted(targeting={"properties": [person(group_type_index=0)]})),
@@ -447,6 +477,17 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ("metadata_list", config(targeted(metadata=[])), [("invalid", "filters.rules[0].metadata")]),
     ("metadata_string", config(targeted(metadata="x")), [("invalid", "filters.rules[0].metadata")]),
     ("metadata_nan", config(targeted(metadata={"n": float("nan")})), [("invalid", "filters.rules[0].metadata")]),
+    *[
+        (name, config(targeted(metadata={"n": value})), [("invalid", "filters.rules[0].metadata")])
+        for name, value in [
+            ("metadata_huge_integer", 10**400),
+            ("metadata_negative_huge_integer", -(10**400)),
+            ("metadata_integer_above_binary64_range", int(sys.float_info.max) + 1),
+            ("metadata_integer_below_binary64_range", -int(sys.float_info.max) - 1),
+            ("metadata_array_huge_integer", [10**400]),
+            ("metadata_object_nested_huge_integer", {"n": [1, {"n": -(10**400)}]}),
+        ]
+    ],
     (
         "metadata_too_large",
         config(targeted(metadata={"blob": "x" * 2000})),
