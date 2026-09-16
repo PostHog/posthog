@@ -53112,6 +53112,125 @@ export namespace Schemas {
     }
 
     /**
+     * * `aws_cloudwatch` - Amazon CloudWatch
+     */
+    export type LogsSourceProviderEnum = typeof LogsSourceProviderEnum[keyof typeof LogsSourceProviderEnum];
+
+
+    export const LogsSourceProviderEnum = {
+      AwsCloudwatch: 'aws_cloudwatch',
+    } as const;
+
+    /**
+     * Resource attributes added to every log row from this source, e.g. {"env": "prod"}.
+     */
+    export type LogsSourceConfigDefaultLabels = {[key: string]: string};
+
+    /**
+     * Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value.
+     */
+    export type LogsSourceConfigServiceNameOverrides = {[key: string]: string};
+
+    export interface LogsSourceConfig {
+      /**
+         * AWS region of the CloudWatch log groups and the Firehose stream, e.g. us-east-1.
+         * @pattern ^[a-z]{2}(-gov|-iso[a-z]*)?-[a-z]+-\d$
+         */
+      region: string;
+      /** Resource attributes added to every log row from this source, e.g. {"env": "prod"}. */
+      default_labels?: LogsSourceConfigDefaultLabels;
+      /** Map of CloudWatch log group name to the service.name it should carry, overriding the inferred value. */
+      service_name_overrides?: LogsSourceConfigServiceNameOverrides;
+    }
+
+    export interface LogsSource {
+      /** Unique identifier for this log source. */
+      readonly id: string;
+      /**
+         * User-visible label for this source.
+         * @maxLength 255
+         */
+      name: string;
+      /** Cloud provider the logs come from.
+       *
+       * * `aws_cloudwatch` - Amazon CloudWatch */
+      provider: LogsSourceProviderEnum;
+      /** How logs reach PostHog. Only push, where the provider delivers to a PostHog endpoint, exists. */
+      readonly mode: string;
+      /** When false, ingestion drops deliveries that carry this source id. */
+      enabled?: boolean;
+      /** Provider-specific settings. */
+      config: LogsSourceConfig;
+      /** Id of the user who created this source. */
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * * `receiving` - Receiving
+     * * `waiting` - Waiting for first delivery
+     * * `stale` - No recent data
+     * * `disabled` - Disabled
+     */
+    export type LogsSourceHealthStatusEnum = typeof LogsSourceHealthStatusEnum[keyof typeof LogsSourceHealthStatusEnum];
+
+
+    export const LogsSourceHealthStatusEnum = {
+      Receiving: 'receiving',
+      Waiting: 'waiting',
+      Stale: 'stale',
+      Disabled: 'disabled',
+    } as const;
+
+    export interface LogsSourceHealth {
+      /** receiving: data arrived in the last two hours. waiting: nothing received yet. stale: data stopped. disabled: the source is switched off.
+       *
+       * * `receiving` - Receiving
+       * * `waiting` - Waiting for first delivery
+       * * `stale` - No recent data
+       * * `disabled` - Disabled */
+      status: LogsSourceHealthStatusEnum;
+      /**
+         * Hour bucket in which the most recent batch from this source was ingested, if any in the last 24 hours.
+         * @nullable
+         */
+      last_received_at: string | null;
+      /** Log records this source delivered in the last 24 hours, counted before quota, sampling and exclusion rules apply. */
+      records_received_24h: number;
+      /** Log records dropped from this source in the last 24 hours, for example while it was disabled. */
+      records_dropped_24h: number;
+    }
+
+    export interface LogsSourceSetup {
+      /** Path of the Firehose HTTP endpoint for this source, relative to the ingestion host. */
+      endpoint_path: string;
+      /** Full HTTPS URL to configure as the Firehose HTTP endpoint. */
+      endpoint_url: string;
+      /** Value for the Firehose access key field. This is the project API key. */
+      access_key: string;
+      /** Recommended Firehose buffer size in MB. */
+      buffering_size_mb: number;
+      /** Recommended Firehose buffer interval. */
+      buffering_interval_seconds: number;
+      /** Recommended Firehose retry duration. */
+      retry_duration_seconds: number;
+      /** Recommended Firehose content encoding. */
+      content_encoding: string;
+    }
+
+    /**
+     * Delivery status of every source in this environment, keyed by source id.
+     */
+    export type LogsSourcesHealthSources = {[key: string]: LogsSourceHealth};
+
+    export interface LogsSourcesHealth {
+      /** Delivery status of every source in this environment, keyed by source id. */
+      sources: LogsSourcesHealthSources;
+    }
+
+    /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
      */
     export type LogsViewFilters = { [key: string]: unknown };
@@ -59425,6 +59544,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsSamplingRule[];
+    }
+
+    export interface PaginatedLogsSourceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LogsSource[];
     }
 
     export interface PaginatedLogsViewList {
@@ -69500,6 +69628,31 @@ export namespace Schemas {
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedLogsSource {
+      /** Unique identifier for this log source. */
+      readonly id?: string;
+      /**
+         * User-visible label for this source.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Cloud provider the logs come from.
+       *
+       * * `aws_cloudwatch` - Amazon CloudWatch */
+      provider?: LogsSourceProviderEnum;
+      /** How logs reach PostHog. Only push, where the provider delivers to a PostHog endpoint, exists. */
+      readonly mode?: string;
+      /** When false, ingestion drops deliveries that carry this source id. */
+      enabled?: boolean;
+      /** Provider-specific settings. */
+      config?: LogsSourceConfig;
+      /** Id of the user who created this source. */
       readonly created_by?: number;
       readonly created_at?: string;
       /** @nullable */
@@ -99125,6 +99278,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `LogsSource` - LogsSource
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -99227,6 +99381,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      LogsSource: 'LogsSource',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -99315,6 +99470,7 @@ export namespace Schemas {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `LogsSource` - LogsSource
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -99405,6 +99561,7 @@ export namespace Schemas {
       LogsAlertConfiguration: 'LogsAlertConfiguration',
       LogsExclusionRule: 'LogsExclusionRule',
       LogsRetentionRule: 'LogsRetentionRule',
+      LogsSource: 'LogsSource',
       DashboardWidget: 'DashboardWidget',
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
@@ -105910,6 +106067,17 @@ export namespace Schemas {
     };
 
     export type LogsSamplingRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LogsSourcesListParams = {
     /**
      * Number of results to return per page.
      */
