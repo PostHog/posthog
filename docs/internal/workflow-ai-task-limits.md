@@ -45,7 +45,7 @@ A wake queued during the key rollout is therefore delivered, not dropped.
 Provision the key only after the release that carries the delivery task is live on every Celery worker.
 A worker from an older release does not know the task, so it discards the wake instead of running it.
 `CDP_HOGFLOW_AWAITED_STEPS_ENABLED` on the plugin server enables new waits. Existing waits still receive their results when this flag is off.
-A wake that lands while the step is still dispatching cannot be applied, because the worker owns the job state until it parks. The `cdp_hogflow_step_resume` counter reports these as `job_running`.
+A wake that lands while the step is still dispatching cannot be applied, because the worker owns the job state until it parks. The `cdp_hogflow_step_resume` counter reports these as `job_running`, or as `dispatching` when a fetch retry has released the job to the queue before the step parked.
 Over the API the route answers 409 and the Celery task retries; over the internal event the wake is dropped and the step fails at its own deadline.
 Leave the flag off until the API that emits the wake is deployed.
 A task that ends through the agent's `finish` tool completes a few seconds before its final message is saved.

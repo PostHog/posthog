@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
+import { buildWorkflowStepDispatchKey } from '../../utils/workflow-step-dispatch-key'
+
 export const WorkflowStepResumeSchema = z.object({
     origin_key: z.string().min(1),
     status: z.enum(['completed', 'failed', 'cancelled']),
@@ -14,7 +16,8 @@ export const WorkflowStepResumeSchema = z.object({
 export type StepResume = z.infer<typeof WorkflowStepResumeSchema> & { jobId: string; actionId: string }
 
 // `job_<status>` covers every non-parked cyclotron status; `delivered` is the only success.
-export type StepResumeOutcome = 'delivered' | 'stale_key' | 'job_missing' | `job_${string}`
+// `dispatching` and `job_running` are the two the caller should retry.
+export type StepResumeOutcome = 'delivered' | 'stale_key' | 'dispatching' | 'job_missing' | `job_${string}`
 
 export const counterStepResume = new Counter({
     name: 'cdp_hogflow_step_resume',
@@ -46,6 +49,29 @@ export function applyStepResumeToState(stateBuffer: Buffer, resume: StepResume):
     } catch (err) {
         logger.warn('Failed to parse state during step resume', { jobId: resume.jobId, err })
         return null
+    }
+}
+
+// True when the job is on the visit of the step this wake is for but has not parked yet: a
+// retriable fetch backoff releases the job to the queue before `awaitingResume` is written.
+// A wake landing here must be retried, not dropped as stale.
+export function stepStillDispatching(stateBuffer: Buffer, resume: StepResume): boolean {
+    try {
+        const state = parseJSON(stateBuffer.toString('utf-8')).state
+        const currentAction = state?.currentAction
+        if (
+            currentAction?.id !== resume.actionId ||
+            currentAction.awaitingResume ||
+            state.actionStepCount === undefined
+        ) {
+            return false
+        }
+        return (
+            buildWorkflowStepDispatchKey(resume.jobId, currentAction.id, state.actionStepCount, state.rerunAttempts) ===
+            resume.origin_key
+        )
+    } catch {
+        return false
     }
 }
 
@@ -93,7 +119,8 @@ export async function processStepResumes(
                   )
                 : null
             if (!state) {
-                outcomes.set(row.id, 'stale_key')
+                const dispatching = jobResumes.some((resume) => stepStillDispatching(row.state, resume))
+                outcomes.set(row.id, dispatching ? 'dispatching' : 'stale_key')
                 continue
             }
             updates.push({ id: row.id, state })

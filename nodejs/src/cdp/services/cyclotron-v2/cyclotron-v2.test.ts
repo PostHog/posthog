@@ -851,6 +851,30 @@ describe('Cyclotron V2', () => {
                 })
             })
 
+            it.each([
+                ['the same visit that has not parked yet', 3, 'dispatching'],
+                ['an earlier visit of the step', 5, 'stale_key'],
+            ])('leaves an unparked job alone and reports %s', async (_label, actionStepCount, expected) => {
+                const jobId = uuidv7()
+                const state = Buffer.from(
+                    JSON.stringify({ state: { currentAction: { id: 'task_node' }, actionStepCount } })
+                )
+                await manager.createJob({
+                    id: jobId,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId: uuidv7(),
+                    scheduled: new Date(Date.now() + 2000),
+                    state,
+                })
+
+                const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
+
+                expect(outcomes.get(jobId)).toBe(expected)
+                expect(await jobIsDue(jobId)).toBe(false)
+                expect((await queryJob(jobId)).state).toEqual(state)
+            })
+
             it("reports another team's job as missing rather than waking it", async () => {
                 const jobId = uuidv7()
                 await manager.createJob({

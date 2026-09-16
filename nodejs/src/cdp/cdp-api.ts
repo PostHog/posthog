@@ -1184,7 +1184,7 @@ export class CdpApi {
     // Wake the parked workflow step that dispatched a task run, with the run's outcome. Django
     // calls this from a retrying Celery task when the run reaches a terminal status. One resume
     // per call; the outcome tells the caller whether to retry (409: the worker still holds the
-    // job) or stop (200: delivered, or the step is past this wake).
+    // job, or the step has not parked yet) or stop (200: delivered, or the step is past this wake).
     //
     // Auth mirrors the cancel routes: a per-call JWT minted by Django on its own audience and key,
     // pinned to the team and to the origin key, so a leaked token can wake exactly one step.
@@ -1219,7 +1219,7 @@ export class CdpApi {
 
             const outcomes = await this.batchResolverProducer.resumeParkedSteps(teamId, [{ ...parsed.data, ...key }])
             const outcome = outcomes.get(key.jobId) ?? 'job_missing'
-            return res.status(outcome === 'job_running' ? 409 : 200).json({ outcome })
+            return res.status(outcome === 'job_running' || outcome === 'dispatching' ? 409 : 200).json({ outcome })
         } catch (e) {
             logger.error('Error resuming workflow step', {
                 error: e instanceof Error ? e.message : String(e),
