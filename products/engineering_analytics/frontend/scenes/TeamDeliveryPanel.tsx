@@ -24,6 +24,8 @@ export function TeamDeliveryPanel({ scope, sourceId }: { scope: DeliveryScope; s
                     dateTo={dateTo}
                     onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={DELIVERY_DATE_OPTIONS}
+                    showCustomRangeOptions={false}
+                    showRollingRangePicker={false}
                     size="small"
                 />
             }

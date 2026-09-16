@@ -10,7 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { PRTimelineApi } from '../generated/api.schemas'
 import { compactAgeLabel, percent } from '../lib/format'
-import { SEGMENT_KIND_STYLES, dayStartsBetween, segmentBackground } from '../lib/pullRequestDayView'
+import { SEGMENT_KIND_STYLES, dayStartsBetween, secondsBetween, segmentBackground } from '../lib/pullRequestDayView'
 import {
     MilestoneKind,
     TimelinePush,
@@ -43,7 +43,7 @@ export function PullRequestDeliveryTimeline({
 }: {
     /** A timeline with at least one segment. */
     pr: PRTimelineApi
-    /** Null until the CI runs load, so the page never claims zero pushes it has not counted. */
+    /** Null until the CI runs load. The runs read is capped, so this can miss the oldest pushes. */
     pushes: TimelinePush[] | null
 }): JSX.Element {
     const axis = trackAxis(pr)
@@ -56,7 +56,7 @@ export function PullRequestDeliveryTimeline({
     const start = segments[0].started_at
     const end = segments[segments.length - 1].ended_at
     const labelStep = Math.ceil(dayStarts.length / MAX_DAY_LABELS)
-    const pushCount = milestones.filter((milestone) => milestone.kind === 'push').length
+    const markedAllPushes = pushes === null || new Set(pushes.map((push) => push.headSha)).size >= pr.pushes
 
     return (
         <LemonCard
@@ -165,11 +165,20 @@ export function PullRequestDeliveryTimeline({
                         <span className="font-semibold tabular-nums">{dayjs(end).format(TIME_FORMAT)}</span>
                     </div>
                     <div className="flex justify-between gap-2">
-                        <span className="text-secondary">Pushes after the start</span>
-                        <span className="font-semibold tabular-nums">{pushes ? pushCount : '—'}</span>
+                        <span className="text-secondary">Pushes</span>
+                        <span className="font-semibold tabular-nums">{pr.pushes}</span>
                     </div>
+                    {!markedAllPushes && <span className="text-tertiary">Markers show the newest pushes only.</span>}
                 </div>
             </div>
+
+            <ol className="sr-only">
+                {segments.map((segment) => (
+                    <li key={segment.started_at}>
+                        {`${SEGMENT_KIND_STYLES[segment.kind].label}, ${compactAgeLabel(secondsBetween(segment.started_at, segment.ended_at))}, from ${dayjs(segment.started_at).format(TIME_FORMAT)}`}
+                    </li>
+                ))}
+            </ol>
 
             <div className="mt-4">
                 <PullRequestTimelineLegend />
