@@ -161,7 +161,7 @@ class BufferSignalsInput:
     pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=False)
 class TeamSignalGroupingV2Input:
     """Inputs for the v2 grouping workflow."""
 
