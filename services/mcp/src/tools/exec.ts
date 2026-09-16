@@ -323,9 +323,13 @@ const MAX_LISTED_BATCH_COMMANDS = 5
 const MAX_LISTED_BATCH_COMMAND_LENGTH = 200
 
 /** Ceilings on a batch. One command already returns up to TOKEN_CHAR_LIMIT, so
- *  an unbounded batch could return many times what any single request does. */
+ *  an unbounded batch could return many times what any single request does. The
+ *  character ceiling covers every result the reply carries, joiners included. Two
+ *  things still land on top of it: the first result, however large, and the short
+ *  notice naming what was left out. */
 const MAX_BATCH_COMMANDS = 10
 const MAX_BATCH_RESPONSE_CHARS = TOKEN_CHAR_LIMIT * 2
+const BATCH_SECTION_JOINER = '\n\n'
 
 /** Recorded in place of a verb, so a batch is never filed under whichever
  *  command happened to run last. */
@@ -484,16 +488,6 @@ async function runBatchedCommands(
     let used = 0
     let errorCount = 0
     for (const [index, command] of commands.entries()) {
-        if (used >= MAX_BATCH_RESPONSE_CHARS) {
-            sections.push(
-                [
-                    `Stopped after ${index} of ${commands.length} commands — the reply reached its size limit.`,
-                    'Re-send the rest as their own exec calls. Not run:',
-                    ...listCommands(commands.slice(index)),
-                ].join('\n')
-            )
-            break
-        }
         let body: string
         try {
             body = formatResponse(await runCommand(command))
@@ -507,10 +501,24 @@ async function runBatchedCommands(
                 .join('')
         }
         const section = `$ ${summarizeCommand(command)}\n${body}`
-        used += section.length
+        const cost = sections.length > 0 ? BATCH_SECTION_JOINER.length + section.length : section.length
+        // Charged once the section exists, because its size is unknown until the
+        // command has run. A result that does not fit is named as not run rather
+        // than returned, so the ceiling bounds the reply instead of trailing it.
+        if (sections.length > 0 && used + cost > MAX_BATCH_RESPONSE_CHARS) {
+            sections.push(
+                [
+                    `Stopped after ${index} of ${commands.length} commands — the reply reached its size limit.`,
+                    'Re-send the rest as their own exec calls. Not run:',
+                    ...listCommands(commands.slice(index)),
+                ].join('\n')
+            )
+            break
+        }
+        used += cost
         sections.push(section)
     }
-    return { output: sections.join('\n\n'), errorCount }
+    return { output: sections.join(BATCH_SECTION_JOINER), errorCount }
 }
 
 /** Batching wraps the single-command dispatcher rather than living inside it, so

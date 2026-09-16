@@ -1267,8 +1267,12 @@ describe('exec tool', () => {
             const result = (await exec.handler(mockContext, {
                 command: 'info one-tool\ninfo two-tool\ninfo three-tool',
             })) as string
-            expect(result).toContain('Stopped after 2 of 3 commands')
+            // The result that crosses the ceiling is named rather than returned, so
+            // the reply stays inside the bound instead of overshooting it by a body.
+            expect(result).toContain('Stopped after 1 of 3 commands')
+            expect(result).toContain('- info two-tool')
             expect(result).toContain('- info three-tool')
+            expect(result).not.toContain('name: two-tool')
             expect(result).not.toContain('name: three-tool')
         })
 
