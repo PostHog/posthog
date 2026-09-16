@@ -85,6 +85,10 @@ export class UrlFetchConsumer {
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })
+        const decodedValid = decoded.filter((entry) => !entry.invalid)
+        const encrypted = decodedValid.filter((entry) => entry.key).length
+        ImageFetchConsumerMetrics.incrementVersion('2', encrypted)
+        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()

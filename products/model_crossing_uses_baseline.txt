@@ -287,6 +287,7 @@ event_definitions.PropertyDefinition access_control.PropertyAccessControl.proper
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
 event_definitions.PropertyDefinition posthog.TaggedItem.property_definition reverse-accessor(tagged_items) 1
+experiments.Experiment posthog.TaggedItem.experiment reverse-accessor(tagged_items) 1
 experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
 experiments.ExperimentSavedMetric posthog.TaggedItem.experiment_saved_metric reverse-accessor(tagged_items) 1
 experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
@@ -809,7 +810,7 @@ warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.logic.data_load.create_table write(create) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation drf-field-queryset 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.column_annotation other(Assign) 1
-warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query instance-many(exclude) 1
+warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.saved_query.sync_cadence instance-many(exclude) 1
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table construct 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table drf-model-serializer 2
 warehouse_sources.DataWarehouseTable products.data_warehouse.backend.presentation.views.table instance-many(all) 1

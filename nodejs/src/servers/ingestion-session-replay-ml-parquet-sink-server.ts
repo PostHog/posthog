@@ -38,7 +38,7 @@ export class IngestionSessionReplayMlParquetSinkServer extends MlMirrorConsumerS
     private privacy?: MlPrivacyRuntime
 
     protected async startServices(): Promise<void> {
-        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
             this.privacy = new MlPrivacyRuntime(this.config)
             await this.privacy.start()
         }
