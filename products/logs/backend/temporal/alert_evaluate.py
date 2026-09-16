@@ -27,17 +27,17 @@ WORKFLOW_NAME = "logs-alert-evaluate"
 async def evaluate_logs_alerts_activity(inputs: SourceEvaluationInputs) -> tuple[AlertDeliveryPreview, ...]:
     # Imported in the activity body, not at module scope. The workflow class below forces
     # this module to evaluate inside Temporal's sandbox, which a Django model import trips.
-    from products.logs.backend.alert_source_cycle import evaluate_logs_configurations
+    from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 
-    return await database_sync_to_async_pool(evaluate_logs_configurations)(
-        inputs.configuration_ids, dt.datetime.fromisoformat(inputs.cutoff)
+    return await database_sync_to_async_pool(evaluate_logs_batch)(
+        inputs.batch_key.team_id, inputs.batch_key.slot, dt.datetime.fromisoformat(inputs.cutoff)
     )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
 class LogsAlertEvaluateWorkflow(PostHogWorkflow):
-    """Evaluates the configurations its dispatcher handed over, then previews one delivery
-    per notification. Writes nothing: the production logs fleet owns these alerts."""
+    """Evaluates one batch key, then previews one delivery per notification.
+    Writes nothing: the production logs fleet owns these alerts."""
 
     inputs_cls = SourceEvaluationInputs
 

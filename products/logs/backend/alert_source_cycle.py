@@ -127,11 +127,18 @@ def _preview_for_alert(
     )
 
 
-def evaluate_logs_configurations(configuration_ids: list[str], cutoff: datetime) -> tuple[AlertDeliveryPreview, ...]:
-    """Evaluates the configurations the dispatcher handed over, against the tick's cutoff.
+def _slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
+    """The minute a configuration is due for. One that has never been checked has no due time of
+    its own, so it belongs to the tick that found it."""
+    return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
-    `cutoff` is the tick occasion, not the clock, so a retried attempt evaluates the same
-    alerts against the same windows and derives the same evaluation keys.
+
+def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> tuple[AlertDeliveryPreview, ...]:
+    """Evaluates one batch key: a team's alerts due in one minute, against the tick's cutoff.
+
+    The dispatcher passes the key rather than a list of ids, so the set is read here and is the
+    fresher one. `cutoff` is the tick occasion, not the clock, so a retried attempt evaluates the
+    same alerts against the same windows and derives the same evaluation keys.
 
     The due predicate is applied again here. Discovery ran earlier in the tick, so a
     configuration can have been disabled, snoozed or broken since, and evaluating one that
@@ -144,7 +151,7 @@ def evaluate_logs_configurations(configuration_ids: list[str], cutoff: datetime)
                 broken_state=LogsAlertConfiguration.State.BROKEN,
                 snoozed_state=LogsAlertConfiguration.State.SNOOZED,
             ),
-            id__in=configuration_ids,
+            team_id=team_id,
         )
         # Ordered so the cohort budget and the preview cap keep the same alerts on a
         # retried attempt. Without an ordering Postgres is free to return the rows in a
@@ -163,6 +170,7 @@ def evaluate_logs_configurations(configuration_ids: list[str], cutoff: datetime)
     )
     # Production excludes a structurally broken filter before evaluating, so including one
     # here would preview a notification production would never send.
+    rows = [row for row in rows if _slot_of(row["next_check_at"], cutoff) == slot]
     rows = [row for row in rows if _detect_broken_filter_config(row["filters"]) is None]
     if not rows:
         return ()

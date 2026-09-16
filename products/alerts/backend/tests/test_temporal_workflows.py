@@ -32,6 +32,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.alerts.backend.facade.contracts import (
+    AlertBatchKey,
     AlertDemand,
     DemandDiscoveryInputs,
     OrchestrateInputs,
@@ -421,50 +422,54 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
     start_delivery.assert_not_awaited()
 
 
+def _key(team_id: int, minute: int) -> AlertBatchKey:
+    return AlertBatchKey(
+        team_id=team_id, slot=dt.datetime(2026, 9, 16, 9 + minute // 60, minute % 60, tzinfo=dt.UTC).isoformat()
+    )
+
+
 @pytest.mark.parametrize(
-    "cutoff_offset, expected_ids",
+    "cutoff_offset, expected_keys",
     [
         (-2, {}),
-        (-1, {SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"]}),
+        (-1, {SourceKind.LOGS: [_key(1, 59)]}),
         (
             0,
             {
-                SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"],
-                SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
+                SourceKind.LOGS: [_key(1, 59), _key(1, 60)],
+                SourceKind.INSIGHT: [_key(2, 60)],
             },
         ),
     ],
 )
 def test_discovery_filters_and_groups_due_configurations(
-    cutoff_offset: int, expected_ids: dict[SourceKind, list[str]]
+    cutoff_offset: int, expected_keys: dict[SourceKind, list[AlertBatchKey]]
 ) -> None:
     tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
     configurations = demand._synthetic_configurations(tick_time)
     cutoff = (tick_time + dt.timedelta(minutes=cutoff_offset)).isoformat()
     with patch.object(demand, "_synthetic_configurations", return_value=configurations):
         for _ in range(2):
-            assert demand.discover_synthetic_demand(cutoff).configuration_ids_by_source == expected_ids
+            assert demand.discover_demand(cutoff).batch_keys_by_source == expected_keys
 
 
 @pytest.mark.parametrize("cutoff", ["invalid", "2026-09-16T10:00:00"])
 def test_discovery_rejects_invalid_cutoff(cutoff: str) -> None:
     with pytest.raises(ValueError):
-        demand.discover_synthetic_demand(cutoff)
+        demand.discover_demand(cutoff)
 
 
-def test_discovery_bounds_ids_per_source_and_counts_the_rest() -> None:
+def test_discovery_bounds_keys_per_source_and_counts_the_rest() -> None:
     cutoff = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC).isoformat()
-    bounded = demand.discover_synthetic_demand(cutoff, limit_per_source=1)
+    bounded = demand.discover_demand(cutoff, limit_per_source=1)
+    # The oldest due key survives the bound, so a key it leaves out grows more overdue and wins later.
     assert bounded == AlertDemand(
-        configuration_ids_by_source={
-            SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"],
-            SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
-        },
+        batch_keys_by_source={SourceKind.LOGS: [_key(1, 59)], SourceKind.INSIGHT: [_key(2, 60)]},
         omitted_by_source={SourceKind.LOGS: 1},
     )
-    assert demand.discover_synthetic_demand(cutoff).omitted_by_source == {}
+    assert demand.discover_demand(cutoff).omitted_by_source == {}
     with pytest.raises(ValueError):
-        demand.discover_synthetic_demand(cutoff, limit_per_source=0)
+        demand.discover_demand(cutoff, limit_per_source=0)
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -487,7 +492,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
         patch.object(workflow, "info", return_value=info),
         patch.object(workflow, "now", return_value=actual_start),
         patch.object(
-            workflow, "execute_activity", AsyncMock(return_value=AlertDemand(configuration_ids_by_source={}))
+            workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
         patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
     ):

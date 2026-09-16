@@ -147,18 +147,39 @@ The result feeds the tick loop above. Evaluation still runs the probe/delivery s
 TTL claims are not implemented here.
 Discovery has a five-second start-to-close timeout, a ten-second schedule-to-close timeout, and at most three attempts.
 
+## Batch keys
+
+Discovery returns batch keys, not configuration ids. A key is `(source, team_id, slot)`, where `slot` is
+`next_check_at` floored to the minute. A key costs a fixed amount and does not grow with a team's alert
+count, so the manifest bound is about how many chunks a tick starts rather than how many alerts it found.
+
+The key names the chunk by what it holds, so the evaluation workflow id is
+`alerts-eval-{source}-{team_id}-{slot}` and stays the same when a later tick rediscovers the same work.
+A slow evaluation therefore blocks its own re-dispatch without a claim on the configuration rows.
+
+Discovery orders by `next_check_at` ascending. A key the manifest bound leaves out grows more overdue
+and wins a later tick; any stable ordering that is not by due time starves the same keys every tick.
+
+Each dispatcher takes up to `MAX_EVALUATIONS_PER_DISPATCH` keys and hands the rest back as a later page.
+The evaluation re-reads its own configurations from the key, which it has to do anyway to get thresholds
+and filters, so it sees a fresher set than discovery did.
+
+Flooring to the minute loses nothing that load spreading provides: `compute_shard_offset_seconds` returns
+whole multiples of the 60-second schedule interval, so spreading moves an alert between minutes rather
+than within one.
+
 ## Source evaluation bindings
 
 `products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
-A source in that map gets its own workflow started by name, carrying the dispatcher's configuration IDs and the tick cutoff.
-A source absent from it keeps the noop `alerts-product-evaluate` path, which receives no IDs.
+A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
+A source absent from it keeps the noop `alerts-product-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
 
 `logs` is bound to `logs-alert-evaluate`, which is the first real source evaluation.
 
 ## Logs source evaluation
 
-`logs-alert-evaluate` evaluates the configurations its dispatcher hands over and previews one delivery per notification.
+`logs-alert-evaluate` evaluates one batch key, a team's alerts due in one minute, and previews one delivery per notification.
 The evaluation is a plain function in `products/logs/backend/alert_source_cycle.py`, so a test calls it without Temporal.
 
 It writes nothing. The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute,

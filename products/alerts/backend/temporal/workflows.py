@@ -32,7 +32,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         TickPage,
     )
-    from products.alerts.backend.logic.demand import discover_synthetic_demand
+    from products.alerts.backend.logic.demand import discover_demand
     from products.alerts.backend.temporal.postgres import check_postgres_connection
 
 
@@ -41,6 +41,9 @@ POSTGRES_PROBE_FAILURE = "AlertsProductPostgresProbeFailure"
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
 TICK_DISPATCH_BUDGET = dt.timedelta(seconds=45)
+# Evaluations one dispatcher starts before handing the rest back as a later page. Bounds how many
+# children a single page opens; the tick's budget decides whether that page gets to run.
+MAX_EVALUATIONS_PER_DISPATCH = 50
 # Where the hard stop is assumed when the run has no execution timeout of its own.
 TICK_HARD_STOP_MARGIN = dt.timedelta(seconds=5)
 # A dispatcher gets this long, or the time left before the hard stop, whichever is shorter.
@@ -56,7 +59,7 @@ class AlertsProductInputs:
 
 @activity.defn
 async def alerts_product_discover_demand_activity(inputs: DemandDiscoveryInputs) -> AlertDemand:
-    return discover_synthetic_demand(inputs.cutoff)
+    return discover_demand(inputs.cutoff)
 
 
 @activity.defn
@@ -167,12 +170,13 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SourceDispatchInputs) -> SourceDispatchReport:
-        evaluation_workflow_id: str | None = None
-        if inputs.configuration_ids:
-            evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
-            source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
+        taken = inputs.batch_keys[:MAX_EVALUATIONS_PER_DISPATCH]
+        remaining = inputs.batch_keys[MAX_EVALUATIONS_PER_DISPATCH:]
+        source_workflow = SOURCE_EVALUATION_WORKFLOWS.get(inputs.source)
+        evaluation_workflow_ids = [f"alerts-eval-{inputs.source.value}-{key.team_id}-{key.slot}" for key in taken]
+        for key, evaluation_workflow_id in zip(taken, evaluation_workflow_ids):
             if source_workflow is None:
-                # No adapter yet. Members are not passed to the noop, and the probe path stays as is.
+                # No adapter yet. The key is not passed to the noop, and the probe path stays as is.
                 await workflow.start_child_workflow(
                     AlertsProductEvaluateWorkflow.run,
                     AlertsProductInputs(),
@@ -185,11 +189,7 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
             else:
                 await workflow.start_child_workflow(
                     source_workflow,
-                    SourceEvaluationInputs(
-                        source=inputs.source,
-                        cutoff=inputs.cutoff,
-                        configuration_ids=inputs.configuration_ids,
-                    ),
+                    SourceEvaluationInputs(source=inputs.source, cutoff=inputs.cutoff, batch_key=key),
                     id=evaluation_workflow_id,
                     task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -199,9 +199,9 @@ class AlertsProductSourceDispatchWorkflow(PostHogWorkflow):
         return SourceDispatchReport(
             source=inputs.source,
             page=inputs.page,
-            dispatched=len(inputs.configuration_ids),
-            remaining_ids=[],
-            evaluation_workflow_id=evaluation_workflow_id,
+            dispatched=len(taken),
+            remaining_keys=remaining,
+            evaluation_workflow_ids=evaluation_workflow_ids,
         )
 
 
@@ -247,7 +247,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-            demand = discovered.configuration_ids_by_source
+            demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
         else:
             demand = inputs.demand
@@ -261,7 +261,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
             page_timeout = min(SOURCE_DISPATCH_TIMEOUT, hard_deadline - now - SOURCE_DISPATCH_HEADROOM)
             if (pages and now >= deadline) or page_timeout < SOURCE_DISPATCH_HEADROOM:
                 workflow.logger.info("Tick dispatch budget spent with work remaining; the next tick takes it")
-                remaining = sum(len(ids) for ids in demand.values()) + inputs.omitted
+                remaining = sum(len(keys) for keys in demand.values()) + inputs.omitted
                 return OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True)
             handles = [
                 await workflow.start_child_workflow(
@@ -270,7 +270,7 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                         tick_id=info.workflow_id,
                         source=source,
                         page=page,
-                        configuration_ids=configuration_ids,
+                        batch_keys=batch_keys,
                         cutoff=cutoff_iso,
                     ),
                     id=f"{info.workflow_id}-{source.value}-p{page}",
@@ -278,16 +278,16 @@ class AlertsProductOrchestrateWorkflow(PostHogWorkflow):
                     execution_timeout=page_timeout,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-                for source, configuration_ids in sorted(demand.items())
+                for source, batch_keys in sorted(demand.items())
             ]
             reports: list[SourceDispatchReport] = await asyncio.gather(*handles)
-            demand = {report.source: report.remaining_ids for report in reports if report.remaining_ids}
+            demand = {report.source: report.remaining_keys for report in reports if report.remaining_keys}
             pages.append(
                 TickPage(
                     page=page,
                     run_id=info.run_id,
                     dispatched=sum(report.dispatched for report in reports),
-                    remaining=sum(len(report.remaining_ids) for report in reports),
+                    remaining=sum(len(report.remaining_keys) for report in reports),
                 )
             )
             page += 1
