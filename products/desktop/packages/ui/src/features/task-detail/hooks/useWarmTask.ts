@@ -26,10 +26,6 @@ export interface UseWarmTaskOptions {
   allowNoRepo?: boolean;
   branch?: string | null;
   editorIsEmpty: boolean;
-  /**
-   * The harness the composer sits on. A warm run is provisioned on an ACP adapter and the
-   * server refuses to hand one to a Pi task, so warming while on Pi only leaks a sandbox.
-   */
   agentRuntime?: AgentRuntime;
   runtimeAdapter?: string | null;
   model?: string | null;
@@ -84,10 +80,11 @@ export function useWarmTask({
   const warmGithubIntegrationId = warmRepositories.length
     ? (githubIntegrationId ?? null)
     : null;
+  const heldLeaseIsUnusable =
+    agentRuntime === "pi" || claudeModelAccess === "own-subscription";
   const eligible =
     enabled &&
-    agentRuntime !== "pi" &&
-    claudeModelAccess !== "own-subscription" &&
+    !heldLeaseIsUnusable &&
     isCloud &&
     !!client &&
     (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
@@ -118,11 +115,7 @@ export function useWarmTask({
 
     if (!eligible || !key || !client) {
       clearDebounce();
-      if (
-        client &&
-        leaseRef.current &&
-        claudeModelAccess === "own-subscription"
-      ) {
+      if (client && leaseRef.current && heldLeaseIsUnusable) {
         const lease = leaseRef.current;
         forgetWarmTaskLease(lease);
         leaseRef.current = null;
@@ -206,7 +199,7 @@ export function useWarmTask({
     return clearDebounce;
   }, [
     eligible,
-    claudeModelAccess,
+    heldLeaseIsUnusable,
     key,
     client,
     warmRepository,

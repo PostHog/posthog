@@ -20,7 +20,6 @@ vi.mock("../../../shell/logger", () => ({
 import { type UseWarmTaskOptions, useWarmTask } from "./useWarmTask";
 import { takeWarmTaskLease } from "./warmTaskLease";
 
-// The hook's own options, so a field added there cannot go untested here.
 type Props = UseWarmTaskOptions;
 
 const cloudTyping: Props = {
@@ -59,9 +58,30 @@ describe("useWarmTask", () => {
     });
   }
 
-  it.each([false, true])(
-    "releases an unused warm run and permits another warm request (late: %s)",
-    async (late) => {
+  it.each<{ reason: string; invalidate: Partial<Props>; late: boolean }>([
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: false,
+    },
+    {
+      reason: "the claude plan",
+      invalidate: { claudeModelAccess: "own-subscription" },
+      late: true,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: false,
+    },
+    {
+      reason: "a switch to Pi",
+      invalidate: { agentRuntime: "pi" },
+      late: true,
+    },
+  ])(
+    "releases an unused warm run after $reason and permits another (late: $late)",
+    async ({ invalidate, late }) => {
       let finishWarm:
         | ((value: { task_id: string; run_id: string }) => void)
         | undefined;
@@ -76,7 +96,7 @@ describe("useWarmTask", () => {
         initialProps: cloudTyping,
       });
       await flushDebounce();
-      rerender({ ...cloudTyping, claudeModelAccess: "own-subscription" });
+      rerender({ ...cloudTyping, ...invalidate });
       if (finishWarm)
         await act(async () => {
           finishWarm?.({ task_id: "task-1", run_id: "run-1" });
@@ -121,8 +141,6 @@ describe("useWarmTask", () => {
       props: { githubIntegrationId: undefined },
     },
     { name: "the editor is empty", props: { editorIsEmpty: true } },
-    // A warm run is provisioned on an ACP adapter and the server refuses to hand one to a
-    // Pi task, so warming here only leaks a sandbox nobody claims.
     { name: "the composer sits on Pi", props: { agentRuntime: "pi" } },
   ])("does not fire when $name", async ({ props, flagEnabled }) => {
     if (flagEnabled === false) {
