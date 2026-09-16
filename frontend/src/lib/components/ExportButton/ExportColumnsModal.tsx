@@ -90,7 +90,12 @@ export function ExportColumnsModal({
         >
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                 <span className="text-secondary">
-                    {selected.length} of {columns.length} selected
+                    {/* Each count gets its own element, so neither is a bare text node React tracks: once a
+                        page-translation extension replaces such a node with a <font> element, React's writes
+                        land on the detached node and the count freezes while the checkboxes keep updating
+                        (react#11538). The numbers also opt out of translation. */}
+                    <span translate="no">{selected.length}</span> of <span translate="no">{columns.length}</span>{' '}
+                    selected
                 </span>
                 <div className="flex gap-2">
                     <LemonButton
