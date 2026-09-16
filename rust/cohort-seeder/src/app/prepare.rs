@@ -18,8 +18,8 @@ use sqlx::PgPool;
 use tracing::{debug, info, warn};
 
 use crate::domain::{
-    plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonRunValidation, PinnedPersonRun,
-    PinnedRun, PinnedWarning, PlanCaps, RunId,
+    plan_days, ConditionAnalyses, ConditionClass, Lookback, PersonEmissionPolicy,
+    PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps, RunId,
 };
 use crate::observability::metrics::{
     team_label, BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_CLASSIFIED,
@@ -307,6 +307,7 @@ async fn prepare_person(
     };
     if reported_runs.insert(run_id) {
         record_pinned_warnings(&validated.warnings);
+        report_person_analysis(run_id, &validated.run);
     }
     if validated
         .warnings
@@ -350,6 +351,35 @@ async fn prepare_person(
             PrepareOutcome::Skipped
         }
     }
+}
+
+/// One line per run naming what its conditions need from a row and whether ClickHouse can drop
+/// key-less persons for it.
+///
+/// `prunable_keys` is what the relevant-only policy would filter on; whether it actually did is the
+/// per-chunk `seeder_person_scan_filter_total{outcome}` reading. Together they separate "the run
+/// cannot be filtered" from "this deployment is healing".
+fn report_person_analysis(run_id: RunId, run: &PinnedPersonRun) {
+    let census = run.analysis_census();
+    let prunable_keys = run.scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort);
+    if run.composable_cohorts() == Some(0) {
+        // Every participation is structurally excluded, so the consumer composes none of them and
+        // no seed this run could emit would move membership. It will scan the team, emit nothing
+        // and confirm every chunk, which reads exactly like a successful backfill.
+        warn!(
+            ?run_id,
+            "person run composes no cohort; it will emit no seeds and change no membership",
+        );
+    }
+    info!(
+        ?run_id,
+        conditions = run.conditions.len(),
+        key_decidable = census.key_decidable,
+        always_evaluate = %census.render_always_evaluate(),
+        composable_cohorts = ?run.composable_cohorts(),
+        prunable_keys = ?prunable_keys.as_ref().map(|keys| keys.iter().collect::<Vec<_>>()),
+        "person run analyzed",
+    );
 }
 
 /// The eligible run ids of one kind — the per-kind label on every shared chunk metric resolves

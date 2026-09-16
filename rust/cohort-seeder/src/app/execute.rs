@@ -27,6 +27,7 @@ use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
+use super::person_execute::PersonChunkStats;
 use super::prepare::PreparedBehavioral;
 use super::settings::ProducerSettings;
 
@@ -110,6 +111,7 @@ pub(super) async fn execute_chunk(
         Ok(_) => ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail: ConfirmedDetail::Behavioral,
         },
         Err(halt) => resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     }
@@ -245,11 +247,20 @@ fn render_reason<E: std::error::Error>(reason: &HaltReason<E>) -> RenderedError 
     }
 }
 
+/// What a confirmed chunk's log line says beyond its tile count. The behavioral path's counters
+/// already read per day and band, so only the person path carries a payload.
+#[derive(Debug)]
+pub(super) enum ConfirmedDetail {
+    Behavioral,
+    Person(PersonChunkStats),
+}
+
 #[derive(Debug)]
 pub(super) enum ChunkOutcome {
     Confirmed {
         lease: ChunkLease,
         tiles_produced: u64,
+        detail: ConfirmedDetail,
     },
     Failed {
         lease: ChunkLease,
@@ -274,9 +285,21 @@ pub(super) fn record_task_result(
         Ok(ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
+            detail,
         }) => {
             counter!(CHUNKS_CONFIRMED, "kind" => kind.as_str()).increment(1);
-            info!(?lease, tiles_produced, "chunk confirmed");
+            match detail {
+                ConfirmedDetail::Behavioral => info!(?lease, tiles_produced, "chunk confirmed"),
+                ConfirmedDetail::Person(stats) => info!(
+                    ?lease,
+                    tiles_produced,
+                    persons_scanned = stats.persons_scanned,
+                    nonmatchers = stats.nonmatchers,
+                    pruned = stats.pruned,
+                    shortcut_evaluations = stats.shortcut_evaluations,
+                    "chunk confirmed",
+                ),
+            }
         }
         Ok(ChunkOutcome::Failed {
             lease,

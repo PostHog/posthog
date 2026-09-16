@@ -9,11 +9,12 @@
 //! decode would strand claimed chunks `scanning`.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 use chrono::NaiveDate;
 use cohort_core::filters::{CohortId, TeamFilters, TeamId};
 use cohort_core::hogvm::{
-    build_person_scan_globals, classify_vm_error, CohortEvaluator, ConditionProgram, EvalOutcome,
+    parse_person_scan_properties, person_scan_globals, CohortEvaluator, ConditionProgram,
 };
 use cohort_core::seed::PersonSeed;
 use cohort_core::{LeafStateKey, StateVariant};
@@ -24,10 +25,13 @@ use uuid::Uuid;
 use super::aggregate::RecordStats;
 use super::chunk::{ChunkLease, ChunkSpec};
 use super::ids::{ClaimEpoch, ConditionHash, RunId, ScannedAtMs, UtcMillis};
+use super::person_analysis::{ConditionVerdict, PersonAnalysisCensus, PersonConditionAnalyses};
+use super::person_relevance::{ConditionIndex, Relevance, RelevanceOracle, TruthVector};
 use super::pinned::{
     resolve_timezone, ParticipationSet, PinnedDropReason, PinnedError, PinnedParticipation,
     PinnedParticipationState, PinnedWarning,
 };
+use super::projection::ProjectedKeys;
 
 /// The wire cap a single seed's `evaluated` list admits; validation enforces it run-wide.
 pub use cohort_core::seed::MAX_PERSON_SEED_HASHES;
@@ -141,6 +145,11 @@ pub struct PersonPinnedSnapshot {
 }
 
 /// A person run proven scannable: `scan_since` present, at least one condition surviving.
+///
+/// The two analyses are built once here, from the participation set validation assembles and then
+/// drops: [`PersonConditionAnalyses`] says what each condition needs from a row, and
+/// [`RelevanceOracle`] says which leaf truths can move a participating cohort. Both are pure
+/// functions of the pinned payload, so a run re-validated on another replica derives the same ones.
 #[derive(Debug)]
 pub struct PinnedPersonRun {
     pub run_id: RunId,
@@ -148,6 +157,36 @@ pub struct PinnedPersonRun {
     pub scan_since: UtcMillis,
     pub conditions: EvaluatedConditions,
     pub horizon_days: u32,
+    analyses: PersonConditionAnalyses,
+    relevance: RelevanceOracle,
+}
+
+/// Which scanned persons a chunk emits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersonEmissionPolicy {
+    /// The healer cadence. It exists to retract stale state, so it has to see every scanned person:
+    /// nothing is pruned and no scan filter is applied.
+    EveryScannedPerson,
+    /// Every other run: emit only a person whose leaf truths can move a participating cohort's
+    /// verdict against an absent prior.
+    RelevantToSomeCohort,
+}
+
+impl PersonEmissionPolicy {
+    pub const fn from_emit_nonmatchers(emit_nonmatchers: bool) -> Self {
+        if emit_nonmatchers {
+            Self::EveryScannedPerson
+        } else {
+            Self::RelevantToSomeCohort
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EveryScannedPerson => "every_scanned_person",
+            Self::RelevantToSomeCohort => "relevant_to_some_cohort",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -233,6 +272,8 @@ impl PinnedPersonRun {
             return Ok(PersonRunValidation::Retired { warnings });
         }
         let conditions = EvaluatedConditions::new(surviving)?;
+        let analyses = PersonConditionAnalyses::build(snapshot.team_id, &conditions);
+        let relevance = RelevanceOracle::build(participation.filters(), &conditions);
 
         Ok(PersonRunValidation::Seedable(ValidatedPinnedPersonRun {
             run: PinnedPersonRun {
@@ -241,10 +282,51 @@ impl PinnedPersonRun {
                 scan_since,
                 conditions,
                 horizon_days: payload.person_horizon_days,
+                analyses,
+                relevance,
             },
             warnings,
             uncovered_cohorts,
         }))
+    }
+
+    /// The top-level `properties` keys ClickHouse may drop a chunk's rows on, or `None` to scan the
+    /// whole range.
+    ///
+    /// Three things have to hold together. The policy has to be the relevant-only one, because the
+    /// healer must see every scanned person. Every condition has to be key-decidable, or a dropped
+    /// row might have decided one the VM had to run. And the vacuous vector — the truths every
+    /// dropped row carries — has to be irrelevant, because that is the verdict being discarded.
+    pub fn scan_key_filter(&self, emission: PersonEmissionPolicy) -> Option<ProjectedKeys> {
+        match emission {
+            PersonEmissionPolicy::EveryScannedPerson => return None,
+            PersonEmissionPolicy::RelevantToSomeCohort => {}
+        }
+        match self.relevance.judge(&self.analyses.vacuous_truths()?) {
+            Relevance::CanChangeSomeCohort => None,
+            Relevance::IrrelevantToEveryCohort => {
+                self.analyses.keys_if_every_condition_is_key_decidable()
+            }
+        }
+    }
+
+    /// The verdict `index` reaches on `object` without the VM, or `None` when it needs one.
+    fn shortcut(
+        &self,
+        index: ConditionIndex,
+        object: Option<&serde_json::Map<String, Value>>,
+    ) -> Option<ConditionVerdict> {
+        self.analyses.shortcut(index, object)
+    }
+
+    /// How the run's conditions classified, for the per-run log line.
+    pub fn analysis_census(&self) -> PersonAnalysisCensus {
+        self.analyses.census()
+    }
+
+    /// How many participations the relevance oracle walks, or `None` when it proves nothing.
+    pub fn composable_cohorts(&self) -> Option<usize> {
+        self.relevance.composable_cohorts()
     }
 
     /// Narrow a claimed chunk to the person path, after proving it belongs to this run/team. This
@@ -323,6 +405,21 @@ impl EvaluatedConditions {
     pub fn iter(&self) -> impl Iterator<Item = &(ConditionHash, ConditionProgram)> {
         self.0.iter()
     }
+
+    /// Each condition with its [`ConditionIndex`]. The conversion is total because
+    /// [`EvaluatedConditions::new`] refuses a set larger than the wire cap the index restates.
+    pub fn indexed(
+        &self,
+    ) -> impl Iterator<Item = (ConditionIndex, &ConditionHash, &ConditionProgram)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(position, (hash, program))| {
+                let index = ConditionIndex::new(position)
+                    .expect("EvaluatedConditions::new caps the set at MAX_PERSON_SEED_HASHES");
+                (index, hash, program)
+            })
+    }
 }
 
 /// The mint constants a chunk's seeds share.
@@ -337,8 +434,12 @@ pub struct PersonSeedContext {
 #[derive(Debug, PartialEq, Eq)]
 pub enum PersonRowOutcome {
     Seed(PersonSeed),
-    /// Evaluated fully, nothing matched, and non-matcher emission is off.
+    /// Evaluated fully, nothing matched, and the policy is relevant-only.
     NonMatcher,
+    /// Evaluated fully, and the truths reached cannot move any participating cohort's verdict
+    /// against an absent prior — so the seed would produce a record write and a recompose that
+    /// changes nothing.
+    Irrelevant,
     Skipped(PersonRowSkip),
 }
 
@@ -361,22 +462,25 @@ impl PersonRowSkip {
     }
 }
 
-/// The pure per-row fold: build scan globals, run every surviving condition through the shared
-/// evaluator, and mint at most one [`PersonSeed`]. Unit-testable without ClickHouse or Kafka.
+/// The pure per-row fold: decide each surviving condition — from the run's cached vacuous verdict
+/// where the blob's keys allow, from the VM otherwise — and mint at most one [`PersonSeed`].
+/// Unit-testable without ClickHouse or Kafka.
 pub struct PersonEvaluator {
-    team_id: TeamId,
-    conditions: EvaluatedConditions,
+    run: Arc<PinnedPersonRun>,
     evaluator: CohortEvaluator,
-    emit_nonmatchers: bool,
+    emission: PersonEmissionPolicy,
+    /// One slot per condition, refilled per row: `Some` where the blob's key set already decides the
+    /// condition. A field rather than a local so the fold allocates nothing per person.
+    shortcuts: Vec<Option<ConditionVerdict>>,
 }
 
 impl PersonEvaluator {
-    pub fn new(team_id: TeamId, conditions: EvaluatedConditions, emit_nonmatchers: bool) -> Self {
+    pub fn new(run: &Arc<PinnedPersonRun>, emission: PersonEmissionPolicy) -> Self {
         Self {
-            team_id,
-            conditions,
+            run: Arc::clone(run),
             evaluator: CohortEvaluator::new(),
-            emit_nonmatchers,
+            emission,
+            shortcuts: Vec::with_capacity(run.conditions.len()),
         }
     }
 
@@ -393,33 +497,61 @@ impl PersonEvaluator {
                 stats,
             );
         };
-        let Ok(globals) = build_person_scan_globals(self.team_id, person_id, properties) else {
+        let Ok(properties) = parse_person_scan_properties(properties) else {
             return (
                 PersonRowOutcome::Skipped(PersonRowSkip::InvalidProperties),
                 stats,
             );
         };
-        self.evaluator.set_globals(globals);
 
-        let mut evaluated = Vec::with_capacity(self.conditions.len());
+        let Self {
+            run,
+            evaluator,
+            emission,
+            shortcuts,
+        } = self;
+
+        // A non-object blob is not "an object missing keys": an array makes `GET_GLOBAL` coerce a
+        // string key to a number and error, so those rows keep going through the VM.
+        let object = properties.as_object();
+        shortcuts.clear();
+        shortcuts.extend(
+            run.conditions
+                .indexed()
+                .map(|(index, _, _)| run.shortcut(index, object)),
+        );
+        if shortcuts.iter().any(Option::is_none) {
+            evaluator.set_globals(person_scan_globals(run.team_id, person_id, properties));
+        }
+
+        let mut evaluated = Vec::with_capacity(run.conditions.len());
         let mut matched = Vec::new();
-        for (hash, program) in self.conditions.iter() {
-            match self.evaluator.evaluate_detailed(program) {
-                EvalOutcome::Matched(true) => {
+        let mut truths = TruthVector::ABSENT;
+        for ((index, hash, program), shortcut) in run.conditions.indexed().zip(&*shortcuts) {
+            let verdict = match shortcut {
+                Some(cached) => {
+                    stats.shortcut_evaluations += 1;
+                    *cached
+                }
+                None => evaluator.evaluate_detailed(program).into(),
+            };
+            match verdict {
+                ConditionVerdict::Matched(true) => {
                     evaluated.push(*hash);
                     matched.push(*hash);
+                    truths.set(index);
                     stats.matched += 1;
                 }
-                EvalOutcome::Matched(false) => {
+                ConditionVerdict::Matched(false) => {
                     evaluated.push(*hash);
                     stats.non_matched += 1;
                 }
                 // A hash the VM never answered is excluded from `evaluated`: its absence from
                 // `matched` would otherwise assert FALSE and mint a wrong `Left`.
-                EvalOutcome::UnknownFunction(_) => stats.unknown_functions += 1,
-                EvalOutcome::VmError(error) => stats
+                ConditionVerdict::UnknownFunction => stats.unknown_functions += 1,
+                ConditionVerdict::VmFailure(class) => stats
                     .vm_failures
-                    .increment(classify_vm_error(&error))
+                    .increment(class)
                     .expect("per-row VM failure counts are bounded by the condition cap"),
             }
         }
@@ -429,11 +561,32 @@ impl PersonEvaluator {
                 stats,
             );
         }
-        if matched.is_empty() && !self.emit_nonmatchers {
-            return (PersonRowOutcome::NonMatcher, stats);
+        match emission {
+            PersonEmissionPolicy::EveryScannedPerson => {}
+            PersonEmissionPolicy::RelevantToSomeCohort => {
+                // A deliberate policy choice, not an optimization of the line below: it keeps
+                // `seeder_person_nonmatchers_skipped_total` counting what it has always counted.
+                // It is also *narrower* than the oracle — a collapsed oracle judges every vector
+                // relevant, the absent one included — so the two branches cannot be merged.
+                if matched.is_empty() {
+                    return (PersonRowOutcome::NonMatcher, stats);
+                }
+                // Pruning models the consumer's recompose as a walk over `truths`, and that holds
+                // only while the seed asserts every pinned leaf. A condition the VM never answered
+                // is absent from `evaluated`, so the consumer keeps whatever bit it already stored
+                // for that leaf (`apply_person_seed`'s `untouched`) and composes
+                // `matched ∪ untouched`, which is not `truths`. Emit rather than judge a vector the
+                // fold will not use.
+                let asserts_every_leaf = evaluated.len() == run.conditions.len();
+                if asserts_every_leaf
+                    && run.relevance.judge(&truths) == Relevance::IrrelevantToEveryCohort
+                {
+                    return (PersonRowOutcome::Irrelevant, stats);
+                }
+            }
         }
         let seed = PersonSeed::new(
-            self.team_id,
+            run.team_id,
             person_id,
             evaluated,
             matched,
@@ -449,6 +602,7 @@ impl PersonEvaluator {
 #[cfg(test)]
 mod tests {
     use cohort_core::filters::LeafStateMeta;
+    use cohort_core::hogvm::EvalOutcome;
     use proptest::prelude::*;
     use serde_json::json;
 
@@ -494,6 +648,89 @@ mod tests {
             })
             .collect::<Vec<_>>();
         json!({ "properties": { "type": "AND", "values": values } })
+    }
+
+    /// `email is_set OR email not_icontains '@posthog.com'`, with the bytecode the cohort compiler
+    /// emits. The OR is what makes the vacuous vector matter: a person with no email is a member.
+    fn vacuously_true_or_filter() -> Value {
+        json!({ "properties": { "type": "OR", "values": [
+            {
+                "type": "person", "key": "email", "value": "is_set", "operator": "is_set",
+                "conditionHash": HASH_A,
+                "bytecode": ["_H", 1, 31, 32, "email", 32, "properties", 32, "person", 1, 3, 12],
+            },
+            {
+                "type": "person", "key": "email", "value": "@posthog.com",
+                "operator": "not_icontains", "conditionHash": HASH_B,
+                "bytecode": [
+                    "_H", 1, 32, "%@posthog.com%", 32, "email", 32, "properties", 32, "person", 1,
+                    3, 2, "toString", 1, 20
+                ],
+            },
+        ] } })
+    }
+
+    /// `AND(person A, person B, cohort ref 99)`. The reference makes the cohort
+    /// `Excluded(HasCohortRef)` in the seeder, which freezes with cascade off — while the consumer
+    /// runs with it on and composes the cohort. The oracle has to treat it as composable.
+    fn and_with_a_cohort_reference() -> Value {
+        json!({ "properties": { "type": "AND", "values": [
+            {
+                "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+                "conditionHash": HASH_A, "bytecode": person_bytecode("email", "a@b.com"),
+            },
+            {
+                "type": "person", "key": "plan", "value": "paid", "operator": "exact",
+                "conditionHash": HASH_B, "bytecode": person_bytecode("plan", "paid"),
+            },
+            { "type": "cohort", "value": 99 },
+        ] } })
+    }
+
+    /// A single negated person leaf at the root: `TopLevelNegation`, which both services decide the
+    /// same way and neither composes.
+    fn negated_root_filter(hash: &str) -> Value {
+        let mut leaf = json!({
+            "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+            "conditionHash": hash, "bytecode": person_bytecode("email", "a@b.com"),
+        });
+        leaf["negation"] = json!(true);
+        json!({ "properties": { "type": "AND", "values": [leaf] } })
+    }
+
+    /// A condition the analyzer can narrow to `person.properties.email` but the VM cannot answer,
+    /// because no native is registered under that name.
+    fn unknown_native_filter() -> Value {
+        json!({ "properties": { "type": "AND", "values": [
+            {
+                "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+                "conditionHash": HASH_A,
+                "bytecode": [
+                    "_H", 1, 32, "email", 32, "properties", 32, "person", 1, 3, 2,
+                    "noSuchNativeExists", 1
+                ],
+            },
+            {
+                "type": "person", "key": "plan", "value": "paid", "operator": "exact",
+                "conditionHash": HASH_B, "bytecode": person_bytecode("plan", "paid"),
+            },
+        ] } })
+    }
+
+    /// A leaf reading `person.id`, which differs on every row and so can never be shortcut.
+    fn person_id_filter() -> Value {
+        json!({ "properties": { "type": "AND", "values": [
+            {
+                "type": "person", "key": "id", "value": "x", "operator": "exact",
+                "conditionHash": HASH_A,
+                "bytecode": ["_H", 1, 32, "x", 32, "id", 32, "person", 1, 2, 11],
+            },
+            {
+                "type": "person", "key": "plan", "value": "paid", "operator": "exact",
+                "conditionHash": HASH_B,
+                "bytecode": person_bytecode("plan", "paid"),
+            },
+        ] } })
     }
 
     fn participation(cohort_id: i32, filters: Value, superseded: bool) -> PinnedParticipation {
@@ -758,7 +995,10 @@ mod tests {
     }
 
     fn build_evaluator(emit_nonmatchers: bool) -> PersonEvaluator {
-        PersonEvaluator::new(TeamId(2), seedable_run().run.conditions, emit_nonmatchers)
+        PersonEvaluator::new(
+            &Arc::new(seedable_run().run),
+            PersonEmissionPolicy::from_emit_nonmatchers(emit_nonmatchers),
+        )
     }
 
     const CLAIM_STAMP_MS: i64 = 1_783_470_000_000;
@@ -874,7 +1114,23 @@ mod tests {
 
         let person = Uuid::from_u128(7);
         let ctx = context();
-        for properties in [r#"{"email":"a@b.com","plan":"paid"}"#, r#"{"email":"x"}"#] {
+        let run = Arc::new(seedable_run().run);
+        // Blobs the shortcut decides (no `email`, no `plan`) beside blobs it hands to the VM, so the
+        // oracle sees both paths. A non-object blob has to take the VM path: an array makes
+        // `GET_GLOBAL` error where an empty object yields null.
+        for properties in [
+            r#"{"email":"a@b.com","plan":"paid"}"#,
+            r#"{"email":"x"}"#,
+            r#"{"email":null}"#,
+            r#"{}"#,
+            "",
+            r#"{"other":1}"#,
+            r#"{"Email":"a@b.com","PLAN":"paid"}"#,
+            r#"null"#,
+            r#"[1]"#,
+            r#""a string""#,
+            r#"42"#,
+        ] {
             let event = CohortStreamEvent {
                 team_id: 2,
                 person_id: person.to_string(),
@@ -891,18 +1147,348 @@ mod tests {
                 redirect_hops: 0,
             };
             let globals = build_person_property_globals(&event).unwrap();
-            let mut evaluator = build_evaluator(true);
-            let (outcome, _) = evaluator.evaluate_row(&person.to_string(), properties, &ctx);
-            let PersonRowOutcome::Seed(seed) = outcome else {
-                panic!("expected a seed, got {outcome:?}");
+            // `Some(true)` matched, `Some(false)` did not, `None` the VM never answered.
+            let live: Vec<Option<bool>> = run
+                .conditions
+                .iter()
+                .map(|(_, program)| {
+                    match cohort_core::hogvm::evaluate_detailed(program.tokens(), globals.clone()) {
+                        EvalOutcome::Matched(matched) => Some(matched),
+                        EvalOutcome::UnknownFunction(_) | EvalOutcome::VmError(_) => None,
+                    }
+                })
+                .collect();
+
+            let mut evaluator =
+                PersonEvaluator::new(&run, PersonEmissionPolicy::EveryScannedPerson);
+            let (outcome, stats) = evaluator.evaluate_row(&person.to_string(), properties, &ctx);
+            // The accounting has to agree too: a shortcut that reached the right verdict while
+            // miscounting a VM failure as a non-match would leave the metrics lying.
+            assert_eq!(
+                (
+                    stats.matched,
+                    stats.non_matched,
+                    stats.unknown_functions,
+                    stats
+                        .vm_failures
+                        .iter()
+                        .map(|(_, count)| count)
+                        .sum::<u32>(),
+                ),
+                (
+                    live.iter()
+                        .filter(|verdict| **verdict == Some(true))
+                        .count() as u32,
+                    live.iter()
+                        .filter(|verdict| **verdict == Some(false))
+                        .count() as u32,
+                    0,
+                    live.iter().filter(|verdict| verdict.is_none()).count() as u32,
+                ),
+                "{properties:?} accounted differently from live evaluation"
+            );
+            let seeded: Vec<Option<bool>> = match outcome {
+                PersonRowOutcome::Seed(seed) => run
+                    .conditions
+                    .iter()
+                    .map(|(hash, _)| {
+                        seed.evaluated()
+                            .contains(hash)
+                            .then(|| seed.matched().contains(hash))
+                    })
+                    .collect(),
+                PersonRowOutcome::Skipped(PersonRowSkip::NothingEvaluated) => {
+                    vec![None; run.conditions.len()]
+                }
+                other => panic!("{properties:?} produced {other:?}"),
             };
-            for (hash, program) in build_evaluator(true).conditions.iter() {
-                let live = matches!(
-                    cohort_core::hogvm::evaluate_detailed(program.tokens(), globals.clone()),
-                    EvalOutcome::Matched(true)
-                );
-                assert_eq!(seed.matched().contains(hash), live, "hash {hash} diverged");
-            }
+            assert_eq!(seeded, live, "{properties:?} diverged from live evaluation");
+        }
+    }
+
+    /// The emission policy is the only thing deciding whether a scanned person reaches the topic.
+    /// The run's cohort is `email = a@b.com AND plan = paid`, so a person matching one leaf writes a
+    /// record and recomposes to the same FALSE an absent record already reads.
+    #[test]
+    fn the_relevant_only_policy_prunes_a_matcher_that_cannot_move_its_cohort() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        let run = Arc::new(seedable_run().run);
+        let half = r#"{"email":"a@b.com","plan":"free"}"#;
+        let member = r#"{"email":"a@b.com","plan":"paid"}"#;
+        let neither = r#"{"email":"x"}"#;
+
+        let mut healer = PersonEvaluator::new(&run, PersonEmissionPolicy::EveryScannedPerson);
+        for properties in [half, member, neither] {
+            let (outcome, _) = healer.evaluate_row(&person, properties, &ctx);
+            assert!(
+                matches!(outcome, PersonRowOutcome::Seed(_)),
+                "the healer must see {properties}, got {outcome:?}"
+            );
+        }
+
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+        assert_eq!(
+            quiet.evaluate_row(&person, half, &ctx).0,
+            PersonRowOutcome::Irrelevant
+        );
+        // An all-false row stays a non-matcher, so that counter keeps its meaning.
+        assert_eq!(
+            quiet.evaluate_row(&person, neither, &ctx).0,
+            PersonRowOutcome::NonMatcher
+        );
+        assert!(matches!(
+            quiet.evaluate_row(&person, member, &ctx).0,
+            PersonRowOutcome::Seed(_)
+        ));
+    }
+
+    /// A vacuously true leaf under an OR makes every key-less person a member, so nothing about that
+    /// run may be pruned or filtered away. This is the case the whole design has to not break.
+    #[test]
+    fn a_vacuously_true_leaf_under_an_or_is_neither_pruned_nor_filtered() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        let run = Arc::new(
+            seedable(PinnedPersonRun::validate(snapshot(
+                pinned(&[(1, HASH_A), (1, HASH_B)]),
+                vec![participation(1, vacuously_true_or_filter(), false)],
+            )))
+            .run,
+        );
+
+        assert_eq!(
+            run.scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort),
+            None,
+            "dropping key-less rows would drop this cohort's members"
+        );
+
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+        let (outcome, stats) = quiet.evaluate_row(&person, r#"{"other":1}"#, &ctx);
+        let PersonRowOutcome::Seed(seed) = outcome else {
+            panic!("a person with no email is a member here, got {outcome:?}");
+        };
+        assert_eq!(
+            seed.matched(),
+            &[hash(HASH_B)],
+            "not_icontains is vacuously true"
+        );
+        assert_eq!(
+            stats.shortcut_evaluations, 2,
+            "both conditions are still decided without the VM"
+        );
+
+        // Every person satisfies one leaf or the other — a PostHog address through `is_set`, a
+        // missing one through `not_icontains` — which is what makes this cohort the whole team and
+        // why no row of it can be dropped.
+        let (outcome, _) = quiet.evaluate_row(&person, r#"{"email":"a@posthog.com"}"#, &ctx);
+        let PersonRowOutcome::Seed(seed) = outcome else {
+            panic!("a PostHog address still satisfies is_set, got {outcome:?}");
+        };
+        assert_eq!(seed.matched(), &[hash(HASH_A)]);
+    }
+
+    /// Two of the filter's preconditions: the relevant-only policy, and every condition decidable
+    /// from the blob's keys. The third — an irrelevant vacuous vector — is
+    /// `a_vacuously_true_leaf_under_an_or_is_neither_pruned_nor_filtered`, and the verdict-shaped
+    /// fourth is `a_condition_the_vm_cannot_answer_on_an_empty_bag_withholds_the_scan_filter`.
+    #[test]
+    fn the_scan_key_filter_needs_the_relevant_only_policy_and_key_decidable_conditions() {
+        let decidable = seedable_run().run;
+        assert_eq!(
+            decidable
+                .scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort)
+                .as_ref()
+                .map(|keys| keys.iter().collect::<Vec<_>>()),
+            Some(vec!["email", "plan"]),
+        );
+        assert_eq!(
+            decidable.scan_key_filter(PersonEmissionPolicy::EveryScannedPerson),
+            None,
+            "the healer has to see every scanned person",
+        );
+
+        // A condition reading `person.id` cannot be decided from the blob's keys, so a dropped row
+        // might have been one it matched.
+        let reads_person_id = seedable(PinnedPersonRun::validate(snapshot(
+            pinned(&[(1, HASH_A), (1, HASH_B)]),
+            vec![participation(1, person_id_filter(), false)],
+        )))
+        .run;
+        assert_eq!(
+            reads_person_id.scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort),
+            None
+        );
+    }
+
+    /// The consumer keeps its stored bit for any leaf a seed does not assert, so a row where some
+    /// condition never answered composes `matched ∪ untouched`, not the vector the oracle judged.
+    /// Pruning such a row would lose a real flip: a person with a stored TRUE for the failing leaf
+    /// and a fresh TRUE for the other one enters the AND, and the oracle cannot see it.
+    #[test]
+    fn a_row_whose_seed_does_not_assert_every_leaf_is_never_pruned() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        // `9999` is no opcode, so the leaf loads and then fails at run time.
+        let mut leaves = person_filter_leaves(&[(HASH_A, "email", "a@b.com")]);
+        leaves["properties"]["values"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "type": "person", "key": "plan", "value": "paid", "operator": "exact",
+                "conditionHash": HASH_B, "bytecode": ["_H", 1, 9999],
+            }));
+        let run = Arc::new(
+            seedable(PinnedPersonRun::validate(snapshot(
+                pinned(&[(1, HASH_A), (1, HASH_B)]),
+                vec![participation(1, leaves, false)],
+            )))
+            .run,
+        );
+
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+        let (outcome, stats) = quiet.evaluate_row(&person, r#"{"email":"a@b.com"}"#, &ctx);
+        let PersonRowOutcome::Seed(seed) = outcome else {
+            panic!(
+                "the failing leaf's stored bit is unknown here, so the row must seed: {outcome:?}"
+            );
+        };
+        assert_eq!(seed.evaluated(), &[hash(HASH_A)]);
+        assert_eq!(
+            stats
+                .vm_failures
+                .iter()
+                .map(|(_, count)| count)
+                .sum::<u32>(),
+            1
+        );
+    }
+
+    /// The same hole, one level up: if a key-less row would leave a condition unanswered, ClickHouse
+    /// must not be the one to drop it, because the seeder would have asserted nothing for that leaf
+    /// and the consumer would have kept its stored bit.
+    #[test]
+    fn a_condition_the_vm_cannot_answer_on_an_empty_bag_withholds_the_scan_filter() {
+        let run = seedable(PinnedPersonRun::validate(snapshot(
+            pinned(&[(1, HASH_A), (1, HASH_B)]),
+            vec![participation(1, unknown_native_filter(), false)],
+        )))
+        .run;
+
+        // Both conditions are key-decidable — the analyzer narrows the unknown native's read set
+        // fine — so only the verdict itself withholds the filter.
+        assert_eq!(
+            run.analysis_census().key_decidable,
+            2,
+            "the precondition under test is the verdict, not the read set"
+        );
+        assert_eq!(
+            run.scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort),
+            None
+        );
+    }
+
+    /// The contract between the two mechanisms, checked rather than reasoned: when a run renders a
+    /// key filter, every object blob ClickHouse would drop must be one the fold declines to seed.
+    /// A filter that outran the fold would silently lose members, and nothing else in the suite
+    /// compares the two.
+    #[test]
+    fn every_blob_the_key_filter_drops_is_one_the_fold_would_not_have_seeded() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        let run = Arc::new(seedable_run().run);
+        let keys = run
+            .scan_key_filter(PersonEmissionPolicy::RelevantToSomeCohort)
+            .expect("this run renders a filter");
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+
+        for dropped in [
+            r#"{}"#,
+            r#"{"other":1}"#,
+            r#"{"Email":"a@b.com","Plan":"paid"}"#,
+            r#"{"nested":{"email":"a@b.com","plan":"paid"}}"#,
+            r#"{"emails":["a@b.com"],"plans":"paid"}"#,
+        ] {
+            let map = serde_json::from_str::<Value>(dropped).unwrap();
+            let map = map.as_object().unwrap().clone();
+            assert!(
+                keys.iter().all(|key| !map.contains_key(key)),
+                "{dropped} must be one ClickHouse drops, or this case proves nothing"
+            );
+            let (outcome, _) = quiet.evaluate_row(&person, dropped, &ctx);
+            assert!(
+                !matches!(outcome, PersonRowOutcome::Seed(_)),
+                "{dropped} would be dropped by the scan yet seeded by the fold: {outcome:?}"
+            );
+        }
+    }
+
+    /// The cascade-off asymmetry, driven through `RelevanceOracle::build` rather than a hand-built
+    /// tree: the seeder calls a ref-bearing cohort `Excluded(HasCohortRef)` because it freezes with
+    /// cascade off, while the consumer composes it. Counting it as never-composed would prune its
+    /// real members. A root-negated cohort is excluded the same way in both services and is skipped.
+    #[test]
+    fn build_counts_a_ref_bearing_cohort_and_skips_a_root_negated_one() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        const HASH_C: &str = "cccccccccccccccc";
+        let run = Arc::new(
+            seedable(PinnedPersonRun::validate(snapshot(
+                pinned(&[(1, HASH_A), (1, HASH_B), (2, HASH_C)]),
+                vec![
+                    participation(1, and_with_a_cohort_reference(), false),
+                    participation(2, negated_root_filter(HASH_C), false),
+                ],
+            )))
+            .run,
+        );
+        assert_eq!(
+            run.composable_cohorts(),
+            Some(1),
+            "the ref-bearing cohort composes; the root-negated one does not"
+        );
+
+        let mut quiet = PersonEvaluator::new(&run, PersonEmissionPolicy::RelevantToSomeCohort);
+        // Both pinned leaves true turns the AND's unknown reference into the deciding leaf, so the
+        // verdict moves off its absent FALSE and the seed has to reach the consumer.
+        assert!(matches!(
+            quiet
+                .evaluate_row(&person, r#"{"email":"a@b.com","plan":"paid"}"#, &ctx)
+                .0,
+            PersonRowOutcome::Seed(_)
+        ));
+        // One leaf true still leaves the AND determinately false, whatever the reference resolves
+        // to, so nothing can move.
+        assert_eq!(
+            quiet
+                .evaluate_row(&person, r#"{"email":"a@b.com","plan":"free"}"#, &ctx)
+                .0,
+            PersonRowOutcome::Irrelevant
+        );
+    }
+
+    /// Only the conditions whose keys the blob lacks skip the VM, and a non-object blob skips none.
+    #[test]
+    fn the_shortcut_count_tracks_which_keys_the_blob_carries() {
+        let person = Uuid::from_u128(7).to_string();
+        let ctx = context();
+        let run = Arc::new(seedable_run().run);
+        let mut evaluator = PersonEvaluator::new(&run, PersonEmissionPolicy::EveryScannedPerson);
+
+        for (properties, expected) in [
+            (r#"{"other":1}"#, 2),
+            (r#"{}"#, 2),
+            (r#"{"email":"a@b.com"}"#, 1),
+            (r#"{"email":"a@b.com","plan":"paid"}"#, 0),
+            (r#"[1]"#, 0),
+            (r#"null"#, 0),
+        ] {
+            let (_, stats) = evaluator.evaluate_row(&person, properties, &ctx);
+            assert_eq!(
+                stats.shortcut_evaluations, expected,
+                "{properties} shortcut {} conditions",
+                stats.shortcut_evaluations
+            );
         }
     }
 
@@ -929,7 +1515,10 @@ mod tests {
             pinned(&[(1, HASH_A), (1, HASH_B)]),
             vec![participation(1, leaves, false)],
         )));
-        let mut evaluator = PersonEvaluator::new(TeamId(2), validated.run.conditions, true);
+        let mut evaluator = PersonEvaluator::new(
+            &Arc::new(validated.run),
+            PersonEmissionPolicy::EveryScannedPerson,
+        );
         let ctx = context();
 
         let (outcome, stats) = evaluator.evaluate_row(
