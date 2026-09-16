@@ -1088,7 +1088,7 @@ Note: PostHog's registered api_docs_url (https://docs.buildbetter.app/) no longe
 
 ## Buildkite — gaps
 
-Today (9): `agents`, `builds`, `jobs`, `organizations`, `pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
+Today (13): `agents`, `builds`, `cluster_queues`, `jobs`, `organization_members`, `organizations`, `pipeline_schedules`, `pipelines`, `team_pipelines`, `teams`, `test_suite_runs`, `test_suite_tests`, `test_suites`
 
 Diffed against: <https://buildkite.com/docs/llms.txt>
 
@@ -1097,13 +1097,13 @@ Diffed against: <https://buildkite.com/docs/llms.txt>
 - [x] `analytics/organizations/{org}/suites/{suite}/tests (Test Engine tests, label=flaky)` — per-test pass/fail and flaky labelling — the core use case for anyone importing CI data (high)
 - [x] `analytics/organizations/{org}/suites` — the suite list the two Test Engine child tables fan out over, and a lookup in its own right (high)
 - [x] `organizations/{org}/teams` — lookup table resolving team ownership of the pipelines we already sync (high)
-- [ ] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
-- [ ] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
-- [ ] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
+- [x] `organizations/{org}/teams/{team}/pipelines` — membership table joining teams to pipelines, needed to attribute build cost per team (high)
+- [x] `organizations/{org}/members` — lookup resolving the user IDs that appear as build creators and job agents (high)
+- [x] `organizations/{org}/clusters/{cluster}/queues` — lookup resolving the queue an agent or job ran on — required for agent capacity and cost analysis (medium)
 - [ ] `organizations/{org}/clusters` — lookup resolving cluster IDs carried on agents and queues (medium)
 - [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/artifacts` — artifact inventory and sizes per build, useful for storage and output tracking (medium)
 - [ ] `organizations/{org}/teams/{team}/members` — membership table joining users to teams (medium)
-- [ ] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
+- [x] `organizations/{org}/pipelines/{pipeline}/schedules` — explains which builds are scheduled vs triggered — a common breakdown dimension on build volume (medium)
 - [ ] `organizations/{org}/pipelines/{pipeline}/builds/{number}/annotations` — build annotations carry test summaries and custom CI reporting output (low)
 
 Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.txt with one line per REST resource; every endpoint below is named there.
@@ -1228,14 +1228,14 @@ Note: The official API docs list exactly six endpoint groups: Lists, Contacts, F
 
 ## Campfire — gaps
 
-Today (15): `bank_accounts`, `bank_transactions`, `bill_payments`, `bills`, `chart_of_accounts`, `chart_transactions`, `contracts`, `credit_memos`, `debit_memos`, `departments`, `invoice_payments`, `invoices`, `journal_entries`, `revenue_transactions`, `vendors`
+Today (19): `bank_accounts`, `bank_transactions`, `bill_payments`, `bills`, `chart_entities`, `chart_of_accounts`, `chart_transactions`, `contract_subscriptions`, `contracts`, `credit_memos`, `customers`, `debit_memos`, `departments`, `invoice_payments`, `invoices`, `journal_entries`, `products`, `revenue_transactions`, `vendors`
 
 Diffed against: <https://docs.campfire.ai/llms.txt>
 
-- [ ] `revenue-recognition/list-contract-products` — contract line items - the revenue detail behind every contract we already sync (high)
-- [ ] `revenue-recognition/list-contract-subscriptions` — subscription schedules per contract, needed for ARR/MRR and rev-rec waterfalls (high)
-- [ ] `revenue-recognition/list-contract-customers` — lookup table resolving the customer IDs carried on contracts, invoices and revenue transactions (high)
-- [ ] `settings/list-chart-entities` — legal entity lookup - every transaction carries an entity ID and multi-entity consolidation is unusable without it (high)
+- [x] `revenue-recognition/list-contract-products` — the product catalog behind every contract line item (high)
+- [x] `revenue-recognition/list-contract-subscriptions` — subscription schedules per contract, needed for ARR/MRR and rev-rec waterfalls (high)
+- [x] `revenue-recognition/list-contract-customers` — lookup table resolving the customer IDs carried on contracts, invoices and revenue transactions (high)
+- [x] `settings/list-chart-entities` — legal entity lookup - every transaction carries an entity ID and multi-entity consolidation is unusable without it (high)
 - [ ] `company-objects/list-custom-dimensions (+ list-custom-dimension-groups)` — the breakdown dimensions tagged on chart transactions and journal entries (medium)
 - [ ] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
 - [ ] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
@@ -1245,7 +1245,7 @@ Diffed against: <https://docs.campfire.ai/llms.txt>
 - [ ] `core-accounting/list-intercompany-journal-entries` — intercompany JEs are excluded from the journal_entries table today (medium)
 - [ ] `financial-statements/get-trial-balance (also get-general-ledger, get-balance-sheet, get-income-statement)` — vendor-computed statement rollups users would otherwise rebuild by hand from chart_transactions (medium)
 
-Note: Campfire has no public OpenAPI (docs.campfire.ai/openapi.json 404s) but ships a complete llms.txt index of ~330 documented operations. Note there is no bare list-products endpoint - products are only reachable via list-contract-products and list-product-bundles.
+Note: Campfire has no public OpenAPI (docs.campfire.ai/openapi.json 404s) but ships a complete llms.txt index of ~330 documented operations. list-contract-products is the product catalog listing (GET /rr/api/v1/product) rather than a per-contract endpoint, so it covers products on its own; list-product-bundles is still a separate gap. list-contract-subscriptions is only reachable per contract (GET /rr/api/v1/contracts/{contract_id}/subscriptions), so contract_subscriptions fans out over the contracts table.
 
 ## Canny — gaps
 

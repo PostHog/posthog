@@ -128,6 +128,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import (
     merge_pr_output,
+    read_head_branches,
     read_pr_urls as read_pr_urls,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
@@ -7417,6 +7418,17 @@ def warm_task_resume_sandbox(
 # --- Task run (the ``run`` action) ---
 
 
+def _branches_worked_on(run: TaskRun) -> set[str]:
+    output = run.output if isinstance(run.output, dict) else {}
+    branches = {entry["branch"] for entry in read_head_branches(output)}
+    head_branch = output.get("head_branch")
+    if isinstance(head_branch, str) and head_branch:
+        branches.add(head_branch)
+    if run.branch:
+        branches.add(run.branch)
+    return branches
+
+
 def run_task(
     task_id: str | UUID,
     team_id: int,
@@ -7503,7 +7515,7 @@ def run_task(
         if previous_state.run_source == RunSource.AGENT:
             run_source = RunSource.AGENT
         previous_branch = previous_state.pr_base_branch
-        if branch is not None and branch != previous_branch:
+        if branch is not None and branch != previous_branch and branch not in _branches_worked_on(previous_run):
             return contracts.TaskRunResult(
                 error=contracts.TaskValidationError(
                     kind="detail", detail="A resumed run must use its previous base branch. Omit branch to resume."

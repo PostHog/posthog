@@ -32,6 +32,37 @@ Django remains authoritative for authentication, team membership, entitlements, 
 resolution. The Go service does not read PostHog permission tables or accept browser-selected identity without an
 authenticated internal request.
 
+## Query analysis
+
+`internal/analysis` owns parsed statements, nested scopes, table and CTE bindings, and projected fields for validation and completion.
+Each document belongs to one request and borrows that request's immutable catalog.
+Statements initialize on demand, while CTE and aliased subquery projections share one budget across the document.
+Validation retains diagnostic formatting, typo suggestions, and position-encoding conversion.
+
+Completion replaces the identifier at the cursor with a placeholder and resolves the containing scope.
+CTE and aliased `FROM` subquery suggestions contain their projected output names, including aliases and wildcard expansion.
+Direct field projections retain catalog types; expression types remain unknown.
+Qualified CTE completion also works before `FROM`, for example `WITH t AS (SELECT event FROM events) SELECT t.`.
+Inner bindings take precedence, and sibling queries and statements do not contribute suggestions.
+Validation checks aliased subquery output fields and continues to report only underlying catalog tables in `tableNames`.
+
+Physical field completion borrows the catalog prefix index.
+Derived projections have a shared limit of 16,384 fields before deduplication.
+Field resolution also has a request-wide budget of 1,048,576 work units, counting relation visits and identifier bytes used for lookups and derived-field indexes.
+Aliases of the same relation share a cached field index and one candidate entry for unqualified type resolution.
+Completion returns HTTP 400 when either limit is exceeded; validation returns a `query_limit` diagnostic.
+Derived qualified suggestions are sorted and deduplicated before pagination.
+
+### Recovery and remaining work
+
+- Cursor replacement must produce parseable SQL to resolve CTE and subquery fields. Recovery for missing parentheses or incomplete predicates in multi-scope queries remains follow-up work.
+- For an incomplete single `SELECT` without `WITH`, completion can recover a parseable `FROM` clause before an unfinished predicate. The response retains `parseError`. Recovery never overlays parsed bindings or scans aliases from sibling scopes.
+- Property provenance through derived projections is not available. Completion suppresses property suggestions for derived owners, including CTEs that shadow built-in names such as `events`. Unqualified physical properties remain available when joined derived relations do not project `properties`; a derived `properties` field makes the namespace ambiguous. Add provenance before enabling those ambiguous suggestions.
+- Select-alias visibility within the same query remains a separate layer. A projected alias is available to consumers of a CTE or subquery, not automatically to its defining query.
+- Table-name suggestions still use the catalog; adding visible CTE names to `FROM` and `JOIN` suggestions remains follow-up work.
+- Unaliased `FROM` subquery outputs, completion inside quoted identifiers, expression type inference, and complete set-operation semantics remain follow-up work.
+- Recursive CTEs, lateral subqueries, and full HogQL compiler parity are outside this layer. The service does not execute queries or fetch metadata during analysis.
+
 ## Isolation boundary
 
 Every protected route requires both `team_id` and `user_id` in its path. Shared middleware converts those values into
