@@ -10,13 +10,16 @@ LOCK_SCRIPT_COMMANDS = ("script|load", "evalsha", "get", "pttl", "pexpire")
 
 
 class FakeRedis:
-    def __init__(self, denied: set[str] | None = None) -> None:
+    def __init__(self, denied: set[str] | None = None, refused_on_connect: str | None = None) -> None:
         self.denied = denied or set()
+        self.refused_on_connect = refused_on_connect
         self.attempted: list[str] = []
         self.deleted: list[str] = []
 
     def run(self, command: str) -> None:
         self.attempted.append(command)
+        if self.refused_on_connect:
+            raise NoPermissionError(f"User posthog has no permissions to run the '{self.refused_on_connect}' command")
         if command in self.denied:
             raise NoPermissionError(f"User posthog has no permissions to run the '{command}' command")
 
@@ -132,6 +135,15 @@ class TestRedbeatPreflight:
         denials = find_denials(client, STATICS_KEY, KEY_PREFIX, LOCK_KEY)
 
         assert [denial.commands for denial in denials] == expected
+
+    def test_a_refusal_from_the_connection_setup_names_that_command_alone(self):
+        client = FakeRedis(refused_on_connect="select")
+
+        denials = find_denials(client, STATICS_KEY, KEY_PREFIX, LOCK_KEY)
+        message = report("redis://posthog:pw@redis:6379/1", KEY_PREFIX, denials)
+
+        assert [denial.commands for denial in denials] == [("select",)]
+        assert "ACL SETUSER posthog +select ~redbeat:*" in message
 
     def test_the_lock_commands_are_not_required_when_the_lock_is_disabled(self):
         client = FakeRedis(denied={"set", "evalsha"})

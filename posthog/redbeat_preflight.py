@@ -12,6 +12,7 @@ prefix, and reports every command the ACL refuses.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -32,6 +33,8 @@ LOCK_REFRESH_PROBE_SCRIPT = """
 """
 
 _SCRATCH_LOCK_TTL_MS = 10_000
+
+_REFUSED_COMMAND = re.compile(r"no permissions to run the '([^']+)' command")
 
 
 @frozen
@@ -111,6 +114,12 @@ def _probes(client: Any, statics_key: str, scratch: ScratchKeys, lock_key: str |
     return probes
 
 
+def _refused_command(reason: str) -> str | None:
+    """The command Redis named in a refusal, when it named one."""
+    match = _REFUSED_COMMAND.search(reason)
+    return match.group(1) if match else None
+
+
 def find_denials(client: Any, statics_key: str, key_prefix: str, lock_key: str | None) -> list[Denial]:
     """Run every command RedBeat needs and return the ones the ACL refused.
 
@@ -126,7 +135,15 @@ def find_denials(client: Any, statics_key: str, key_prefix: str, lock_key: str |
             except (NoPermissionError, ExecAbortError) as exc:
                 # A refused EXEC aborts the transaction instead of answering NOPERM, so its
                 # refusal arrives as EXECABORT. Nothing else in these probes opens a transaction.
-                denials.append(Denial(commands=probe.commands, reason=str(exc)))
+                reason = str(exc)
+                refused = _refused_command(reason)
+                if refused is not None and refused not in probe.commands:
+                    # The refusal names a command no probe sends, so it comes from the connection
+                    # setup that runs first. redis-py sends SELECT there when the URL names a
+                    # database other than 0. Every probe fails the same way until that command is
+                    # granted, so it is the one grant worth reporting.
+                    return [Denial(commands=(refused,), reason=reason)]
+                denials.append(Denial(commands=probe.commands, reason=reason))
         return denials
     finally:
         try:
