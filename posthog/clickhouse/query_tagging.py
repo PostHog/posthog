@@ -517,6 +517,7 @@ class QueryTags(BaseModel):
     trend_volume_display: Optional[str] = None
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
+    saved_query_ids: Optional[list[str]] = None  # saved queries the HogQL resolver bound, materialized or not
 
     trend_volume_type: Optional[str] = None
 

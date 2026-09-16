@@ -7,6 +7,5 @@ core's scheduler registers.
 
 from products.data_modeling.backend.schedule import build_schedule_spec
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
-from products.data_modeling.backend.tasks.model_demand import flush_model_demand
 
-__all__ = ["build_schedule_spec", "cleanup_expired_test_saved_queries", "flush_model_demand"]
+__all__ = ["build_schedule_spec", "cleanup_expired_test_saved_queries"]

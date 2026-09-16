@@ -67,7 +67,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import Feature, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
@@ -786,6 +786,7 @@ class HogQLQueryExecutor:
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
                 hogql_features=hogql_features,
+                saved_query_ids=sorted(self.context.referenced_saved_query_ids) or None,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -875,22 +876,6 @@ class HogQLQueryExecutor:
                 self._execute_raw_direct_query()
             else:
                 prepared_execution = self._prepare_execution()
-
-                if (
-                    prepared_execution.sql
-                    and self.context.referenced_saved_query_ids
-                    and get_query_tags().feature
-                    not in (
-                        Feature.DATA_MODELING,
-                        Feature.SCHEMA_INTROSPECTION,
-                        Feature.ENRICHMENT,
-                        Feature.CACHE_WARMUP,
-                    )
-                ):
-                    # Defer the product dependency to avoid loading its ORM models during HogQL imports.
-                    from products.data_modeling.backend.facade.demand import record_model_demand
-
-                    record_model_demand(self.team, self.context.referenced_saved_query_ids)
 
                 if prepared_execution.engine == "direct_sql":
                     self._execute_direct_sql_query()

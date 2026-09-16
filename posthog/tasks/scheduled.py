@@ -83,7 +83,7 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
-from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries, flush_model_demand
+from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
@@ -1001,13 +1001,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/5"),
-        flush_model_demand.s(),
-        name="flush data modeling demand",
     )
 
     # Hard-delete expired test saved queries and their downstream objects
