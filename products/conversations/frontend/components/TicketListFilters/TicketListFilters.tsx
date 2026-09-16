@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
@@ -20,7 +21,8 @@ interface TicketListFiltersProps {
 
 export function TicketListFilters({ embedded = false }: TicketListFiltersProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { searchQuery, ticketsLoading, totalCount, hasActiveFilters, aiEnabled, dateFrom, dateTo } = useValues(logic)
+    const { searchQuery, ticketsLoading, totalCount, totalCountCapped, hasActiveFilters, aiEnabled, dateFrom, dateTo } =
+        useValues(logic)
     const { setSearchQuery, loadTickets, setDateRange } = useActions(logic)
 
     return (
@@ -50,16 +52,22 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                 <div className="flex flex-wrap items-center gap-2">
                     <Tooltip
                         title={
-                            hasActiveFilters || searchQuery
-                                ? 'Tickets matching the current filters, search, and view, not the total across all tickets'
-                                : 'Tickets in the current view'
+                            totalCountCapped
+                                ? `At least ${humanFriendlyNumber(totalCount)} tickets match. Counting stops there to keep the list fast.`
+                                : hasActiveFilters || searchQuery
+                                  ? 'Tickets matching the current filters, search, and view, not the total across all tickets'
+                                  : 'Tickets in the current view'
                         }
                     >
                         <span
                             className={clsx('text-secondary text-sm whitespace-nowrap', ticketsLoading && 'opacity-50')}
                             aria-live="polite"
                         >
-                            {ticketsLoading && totalCount === 0 ? null : pluralize(totalCount, 'ticket')}
+                            {ticketsLoading && totalCount === 0
+                                ? null
+                                : totalCountCapped
+                                  ? `${humanFriendlyNumber(totalCount)}+ ${pluralize(totalCount, 'ticket', undefined, false)}`
+                                  : pluralize(totalCount, 'ticket')}
                         </span>
                     </Tooltip>
                     <LemonButton

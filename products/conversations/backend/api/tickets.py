@@ -308,8 +308,52 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
 
 
 class TicketPagination(pagination.LimitOffsetPagination):
+    """Paginate tickets, stopping the count at a ceiling.
+
+    An exact ``count`` makes Postgres read every ticket the filters match, and the model's
+    indexes are built for top-N ordered pages, not for counting. Counting inside a LIMIT
+    subquery stops the scan one row past the ceiling, so a filter that an index serves costs
+    the same however many tickets a team has. The LIMIT bounds matching rows, not rows read:
+    for a sparse filter with no index behind it (priority, a tag, a search term) Postgres
+    still scans to find the matches, the same rows the uncapped ``COUNT(*)`` read. The ceiling
+    always leaves room for one row past the current page, so "is there a next page" stays
+    correct at any offset.
+    """
+
     default_limit = 100
     max_limit = 1000
+    count_ceiling = 1000
+    count_capped = False
+
+    def paginate_queryset(self, queryset: QuerySet, request: Request, view: Any = None) -> list[Any] | None:
+        page_end = (self.get_limit(request) or 0) + self.get_offset(request)
+        self.ceiling = max(self.count_ceiling, page_end + 1)
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_count(self, queryset: QuerySet | Sequence[Any]) -> int:
+        if not isinstance(queryset, QuerySet):
+            self.count_capped = False
+            return super().get_count(queryset)
+        # ``order_by()`` matters: with the sort still on, Postgres has to sort the matching
+        # rows before the LIMIT can cut the scan short. ``values("pk")`` drops the
+        # select_related joins that only serialization needs. Sampling one row past the
+        # ceiling is what separates an exact total that lands on the ceiling from a capped one.
+        sampled = queryset.order_by().values("pk")[: self.ceiling + 1].count()
+        self.count_capped = sampled > self.ceiling
+        return min(sampled, self.ceiling)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        response = super().get_paginated_response(data)
+        response.data["count_capped"] = self.count_capped
+        return response
+
+    def get_paginated_response_schema(self, schema: Any) -> dict[str, Any]:
+        response_schema = super().get_paginated_response_schema(schema)
+        response_schema["properties"]["count_capped"] = {
+            "type": "boolean",
+            "description": "True when more tickets match than `count` reports, because the count stopped at its ceiling.",
+        }
+        return response_schema
 
 
 class TicketMessagePagination(pagination.LimitOffsetPagination):

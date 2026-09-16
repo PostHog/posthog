@@ -39,7 +39,11 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import (
+    ComposeTicketSerializer,
+    TicketPagination,
+    TicketReplyRequestSerializer,
+)
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -639,6 +643,47 @@ class TestTicketAPI(APIBaseTest):
         # Real deadlines sort first (ascending/descending), no-SLA tickets last, ties broken by
         # -ticket_number — a single total order, so the pages concatenate back to exactly it.
         self.assertEqual(seen, [str(tickets[key].id) for key in expected])
+
+    def test_ticket_count_stops_at_the_ceiling(self, mock_on_commit):
+        # setUp creates one ticket, so the team has three in total.
+        for key in ("second", "third"):
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id=key,
+                distinct_id=key,
+            )
+        list_url = f"/api/projects/{self.team.id}/conversations/tickets/"
+
+        response = self.client.get(f"{list_url}?limit=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 3)
+        self.assertFalse(response.json()["count_capped"])
+
+        with patch.object(TicketPagination, "count_ceiling", 2):
+            capped = self.client.get(f"{list_url}?limit=1")
+            self.assertEqual(capped.status_code, status.HTTP_200_OK)
+            self.assertEqual(capped.json()["count"], 2)
+            self.assertTrue(capped.json()["count_capped"])
+            self.assertIsNotNone(capped.json()["next"])
+
+            # The ceiling always leaves room for one row past the current page, so a page
+            # deeper than the ceiling still reports the rows behind it.
+            deep = self.client.get(f"{list_url}?limit=1&offset=2")
+            self.assertEqual(deep.status_code, status.HTTP_200_OK)
+            self.assertEqual(deep.json()["count"], 3)
+            self.assertFalse(deep.json()["count_capped"])
+            self.assertEqual(len(deep.json()["results"]), 1)
+            self.assertIsNone(deep.json()["next"])
+
+        # A total that lands exactly on the ceiling is exact, not capped: the count query reads
+        # one row past the ceiling, and here that row does not exist.
+        with patch.object(TicketPagination, "count_ceiling", 3):
+            exact = self.client.get(f"{list_url}?limit=1")
+            self.assertEqual(exact.status_code, status.HTTP_200_OK)
+            self.assertEqual(exact.json()["count"], 3)
+            self.assertFalse(exact.json()["count_capped"])
+            self.assertIsNotNone(exact.json()["next"])
 
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
