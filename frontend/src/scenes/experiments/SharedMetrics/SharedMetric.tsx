@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -31,6 +31,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 
@@ -45,6 +46,45 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
         sharedMetricId: id === 'new' ? null : parseInt(id),
         action: action || (id === 'new' ? 'create' : 'update'),
     }),
+}
+
+function openSaveWithRunningExperimentsDialog(
+    runningExperiments: readonly ExperimentSavedMetricLinkedExperimentApi[],
+    onSave: () => void
+): void {
+    LemonDialog.open({
+        title: 'Save changes to this metric?',
+        content: (
+            <div className="text-sm text-secondary max-w-120">
+                <p>
+                    This metric is used by{' '}
+                    {runningExperiments.length === 1
+                        ? 'a running experiment'
+                        : `${runningExperiments.length} running experiments`}
+                    . Saving changes to the metric definition also changes{' '}
+                    {runningExperiments.length === 1 ? 'its' : 'their'} results.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 max-h-60 overflow-y-auto">
+                    {runningExperiments.map((experiment) => (
+                        <li key={experiment.id} className="truncate">
+                            <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        ),
+        primaryButton: {
+            children: 'Save',
+            type: 'primary',
+            onClick: onSave,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
 }
 
 function openDeleteSharedMetricDialog(onDelete: () => void): void {
@@ -73,6 +113,20 @@ export function SharedMetric(): JSX.Element {
 
     const { currentTeam } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
+
+    const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
+
+    const handleSave = (): void => {
+        if (['create', 'duplicate'].includes(action)) {
+            createSharedMetric()
+            return
+        }
+        if (runningExperiments.length > 0) {
+            openSaveWithRunningExperimentsDialog(runningExperiments, () => updateSharedMetric())
+            return
+        }
+        updateSharedMetric()
+    }
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
@@ -250,14 +304,7 @@ export function SharedMetric(): JSX.Element {
                                 disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                                 size="small"
                                 type="primary"
-                                onClick={() => {
-                                    if (['create', 'duplicate'].includes(action)) {
-                                        createSharedMetric()
-                                        return
-                                    }
-
-                                    updateSharedMetric()
-                                }}
+                                onClick={handleSave}
                             >
                                 Save
                             </LemonButton>
@@ -293,14 +340,7 @@ export function SharedMetric(): JSX.Element {
                         disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                         size="medium"
                         type="primary"
-                        onClick={() => {
-                            if (['create', 'duplicate'].includes(action)) {
-                                createSharedMetric()
-                                return
-                            }
-
-                            updateSharedMetric()
-                        }}
+                        onClick={handleSave}
                     >
                         Save
                     </LemonButton>
