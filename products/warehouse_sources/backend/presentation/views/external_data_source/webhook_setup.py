@@ -529,6 +529,18 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
             source, config, hog_fn_result, self.team_id, api_version=effective_api_version
         )
 
+        # A source names the inputs it cannot return on create without knowing what PostHog already
+        # holds, so an earlier attempt that stored the value must not make the caller collect it
+        # again. A failed attempt keeps its hog function, and `move_secret_inputs` splits the secret
+        # inputs into `encrypted_inputs` and leaves a null entry for every input with no value, so
+        # both sides are read and the null entries are skipped.
+        configured = set(inputs)
+        if result.pending_inputs:
+            assert hog_fn_result.hog_function_id is not None
+            hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=self.team_id)
+            stored = {**(hog_function.inputs or {}), **(hog_function.encrypted_inputs or {})}
+            configured |= {name for name, value in stored.items() if value}
+
         return Response(
             status=status.HTTP_200_OK,
             data=CreateWebhookResponseSerializer(
@@ -536,7 +548,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                     "success": result.success,
                     "webhook_url": result.webhook_url,
                     "error": result.error,
-                    "pending_inputs": [name for name in result.pending_inputs if name not in inputs],
+                    "pending_inputs": [name for name in result.pending_inputs if name not in configured],
                 }
             ).data,
         )

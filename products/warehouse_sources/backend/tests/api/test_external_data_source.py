@@ -9123,6 +9123,26 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
+    def test_create_webhook_retry_keeps_inputs_a_failed_attempt_stored(self, mock_create_webhook):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+
+        mock_create_webhook.return_value = WebhookCreationResult(success=False, error="boom")
+        self._create_hog_function_template()
+        source = self._create_stripe_source()
+        self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
+        failed = self.client.post(url, data={"inputs": {"signing_secret": "whsec_upfront"}}, format="json")
+        assert failed.json()["success"] is False
+
+        mock_create_webhook.return_value = WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
+        retried = self.client.post(url)
+
+        assert retried.status_code == status.HTTP_200_OK
+        assert retried.json()["success"] is True
+        assert retried.json()["pending_inputs"] == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_create_webhook_saves_extra_inputs(self, mock_create_webhook):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
