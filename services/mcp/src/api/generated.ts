@@ -46202,6 +46202,20 @@ export namespace Schemas {
       values: MarketingAnalyticsRetentionCell[];
     }
 
+    export interface MarketingAnalyticsRetentionSummaryRow {
+      acquired: number;
+      breakdownValue: string;
+      eligible30d: number;
+      eligible7d: number;
+      /** Median elapsed days to a second session within 30 days, among observed returners. */
+      medianReturnDays: number | null;
+      previous: boolean;
+      returned30d: number;
+      returned7d: number;
+      /** People with an observed second session within 30 days, including incomplete windows. */
+      returners: number;
+    }
+
     export interface MarketingAnalyticsRetentionQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -46223,6 +46237,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -46242,6 +46258,8 @@ export namespace Schemas {
       breakdownBy?: MarketingAnalyticsAttributionBreakdown | null;
       /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
       breakdownLimit?: number | null;
+      /** Include the previous acquisition period in summary mode. Defaults to false. */
+      comparePreviousPeriod?: boolean | null;
       /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
@@ -46262,6 +46280,8 @@ export namespace Schemas {
       response?: MarketingAnalyticsRetentionQueryResponse | null;
       /** Period for both the cohort rows and the return columns. Defaults to week. */
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
+      /** Return session-based 7/30-day metrics instead of the cohort matrix. Defaults to false. */
+      summary?: boolean | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -76773,6 +76793,8 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
+      /** Only populated in summary mode. Rates use the corresponding eligible population. */
+      summary?: MarketingAnalyticsRetentionSummaryRow[] | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
