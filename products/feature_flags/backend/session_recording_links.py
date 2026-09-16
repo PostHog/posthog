@@ -260,7 +260,11 @@ def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGate
         # thirty other fields, each its own query when deferred.
         # `no_key=True` because this writes no key column, so the lock does not block the
         # `KEY SHARE` that a foreign key check on this Team row takes. Two `FOR NO KEY UPDATE`
-        # locks still conflict, so two gate writers for one team stay serialized.
+        # locks still conflict, so two calls to this function for one team stay serialized.
+        # The lock does not serialize this against the Team API. That serializer saves the
+        # column the client sent on a row it read without a lock, so a settings edit racing a
+        # rename can still land the pre-rename key. `repair_replay_linked_flag_keys` reports
+        # such a row on its next run.
         team = Team.objects.select_for_update(no_key=True).filter(pk=team_id).first()
         if team is None:
             return
@@ -307,9 +311,10 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
         # Read once per team, under that team's row lock, rather than once before the loop. Two
         # renames of the same flag committed close together fire their `on_commit` callbacks with
         # no ordering guarantee between them, and a rename can also land partway through this
-        # loop. Every writer of a team's gate takes this same lock, so reading here makes them all
+        # loop. Every relink holding this team's row lock reads the key at this point, so they
         # converge on the stored key instead of leaving later teams on the key this callback
-        # started with. `objects_including_soft_deleted` also finds the tombstone that
+        # started with. A Team API write takes no such lock and is not ordered against them.
+        # `objects_including_soft_deleted` also finds the tombstone that
         # `_free_key_held_by_soft_deleted_flags` renames.
         new_key = (
             FeatureFlag.objects_including_soft_deleted.filter(pk=feature_flag.pk).values_list("key", flat=True).first()
