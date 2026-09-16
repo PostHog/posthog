@@ -13,6 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
+    SQLSourceImplementation,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 
@@ -95,7 +98,7 @@ class _SqlLikeSource(SQLSource[Config]):
         raise NotImplementedError()
 
     @property
-    def get_implementation(self) -> Any:
+    def get_implementation(self) -> SQLSourceImplementation[Config, Any, Any]:
         raise NotImplementedError()
 
 
