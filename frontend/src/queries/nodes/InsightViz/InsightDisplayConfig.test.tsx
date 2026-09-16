@@ -401,6 +401,19 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('retention mean line', () => {
+        it('writes showMeanLine when the toggle is clicked', async () => {
+            setupAndRender(makeRetentionQuery())
+            await openOptionsMenu()
+
+            await userEvent.click(within(getPanel()).getByText('Show mean line'))
+
+            expect(
+                (insightVizDataLogic(insightProps).values.querySource as RetentionQuery).retentionFilter.showMeanLine
+            ).toBe(true)
+        })
+    })
+
     describe('line graph display options', () => {
         it('shows the "group by time period" interval picker (control for the slope graph)', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
