@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, TypeVar, cast
+from typing import Any, Literal, Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -35,6 +35,7 @@ from posthog.models import Property, Team
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 T = TypeVar("T", bound=ast.Expr)
+FilterScope = Literal["events", "sessions", "logs", "traces", "groups", "persons"]
 DEFAULT_TEAM = cast(Team, None)
 
 DATE_ONLY_REGEX = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}$")
@@ -222,158 +223,24 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
-        # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
-        # onto an expression of their own query, so the table restrictions of plain {filters} don't
-        # apply. A Call never has a chain, so the chain-based branches below can't match it.
-        if isinstance(node.expr, ast.Call) and node.expr.name == "filters":
-            return self._replace_bound_filters(node.expr)
-
-        # Dotted call forms: {filters.interval('week')} substitutes a granularity constant, and
-        # {filters.breakdown(expr AS key, ...)} substitutes the column bound to the selected breakdown.
-        if isinstance(node.expr, ast.ExprCall) and isinstance(node.expr.expr, ast.Field):
-            call_chain = node.expr.expr.chain
-            if call_chain == ["filters", "interval"]:
-                return self._replace_interval(node.expr.args)
-            if call_chain == ["filters", "breakdown"]:
-                return self._replace_breakdown(node.expr.args)
-            if call_chain and call_chain[0] == "filters":
-                chain_str = ".".join(str(c) for c in call_chain)
-                raise QueryError(
-                    f"Unsupported filters placeholder `{{{chain_str}(...)}}`. "
-                    "Supported call forms are: `{filters(expr AS key, ...)}`, `{filters.interval('day')}`, "
-                    "and `{filters.breakdown(expr AS key, ...)}`."
-                )
-
-        no_filters = self.filters is None or not self.filters.model_fields_set
+        replacement = self._replace_filter_call(node.expr)
+        if replacement is not None:
+            return replacement
 
         if node.chain == ["filters"]:
-            last_select = self.selects[-1]
-            last_join = last_select.select_from
-            found_events = False
-            found_sessions = False
-            found_logs = False
-            found_traces = False
-            found_groups = False
-            found_persons = False
-            while last_join is not None:
-                if isinstance(last_join.table, ast.Field):
-                    resolved = self._resolve_table(last_join.table.chain)
-                    if isinstance(resolved, (EventsTable, AiEventsTable)):
-                        found_events = True
-                    if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
-                        found_sessions = True
-                    if isinstance(resolved, (LogsTable, LogAttributesTable)):
-                        found_logs = True
-                    if isinstance(resolved, TraceSpansTable):
-                        found_traces = True
-                    if isinstance(resolved, GroupsTable):
-                        found_groups = True
-                    if isinstance(resolved, PersonsTable):
-                        found_persons = True
-                    if found_events and found_sessions or found_groups:
-                        break
-                last_join = last_join.next_join
-
-            if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
-                raise QueryError(
-                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
-                )
-
-            # Person semantics apply only when persons is the sole recognized table; any query that also
-            # touches an event-like table keeps its existing scope, so events-joined-to-persons insights
-            # are unaffected.
-            persons_only = found_persons and not any(
-                [found_events, found_sessions, found_logs, found_traces, found_groups]
-            )
-
-            if no_filters:
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            exprs: list[ast.Expr] = []
-            if self.filters.properties is not None:
-                if found_sessions:
-                    session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
-                    non_session_properties = [
-                        p for p in self.filters.properties if not isinstance(p, SessionPropertyFilter)
-                    ]
-                    if non_session_properties and not found_events:
-                        raise QueryError(
-                            "Can only use session properties in a filter when selecting from only the sessions table."
-                        )
-                    exprs.append(property_to_expr(session_properties, self.team, scope="session"))
-                    exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
-                elif found_groups:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
-                elif persons_only:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="person"))
-                else:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
-
-            timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs or found_traces:
-                timestamp_field = ast.Field(chain=["timestamp"])
-            if found_groups or persons_only:
-                timestamp_field = ast.Field(chain=["created_at"])
-
-            exprs.extend(self._date_range_exprs(timestamp_field))
-
-            if self.filters.filterTestAccounts:
-                for prop in self.team.test_account_filters or []:
-                    if persons_only:
-                        try:
-                            exprs.append(property_to_expr(prop, self.team, scope="person"))
-                        except (QueryError, NotImplementedError) as error:
-                            raise self._persons_test_account_filter_error(prop) from error
-                    else:
-                        exprs.append(property_to_expr(prop, self.team, scope="event"))
-
-            if len(exprs) == 0:
-                return ast.Constant(value=True)
-            if len(exprs) == 1:
-                return exprs[0]
-            return ast.And(exprs=exprs)
+            return self._replace_plain_filters()
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            date_from = self._resolve_date_from()
-            if date_from is not None:
-                return ast.Constant(value=date_from)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+            return self._replace_date_range_placeholder(self._resolve_date_from())
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
             date_to, _date_to_inclusive = self._resolve_date_to()
-            if date_to is not None:
-                return ast.Constant(value=date_to)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-
+            return self._replace_date_range_placeholder(date_to)
         if node.chain == ["filters", "interval"]:
             return self._replace_interval([])
-
         if node.chain == ["filters", "breakdown"]:
             raise QueryError(
                 "{filters.breakdown} needs column bindings. "
                 "Write {filters.breakdown(expr AS 'key', ...)} to map breakdown keys onto your columns."
             )
-
         if node.chain and node.chain[0] == "filters":
             chain_str = ".".join(str(c) for c in node.chain)
             raise QueryError(
@@ -384,6 +251,129 @@ class ReplaceFilters(CloningVisitor):
             )
 
         return super().visit_placeholder(node)
+
+    def _replace_filter_call(self, expr: ast.Expr) -> Optional[ast.Expr]:
+        # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
+        # onto an expression of their own query, so the table restrictions of plain {filters} don't
+        # apply. A Call never has a chain, so the chain-based branches below can't match it.
+        if isinstance(expr, ast.Call) and expr.name == "filters":
+            return self._replace_bound_filters(expr)
+
+        # Dotted call forms: {filters.interval('week')} substitutes a granularity constant, and
+        # {filters.breakdown(expr AS key, ...)} substitutes the column bound to the selected breakdown.
+        if isinstance(expr, ast.ExprCall) and isinstance(expr.expr, ast.Field):
+            call_chain = expr.expr.chain
+            if call_chain == ["filters", "interval"]:
+                return self._replace_interval(expr.args)
+            if call_chain == ["filters", "breakdown"]:
+                return self._replace_breakdown(expr.args)
+            if call_chain and call_chain[0] == "filters":
+                chain_str = ".".join(str(c) for c in call_chain)
+                raise QueryError(
+                    f"Unsupported filters placeholder `{{{chain_str}(...)}}`. "
+                    "Supported call forms are: `{filters(expr AS key, ...)}`, `{filters.interval('day')}`, "
+                    "and `{filters.breakdown(expr AS key, ...)}`."
+                )
+        return None
+
+    def _replace_plain_filters(self) -> ast.Expr:
+        scopes = self._filter_scopes()
+        if not scopes:
+            raise QueryError(
+                "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
+            )
+        if self.filters is None or not self.filters.model_fields_set:
+            return ast.Constant(value=True)
+
+        assert self.filters is not None
+        # Person semantics apply only when persons is the sole recognized table, so events joined to
+        # persons keep their existing event scope.
+        persons_only = scopes == {"persons"}
+        exprs = self._plain_property_exprs(scopes, persons_only)
+        exprs.extend(self._date_range_exprs(self._timestamp_field(scopes, persons_only)))
+        exprs.extend(self._test_account_filter_exprs(persons_only))
+        return self._combine_exprs(exprs)
+
+    def _filter_scopes(self) -> set[FilterScope]:
+        scopes: set[FilterScope] = set()
+        join = self.selects[-1].select_from
+        while join is not None:
+            if isinstance(join.table, ast.Field):
+                table = self._resolve_table(join.table.chain)
+                if isinstance(table, (EventsTable, AiEventsTable)):
+                    scopes.add("events")
+                if isinstance(table, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
+                    scopes.add("sessions")
+                if isinstance(table, (LogsTable, LogAttributesTable)):
+                    scopes.add("logs")
+                if isinstance(table, TraceSpansTable):
+                    scopes.add("traces")
+                if isinstance(table, GroupsTable):
+                    scopes.add("groups")
+                if isinstance(table, PersonsTable):
+                    scopes.add("persons")
+                if {"events", "sessions"} <= scopes or "groups" in scopes:
+                    break
+            join = join.next_join
+        return scopes
+
+    def _plain_property_exprs(self, scopes: set[FilterScope], persons_only: bool) -> list[ast.Expr]:
+        assert self.filters is not None
+        if self.filters.properties is None:
+            return []
+        if "sessions" in scopes:
+            session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
+            non_session_properties = [p for p in self.filters.properties if not isinstance(p, SessionPropertyFilter)]
+            if non_session_properties and "events" not in scopes:
+                raise QueryError(
+                    "Can only use session properties in a filter when selecting from only the sessions table."
+                )
+            return [
+                property_to_expr(session_properties, self.team, scope="session"),
+                property_to_expr(non_session_properties, self.team, scope="event"),
+            ]
+        if "groups" in scopes:
+            return [property_to_expr(self.filters.properties, self.team, scope="group")]
+        if persons_only:
+            return [property_to_expr(self.filters.properties, self.team, scope="person")]
+        return [property_to_expr(self.filters.properties, self.team, scope="event")]
+
+    def _timestamp_field(self, scopes: set[FilterScope], persons_only: bool) -> ast.Field:
+        if "groups" in scopes or persons_only:
+            return ast.Field(chain=["created_at"])
+        if {"events", "logs", "traces"} & scopes:
+            return ast.Field(chain=["timestamp"])
+        return ast.Field(chain=["$start_timestamp"])
+
+    def _test_account_filter_exprs(self, persons_only: bool) -> list[ast.Expr]:
+        assert self.filters is not None
+        if not self.filters.filterTestAccounts:
+            return []
+
+        exprs: list[ast.Expr] = []
+        for prop in self.team.test_account_filters or []:
+            if persons_only:
+                try:
+                    exprs.append(property_to_expr(prop, self.team, scope="person"))
+                except (QueryError, NotImplementedError) as error:
+                    raise self._persons_test_account_filter_error(prop) from error
+            else:
+                exprs.append(property_to_expr(prop, self.team, scope="event"))
+        return exprs
+
+    def _replace_date_range_placeholder(self, date: Optional[datetime]) -> ast.Expr:
+        if self.filters is not None and self.filters.model_fields_set and date is not None:
+            return ast.Constant(value=date)
+
+        self.compare_operations[-1].skip = True
+        return ast.Constant(value=True)
+
+    def _combine_exprs(self, exprs: list[ast.Expr]) -> ast.Expr:
+        if not exprs:
+            return ast.Constant(value=True)
+        if len(exprs) == 1:
+            return exprs[0]
+        return ast.And(exprs=exprs)
 
     def _replace_bound_filters(self, call: ast.Call) -> ast.Expr:
         # Parse bindings before the no-filters early return, so malformed usage surfaces in the
@@ -397,11 +387,7 @@ class ReplaceFilters(CloningVisitor):
             *self._bound_date_range_exprs(bindings),
             *self._bound_property_exprs(bindings),
         ]
-        if len(exprs) == 0:
-            return ast.Constant(value=True)
-        if len(exprs) == 1:
-            return exprs[0]
-        return ast.And(exprs=exprs)
+        return self._combine_exprs(exprs)
 
     def _parse_bindings(self, call: ast.Call) -> dict[str, Optional[ast.Expr]]:
         if call.params is not None or call.distinct:
