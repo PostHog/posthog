@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import api, { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -11,7 +14,7 @@ import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { maxMocks } from '../testUtils'
+import { MOCK_IN_PROGRESS_CONVERSATION, maxMocks } from '../testUtils'
 import { QuestionInput } from './QuestionInput'
 
 jest.mock(
@@ -188,6 +191,28 @@ describe('QuestionInput', () => {
             await waitFor(() => expect(sendButton()).not.toBeNull())
             expect(stopButton()).toBeNull()
             expect(screen.queryByText("Let's bail")).not.toBeInTheDocument()
+        })
+
+        it('leaves the generating state when the cancel request fails', async () => {
+            jest.spyOn(api.conversations, 'cancel').mockRejectedValue(new ApiError('Load failed', undefined))
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+            act(() => {
+                threadLogicInstance.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            })
+            await waitFor(() => expect(stopButton()).not.toBeNull())
+            expect(screen.getByText('Thinking…')).toBeInTheDocument()
+
+            fireEvent.click(stopButton() as HTMLElement)
+            await act(async () => {
+                await flush()
+            })
+
+            // The failed request used to skip the local teardown, so the composer stayed on
+            // "Thinking…" with a stop button that did nothing but reload could clear.
+            await waitFor(() => expect(stopButton()).toBeNull())
+            expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
+            expect(sendButton()).not.toBeNull()
         })
     })
 })

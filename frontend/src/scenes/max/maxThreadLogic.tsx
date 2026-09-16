@@ -2159,36 +2159,74 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             )
         },
         stopGeneration: async () => {
-            if (!values.conversation?.id) {
+            const conversation = values.conversation
+            if (!conversation?.id) {
                 actions.setCancelLoading(false)
                 return
             }
+            const conversationId = conversation.id
 
-            try {
-                if (values.conversation.agent_runtime === 'sandbox') {
-                    // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
-                    actions.cancelSandboxRun()
-                } else {
-                    await api.conversations.cancel(values.conversation.id)
+            // Local teardown runs before, and independently of, the cancel request: it used to sit
+            // in the same try, so any failure skipped it and left the thread stuck on "Thinking".
+            cache.generationController?.abort()
+            actions.clearQueuedMessages()
+            actions.resetThread()
+            // Optimistically clear the loading flags so the composer button returns to "send"
+            // immediately, instead of racing the fire-and-forget loadConversation refetch below
+            // (whose success handler is gated on streamingActive). The refetch still reconciles
+            // the true server status moments later.
+            const canceledConversation = { ...conversation, status: ConversationStatus.Idle }
+            actions.setConversation(canceledConversation)
+            actions.updateGlobalConversationCache(canceledConversation)
+
+            const isSandboxRun = conversation.agent_runtime === 'sandbox'
+            let cancelFailure: any = null
+            let attempts = 0
+            if (isSandboxRun) {
+                // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
+                actions.cancelSandboxRun()
+            } else {
+                // The endpoint is idempotent - a run that is already canceling answers 204 - so one
+                // retry costs nothing and recovers the common failure, a dropped cancel request.
+                while (attempts < 2) {
+                    attempts++
+                    try {
+                        await api.conversations.cancel(conversationId)
+                        cancelFailure = null
+                        break
+                    } catch (e: any) {
+                        cancelFailure = e
+                    }
                 }
-                cache.generationController?.abort()
-                actions.clearQueuedMessages()
-                actions.resetThread()
-                // Optimistically clear the loading flags so the composer button returns to "send"
-                // immediately, instead of racing the fire-and-forget loadConversation refetch below
-                // (whose success handler is gated on streamingActive). The refetch still reconciles
-                // the true server status moments later.
-                if (values.conversation) {
-                    const canceledConversation = { ...values.conversation, status: ConversationStatus.Idle }
-                    actions.setConversation(canceledConversation)
-                    actions.updateGlobalConversationCache(canceledConversation)
-                }
-            } catch (e: any) {
-                posthog.captureException(e)
-                lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
 
-            actions.loadConversation(values.conversation.id)
+            posthog.capture('max conversation cancel completed', {
+                // The relay behind a sandbox cancel reports no result back here, so that outcome
+                // stays unknown - only the API path knows whether the run was really canceled.
+                status: isSandboxRun ? 'unknown' : cancelFailure ? 'failure' : 'success',
+                conversation_id: conversationId,
+                agent_runtime: conversation.agent_runtime,
+                attempts,
+            })
+
+            // The await above yields, so the user may have navigated away and unmounted this keyed
+            // logic. Dispatching into it now throws a Kea "can not find path" error, which used to
+            // surface as a cancel failure even though the run was canceled. findMounted resolves by
+            // key alone, so a replacement mount for the same conversation answers too - compare the
+            // instance cache to keep a stale completion out of that replacement.
+            if (maxThreadLogic.findMounted(props)?.cache !== cache) {
+                return
+            }
+
+            if (cancelFailure) {
+                posthog.captureException(cancelFailure)
+                // The cancel endpoint reports a 422 under `error`; other API failures use `detail`.
+                lemonToast.error(
+                    cancelFailure?.data?.error || cancelFailure?.data?.detail || 'Failed to cancel the generation.'
+                )
+            }
+
+            actions.loadConversation(conversationId)
             actions.setCancelLoading(false)
         },
 
