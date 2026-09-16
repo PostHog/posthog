@@ -3427,6 +3427,33 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('_posthog/turn_suggestion', () => {
+        const suggestionParams = {
+            turnIndex: 0,
+            kind: 'scout',
+            intent: 'metric_state',
+            confidence: 0.9,
+            title: 'Get this every week in Slack',
+            description: 'A scout can rerun this count each week.',
+            scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
+        }
+
+        it('keys the suggestion by turn and drops it on reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/turn_suggestion', { kind: 'notebook', turnIndex: 1 })
+                )
+            }).toFinishAllListeners()
+
+            expect(Object.keys(logic.values.turnSuggestions)).toEqual(['0'])
+            expect(logic.values.turnSuggestions[0]).toMatchObject({ kind: 'scout', scout: { cadence: 'weekly' } })
+
+            logic.actions.reset()
+            expect(logic.values.turnSuggestions).toEqual({})
+        })
+    })
+
     describe('_posthog/sdk_session handling', () => {
         it('stashes the adapter/session identity without rendering UI', async () => {
             await expectLogic(logic, () => {

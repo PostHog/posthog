@@ -1,4 +1,5 @@
 import re
+import json
 import time
 import hashlib
 import logging
@@ -3954,6 +3955,78 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
     if log_urls is None:
         return None
     return read_task_run_log_content(log_urls)
+
+
+def parse_task_run_log_entries(log_content: str) -> list[dict]:
+    """JSONL log content as the stream frames it holds, skipping lines that are not JSON objects."""
+    entries: list[dict] = []
+    for log_line in log_content.splitlines():
+        log_line = log_line.strip()
+        if not log_line:
+            continue
+        try:
+            parsed_line = json.loads(log_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed_line, dict):
+            entries.append(parsed_line)
+    return entries
+
+
+def read_task_run_stream_entries(run_id: str | UUID) -> list[dict]:
+    """Every frame still held in the run's live Redis stream, oldest first.
+
+    The stream is capped and expires after the run ends, so a caller that needs the whole history
+    falls back to ``read_task_run_logs``. Returns an empty list when the stream is gone or unreadable.
+    """
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        DATA_KEY,
+        get_task_run_stream_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    stream_key = get_task_run_stream_key(str(run_id))
+    try:
+        state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first()
+        client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(state))
+        raw_entries = client.xrange(stream_key)
+    except Exception:
+        logger.warning("task_run_stream_read_failed run_id=%s", run_id, exc_info=True)
+        return []
+    entries: list[dict] = []
+    for _stream_id, fields in raw_entries:
+        raw = fields.get(DATA_KEY) if isinstance(fields, dict) else None
+        if raw is None:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            entries.append(parsed)
+    return entries
+
+
+def publish_task_run_stream_notification(run_id: str | UUID, method: str, params: dict) -> bool:
+    """Write a server-originated ``_posthog/*`` notification into the run's live stream.
+
+    Reaches the thread the way an agent-server frame would; it is not appended to the S3 log, so a
+    reload after the stream expires does not replay it.
+    """
+    from products.tasks.backend.logic.stream.redis_stream import (
+        publish_task_run_stream_event,  # noqa: PLC0415 — keep redis off the api import path
+    )
+    from products.tasks.backend.redis import (
+        run_uses_dedicated_stream,  # noqa: PLC0415 — keep redis off the api import path
+    )
+
+    event = {"type": "notification", "notification": {"method": method, "params": params}}
+    state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first()
+    stream_id = publish_task_run_stream_event(str(run_id), event, run_uses_dedicated_stream(state))
+    return stream_id is not None
 
 
 def get_task_run_log_urls(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[str] | None:

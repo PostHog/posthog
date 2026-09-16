@@ -261,3 +261,24 @@ export interface PermissionRequestRecord {
      */
     questions?: AgentQuestion[]
 }
+
+export type ScoutSuggestionCadence = 'daily' | 'weekly'
+
+/** The scout the classifier drafted from the turn: what the card creates when accepted. */
+export interface ScoutSuggestionDraft {
+    displayName: string
+    description: string
+    body: string
+    cadence: ScoutSuggestionCadence
+}
+
+/** A validated `_posthog/turn_suggestion` frame, keyed to the completed turn it belongs to. */
+export interface TurnSuggestion {
+    turnIndex: number
+    kind: 'scout'
+    intent: string
+    confidence: number
+    title: string
+    description: string
+    scout: ScoutSuggestionDraft
+}

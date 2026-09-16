@@ -42,6 +42,8 @@ from products.signals.backend.signal_metadata import fetch_signal_stats_for_sour
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 
 if TYPE_CHECKING:
+    from posthog.models import User
+
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -1035,3 +1037,27 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+def scout_creation_available(*, team: "Team", user: "User") -> bool:
+    """Whether ``user`` can create a scout on ``team``'s project through the scout API.
+
+    Mirrors the two gates the scout create endpoint enforces, so a caller can decide whether to
+    offer scout creation at all: the canonical project must be enrolled in scouts through the
+    ``signals-scout`` flag payload, and the user needs editor access to skills because the skill
+    body is the prompt the scout agent runs.
+    """
+    from products.access_control.backend.facade.user_access_control import (
+        UserAccessControl,  # noqa: PLC0415 — access_control imports signals models; a module-level import would be circular
+    )
+    from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
+        _parse_enrollment,
+        _read_flag_payload,
+        _resolve_enrolled,
+    )
+
+    canonical_team = team.parent_team or team
+    if not _resolve_enrolled(canonical_team.id, _parse_enrollment(_read_flag_payload())):
+        return False
+    access = UserAccessControl(user=user, team=canonical_team)
+    return access.check_access_level_for_resource("llm_skill", "editor")

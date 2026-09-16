@@ -17,6 +17,7 @@ from jwt import PyJWTError
 
 from posthog.ph_client import ph_scoped_capture
 
+from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
@@ -468,6 +469,7 @@ def _dispatch_turn_completed_sync(run_id: str) -> None:
         return
 
     notify_task_run_turn_completed(task_run)
+    enqueue_turn_suggestion(task_run)
 
 
 async def _dispatch_turn_failed(run_id: str) -> None:
