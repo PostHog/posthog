@@ -12336,6 +12336,44 @@ class TestExternalDataSourceSetup(APIBaseTest):
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=False, error="boom"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_keeps_webhook_inputs_a_failed_registration_stored(
+        self, _mock_validate, mock_create_webhook, _mock_sync_views, _mock_person_join
+    ):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._create_stripe_webhook_template()
+        response = self._setup_stripe(webhook_inputs={"signing_secret": "whsec_upfront"})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["webhook"]["success"] is False
+
+        # Setup soft-deletes the handler it could not register, but the key the caller supplied has
+        # to outlive it: the source cannot read it back from the vendor.
+        soft_deleted = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert soft_deleted.deleted is True
+        assert soft_deleted.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
+
+        mock_create_webhook.return_value = WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
+        retried = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{response.json()['id']}/create_webhook/"
+        )
+
+        assert retried.status_code == status.HTTP_200_OK
+        assert retried.json()["success"] is True
+        assert retried.json()["pending_inputs"] == []
+        revived = HogFunction.objects.get(team=self.team, type="warehouse_source_webhook")
+        assert revived.id == soft_deleted.id
+        assert revived.encrypted_inputs["signing_secret"]["value"] == "whsec_upfront"
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
         return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_123"}),
     )
     @patch(
