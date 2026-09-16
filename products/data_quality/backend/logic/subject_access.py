@@ -14,6 +14,7 @@ know is absent from that snapshot and therefore out of reach.
 import json
 from collections.abc import Collection, Sequence
 from dataclasses import field
+from functools import cache
 from itertools import batched
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
 from uuid import UUID
@@ -22,6 +23,7 @@ from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
+from posthog.hogql.database.schema.system import SystemTables
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
 
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
+_SYSTEM_SCHEMA = SystemTables().name
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 _CHECK_VISIBILITY_BATCH_SIZE = 200
 _CHECK_VISIBILITY_FIELDS = ("id", "subject_type", "table_id", "saved_query_id", "metric_id", "check_type", "config")
@@ -551,10 +554,7 @@ def pin_referenced_subjects(
         references = referenced_subjects(team_id, check_type, config, subject=subject)
         if not references.names and references.related_subject is None:
             return []
-        backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
-        pinned = [
-            identity for name in references.names if (identity := _pin_name(team_id, name, backing_tables)) is not None
-        ]
+        pinned = list(_pin_names(team_id, references.names).values())
         if references.related_subject is not None:
             pinned.append(references.related_subject)
     except Exception as err:
@@ -623,17 +623,39 @@ def _as_uuid(value: str) -> UUID | None:
 
 
 def _pin_names(team_id: int, names: Sequence[str]) -> dict[str, SubjectIdentity]:
-    if not names:
-        return {}
-    backing_tables = data_modeling_facade.backing_table_ids_by_saved_query(team_id)
-    pinned = ((name, _pin_name(team_id, name, backing_tables)) for name in names)
-    return {name: identity for name, identity in pinned if identity is not None}
+    resolved = {name: ref for name in names if (ref := _resolve_pinnable(team_id, name)) is not None}
+    backing_tables = _backing_tables_of(team_id, resolved.values())
+    return {name: _pin_identity(ref, backing_tables) for name, ref in resolved.items()}
 
 
-def _pin_name(team_id: int, name: str, backing_tables: dict[UUID, UUID]) -> SubjectIdentity | None:
-    ref = resolve_subject_by_name(team_id, name)
-    if ref is None:
+def _resolve_pinnable(team_id: int, name: str) -> SubjectRef | None:
+    """The warehouse object this name reaches, or None when the name carries its own denial instead.
+
+    A ``system.*`` table is never pinned. Resolution rewrites a dotted name to an underscored one,
+    so ``system.annotations`` would otherwise reach a warehouse table a member happened to call
+    ``system_annotations``, and the member's denial of the system table would go unread.
+    """
+    if _is_system_table_name(name):
         return None
+    return resolve_subject_by_name(team_id, name)
+
+
+def _backing_tables_of(team_id: int, refs: Collection[SubjectRef]) -> dict[UUID, UUID]:
+    table_ids = {UUID(ref.subject_uuid) for ref in refs if ref.subject_type == SubjectType.TABLE}
+    return data_modeling_facade.backing_table_ids_by_saved_query(team_id, table_ids=table_ids)
+
+
+def _pin_identity(ref: SubjectRef, backing_tables: dict[UUID, UUID]) -> SubjectIdentity:
     if ref.subject_type == SubjectType.TABLE and (saved_query_id := backing_tables.get(UUID(ref.subject_uuid))):
         return SubjectIdentity(subject_type=str(SubjectType.VIEW), subject_uuid=str(saved_query_id))
     return SubjectIdentity(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)
+
+
+def _is_system_table_name(name: str) -> bool:
+    schema, separator, leaf = name.partition(".")
+    return bool(separator) and schema.lower() == _SYSTEM_SCHEMA and leaf in _system_table_names()
+
+
+@cache
+def _system_table_names() -> frozenset[str]:
+    return frozenset(SystemTables().children)

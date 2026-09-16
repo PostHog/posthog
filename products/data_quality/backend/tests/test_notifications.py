@@ -459,7 +459,26 @@ class TestDataQualityNotifications(BaseTest):
             matview.save(update_fields=["table", "is_materialized"])
             self._deny_resource("warehouse_view", blocked, str(matview.id))
             reads = backing_table.name
+        elif denied_kind == "direct_table_shadowing_a_view":
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=self.view.name,
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://bucket/orders",
+                external_data_source=ExternalDataSource.objects.create(
+                    team=self.team, source_type="Postgres", access_method=ExternalDataSource.AccessMethod.DIRECT
+                ),
+            )
+            self._deny_resource("warehouse_view", blocked, str(self.view.id))
+            reads = self.view.name
         else:
+            if denied_kind == "warehouse_table_shadowing_a_system_table":
+                DataWarehouseTable.objects.create(
+                    team=self.team,
+                    name="system_annotations",
+                    format=DataWarehouseTable.TableFormat.Parquet,
+                    url_pattern="s3://bucket/system_annotations",
+                )
             self._deny_resource("annotation", blocked)
             reads = "system.annotations"
         return self._check(
@@ -536,6 +555,8 @@ class TestDataQualityNotifications(BaseTest):
             ("dotted_source_table", "stripe_table"),
             ("materialized_view_backing_table", "backing_table"),
             ("denied_system_table", "system_table"),
+            ("warehouse_table_shadowing_a_system_table", "warehouse_table_shadowing_a_system_table"),
+            ("direct_table_shadowing_a_view", "direct_table_shadowing_a_view"),
         ]
     )
     def test_a_reference_the_member_cannot_read_withholds_the_notification(self, _name, denied_kind: str) -> None:
