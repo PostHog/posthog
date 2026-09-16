@@ -1,6 +1,6 @@
 # Frontend
 
-Three scenes behind the `autoresearch` feature flag: the pipeline list, the create form, and a single pipeline's detail view. This piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464) lands the list scene; the create form (`/autoresearch/new`) and the detail scene (`/autoresearch/:id`) arrive in the next pieces, so the list's "New model" button and row links point at routes that do not resolve yet.
+Three scenes behind the `autoresearch` feature flag: the pipeline list, the create form, and a single pipeline's detail view. The list and the create form are here; the detail scene (`/autoresearch/:id`) arrives in the next piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the list's row links do not resolve yet.
 
 The product is mostly a backend, and the UI is deliberately thin — it reads status and results rather than doing any modeling work. What it mainly has to get right is honestly representing a long-running, partly-asynchronous process whose rows arrive at different times.
 
