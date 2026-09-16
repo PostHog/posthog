@@ -4285,6 +4285,24 @@ class HogFlowViewSet(
             guard_timestamp = before_update.updated_at if before_update else None
             if route_to_draft and before_update and before_update.draft_updated_at:
                 guard_timestamp = before_update.draft_updated_at
+            # The web builder sends "includes_staged_draft" (raw body, like "stage_draft") when a save on
+            # a non-active workflow carries the staged draft merged into it. The draft is only cleared on
+            # that explicit signal, so an API caller that resends live content never loses a draft.
+            clears_staged_draft = (
+                not route_to_draft
+                and before_update is not None
+                and before_update.status != HogFlow.State.ACTIVE
+                and before_update.draft is not None
+                and bool(self.request.data.get("includes_staged_draft"))
+                and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
+            )
+            if clears_staged_draft:
+                assert before_update is not None
+                # A revision restore writes the draft without moving the live stamp, so fence on the newer one.
+                if before_update.draft_updated_at and (
+                    guard_timestamp is None or before_update.draft_updated_at > guard_timestamp
+                ):
+                    guard_timestamp = before_update.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleWorkflowUpdateError()
 
@@ -4320,14 +4338,7 @@ class HogFlowViewSet(
                         serializer.instance, before_update, serializer.validated_data.get("actions")
                     )
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
-                if (
-                    before_update is not None
-                    and before_update.status != HogFlow.State.ACTIVE
-                    and before_update.draft is not None
-                    and WRITABLE_DRAFT_CONTENT_FIELDS <= self.request.data.keys()
-                ):
-                    # A draft staged before a disable outlives it. A full save already carries that draft,
-                    # and keeping it makes the editor merge the stale draft back over this save.
+                if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
                 else:
                     serializer.save()

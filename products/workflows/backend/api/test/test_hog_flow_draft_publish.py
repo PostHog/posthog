@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -70,11 +72,13 @@ class TestHogFlowDraftPublish(APIBaseTest):
         flow.save(update_fields=["draft_encrypted_inputs"])
         return flow_id
 
-    def _editor_save_payload(self, flow_id: str, url: str) -> dict:
+    def _editor_save_payload(self, flow_id: str, url: str, includes_staged_draft: bool = True) -> dict:
         flow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
         payload = {field: flow[field] for field in WRITABLE_DRAFT_CONTENT_FIELDS}
         payload.update({field: value for field, value in (flow["draft"] or {}).items() if field in payload})
         payload["actions"] = [_trigger_action(), _webhook_action(url=url)]
+        if includes_staged_draft:
+            payload["includes_staged_draft"] = True
         return payload
 
     def _patch_actions_via_mcp(self, flow_id: str, url: str = "https://changed.example.com"):
@@ -290,14 +294,16 @@ class TestHogFlowDraftPublish(APIBaseTest):
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
         assert live_urls == ["https://saved.example.com"]
 
-    @parameterized.expand(
-        [
-            ("metadata_only", {"name": "Renamed"}),
-            ("partial_content", {"actions": [_trigger_action(), _webhook_action(url="https://saved.example.com")]}),
-        ]
-    )
-    def test_partial_save_on_disabled_flow_keeps_staged_draft(self, _name: str, payload: dict):
+    @parameterized.expand(["metadata_only", "partial_content", "full_content_without_flag"])
+    def test_save_on_disabled_flow_without_the_staged_draft_keeps_it(self, payload_kind: str):
         flow_id = self._create_disabled_flow_with_staged_draft()
+        actions = [_trigger_action(), _webhook_action(url="https://saved.example.com")]
+        if payload_kind == "metadata_only":
+            payload: dict = {"name": "Renamed"}
+        elif payload_kind == "partial_content":
+            payload = {"actions": actions, "includes_staged_draft": True}
+        else:
+            payload = self._editor_save_payload(flow_id, url="https://saved.example.com", includes_staged_draft=False)
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
         assert response.status_code == 200, response.json()
@@ -305,6 +311,18 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert draft is not None
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://staged.example.com"]
+
+    def test_full_save_on_disabled_flow_is_rejected_when_the_draft_moved_after_load(self):
+        flow_id = self._create_disabled_flow_with_staged_draft()
+        payload = self._editor_save_payload(flow_id, url="https://saved.example.com")
+        loaded = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        payload["base_updated_at"] = loaded["updated_at"]
+        flow = HogFlow.objects.get(pk=flow_id)
+        HogFlow.objects.filter(pk=flow_id).update(draft_updated_at=flow.updated_at + timedelta(minutes=1))
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        assert response.status_code == 409, response.json()
+        assert HogFlow.objects.get(pk=flow_id).draft is not None
 
     def test_mcp_content_edit_on_inactive_flow_applies_live(self):
         # Disabled/draft-status workflows edit in place — the draft cycle protects in-flight runs only
