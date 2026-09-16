@@ -54,6 +54,7 @@ pub async fn event(
             Ok(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
+                events_accepted: Some(0),
             })
         }
 
@@ -63,6 +64,7 @@ pub async fn event(
             Ok(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
+                events_accepted: Some(0),
             })
         }
 
@@ -100,6 +102,7 @@ pub async fn event(
                     CaptureResponseCode::Ok
                 },
                 quota_limited: None,
+                events_accepted: Some(event_count),
             })
         }
     }
@@ -148,6 +151,7 @@ pub async fn recording(
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
+            events_accepted: Some(0),
         }),
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
@@ -176,6 +180,7 @@ pub async fn recording(
                     CaptureResponseCode::Ok
                 },
                 quota_limited: None,
+                events_accepted: Some(count),
             })
         }
     }
@@ -185,5 +190,6 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
     Ok(Json(CaptureResponse {
         status: CaptureResponseCode::Ok,
         quota_limited: None,
+        events_accepted: None,
     }))
 }

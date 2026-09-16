@@ -137,6 +137,7 @@ pub async fn test_black_hole(
             return Ok(Json(CaptureResponse {
                 status: CaptureResponseCode::Ok,
                 quota_limited: None,
+                events_accepted: None,
             }));
         }
     };
@@ -192,6 +193,7 @@ pub async fn test_black_hole(
     Ok(Json(CaptureResponse {
         status: CaptureResponseCode::Ok,
         quota_limited: None,
+        events_accepted: None,
     }))
 }
 

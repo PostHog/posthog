@@ -312,14 +312,22 @@ pub async fn validate_response_success(title: &str, res: TestResponse) {
         res.text().await
     );
 
-    let cap_resp_details = res.json().await;
+    let cap_resp_details: Option<CaptureResponse> = res.json().await;
+    let Some(cap_resp) = cap_resp_details else {
+        panic!("test {title}: missing CaptureResponse body");
+    };
     assert_eq!(
-        Some(CaptureResponse {
-            status: CaptureResponseCode::Ok,
-            quota_limited: None,
-        }),
-        cap_resp_details,
-        "test {title}: non-OK CaptureResponse: {cap_resp_details:?}",
+        CaptureResponseCode::Ok,
+        cap_resp.status,
+        "test {title}: non-OK CaptureResponse: {cap_resp:?}",
+    );
+    assert_eq!(
+        None, cap_resp.quota_limited,
+        "test {title}: unexpected quota_limited: {cap_resp:?}",
+    );
+    assert!(
+        cap_resp.events_accepted.is_some_and(|count| count > 0),
+        "test {title}: expected a non-zero events_accepted: {cap_resp:?}",
     );
 }
 

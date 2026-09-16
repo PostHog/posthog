@@ -366,5 +366,6 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
     Ok(CaptureResponse {
         status: CaptureResponseCode::Ok,
         quota_limited: None,
+        events_accepted: None,
     })
 }
