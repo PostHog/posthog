@@ -364,37 +364,51 @@ def _cached_digest(cached: object) -> contracts.IntentDigest | None:
         return None
     # Frozen dataclasses don't validate, so a payload with the right keys and wrong value types
     # would construct here and only fail later in the serializer, past the 503 handler.
-    if any(not isinstance(theme.intent_count, int) or not isinstance(theme.tools, list) for theme in themes):
+    if any(
+        not isinstance(theme.intent_count, int)
+        or not isinstance(theme.tools, list)
+        or not isinstance(theme.error_count, int)
+        or not isinstance(theme.success_pct, int | float)
+        for theme in themes
+    ):
         return None
     return contracts.IntentDigest(
         digest=cached.get("summary"), intent_count=cached.get("intent_count", 0), themes=themes
     )
 
 
-def generate_intent_digest(team: Team) -> contracts.IntentDigest:
+def generate_intent_digest(team: Team, caller_kind: str = "people") -> contracts.IntentDigest:
     """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
 
     A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
-    names each group; counts, tools, and the verbatim example are resolved from the corpus by
-    ``intent_generation.resolve_themes``, so nothing countable on the card is model-generated.
+    names each group; counts, tools, the verbatim example, and each theme's error_count/
+    success_pct are resolved from the corpus by ``intent_generation.resolve_themes``, so nothing
+    countable on the card is model-generated.
+
+    ``caller_kind`` (people/automations/all) scopes the corpus to one caller segment — see
+    ``hogql_queries.base.caller_kind_expr``. Defaults to "people" so the digest reads as what
+    PostHog's own customers are doing, excluding this project's own automated run types.
 
     Two cache layers, because the two ends of the volume range want opposite things. The
     content-addressed key means a quiet project never pays for a regeneration while its intents sit
     unchanged. The recency key bounds a busy project, whose corpus is different on every request, to
     one generation per ``INTENT_DIGEST_MIN_REGENERATE_SECONDS``. ``intent_count`` travels in the
     payload so a served digest always reports the corpus it was actually derived from, keeping the
-    theme shares consistent with the total the card displays.
+    theme shares consistent with the total the card displays. Both keys are namespaced by
+    ``caller_kind`` so the two segments never serve each other's cached digest.
 
     A project with no recorded intents returns a null digest without an LLM call. Raises
     ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
-    intents = intent_generation.fetch_recent_project_intents(team)
+    intents = intent_generation.fetch_recent_project_intents(team, caller_kind=caller_kind)
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0)
 
-    corpus_hash = hashlib.sha256("\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()).hexdigest()
-    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
-    recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
+    corpus_hash = hashlib.sha256(
+        "\x00".join(f"{intent}\x01{tool}\x01{is_error}" for intent, tool, is_error in intents).encode()
+    ).hexdigest()
+    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{caller_kind}/{corpus_hash}")
+    recent_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{caller_kind}/recent")
     for key in (corpus_key, recent_key):
         cached = _cached_digest(cache.get(key))
         if cached is not None:

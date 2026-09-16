@@ -446,13 +446,20 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
 
 class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    def _seed_intent_event(self, intent: str) -> None:
+    def _seed_intent_event(self, intent: str, *, scope_preset: str | None = None) -> None:
+        properties: dict[str, Any] = {
+            "$session_id": str(uuid7()),
+            "$mcp_tool_name": "query_run",
+            "$mcp_intent": intent,
+        }
+        if scope_preset:
+            properties["$mcp_scope_preset"] = scope_preset
         _create_event(
             team=self.team,
             event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
-            properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", "$mcp_intent": intent},
+            properties=properties,
         )
 
     def test_no_intents_returns_null_digest_without_llm(self) -> None:
@@ -461,6 +468,23 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
 
         assert result == contracts.IntentDigest(digest=None, intent_count=0)
         mock_summarize.assert_not_called()
+
+    def test_caller_kind_scopes_the_corpus_and_cache_key(self) -> None:
+        # $mcp_scope_preset is stamped only on PostHog's own automated run types, so the default
+        # "people" kind must exclude it while "all" picks it back up — and each kind must
+        # regenerate rather than serve the other's cached digest.
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        self._seed_intent_event("automated scan", scope_preset="scout")
+        parsed = intent_generation.IntentThemesSchema(summary="Summary.", themes=[])
+
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
+            people_result = api.generate_intent_digest(self.team, caller_kind="people")
+            all_result = api.generate_intent_digest(self.team, caller_kind="all")
+
+        assert people_result.intent_count == 1
+        assert all_result.intent_count == 2
+        assert mock_summarize.call_count == 2
 
     def test_generates_then_serves_from_cache_for_same_corpus(self) -> None:
         cache.clear()
@@ -509,8 +533,8 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
 
     @parameterized.expand(
         [
-            ("corpus_key", "mcp_intent_digest_v3/{corpus_hash}"),
-            ("recent_key", "mcp_intent_digest_v3/recent"),
+            ("corpus_key", "mcp_intent_digest_v3/people/{corpus_hash}"),
+            ("recent_key", "mcp_intent_digest_v3/people/recent"),
         ]
     )
     def test_regenerates_when_a_cached_payload_predates_the_current_shape(self, _name: str, key: str) -> None:
@@ -537,9 +561,9 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
 
 class TestResolveIntentThemes(SimpleTestCase):
     CORPUS = [
-        ("check the signups funnel", "query_run"),
-        ("compare to last week", "query_run"),
-        ("list the feature flags", "flag_list"),
+        ("check the signups funnel", "query_run", False),
+        ("compare to last week", "query_run", True),
+        ("list the feature flags", "flag_list", False),
     ]
 
     def _resolve(self, *themes: intent_generation.IntentThemeSchema) -> list[contracts.IntentTheme]:
@@ -556,6 +580,15 @@ class TestResolveIntentThemes(SimpleTestCase):
         assert themes[0].intent_count == 2
         assert themes[0].example_intent == "check the signups funnel"
         assert themes[0].tools == ["flag_list", "query_run"]
+
+    def test_derives_error_count_and_success_pct_from_the_corpus(self) -> None:
+        # Only CORPUS[1] ("compare to last week") is an errored call; the model never reports
+        # this, so a regression here would mean the LLM's own (untrustworthy) count leaked in.
+        themes = self._resolve(self._theme("All three", [1, 2, 3]))
+
+        assert themes[0].intent_count == 3
+        assert themes[0].error_count == 1
+        assert themes[0].success_pct == round(2 / 3 * 100, 1)
 
     @parameterized.expand(
         [
@@ -583,7 +616,7 @@ class TestResolveIntentThemes(SimpleTestCase):
         assert self._resolve(self._theme("Empty", numbers)) == []
 
     def test_caps_the_theme_count(self) -> None:
-        corpus = [(f"intent {i}", "query_run") for i in range(20)]
+        corpus = [(f"intent {i}", "query_run", False) for i in range(20)]
         parsed = intent_generation.IntentThemesSchema(
             summary="Summary.",
             themes=[self._theme(f"Theme {i}", [i + 1]) for i in range(10)],
@@ -600,7 +633,7 @@ class TestResolveIntentThemes(SimpleTestCase):
     def test_numbers_one_intent_per_line_whatever_the_agent_wrote(self, _name: str, intent: str) -> None:
         # Agents author the intent text. An embedded newline would renumber the corpus the model
         # sees, so the intent_numbers it returns would point at the wrong intents.
-        prompt = intent_generation._build_digest_prompt([(intent, "query_run"), ("second", "flag_list")])
+        prompt = intent_generation._build_digest_prompt([(intent, "query_run", False), ("second", "flag_list", False)])
         numbered = [line for line in prompt.splitlines() if line[:2] in {"1.", "2.", "3."}]
 
         assert len(numbered) == 2

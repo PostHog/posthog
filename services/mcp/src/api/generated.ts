@@ -15850,6 +15850,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `people` - PEOPLE
+     * * `automations` - AUTOMATIONS
+     * * `all` - ALL
+     */
+    export type CallerKindEnum = typeof CallerKindEnum[keyof typeof CallerKindEnum];
+
+
+    export const CallerKindEnum = {
+      People: 'people',
+      Automations: 'automations',
+      All: 'all',
+    } as const;
+
+    /**
      * * `error` - error
      * * `warning` - warning
      */
@@ -53203,6 +53217,10 @@ export namespace Schemas {
       readonly example_intent: string;
       /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
       readonly tools: readonly string[];
+      /** How many of this theme's intents came from a call that errored, counted from the corpus. */
+      readonly error_count: number;
+      /** Share of this theme's intents that came from a successful call, counted from the corpus. */
+      readonly success_pct: number;
     }
 
     export interface MCPIntentDigest {
@@ -53215,6 +53233,15 @@ export namespace Schemas {
       readonly intent_count: number;
       /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
       readonly themes: readonly MCPIntentTheme[];
+    }
+
+    export interface MCPIntentDigestRequest {
+      /** Which caller segment to summarize. 'people' (the default) excludes PostHog's own hosted-server automated run types; 'automations' includes only them; 'all' includes both. Customer servers never set the underlying property, so their traffic is always 'people'.
+       *
+       * * `people` - PEOPLE
+       * * `automations` - AUTOMATIONS
+       * * `all` - ALL */
+      caller_kind?: CallerKindEnum;
     }
 
     /**

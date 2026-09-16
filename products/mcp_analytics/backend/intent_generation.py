@@ -19,7 +19,7 @@ from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -27,6 +27,7 @@ from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable, IntentTheme
+from products.mcp_analytics.backend.hogql_queries.base import caller_kind_expr
 
 logger = structlog.get_logger(__name__)
 
@@ -182,31 +183,43 @@ DIGEST_SYSTEM_PROMPT = (
 )
 
 _PROJECT_INTENTS_SQL = """
-SELECT toString(properties.$mcp_intent) AS intent, toString(properties.$mcp_tool_name) AS tool
+SELECT
+    toString(properties.$mcp_intent) AS intent,
+    toString(properties.$mcp_tool_name) AS tool,
+    toBool(properties.$mcp_is_error) AS is_error
 FROM events
-WHERE event = {event}
-    AND timestamp >= {date_from}
-    AND coalesce(properties.$mcp_intent, '') != ''
+WHERE {where}
 ORDER BY timestamp DESC
 LIMIT {limit}
 """
 
 
-def fetch_recent_project_intents(team: Team) -> list[tuple[str, str]]:
-    """Return the project's most recent ``($mcp_intent, tool_name)`` pairs, newest first."""
+def fetch_recent_project_intents(team: Team, caller_kind: str | None = None) -> list[tuple[str, str, bool]]:
+    """Return the project's most recent ``($mcp_intent, tool_name, is_error)`` triples, newest first.
+
+    ``caller_kind`` scopes to one caller segment (people/automations/all), or applies no filter
+    when None — see ``hogql_queries.base.caller_kind_expr``.
+    """
+    exprs: list[ast.Expr] = [
+        parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+        parse_expr(
+            "timestamp >= {date_from}",
+            placeholders={"date_from": ast.Constant(value=timezone.now() - DIGEST_LOOKBACK)},
+        ),
+        parse_expr("coalesce(properties.$mcp_intent, '') != ''"),
+    ]
+    kind_expr = caller_kind_expr(caller_kind)
+    if kind_expr is not None:
+        exprs.append(kind_expr)
     query = parse_select(
         _PROJECT_INTENTS_SQL,
-        placeholders={
-            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
-            "date_from": ast.Constant(value=timezone.now() - DIGEST_LOOKBACK),
-            "limit": ast.Constant(value=MAX_DIGEST_INTENTS),
-        },
+        placeholders={"where": ast.And(exprs=exprs), "limit": ast.Constant(value=MAX_DIGEST_INTENTS)},
     )
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_intent_digest"
     ):
         response = execute_hogql_query(query=query, team=team)
-    return [(str(row[0]), str(row[1] or "")) for row in (response.results or []) if row[0]]
+    return [(str(row[0]), str(row[1] or ""), bool(row[2])) for row in (response.results or []) if row[0]]
 
 
 def _one_line(intent: str) -> str:
@@ -218,15 +231,15 @@ def _one_line(intent: str) -> str:
     return " ".join(intent[:MAX_INTENT_PROMPT_CHARS].split())
 
 
-def _build_digest_prompt(intents: list[tuple[str, str]]) -> str:
+def _build_digest_prompt(intents: list[tuple[str, str, bool]]) -> str:
     numbered = "\n".join(
         f"{i + 1}. {_one_line(intent)}" + (f" (tool: {tool})" if tool else "")
-        for i, (intent, tool) in enumerate(intents)
+        for i, (intent, tool, _is_error) in enumerate(intents)
     )
     return f"Per-tool-call intents (most recent first):\n{numbered}\n\nGroup them into themes."
 
 
-def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> IntentThemesSchema:
+def summarize_project_intents(intents: list[tuple[str, str, bool]], team: Team) -> IntentThemesSchema:
     """Group the project's intents into named themes. Blocking — the endpoint runs it inline.
 
     Grouping only: the returned themes carry intent numbers, not counts. Call ``resolve_themes``
@@ -274,10 +287,11 @@ def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> Int
     return parsed
 
 
-def resolve_themes(parsed: IntentThemesSchema, intents: list[tuple[str, str]]) -> list[IntentTheme]:
+def resolve_themes(parsed: IntentThemesSchema, intents: list[tuple[str, str, bool]]) -> list[IntentTheme]:
     """Turn the model's groupings into themes whose counts, tools, and examples come from the corpus.
 
-    The model only says *which* intents belong together; everything countable is derived here, so a
+    The model only says *which* intents belong together; everything countable, including
+    error_count and success_pct, is derived here from each intent's ``$mcp_is_error``, so a
     hallucinated number can't reach the dashboard. Intent numbers that are out of range or already
     claimed by an earlier theme are dropped, which keeps the per-theme counts summing to at most the
     number of intents analysed, which the share bars depend on.
@@ -293,13 +307,17 @@ def resolve_themes(parsed: IntentThemesSchema, intents: list[tuple[str, str]]) -
         if not indices or not theme.name.strip():
             continue
         claimed.update(indices)
+        intent_count = len(indices)
+        error_count = sum(1 for index in indices if intents[index][2])
         themes.append(
             IntentTheme(
                 name=theme.name.strip(),
                 description=theme.description.strip(),
-                intent_count=len(indices),
+                intent_count=intent_count,
                 example_intent=intents[indices[0]][0][:MAX_INTENT_PROMPT_CHARS],
                 tools=sorted({intents[index][1] for index in indices if intents[index][1]}),
+                error_count=error_count,
+                success_pct=round((intent_count - error_count) * 100.0 / intent_count, 1),
             )
         )
     themes.sort(key=lambda theme: theme.intent_count, reverse=True)
