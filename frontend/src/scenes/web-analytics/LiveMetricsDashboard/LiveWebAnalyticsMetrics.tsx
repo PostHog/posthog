@@ -424,7 +424,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 return (
                     <LiveTopPathsTable
                         paths={topPaths}
-                        isLoading={isQueryLoading('paths')}
+                        isLoading={isQueryLoading('paths', 'usersPageviews')}
                         totalPageviews={totalPageviews}
                     />
                 )
@@ -432,7 +432,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 return (
                     <LiveTopReferrersTable
                         referrers={topReferrers}
-                        isLoading={isQueryLoading('referrer')}
+                        isLoading={isQueryLoading('referrer', 'usersPageviews')}
                         totalPageviews={totalPageviews}
                     />
                 )

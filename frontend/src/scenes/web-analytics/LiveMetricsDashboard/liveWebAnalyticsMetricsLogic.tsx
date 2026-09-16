@@ -164,8 +164,8 @@ export interface liveWebAnalyticsMetricsLogicValues {
     isBotLoading: boolean
     isRefreshing: boolean
     liveFilters: WebAnalyticsPropertyFilter[]
-    loadingQueries: Set<LiveQueryKey>
     liveUserCount: number
+    loadingQueries: Set<'browser' | 'city' | 'device' | 'geo' | 'paths' | 'recentUsers' | 'referrer' | 'usersPageviews'>
     pathCleaningFilters: PathCleaningFilter[]
     recentEvents: LiveEvent[]
     recentUsersByLastSeen: Map<string, number>
@@ -222,6 +222,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     loadInitialData: (isBackground?: boolean) => {
         isBackground: boolean
     }
+    markQueryLoaded: (key: LiveQueryKey) => {
+        key: 'browser' | 'city' | 'device' | 'geo' | 'paths' | 'recentUsers' | 'referrer' | 'usersPageviews'
+    }
     pauseStream: () => {
         value: true
     }
@@ -245,17 +248,14 @@ export interface liveWebAnalyticsMetricsLogicActions {
     setBotQueryStatus: (status: BotQueryStatus) => {
         status: BotQueryStatus
     }
-    setRecentUsersByLastSeen: (recentUsersByLastSeen: [string, number][]) => {
-        recentUsersByLastSeen: [string, number][]
-    }
-    setLoadingQueries: (keys: LiveQueryKey[]) => {
-        keys: LiveQueryKey[]
-    }
-    markQueryLoaded: (key: LiveQueryKey) => {
-        key: LiveQueryKey
-    }
     setIsRefreshing: (refreshing: boolean) => {
         refreshing: boolean
+    }
+    setLoadingQueries: (keys: LiveQueryKey[]) => {
+        keys: ('browser' | 'city' | 'device' | 'geo' | 'paths' | 'recentUsers' | 'referrer' | 'usersPageviews')[]
+    }
+    setRecentUsersByLastSeen: (recentUsersByLastSeen: [string, number][]) => {
+        recentUsersByLastSeen: [string, number][]
     }
     tickCurrentMinute: () => {
         value: true
@@ -801,7 +801,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     if (signal.aborted) {
                         return
                     }
-                    firstCardAt ??= performance.now()
+                    if (response) {
+                        firstCardAt ??= performance.now()
+                    }
                     if (key === 'recentUsers') {
                         actions.setRecentUsersByLastSeen(
                             response ? getRecentUsersByLastSeenEntries(response as HogQLQueryResponse) : []
