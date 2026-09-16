@@ -41,7 +41,9 @@ export function MemberProjectAccessModal(): JSX.Element {
                     <span>
                         {entry.access_level === 'none' ? 'No access' : capitalizeFirstLetter(entry.access_level)}
                     </span>
-                    <span className="text-xs text-tertiary">{describeProjectAccessSource(entry)}</span>
+                    <span className="text-xs text-tertiary">
+                        {modalMember ? describeProjectAccessSource(entry, modalMember.level) : null}
+                    </span>
                 </div>
             ),
         },

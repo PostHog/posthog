@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -25,14 +26,19 @@ export function orderByActivity(
     return [...projects].sort((a, b) => lastDataAt(b) - lastDataAt(a))
 }
 
-export function describeProjectAccessSource(entry: MemberProjectAccessEntryApi): string {
+export function describeProjectAccessSource(
+    entry: MemberProjectAccessEntryApi,
+    memberLevel: OrganizationMembershipLevel
+): string {
     const resolved = entry.resolved
     if (!resolved) {
         return 'No rule applies'
     }
     switch (resolved.source) {
         case 'org_admin':
-            return 'Organization admins always have full access'
+            return memberLevel === OrganizationMembershipLevel.Owner
+                ? 'Organization owners always have full access'
+                : 'Organization admins always have full access'
         case 'creator':
             return 'Created this project'
         case 'system_default':

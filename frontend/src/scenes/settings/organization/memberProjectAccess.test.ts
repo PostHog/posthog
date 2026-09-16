@@ -1,3 +1,5 @@
+import { OrganizationMembershipLevel } from 'lib/constants'
+
 import type { MemberProjectAccessEntryApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import {
@@ -51,8 +53,20 @@ describe('memberProjectAccess', () => {
         ['object', 'default', 'Based on project default permissions'],
     ] as const)('describes the %s / %s source', (source, source_subject, expected) => {
         expect(
-            describeProjectAccessSource(entry('App', 'admin', { source, source_subject, subject_name: 'Engineering' }))
+            describeProjectAccessSource(
+                entry('App', 'admin', { source, source_subject, subject_name: 'Engineering' }),
+                OrganizationMembershipLevel.Admin
+            )
         ).toBe(expected)
+    })
+
+    it('names owners in the bypass reason', () => {
+        expect(
+            describeProjectAccessSource(
+                entry('App', 'admin', { source: 'org_admin' }),
+                OrganizationMembershipLevel.Owner
+            )
+        ).toBe('Organization owners always have full access')
     })
 
     it.each([
