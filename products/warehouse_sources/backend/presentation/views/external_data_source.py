@@ -3632,16 +3632,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # A SQL source's credential probe runs the same discovery fan-out as the listing below, so the
         # two share one budget rather than getting one each.
         deadline = _DiscoveryDeadline(DISCOVERY_DEADLINE_SECONDS)
+        # A rejected credential ends discovery with a message and no catalog, so it belongs in the
+        # count. It carries the failures a source resolves inside its own probe: a SQL source lists
+        # the catalog to validate, so a listing that is too wide to answer arrives here rather than
+        # in the handler below. Counted here rather than in the helper, which non-discovery
+        # credential flows also use.
+        credentials_failure_cause = "invalid_credentials"
         try:
             credentials_valid, credentials_error = deadline.run(probe)
         except FutureTimeoutError as e:
             return _discovery_timed_out_response(source, self.team_id, e)
         except Exception as e:
-            # A probe that raises instead of returning `(False, message)` is a discovery failure too.
-            # Counted here rather than in the helper, which non-discovery credential flows also use.
-            _record_discovery_failure(source, "unexpected")
+            # A probe that raises instead of returning `(False, message)` is a different failure.
+            credentials_failure_cause = "unexpected"
             credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
+            _record_discovery_failure(source, credentials_failure_cause)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},

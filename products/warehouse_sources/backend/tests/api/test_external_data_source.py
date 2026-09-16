@@ -20,6 +20,7 @@ import psycopg
 import requests
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -5417,6 +5418,48 @@ class TestExternalDataSource(APIBaseTest):
         for phrase in forbidden_phrases:
             assert phrase not in message.lower()
         mock_capture_exception.assert_not_called()
+
+    def test_database_schema_counts_a_source_error_the_credential_probe_resolved(self):
+        # A SQL source lists the catalog to validate, so a catalog too wide to list comes back as a
+        # rejected credential carrying guidance. That answer left no trace at all: the source maps
+        # it instead of raising, so nothing captured it and nothing counted it either.
+        from snowflake.connector.errors import ProgrammingError
+
+        labels = {"source_type": "Snowflake", "cause": "invalid_credentials"}
+        before = REGISTRY.get_sample_value("warehouse_source_discovery_failures_total", labels) or 0.0
+        error = ProgrammingError(
+            msg="000709 (54000): Information schema query returned too much data. "
+            "Please repeat query with more selective predicates.",
+            errno=709,
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.get_schemas",
+            side_effect=error,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": "Snowflake",
+                    "account_id": "my_account_id",
+                    "database": "my_database",
+                    "warehouse": "my_warehouse",
+                    "auth_type": {
+                        "selection": "password",
+                        "user": "my_username",
+                        "password": "my_password",
+                        "private_key": "",
+                        "passphrase": "",
+                    },
+                    "role": "",
+                    "schema": "",
+                },
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Schema field" in response.json()["message"]
+        after = REGISTRY.get_sample_value("warehouse_source_discovery_failures_total", labels) or 0.0
+        assert after - before == 1.0
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
