@@ -14,6 +14,8 @@ from typing import Any
 
 from django.http import HttpRequest, HttpResponse
 
+from rest_framework.throttling import BaseThrottle
+
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.verify.schemes import SignatureScheme, VerificationOutcome
 
@@ -49,6 +51,11 @@ class WebhookProvider(ABC):
     invalid_signature_status: int = 403
     unconfigured_status: int = 500
     success_status: int = 202
+    # A DRF throttle the view runs in front of verification, for a public endpoint whose
+    # verification is expensive: Teams signs with a JWT, so the first thing an unsigned request
+    # costs is a signing-key lookup. `None` runs no throttle, which is right for an endpoint
+    # whose verification is a local HMAC.
+    throttle_class: type[BaseThrottle] | None = None
     # Answered instead of the receipt when the forward to the owning region fails, so a provider
     # that redelivers on a non-2xx tries again (Slack does, GitHub does not). `None` keeps the
     # receipt. This is the one documented exception to "consumers never decide the response": the

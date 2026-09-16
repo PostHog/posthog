@@ -12,6 +12,8 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 import structlog.testing
 from parameterized import parameterized
 from requests import RequestException
+from rest_framework.request import Request as DRFRequest
+from rest_framework.throttling import BaseThrottle
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -45,6 +47,23 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     forward_failure_status = 502
+
+
+class _StubThrottle(BaseThrottle):
+    allowed = False
+    wait_seconds: float | None = None
+
+    def allow_request(self, request: DRFRequest, view: object) -> bool:
+        return self.allowed
+
+    def wait(self) -> float | None:
+        return self.wait_seconds
+
+
+class _ThrottledGitHubProvider(GitHubProvider):
+    # Stands in for a provider whose verification is expensive enough to cap in front of, the way
+    # a JWT signing-key lookup is.
+    throttle_class = _StubThrottle
 
 
 class _FormBodyGitHubProvider(GitHubProvider):
@@ -82,6 +101,45 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.status_code, 405)
         secret.assert_not_called()
         self.dispatcher.dispatch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_throttle_that_says_how_long", 30.4, "31"),
+            ("a_throttle_that_does_not", None, None),
+        ]
+    )
+    def test_a_throttled_request_is_429_before_any_signature_is_checked(
+        self, _name: str, wait_seconds: float | None, retry_after: str | None
+    ) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET) as secret,
+            patch.object(_StubThrottle, "wait_seconds", wait_seconds),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+        ):
+            response = build_webhook_view(_ThrottledGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers.get("Retry-After"), retry_after)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["throttled"])
+        # The cap is worth having only if it lands before the signing key is read.
+        secret.assert_not_called()
+        self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_throttle_that_allows_the_request_changes_nothing(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET),
+            patch.object(_StubThrottle, "allowed", True),
+        ):
+            response = build_webhook_view(_ThrottledGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        self.dispatcher.dispatch.assert_called_once()
 
     def test_a_bad_signature_is_403_and_never_reaches_a_consumer(self) -> None:
         body = json.dumps({"action": "opened"}).encode()

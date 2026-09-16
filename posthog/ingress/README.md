@@ -23,13 +23,19 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 `build_webhook_view()` runs the same lanes for every provider, in this order:
 
 1. **Method** — anything but `POST` is 405, before any secret is read.
-2. **Verify** — `provider.verify(request)` over the raw body. A bad signature never reaches a consumer.
-3. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
-4. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
-5. **Dispatch** — ownership, the forward, then the consumers, all inside one wall-clock budget.
+2. **Throttle** — `provider.throttle_class`, when the provider sets one. A refusal is 429 with a `Retry-After`.
+3. **Verify** — `provider.verify(request)` over the raw body. A bad signature never reaches a consumer.
+4. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
+5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
+6. **Dispatch** — ownership, the forward, then the consumers, all inside one wall-clock budget.
 
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
+
+The throttle sits **in front of** verification, because on a provider that signs with a JWT the verification is the expensive half.
+An unsigned request buys a signing-key lookup, so the cap has to be reached first or it caps nothing worth capping.
+`throttle_class` takes a DRF throttle from `posthog.rate_limit`, which is where every other rate belongs.
+A provider whose verification is a local HMAC leaves it at `None`.
 
 ## Endpoints
 
@@ -46,7 +52,8 @@ It stays **after** verification, and must: a `parse` that reads `request.POST` c
 The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
 The others are declared by the product that owns them.
 
-The Vapi endpoint sits behind a per-IP throttle the product owns, because ingress has no throttle lane and the endpoint is public.
+The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
+It moves onto `throttle_class` next.
 
 ## Non-goals
 
@@ -197,7 +204,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.

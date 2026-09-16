@@ -10,6 +10,7 @@ from prometheus_client import Counter, Histogram
 DeliveryOutcome = Literal[
     "accepted",
     "method_not_allowed",
+    "throttled",
     "not_configured",
     "invalid_signature",
     "invalid_payload",

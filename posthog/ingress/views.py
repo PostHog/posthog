@@ -1,11 +1,13 @@
-"""The one inbound webhook view: verify, parse, dispatch, answer a fixed receipt."""
+"""The one inbound webhook view: throttle, verify, parse, dispatch, answer a fixed receipt."""
 
+import math
 from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from rest_framework.request import Request as DRFRequest
 
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
@@ -19,11 +21,34 @@ from posthog.regions import is_primary_region
 logger = structlog.get_logger(__name__)
 
 
+def _throttle_refusal(provider: WebhookProvider, request: HttpRequest) -> HttpResponse | None:
+    """The 429 this provider's throttle asks for, or `None` when the request may continue."""
+    throttle_class = provider.throttle_class
+    if throttle_class is None:
+        return None
+
+    throttle = throttle_class()
+    # DRF throttles read a DRF request and this is a plain Django view, so the request is
+    # wrapped rather than the throttle reimplemented: the rates live in `posthog.rate_limit`
+    # with every other throttle, and a wrapped request carries the headers they key on.
+    if throttle.allow_request(DRFRequest(request), view=None):  # type: ignore[arg-type]
+        return None
+
+    observe_delivery(provider=provider.provider, app=provider.app, outcome="throttled")
+    response = HttpResponse(status=429)
+    wait = throttle.wait()
+    if wait is not None:
+        # Rounded up, so a caller that obeys the header comes back after the window rather
+        # than inside it and spends its next attempt on another 429.
+        response["Retry-After"] = str(math.ceil(wait))
+    return response
+
+
 def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], HttpResponse]:
     """A Django view for one provider app.
 
-    The response is a transport receipt. Verification, method and payload decide the status;
-    consumers never do, and their return values are ignored.
+    The response is a transport receipt. The method, the throttle, verification and the payload
+    decide the status; consumers never do, and their return values are ignored.
     """
 
     @csrf_exempt
@@ -31,6 +56,13 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
         if request.method != "POST":
             observe_delivery(provider=provider.provider, app=provider.app, outcome="method_not_allowed")
             return HttpResponse(status=405)
+
+        # The throttle runs in front of verification, because on a provider that signs with a
+        # JWT the verification is the expensive half: an unsigned request would otherwise buy
+        # a signing-key lookup before anything caps how many of them arrive.
+        throttled = _throttle_refusal(provider, request)
+        if throttled is not None:
+            return throttled
 
         outcome = provider.verify(request)
         if outcome is VerificationOutcome.NOT_CONFIGURED:
