@@ -654,7 +654,7 @@ def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
 @pytest.mark.django_db
 def test_verify_queued_query_backed_request_counts_pending_queue_rows(team):
     request = DataDeletionRequest.objects.create(
-        team=team,
+        team_id=team.pk,
         request_type=RequestType.HOGQL_EVENT_REMOVAL,
         hogql_query="SELECT uuid FROM events",
         execution_mode="deferred",
