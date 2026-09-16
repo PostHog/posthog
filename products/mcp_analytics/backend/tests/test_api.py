@@ -441,7 +441,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert old in results
         assert new not in results
 
-    def test_overlapping_session_reports_full_stats_not_clipped(self) -> None:
+    @parameterized.expand([("within_one_day", timedelta(hours=2)), ("beyond_one_day", timedelta(days=3))])
+    def test_overlapping_session_reports_full_stats_not_clipped(self, _name: str, session_age: timedelta) -> None:
         # A session straddling the window start is included with its FULL stats: the event
         # before the window counts too, so start/duration/tool count span the whole session
         # rather than just the in-window slice.
@@ -450,7 +451,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         self._seed_session(
             session_id,
             ["query_run", "insight_get"],
-            session_start=now - timedelta(hours=2),  # before the window
+            session_start=now - session_age,  # before the window
             session_end=now - timedelta(minutes=10),  # inside the window
         )
 
@@ -466,11 +467,10 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert session.tool_calls == 2
         assert sorted(session.tools_used) == ["insight_get", "query_run"]
         # session_start is the pre-window event, not clipped up to the window start.
-        assert session.session_start < now - timedelta(hours=1)
+        assert session.session_start < now - session_age + timedelta(minutes=1)
 
     def test_session_entirely_outside_window_is_excluded(self) -> None:
-        # The buffered scan reads events just outside the window, but a session with no event
-        # *inside* the window must not leak in via the buffer.
+        # A session with no event inside the window must not appear in the list.
         session_id = str(uuid7())
         now = datetime.now(tz=UTC)
         self._seed_session(
