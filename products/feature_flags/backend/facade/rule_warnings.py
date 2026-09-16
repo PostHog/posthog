@@ -77,6 +77,9 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
     it causes is never attributed to the order.
     """
     unchanged = set(current.rules) & set(proposed.rules)
+    # A terminal miss serves the config default, so when the default is edited too those
+    # outcomes differ because of the edit; only served rule values stay comparable.
+    default_edited = current.default_value != proposed.default_value
     current_index = {rule.id: index for index, rule in enumerate(current.rules)}
     proposed_index = {rule.id: index for index, rule in enumerate(proposed.rules)}
     inversions: dict[tuple[str, str], int] = {}
@@ -88,6 +91,7 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
             later = proposed.rules[outcome_after.rule_index]
             if (
                 outcome_before.value != outcome_after.value
+                and not (default_edited and not (outcome_before.served and outcome_after.served))
                 and earlier in unchanged
                 and later in unchanged
                 and current_index[earlier.id] < current_index[later.id]

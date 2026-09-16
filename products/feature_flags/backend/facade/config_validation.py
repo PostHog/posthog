@@ -227,13 +227,13 @@ def validate_config(document: object, *, limits: ValidationLimits) -> ValidatedC
         v1_detail = "Config version 1 fields are not allowed in a config version 2 document."
         errors.append(_unknown_field(f"filters.{name}", v1_detail if name in _V1_ONLY_ROOT_FIELDS else None))
 
-    return_type = document.get("return_type")
-    boolean_family = return_type == "boolean"
-    if _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES)) and not boolean_family:
+    return_type_ok = _field(document, "return_type", "filters", errors, _one_of(RETURN_TYPES))
+    boolean_family = return_type_ok and document["return_type"] == "boolean"
+    if return_type_ok and not boolean_family:
         errors.append(
             ConfigError(
                 code="unsupported",
-                detail=f"Flags returning a {return_type} are not available yet. Only boolean is available.",
+                detail=f"Flags returning a {document['return_type']} are not available yet. Only boolean is available.",
                 attr="filters.return_type",
             )
         )
@@ -326,8 +326,8 @@ def _validate_rule(
         predicates=predicates,
         value=rule["value"],
         rollout_percentage=rollout,
-        on_rollout_miss=rule.get("on_rollout_miss"),
-        seed=rule.get("seed"),
+        on_rollout_miss=rule["on_rollout_miss"] if rollout is not None else None,
+        seed=rule["seed"] if rollout is not None else None,
     )
 
 
@@ -383,10 +383,11 @@ def _validate_property(prop: object, path: str, errors: list[ConfigError]) -> Pr
         )
         return None
 
+    # The contract reads an omitted or null operator as ``exact``; its value is still checked.
     operator = prop.get("operator")
     if operator is None:
         operator = "exact"
-    elif not isinstance(operator, str) or operator not in PROPERTY_OPERATORS:
+    if not isinstance(operator, str) or operator not in PROPERTY_OPERATORS:
         errors.append(ConfigError(code="invalid", detail="Unknown operator.", attr=f"{path}.operator"))
     elif operator in _NON_PERSON_OPERATORS:
         errors.append(

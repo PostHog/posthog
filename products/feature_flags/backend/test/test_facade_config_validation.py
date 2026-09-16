@@ -398,6 +398,16 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         [("invalid", "filters.rules[0].targeting.properties[0].value")],
     ),
     (
+        "omitted_operator_nan",
+        config(targeted(targeting={"properties": [without(person(), "operator") | {"value": float("nan")}]})),
+        [("invalid", "filters.rules[0].targeting.properties[0].value")],
+    ),
+    (
+        "null_operator_infinity",
+        config(targeted(targeting={"properties": [person(operator=None, value=float("inf"))]})),
+        [("invalid", "filters.rules[0].targeting.properties[0].value")],
+    ),
+    (
         "exact_nested_infinity",
         config(targeted(targeting={"properties": [person(value=[1, {"n": float("inf")}])]})),
         [("invalid", "filters.rules[0].targeting.properties[0].value")],

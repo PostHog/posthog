@@ -326,6 +326,18 @@ class TestReorderWarnings:
                 [],
             ),
             (
+                "edited_default_behind_a_terminal_miss_is_an_edit_not_a_reorder",
+                cfg(targeted(A, False), rollout(B, 25, False, miss="return_default"), default=False),
+                cfg(rollout(B, 25, False, miss="return_default"), targeted(A, False), default=True),
+                [],
+            ),
+            (
+                "edited_default_does_not_hide_a_served_value_change",
+                cfg(targeted(A, False), rollout(B, 25, True, miss="return_default"), default=False),
+                cfg(rollout(B, 25, True, miss="return_default"), targeted(A, False), default=True),
+                [(REORDER, "filters.rules[0]")],
+            ),
+            (
                 "edited_seed_in_the_pair_is_an_edit_not_a_reorder",
                 cfg(rollout(A, 50), targeted(B, False)),
                 cfg(targeted(B, False), rollout(A, 50, seed=OTHER_SEED)),
