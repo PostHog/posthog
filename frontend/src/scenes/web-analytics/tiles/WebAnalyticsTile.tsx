@@ -224,15 +224,20 @@ type VariationCellProps = {
     reverseColors?: boolean
     isDuration?: boolean
     reserveTrendSpace?: boolean
+    neutral?: boolean
+    formatValue?: (value: number) => string
 }
 export const VariationCell = (
-    { isPercentage, reverseColors, isDuration, reserveTrendSpace = true }: VariationCellProps = {
+    { isPercentage, reverseColors, isDuration, reserveTrendSpace = true, neutral, formatValue }: VariationCellProps = {
         isPercentage: false,
         reverseColors: false,
         isDuration: false,
     }
 ) => {
     const formatNumber = (value: number): string => {
+        if (formatValue) {
+            return formatValue(value)
+        }
         if (isPercentage) {
             return `${(value * 100).toFixed(1)}%`
         } else if (isDuration) {
@@ -278,6 +283,8 @@ export const VariationCell = (
                           color: reverseColors ? getColorVar('success') : getColorVar('danger'),
                       }
 
+        const trendColor = neutral ? getColorVar('muted') : trend?.color
+
         // If current === previous, say "increased by 0%"
         const tooltip =
             pctChangeFromPrevious !== null
@@ -295,8 +302,8 @@ export const VariationCell = (
                         {(reserveTrendSpace || trend) && '\u00a0'}
                         {trend && (
                             // eslint-disable-next-line react/forbid-dom-props
-                            <span style={{ color: trend.color }}>
-                                <trend.Icon color={trend.color} className="ml-1" />
+                            <span style={{ color: trendColor }}>
+                                <trend.Icon color={trendColor} className="ml-1" />
                             </span>
                         )}
                     </span>

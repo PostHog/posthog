@@ -8,6 +8,7 @@ import { MarketingAnalyticsRetentionSummaryRow } from '~/queries/schema/schema-g
 
 const CountCell = VariationCell({ reserveTrendSpace: false })
 const RateCell = VariationCell({ isPercentage: true })
+const DaysCell = VariationCell({ neutral: true, formatValue: (value) => value.toFixed(1) })
 
 type ReturnRow = MarketingAnalyticsRetentionSummaryRow & { comparison?: MarketingAnalyticsRetentionSummaryRow }
 
@@ -122,9 +123,15 @@ export function RetentionReturnTable({
                     }
                 >
                     <div>
-                        <span>{row.medianReturnDays === null ? '–' : row.medianReturnDays.toFixed(1)}</span>
-                        {compare && row.comparison?.medianReturnDays != null && (
-                            <div className="text-secondary text-xs">{`Previously ${row.comparison.medianReturnDays.toFixed(1)} days`}</div>
+                        {row.medianReturnDays === null ? (
+                            <span className="text-muted">–</span>
+                        ) : (
+                            <DaysCell
+                                value={[row.medianReturnDays, row.comparison?.medianReturnDays ?? null]}
+                                context={{
+                                    compareFilter: { compare: compare && row.comparison?.medianReturnDays != null },
+                                }}
+                            />
                         )}
                     </div>
                 </Tooltip>

@@ -8,7 +8,7 @@ Acquisition uses the exact selected date range and the first qualifying session.
 
 Each return rate divides returning users by acquired users who completed the full corresponding window. A second session must start after the first session and within the return window. Further pageviews in the first session do not count. Returns are observed up to 30 days after acquisition, capped at the current time. A dash means nobody completed the window.
 
-Days to return is the median elapsed time to the second session among observed returners within 30 days. Recent users with incomplete windows participate in this median, so it may change as they return. The median has no improvement colors and displays a dash when no return is observed. Compare rates within a column: the 7-day and 30-day denominators can differ.
+Days to return is the median elapsed time to the second session among observed returners within 30 days. Recent users with incomplete windows participate in this median, so it may change as they return. The median uses the shared comparison arrow and tooltip, with neutral colors and displays a dash when no return is observed. Compare rates within a column: the 7-day and 30-day denominators can differ.
 
 Comparison is enabled by default and can be disabled in Options. The previous acquisition period has equal duration and immediately precedes the selected period. Each period uses its own new-user lookback. Missing previous data does not produce a change indicator.
 
