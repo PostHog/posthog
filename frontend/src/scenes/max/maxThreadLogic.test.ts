@@ -3402,6 +3402,8 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadLoading).toBe(false)
 
             logic.unmount()
+            // A cancel that never reached the request would make the resolver a silent no-op
+            expect(resolveCancel).not.toBeUndefined()
             resolveCancel?.()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -3429,6 +3431,7 @@ describe('maxThreadLogic', () => {
             logic.mount()
             logic.actions.setCancelLoading(true)
 
+            expect(resolveCancel).not.toBeUndefined()
             resolveCancel?.()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
