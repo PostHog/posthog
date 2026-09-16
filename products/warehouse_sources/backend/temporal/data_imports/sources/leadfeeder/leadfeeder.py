@@ -296,20 +296,6 @@ def _date_windows(start: date, end: date, max_days: int) -> Iterator[_DateWindow
         window_start = window_end + timedelta(days=1)
 
 
-def _sync_windows(config: LeadfeederEndpointConfig, start: date, end: date) -> tuple[_DateWindow, ...]:
-    """Windows the sync reads for one account, in order.
-
-    A window is a request, and the vendor answers a request with the rows for that range only, so
-    every value a row holds over the range is a value over the window. A visit is a single event and
-    reads the same whichever window carries it. A company row instead counts the visits inside the
-    queried range, and the writer keeps the last row per primary key, so a split range would leave
-    one window's count in place of the count for the whole sync. Such an endpoint gets one window.
-    """
-    if config.aggregates_over_window:
-        return (_DateWindow(start=start, end=end),)
-    return tuple(_date_windows(start, end, UNIFIED_WINDOW_DAYS))
-
-
 @frozen
 class _UnifiedFanOut:
     """Reads one unified fan-out endpoint for one account, a date window at a time."""
@@ -417,7 +403,13 @@ def _unified_leadfeeder_source(
         )
         start = end
 
-    windows = _sync_windows(config, start, end)
+    # Splitting the range is what keeps a busy account inside the offset limit, and both fan-out
+    # endpoints can be split because neither stores a value that depends on the range it was read with:
+    # a visit is one immutable event, and a visitor-companies row is a relationship object (`id`,
+    # `type`, `relationships`) with no top-level `attributes` for `_flatten_item` to lift. A row that
+    # counted the range would have to read its whole range in one request instead — so if this source
+    # ever requests `include=company` and lifts those attributes, revisit the split.
+    windows = tuple(_date_windows(start, end, UNIFIED_WINDOW_DAYS))
     fan_out = _UnifiedFanOut(client=client, endpoint=endpoint, config=config, team_id=team_id, job_id=job_id)
 
     def _fanned() -> Iterator[list[dict[str, Any]]]:

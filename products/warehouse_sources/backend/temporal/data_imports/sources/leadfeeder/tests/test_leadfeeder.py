@@ -418,12 +418,12 @@ class TestUnifiedRequests:
                 _unified_response([_item("200", "company_location")]),
             ],
         )
-        _rows(_source("leads", _make_manager(), start_date_config="2024-01-01", api_version=LEADFEEDER_API_2026_08_07))
+        _rows(_source("leads", _make_manager(), start_date_config="2026-06-15", api_version=LEADFEEDER_API_2026_08_07))
 
         company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
         # account id is a query param on the unified API (a path segment on the legacy API).
         assert {r["params"]["account_id"] for r in company_reqs} == {"1", "2"}
-        assert company_reqs[0]["params"]["start_date"] == "2024-01-01"
+        assert company_reqs[0]["params"]["start_date"] == "2026-06-15"
         assert company_reqs[0]["params"]["end_date"] == "2026-07-02"
 
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -485,22 +485,35 @@ class TestUnifiedOffsetLimit:
         assert isinstance(paginator, PageNumberPaginator)
         assert paginator.maximum_page == UNIFIED_MAX_PAGES
 
+    @parameterized.expand(
+        [
+            # The visits search carries its window in the POST body; visitor companies take it as params.
+            ("visits", "/v1/web-visits", "json"),
+            ("leads", "/v1/web-visits/companies", "params"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_visits_window_is_chunked_into_contiguous_windows(self, MockSession) -> None:
+    def test_fan_out_window_is_chunked_into_contiguous_windows(
+        self, endpoint: str, path: str, window_source: str, MockSession
+    ) -> None:
         # A first sync spans up to a year, far more than the offset limit can page through in one
-        # request, so the window is split before the vendor ever sees an out-of-range offset.
+        # request, so the window is split before the vendor ever sees an out-of-range offset. Neither
+        # endpoint stores a value that depends on the range, so both are split.
         session = MockSession.return_value
         requests = _wire_full(
             session,
             [_unified_response([_item("1", "account")])] + [_unified_response([]) for _ in range(40)],
         )
-        _rows(_source("visits", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
+        _rows(_source(endpoint, _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
         windows = [
-            (date.fromisoformat(r["json"]["start_date"]), date.fromisoformat(r["json"]["end_date"]))
+            (
+                date.fromisoformat(r[window_source]["start_date"]),
+                date.fromisoformat(r[window_source]["end_date"]),
+            )
             for r in requests
-            if r["url"].endswith("/v1/web-visits")
+            if r["url"] == f"{LEADFEEDER_BASE_URL}{path}"
         ]
         assert len(windows) > 1
         assert windows[0][0] == date(2026, 1, 1)
@@ -511,20 +524,35 @@ class TestUnifiedOffsetLimit:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
-    def test_leads_reads_the_whole_range_in_one_window(self, MockSession) -> None:
-        # A lead row counts the visits inside the queried range, and the writer keeps the last row per
-        # primary key, so a split range would store one chunk's count instead of the range's count.
+    def test_leads_row_holds_nothing_that_depends_on_the_queried_window(self, MockSession) -> None:
+        # Splitting the range is only safe while no stored column counts or bounds it. A unified
+        # visitor-companies row is a relationship object with no top-level `attributes`, so the same
+        # company read from two windows must flatten to the same row.
         session = MockSession.return_value
-        requests = _wire_full(
+        company = {
+            "id": "company-location-1",
+            "type": "company_location",
+            "relationships": {
+                "company": {"id": "555", "type": "company"},
+                "location": {
+                    "id": "location-1",
+                    "type": "location",
+                    "attributes": {"city": "Riverside", "country": "Elbonia", "country_code": "ZZ"},
+                },
+            },
+        }
+        _wire_full(
             session,
-            [_unified_response([_item("1", "account")])] + [_unified_response([]) for _ in range(40)],
+            [_unified_response([_item("1", "account")])] + [_unified_response([company]) for _ in range(40)],
         )
-        _rows(_source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07))
 
-        company_reqs = [r for r in requests if "/v1/web-visits/companies" in r["url"]]
-        assert [(r["params"]["start_date"], r["params"]["end_date"]) for r in company_reqs] == [
-            ("2026-01-01", "2026-07-02")
-        ]
+        rows = _rows(
+            _source("leads", _make_manager(), start_date_config="2026-01-01", api_version=LEADFEEDER_API_2026_08_07)
+        )
+
+        # More than one row means the range really was split, and every row is the same identity row.
+        assert len(rows) > 1
+        assert rows == [{"id": "company-location-1", "type": "company_location", "account_id": "1"}] * len(rows)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     @time_machine.travel("2026-07-02", tick=False)
