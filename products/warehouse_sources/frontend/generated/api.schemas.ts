@@ -4934,6 +4934,59 @@ export interface SourceDestinationsApi {
     destination_ids: string[]
 }
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export interface SimpleExternalDataSchemaApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    label?: string | null
+    should_sync?: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | BlankEnumApi | null
+}
+
+export interface ExternalDataJobSerializersApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly finished_at: string | null
+    readonly status: string
+    readonly schema: SimpleExternalDataSchemaApi
+    /** @nullable */
+    readonly rows_synced: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+     * @nullable
+     */
+    readonly cdc_write_mode: string | null
+    /**
+     * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+     * @nullable
+     */
+    readonly billable: boolean | null
+    /** Destinations this run delivered to, snapshotted when it started. Empty on runs that predate destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read from the source once, not once per destination. */
+    readonly destination_ids: readonly string[]
+}
+
 /**
  * * `oauth` - oauth
  * * `credentials` - credentials
@@ -13628,6 +13681,25 @@ export type ExternalDataSourcesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[]
     /**
      * A search term.
      */

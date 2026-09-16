@@ -15,6 +15,7 @@ import type {
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
     ExternalDataDestinationsListParams,
+    ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
@@ -26,6 +27,7 @@ import type {
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
+    ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
@@ -818,19 +820,36 @@ export const externalDataSourcesEnableCdcCreate = async (
     })
 }
 
-export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
+export const getExternalDataSourcesJobsListUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesJobsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/jobs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesJobsRetrieve = async (
+export const externalDataSourcesJobsList = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesJobsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesJobsRetrieveUrl(projectId, id), {
+): Promise<ExternalDataJobSerializersApi[]> => {
+    return apiMutator<ExternalDataJobSerializersApi[]>(getExternalDataSourcesJobsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

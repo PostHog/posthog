@@ -7,7 +7,7 @@ from typing import Any
 from django.utils.cache import patch_cache_control
 
 from dateutil import parser
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -89,7 +89,8 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
     def get_cdc_write_mode(self, instance: ExternalDataJob) -> str | None:
         return (instance.schema_snapshot or {}).get("cdc_write_mode")
 
-    def get_status(self, instance: ExternalDataJob):
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, instance: ExternalDataJob) -> str:
         if instance.status == ExternalDataJob.Status.BILLING_LIMIT_REACHED:
             return "Billing limits"
 
@@ -98,7 +99,8 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
 
         return instance.status
 
-    def get_schema(self, instance: ExternalDataJob):
+    @extend_schema_field(SimpleExternalDataSchemaSerializer)
+    def get_schema(self, instance: ExternalDataJob) -> dict[str, Any]:
         return SimpleExternalDataSchemaSerializer(
             instance.schema, many=False, read_only=True, context=self.context
         ).data
