@@ -333,7 +333,10 @@ tools:
 
             This tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and
             use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one
-            keep getting the holdout variant instead of the rollout.
+            keep getting the holdout variant instead of the rollout. Early access enrollment is evaluated before both.
+            Check `filters.feature_enrollment` in the definition you read: when it is true, a user who enrolled keeps
+            the flag and a user who opted out is served nothing, whatever this rollout says, so do not report that
+            everyone now gets the flag.
 
 
             Check `filters.aggregation_group_type_index` in the definition you read. When it is set, the flag buckets
