@@ -332,17 +332,20 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             defaults: {} as Record<string, any>,
             errors: (sourceValues) => {
                 const webhookFields = values.sourceConfig?.webhookFields ?? []
+                // This form submits the create call when no webhook exists yet and the source
+                // collects its webhook fields before create, so a required secret has to be
+                // filled. In every other state a secret field holds the masked `{secret: true}`
+                // marker instead of the value, where a blank field means "keep the value the
+                // server already has" and must still satisfy the required check.
+                const collectingForCreate =
+                    !values.webhookInfo?.exists && !!values.sourceConfig?.webhookFieldsBeforeCreate
                 return getErrorsForFields(
                     webhookFields,
                     {
                         prefix: '',
                         payload: sourceValues as Record<string, any>,
                     },
-                    // In edit mode, secret fields whose current value is the masked
-                    // `{secret: true}` marker are already set on the server. Treat
-                    // them as satisfying the required check so users can update other
-                    // fields without re-entering the secret.
-                    { allowBlankSensitiveFields: true }
+                    { allowBlankSensitiveFields: !collectingForCreate }
                 ).payload
             },
             submit: async () => {
