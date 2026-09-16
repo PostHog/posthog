@@ -620,6 +620,11 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # to keep every granule that could hold any of them.
 LOGS_BODY_IN_HINT_MAX_VALUES = 50
 
+# ClickHouse rejects a multiSearch* call with more than 255 needles against a nonconstant haystack
+# ("passed N, should be at most 255"). Past that the pre-check is dropped rather than split over several calls: a search
+# for hundreds of substrings keeps most rows anyway, so it would cost more than the parse it saves.
+PERSON_JSON_PREFILTER_MAX_NEEDLES = 255
+
 
 def _call(name: str, args: list[ast.Expr]) -> ast.Call:
     return ast.Call(name=name, args=args)
@@ -1200,7 +1205,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         if resolve_materialized_property_source(field_type, key, self.context) is not None:
             return None
         values = self._extract_string_constants(node.right)
-        if not values or not all(_is_json_verbatim(value) for value in values):
+        if not values or len(values) > PERSON_JSON_PREFILTER_MAX_NEEDLES:
+            return None
+        if not all(_is_json_verbatim(value) for value in values):
             return None
         return _call("multiSearchAny", [self.visit(access.expr), ast.Array(exprs=[_const(v) for v in values])])
 

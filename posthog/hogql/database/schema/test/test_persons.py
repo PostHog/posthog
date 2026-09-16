@@ -130,6 +130,19 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertIn(f"multiSearchAny(where_optimization.properties, {expected_values})", response.clickhouse)
 
+    # ClickHouse rejects a multiSearchAny call with more than 255 needles against a nonconstant haystack
+    # ("passed 256, should be at most 255"), which failed the whole query rather than only the pre-check.
+    @parameterized.expand([("at_needle_limit", 255, True), ("past_needle_limit", 256, False)])
+    def test_json_substring_prefilter_needle_limit(self, _name: str, value_count: int, prefiltered: bool):
+        values = ", ".join(f"'needle_{i}'" for i in range(value_count))
+        response = execute_hogql_query(
+            parse_select(f"select id from persons where properties.$some_prop in ({values})"),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert response.clickhouse
+        assert ("multiSearchAny" in response.clickhouse) is prefiltered
+
     @snapshot_clickhouse_queries
     def test_joins_are_left_alone_for_now(self):
         response = execute_hogql_query(
