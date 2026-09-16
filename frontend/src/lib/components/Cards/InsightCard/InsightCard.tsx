@@ -407,8 +407,10 @@ function InsightCardInternal(
                 <InsightErrorState
                     query={insight.query}
                     queryId={queryId}
+                    retryLoading={loading}
                     excludeActions={sharedView}
                     placement={placement}
+                    onRetry={sharedView ? undefined : refresh}
                 />
             )
         }

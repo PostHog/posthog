@@ -50,4 +50,20 @@ describe('InsightCard error states', () => {
             query_id: 'query-1',
         })
     })
+
+    it('offers a retry, not only the debugger, on an error that is not an ApiError', () => {
+        const { container } = render(
+            <InsightCard
+                insight={INSIGHT}
+                placement={DashboardPlacement.Export}
+                queryId="query-1"
+                apiErrored
+                apiError={new Error('Something went wrong')}
+                refresh={jest.fn()}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="insight-retry-button"]')).not.toBeNull()
+        expect(container.querySelector('[data-attr="insight-error-query"]')).toBeNull()
+    })
 })
