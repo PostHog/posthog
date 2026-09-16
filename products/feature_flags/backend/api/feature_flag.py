@@ -244,6 +244,31 @@ def _count_filters_write_success(serializer: serializers.Serializer, operation: 
     _count_filters_write(operation, outcome, request)
 
 
+def _mirror_stored_fields(source: FeatureFlag, target: FeatureFlag) -> None:
+    """Bring a stale copy of a flag up to date with the row that was just written."""
+    for field in source._meta.concrete_fields:
+        setattr(target, field.attname, getattr(source, field.attname))
+
+
+def _carry_loaded_state(source: FeatureFlag, target: FeatureFlag) -> None:
+    """Move what a pre-lock read already loaded onto the row read under the row lock.
+
+    The locked row is a bare `get()`, so it carries none of the prefetches, annotations and
+    select_related caches `safely_get_queryset` attaches, and none of the per-save context a
+    caller attached to the instance it handed the serializer. Both objects are the same flag,
+    so writing and returning the locked one without them only makes the activity-log receiver
+    and the response serializer re-query what the request has already read.
+
+    Stored field values are left alone. They are the reason the locked row is read at all.
+    """
+    target._state.fields_cache.update(source._state.fields_cache)
+    stored_fields = {field.attname for field in source._meta.concrete_fields}
+    for attr, value in source.__dict__.items():
+        if attr in stored_fields or attr == "_state":
+            continue
+        target.__dict__.setdefault(attr, value)
+
+
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
@@ -2274,75 +2299,6 @@ class FeatureFlagSerializer(
 
         self._update_filters(validated_data)
 
-        # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
-        # that omits the boolean still routes through the right path.
-        effective_has_encrypted = validated_data.get("has_encrypted_payloads", instance.has_encrypted_payloads)
-
-        if effective_has_encrypted:
-            # Ensure downstream helpers (e.g. encrypt_flag_payloads) see the
-            # flag even when the client didn't echo it back in this PATCH.
-            validated_data["has_encrypted_payloads"] = True
-            filters = validated_data.get("filters")
-            new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
-
-            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
-                # Preserve the existing encrypted payload when the request didn't
-                # supply a fresh one — either because `filters.payloads` was
-                # omitted (partial PATCH from the V2 form), the redacted
-                # placeholder was echoed back, or an empty string slipped past
-                # `validate_filters` (defense in depth: the public API rejects
-                # `""` as invalid JSON upstream, but direct serializer callers
-                # could still land here). Only re-inject when `filters` is
-                # being sent, so a filters-less PATCH stays a partial update.
-                if filters is not None:
-                    stored_payloads = (instance.filters or {}).get("payloads") or {}
-                    if not stored_payloads.get("true"):
-                        raise exceptions.ValidationError(
-                            "An encrypted payload is required when has_encrypted_payloads is true."
-                        )
-                    payloads = filters.get("payloads") or {}
-                    # validate_filters substitutes the sentinel for every stored key, so restoring
-                    # only "true" would persist the placeholder over the other keys' ciphertext.
-                    for key, value in payloads.items():
-                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
-                            payloads[key] = stored_payloads[key]
-                    payloads["true"] = stored_payloads["true"]
-                    filters["payloads"] = payloads
-            else:
-                encrypt_flag_payloads(validated_data)
-
-        elif instance.has_encrypted_payloads:
-            # Downgrading from encrypted to non-encrypted. Strip leftover
-            # ciphertext so a partial PATCH that only flipped the bit doesn't
-            # leave the prior encrypted blob exposed as a normal payload on
-            # subsequent reads (redaction is gated on has_encrypted_payloads).
-            filters = validated_data.get("filters")
-            if filters is None:
-                # Client didn't send filters; inject a copy of instance.filters
-                # with the encrypted "true" payload removed.
-                new_filters = copy.deepcopy(instance.filters or {})
-                payloads = new_filters.get("payloads") or {}
-                payloads.pop("true", None)
-                new_filters["payloads"] = payloads
-                validated_data["filters"] = new_filters
-            else:
-                # Client sent filters. Drop every empty/missing/redacted echo; a fresh
-                # non-empty plaintext is left alone (the user explicitly set a new payload
-                # during the downgrade). Keeping a redacted key would write the placeholder
-                # over ciphertext that is unreadable once the flag is unencrypted.
-                payloads = filters.get("payloads") or {}
-                filters["payloads"] = {k: v for k, v in payloads.items() if v and v != REDACTED_PAYLOAD_VALUE}
-
-        # Opportunistically strip legacy keys on save, including on a write that sent no filters.
-        # A caller that declares the exemption is spared: it would otherwise persist a rewritten
-        # filters object for a change that never mentioned targeting.
-        if not getattr(request, "skip_opportunistic_filter_cleanup", False):
-            previous_filters = validated_data.get("filters") or instance.filters
-            if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
-                validated_data["filters"] = {
-                    k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
-                }
-
         version = request_data.get("version", -1)
 
         try:
@@ -2352,6 +2308,8 @@ class FeatureFlagSerializer(
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
+
+                self._apply_stored_filter_rules(validated_data, locked_instance, request)
 
                 # NOW check for conflicts after all transformations
                 if version != -1 and version != locked_version:
@@ -2391,18 +2349,19 @@ class FeatureFlagSerializer(
                 # unique constraint doesn't block the rename. Mirrors create().
                 new_key = validated_data.get("key")
                 if new_key and new_key != old_key and validated_data.get("deleted", locked_instance.deleted) is False:
-                    self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
+                    self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=locked_instance.pk)
 
-                # The locked row is a fresh object, so per-save context the caller attached to
-                # the instance it handed us does not come with it. The activity-log receiver
-                # reads the scheduled-change id off the saved instance, and without this the
-                # audit entry for a scheduled change loses its trigger.
-                scheduled_change_context = getattr(instance, "_scheduled_change_context", None)
-                if scheduled_change_context is not None:
-                    locked_instance._scheduled_change_context = scheduled_change_context
+                _carry_loaded_state(instance, locked_instance)
 
                 with ImpersonatedContext(request):
-                    instance = super().update(locked_instance, validated_data)
+                    saved_instance = super().update(locked_instance, validated_data)
+
+                # The write landed on the locked row, which is a different object from the one
+                # the caller handed us. A caller that keeps its own reference and re-serializes
+                # it — the early access feature stage transitions do — would otherwise render
+                # the values this write just replaced.
+                _mirror_stored_fields(saved_instance, instance)
+                instance = saved_instance
         except IntegrityError as e:
             self._reraise_duplicate_key_violation(e)
 
@@ -2524,6 +2483,83 @@ class FeatureFlagSerializer(
                 active=False,
             ).order_by("key")
         )
+
+    def _apply_stored_filter_rules(self, validated_data: dict, instance: FeatureFlag, request: Any) -> None:
+        """Resolve the parts of this write that are decided by what the flag already stores.
+
+        Both rules below can seed ``validated_data["filters"]`` from the stored value on a
+        request that sent none, and the save writes that value back in full. Reading a copy
+        loaded before the row lock would therefore restore whatever another writer changed in
+        between, on a request that never mentioned targeting.
+        """
+        # Resolve `has_encrypted_payloads` against the instance so a partial PATCH
+        # that omits the boolean still routes through the right path.
+        effective_has_encrypted = validated_data.get("has_encrypted_payloads", instance.has_encrypted_payloads)
+
+        if effective_has_encrypted:
+            # Ensure downstream helpers (e.g. encrypt_flag_payloads) see the
+            # flag even when the client didn't echo it back in this PATCH.
+            validated_data["has_encrypted_payloads"] = True
+            filters = validated_data.get("filters")
+            new_true_payload = ((filters or {}).get("payloads") or {}).get("true")
+
+            if not new_true_payload or new_true_payload == REDACTED_PAYLOAD_VALUE:
+                # Preserve the existing encrypted payload when the request didn't
+                # supply a fresh one — either because `filters.payloads` was
+                # omitted (partial PATCH from the V2 form), the redacted
+                # placeholder was echoed back, or an empty string slipped past
+                # `validate_filters` (defense in depth: the public API rejects
+                # `""` as invalid JSON upstream, but direct serializer callers
+                # could still land here). Only re-inject when `filters` is
+                # being sent, so a filters-less PATCH stays a partial update.
+                if filters is not None:
+                    stored_payloads = (instance.filters or {}).get("payloads") or {}
+                    if not stored_payloads.get("true"):
+                        raise exceptions.ValidationError(
+                            "An encrypted payload is required when has_encrypted_payloads is true."
+                        )
+                    payloads = filters.get("payloads") or {}
+                    # validate_filters substitutes the sentinel for every stored key, so restoring
+                    # only "true" would persist the placeholder over the other keys' ciphertext.
+                    for key, value in payloads.items():
+                        if value == REDACTED_PAYLOAD_VALUE and key in stored_payloads:
+                            payloads[key] = stored_payloads[key]
+                    payloads["true"] = stored_payloads["true"]
+                    filters["payloads"] = payloads
+            else:
+                encrypt_flag_payloads(validated_data)
+
+        elif instance.has_encrypted_payloads:
+            # Downgrading from encrypted to non-encrypted. Strip leftover
+            # ciphertext so a partial PATCH that only flipped the bit doesn't
+            # leave the prior encrypted blob exposed as a normal payload on
+            # subsequent reads (redaction is gated on has_encrypted_payloads).
+            filters = validated_data.get("filters")
+            if filters is None:
+                # Client didn't send filters; inject a copy of instance.filters
+                # with the encrypted "true" payload removed.
+                new_filters = copy.deepcopy(instance.filters or {})
+                payloads = new_filters.get("payloads") or {}
+                payloads.pop("true", None)
+                new_filters["payloads"] = payloads
+                validated_data["filters"] = new_filters
+            else:
+                # Client sent filters. Drop every empty/missing/redacted echo; a fresh
+                # non-empty plaintext is left alone (the user explicitly set a new payload
+                # during the downgrade). Keeping a redacted key would write the placeholder
+                # over ciphertext that is unreadable once the flag is unencrypted.
+                payloads = filters.get("payloads") or {}
+                filters["payloads"] = {k: v for k, v in payloads.items() if v and v != REDACTED_PAYLOAD_VALUE}
+
+        # Opportunistically strip legacy keys on save, including on a write that sent no filters.
+        # A caller that declares the exemption is spared: it would otherwise persist a rewritten
+        # filters object for a change that never mentioned targeting.
+        if not getattr(request, "skip_opportunistic_filter_cleanup", False):
+            previous_filters = validated_data.get("filters") or instance.filters
+            if previous_filters and ("holdout_groups" in previous_filters or "super_groups" in previous_filters):
+                validated_data["filters"] = {
+                    k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
+                }
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:

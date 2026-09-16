@@ -658,6 +658,37 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_filters_less_patch_does_not_restore_targeting_changed_since_the_read(self):
+        # The legacy-key cleanup seeds `filters` from what the flag stores, on a request that
+        # sent none, and the save writes every field. Reading the copy loaded before the row
+        # lock therefore puts that copy's targeting back, and neither side of the race bumps a
+        # version this request could be checked against.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="legacy-targeting",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 10}],
+                "super_groups": [{"properties": [], "rollout_percentage": 15}],
+            },
+        )
+        landed = {"groups": [{"properties": [], "rollout_percentage": 90}]}
+        original = FeatureFlagSerializer._update_filters
+
+        def land_a_targeting_write(serializer, validated_data):
+            original(serializer, validated_data)
+            FeatureFlag.objects.filter(pk=flag.pk).update(filters={**flag.filters, **landed})
+
+        with patch.object(FeatureFlagSerializer, "_update_filters", land_a_targeting_write):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"name": "renamed"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.name == "renamed"
+        assert flag.filters["groups"] == landed["groups"]
+
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_group_type_index_feature_flag(self, mock_report_user_action):
         feature_flag = self.client.post(
