@@ -1,32 +1,38 @@
 # PR approval agent
 
-AI-assisted PR approval for PostHog.
-Deterministic safety gates first, then Claude reviews for showstoppers.
+The stamphog review engine.
+It runs deterministic safety gates, classifies the PR into a tier, then lets a Claude Agent SDK reviewer look for showstoppers.
 
-> [!NOTE]
-> This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. Vendored copies live at `tools/pr-approval-agent/` with `tools/owners` beside them, which is also where this repo's review sandbox writes the engine; only the source of truth sits here. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
-> A policy that declares a `hogli-resolver` ownership source additionally needs the sibling `tools/owners` package vendored.
-> The legacy `gh-codeowners` / `ph-product` ownership formats were removed together with the `CODEOWNERS-soft` migration, so a vendored copy whose policy still declares them must migrate to `hogli-resolver` (adopting `owners.yaml` + `tools/owners`) as part of the re-sync — or skip the re-sync and keep its previous engine until it's ready. The policy loader rejects unknown formats loudly at startup, so a missed migration fails closed rather than silently skipping the ownership source.
+Reviews run in the hosted stamphog product ([`products/stamphog/`](../../../stamphog/)): a GitHub App delivers the PR webhook, and the engine runs in an isolated sandbox through `review_local.py`.
 
-## Usage
+This directory is the source of truth for the hosted product.
+A change to the policy format must keep [`products/stamphog/backend/logic/policy_defaults/`](../../backend/logic/policy_defaults/) in step, because that is the base layer every hosted review overlays onto.
 
-Reviews run in the hosted stamphog product ([`products/stamphog/`](../../products/stamphog/)): a GitHub App delivers the PR webhook, and the engine runs in an isolated sandbox through `review_local.py`.
-A repo either reviews every PR or waits for its trigger label, per its `review_mode`.
-On approval a trigger label stays so it's visible which PRs were stamphog'd.
-Only a substantive non-approval (`REFUSE`/`ESCALATE`) removes the label, so it
-can be re-applied once the feedback is addressed; every other outcome —
-including a crashed run that produced no verdict — keeps the label and retries
-on the next push.
-If the review agent can't reach its LLM backend (credentials, credit, or
-outage) it returns `ERROR` and **keeps** the label — a transient infra failure
-must not silently drop labels across every queued PR. The review retries on the
-next push, or re-apply the label once the backend recovers.
-`WAIT` also keeps the label. It means either that an allowlisted reviewer bot
-still had a review in flight (👀 reaction) after the polling budget, or that the
-`Migration risk` check had not reported yet — neither is a verdict on the PR, so
-the next push retries automatically.
+## Verdicts
 
-### Local review
+| Verdict  | Meaning                                                 | Trigger label |
+| -------- | ------------------------------------------------------- | ------------- |
+| APPROVE  | No showstoppers found                                   | Kept          |
+| REFUSE   | A concrete issue was found                              | Removed       |
+| ESCALATE | Only a human can rule out a showstopper                 | Removed       |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending | Kept, retries |
+| ERROR    | The run could not produce a verdict                     | Kept, retries |
+
+A repository either reviews every PR or waits for its trigger label, per its `review_mode`.
+On approval the trigger label stays, so it is visible which PRs were stamphog'd.
+Only a substantive non-approval removes the label, so it can be re-applied once the feedback is addressed.
+
+`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
+Neither is a verdict on the PR, so the next push retries automatically.
+`ERROR` means the reviewer could not reach its LLM backend, through credentials, credit or an outage.
+A transient infra failure must not silently drop labels across every queued PR, so the label is kept and the review retries on the next push.
+
+Approvals are posted as real PR reviews, because they must count toward branch protection.
+An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
+The bot never posts request-changes.
+Every other verdict goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it), so repeated refusals do not stack up as separate review comments on the PR.
+
+## Local review
 
 ```bash
 # run from anywhere inside the posthog repo
@@ -44,13 +50,13 @@ uv run products/stamphog/packages/pr-approval-agent/review_pr.py 46594 -v
 
 `review_pr.py` is the manual entrypoint: it fetches everything over the network with `gh` and reviews a PR from your own checkout.
 The hosted runtime never uses it, running `review_local.py` against a pre-fetched context instead, with no GitHub token inside the sandbox.
-Requires `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
+Requires the `gh` CLI authenticated and `ANTHROPIC_API_KEY` in your environment.
 Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 
 ## How it works
 
 ```text
-"stamphog" label added to PR
+review triggered (every PR, or the trigger label)
   │
   ▼
 Prerequisites (hard gate)
@@ -61,7 +67,7 @@ Prerequisites (hard gate)
 Deny-list (hard gate)
   - Checks file paths against sensitive categories
   - Any match → gates DENY
-  - PR-title keywords never deny on their own — they surface as scrutiny
+  - PR-title keywords never deny on their own. They surface as scrutiny
     flags the LLM must verify against the diff (REFUSE if the change
     behaviorally touches the flagged domain, judge normally if incidental)
   │
@@ -82,7 +88,7 @@ Size ceiling (hard gate)
     `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
     .test/.spec/_test files), and generated/ artifacts
     (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
-    don't count toward the ceiling — they inflate diffs without adding review
+    don't count toward the ceiling, because they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
     files and do count toward the ceiling. All files still count toward tier
     classification and still appear in the diff the LLM reads.
@@ -100,11 +106,11 @@ Wait for in-flight bot reviews (skipped when gates already denied)
     triggered at the same moment, so an 👀 at fetch time is a race, not a
     lasting state
   - Polls until allowlisted-bot 👀 reactions clear (up to 5 min); if one
-    remains, verdict is WAIT — label kept, next push retries
-  - Bot 👀 older than ~45 min is a crashed reviewer, not an in-flight one —
+    remains, verdict is WAIT; label kept, next push retries
+  - Bot 👀 older than ~45 min is a crashed reviewer, not an in-flight one:
     ignored, so a wedged bot can't stall every review (reactions never
     expire and humans can't remove another app's reaction)
-  - Human 👀 reactions are not waited on — the LLM refuses over them instead
+  - Human 👀 reactions are not waited on; the LLM refuses over them instead
   - If the wait refetched the PR, classification and gates re-run on the
     fresh data before the LLM sees it
   │
@@ -114,42 +120,35 @@ LLM Review
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
   - Receives the PR description (untrusted) and verifies the diff matches the
-    author's stated intent — undisclosed sensitive behavior gets extra scrutiny
+    author's stated intent. Undisclosed sensitive behavior gets extra scrutiny
   - Reads the discussion-comment timeline (untrusted, newest first, capped)
     alongside inline comments; an un-withdrawn maintainer hold blocks approval
   - Gets a trusted one-line `Assurance:` digest (current-head approvals,
     unresolved inline comments, discussion count) so review state is at a glance
   - Reads other reviewers' signals as context (not a gate): top-level review
     states (annotated current-head vs older-commit), inline comments (tagged
-    resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —
+    resolved/outdated), and reactions (👍/👎/👀) on the PR and comments,
     filtered to org members and an allowlist of reviewer bots (installed
     apps like inkeep react for non-review reasons), never the PR author
-  - An 👀 reaction signals an in-flight review — the LLM refuses rather than
+  - An 👀 reaction signals an in-flight review, so the LLM refuses rather than
     approving over someone who is mid-review (bot 👀 races are waited out
     before the LLM runs; see above)
-  - Stamphog's own prior reviews (stamphog[bot] refusals, github-actions[bot]
-    approvals) and its own inline comments are excluded from the prompt — they
-    describe an earlier snapshot of the PR and are never independent review
-    signal. Quoted stamphog verdicts in other reviewers' comments are treated
-    as history, not tampering
+  - Stamphog's own prior reviews and its own inline comments are excluded from
+    the prompt, because they describe an earlier snapshot of the PR and are never
+    independent review signal. Quoted stamphog verdicts in other reviewers'
+    comments are treated as history, not tampering
   - For changes entering risky territory (migrations, billing, auth, and
-    similar; the full list lives in `.stamphog/review-guidance.md`), expects
+    similar; the full list lives in the review guidance file), expects
     independent assurance over the risky part on the current head: a
     substantive reviewer pass, or an owning-team / STRONG-familiarity author;
     escalates otherwise. Outside risky territory no independent review is
     required, regardless of size tier. We move fast and fix forward, and the
     LLM's own reading suffices for contained, reversible changes
-  - Gates are authoritative — LLM can tighten but never loosen
+  - Gates are authoritative: the LLM can tighten but never loosen
   │
   ▼
 Final verdict → GitHub review (approve) or sticky comment (everything else)
 ```
-
-The bot never posts request-changes.
-Approvals are posted as real PR reviews (they must count toward branch protection).
-An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
-This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
-Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Stacked PRs (Graphite / git stacks)
 
@@ -160,38 +159,34 @@ Two parts make stamphog correct on these:
 - **Exploration sees the post-stack tree.**
   The LLM reviewer's `Read`/`Grep`/`Glob` must run over a tree that already contains the parent PRs' code, so symbols from a not-yet-merged parent resolve and aren't flagged as broken imports.
   The diff itself is still computed `base_sha...head_sha`, so the review is scoped to exactly this PR's changes.
-  How the head tree is materialized differs per runtime:
-  - **Action:** the workflow checks out master (hardcoded, so a PR can't swap the review script), so the reviewer explores a detached **worktree at the PR head** created just for stacked PRs.
+  How the head tree is materialized differs per entrypoint:
+  - **Hosted:** the sandbox clones and checks out the PR head for every review, so nothing extra is needed. `review_local.py` runs the pipeline with `head_checkout=True` and no worktree is created.
+  - **Manual local run:** `review_pr.py` reviews from your own checkout, which is not the PR head, so it creates a detached **worktree at the PR head** for stacked PRs.
     If the worktree cannot be created, stamphog returns `ERROR` and retains the label rather than reviewing against the wrong source tree.
-    Symbolic links the PR adds or repoints (relative to the default branch's tree, which already carries trusted ones like `CLAUDE.md`) fail closed, so a PR path cannot resolve outside the worktree.
-  - **Hosted:** the sandbox clones and checks out the PR head for every review, so nothing extra is needed — `review_local.py` runs the pipeline with `head_checkout=True` and no worktree is created.
-  - **Security (both runtimes):** the explored tree is PR-authored content.
+    Symbolic links the PR adds or repoints fail closed, so a PR path cannot resolve outside the worktree.
+  - **Security (both):** the explored tree is PR-authored content.
     The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
-    Those files are still readable as untrusted _content_ under the anti-injection notice — never as configuration.
+    Those files are still readable as untrusted _content_ under the anti-injection notice, never as configuration.
     The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 - **Base retarget dismisses the stale approval.**
-  When a stack's parent merges, the child PR is retargeted from the parent branch onto master, changing its effective diff **without a push** — so no `synchronize` fires and the normal push-dismiss path is skipped.
+  When a stack's parent merges, the child PR is retargeted from the parent branch onto the default branch, changing its effective diff **without a push**, so no `synchronize` fires and the normal push-dismiss path is skipped.
   Under the master ruleset (`dismiss_stale_reviews_on_push=false`), a prior bot approval would silently carry onto the new base.
-  The Action listens for the `edited` event and, when the base changed, dismisses the bot approval and re-reviews against the new base (if the label is still present); the approval step also rechecks the live base and head SHAs right before posting.
-  The hosted runtime does the same from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run) and `post_verdict` rechecks the live base ref and SHA against the reviewed ones.
+  The hosted runtime retracts from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run), and `post_verdict` rechecks the live base ref and SHA against the reviewed ones before posting.
 
-The base commit of a stacked PR is its parent branch tip, which the Action's master checkout doesn't fetch by default — `github.ensure_commits` and the `decide-delta` job both fetch the base branch so `git diff base_sha...head_sha` and the dismiss-time merge classification resolve it.
-The hosted sandbox fetches the base SHA explicitly during the clone.
+The base commit of a stacked PR is its parent branch tip.
+The hosted sandbox fetches the base SHA explicitly during the clone, and `github.ensure_commits` fetches it for a manual local run.
 
-Known limitation (both runtimes): a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
+Known limitation: a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
 
 ## Tiers
 
-### T0 — deterministic
+### T0 - deterministic
 
-Lowest risk. LLM still reviews but with a lighter bar. PR touches only safe paths:
+Lowest risk. The LLM still reviews but with a lighter bar. The PR touches only safe paths: allow-listed extensions, allow-listed paths, or test files only.
+The extension and path lists live under `allow:` in `policy.yml`.
 
-- Allow-listed extensions: `.md`, `.mdx`, `.txt`, `.rst`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.cfg`, `.csv`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.ico`, `.webp`, `.snap`, `.lock`
-- Allow-listed paths: `docs/`, `README`, `CHANGELOG`, `LICENSE`, `CONTRIBUTING`, `.github/CODEOWNERS`, `.gitignore`, `.editorconfig`, `generated/`, `__snapshots__/`
-- Test-only PRs (all changed files are test files)
-
-### T1 — agent-reviewed
+### T1 - agent-reviewed
 
 Sub-classified by risk to calibrate scrutiny:
 
@@ -200,74 +195,66 @@ Sub-classified by risk to calibrate scrutiny:
 | T1a-trivial | ≤20         | ≤3    | single-area       |
 | T1b-small   | ≤100        | ≤5    | not cross-cutting |
 | T1c-medium  | ≤300        | ≤15   | not cross-cutting |
-| T1d-complex | >300 or >15 | —     | any               |
+| T1d-complex | >300 or >15 | -     | any               |
 
-### T2 — never AI-approved
+### T2 - never AI-approved
 
-Deny-listed categories where even a small diff can have high blast radius:
+Deny-listed categories where even a small diff can have high blast radius.
+The patterns for each category, and the `rationale` behind them, live under `deny:` in `policy.yml`.
 
-| Category           | Patterns                                                                                                                                      |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **auth**           | auth, authentication, authenticate, authenticated, authorize, authorization, authorized, login, signup, oauth, saml, sso, oidc, credential, … |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                                                             |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                                                                 |
-| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, .github/pr-deploy, bin/deploy, deploy.sh, iam, cloudflare, etc.                          |
-| **billing**        | billing, payment, stripe, invoice, pricing                                                                                                    |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                                                                      |
-| **deps_toolchain** | lockfiles (pnpm-lock, uv.lock, Cargo.lock, go.sum, …), requirements.txt, Makefile, Dockerfile, .nvmrc                                         |
+| Category            | What it covers                                       |
+| ------------------- | ---------------------------------------------------- |
+| **auth**            | Authentication and authorization surfaces            |
+| **crypto_secrets**  | Cryptography, secrets, and key material              |
+| **migrations**      | Database and schema migrations                       |
+| **infra_cicd**      | Infrastructure, CI, and deployment artifacts         |
+| **billing**         | Payments and billing                                 |
+| **public_api**      | Public API contracts and schemas                     |
+| **deps_toolchain**  | Dependency lockfiles and toolchain/build files       |
+| **stamphog_policy** | Stamphog's own policy files, engine, and gate inputs |
 
-Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
-`subscription` (means scheduled insight deliveries here, not payments),
-`routing` (every match was app-level DRF routing, never infra), and the bare word `deploy`
-(matches deploy-timing docs and unrelated code); narrow literals `bin/deploy`, `deploy.sh`,
-and `.github/pr-deploy` cover real deployment artifacts instead.
-Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml,
-go.mod) don't hard-deny either: without a lockfile change they can't pull in
-third-party code (CI installs are frozen-lockfile). Three guards cover the
-residual risk that manifest scripts/hooks execute in CI: a deterministic scan
-of the manifest's diff hard-denies edits to known scripts/lifecycle/build
-keys (see `manifest_risk.py` — fails closed if the diff can't be read),
-manifest PRs are kept out of the T0 fast path, and the reviewer prompt must
-REFUSE on execution-bearing changes the scan can't name.
-Manifest/lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS`
-table in `gates.py` (the single source the deny patterns and helpers derive
-from): a Cargo.lock bump hard-denies on its own but doesn't silence the
-scripts guard on an unrelated package.json edit in the same PR.
-Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
-are exempt from the **auth** and **billing** categories — connector code
-legitimately does OAuth and talks to the Stripe API without touching
-PostHog's auth system or its billing.
+Some words are absent on purpose, calibrated against deny-listed PRs over 120 days.
+`subscription` means scheduled insight deliveries in this repository, not payments.
+`routing` only ever matched app-level DRF routing, never infrastructure.
+The bare word `deploy` matches deploy-timing docs and unrelated code, so narrow literals like `bin/deploy` and `deploy.sh` cover real deployment artifacts instead.
 
-The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `migration_risk.py` for how stamphog reads it.
+Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml, go.mod) don't hard-deny either: without a lockfile change they can't pull in third-party code, because CI installs are frozen-lockfile.
+Three guards cover the residual risk that manifest scripts or hooks execute in CI.
+A deterministic scan of the manifest's diff hard-denies edits to known scripts, lifecycle and build keys (see `manifest_risk.py`, which fails closed if the diff can't be read).
+Manifest PRs are kept out of the T0 fast path.
+And the reviewer prompt must REFUSE on execution-bearing changes the scan can't name.
 
-If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict: the deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would cost a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over a race with CI. The label is kept and the next push reviews against the now-classified head commit.
+Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
+So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
+
+Data warehouse connector sources (`products/warehouse_sources/.../sources/`) are exempt from the **auth** and **billing** categories, because connector code legitimately does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing.
+
+The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
+The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab.
+See `migration_risk.py` for how stamphog reads it.
+
+If the check hasn't reported yet when stamphog runs, the hosted runtime returns `WAIT` rather than a verdict.
+The deny-list only matched because the engine could not tell a safe migration from a risky one, and a refusal would cost a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over a race with CI.
+The label is kept and the next push reviews against the now-classified head commit.
 
 ### Ownership
 
-Ownership context for the LLM (not a hard gate). The sources are declared in
-`.stamphog/policy.yml` under `ownership:` and read from the master checkout: a
-`hogli-resolver` source that resolves ownership through the shared hogli
-resolver over the distributed `owners.yaml` / `product.yaml` files. A file's
-owning teams are the union across all sources, so stamphog sees the same merged
-view the reviewer auto-assigner builds. Cross-team typo/test/comment fixes are
-fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding
-reviewer concerns; API contract, data model, and larger behavioral changes get
-escalated.
+Ownership context for the LLM, not a hard gate.
+The sources are declared in `policy.yml` under `ownership:` and read from the repository's default branch: a `hogli-resolver` source that resolves ownership through the shared hogli resolver over the distributed `owners.yaml` / `product.yaml` files.
+A file's owning teams are the union across all sources, so stamphog sees the same merged view the reviewer auto-assigner builds.
+Cross-team typo, test and comment fixes are fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer concerns.
+API contract, data model, and larger behavioral changes get escalated.
 
 ## Versioning
 
 `version.py` holds `STAMPHOG_VERSION` (semver, pre-releases like `2.0.0b1`).
-It is stamped onto the `stamphog_review_completed` event (alongside the
-checkout commit sha), the LLM trace properties, the evidence bundle, and the
-verdict comment's mechanics table — so verdict quality and reviewer behavior
-can be segmented by version in LLM analytics. Bump it in the same PR as any
-behavior-affecting change to the engine, the prompt scaffold, or the review
-guidance. Policy data edits don't need a bump; they're tracked by the policy
-sha shown next to the version.
+It is stamped onto the `stamphog_review_completed` event (alongside the checkout commit sha), the LLM trace properties, the evidence bundle, and the verdict comment's mechanics table, so verdict quality and reviewer behavior can be segmented by version in LLM analytics.
+Bump it in the same PR as any behavior-affecting change to the engine, the prompt scaffold, or the review guidance.
+Policy data edits don't need a bump; they're tracked by the policy sha shown next to the version.
 
 ## Evidence bundle
 
-Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as artifact in CI) containing:
+Every run produces a JSON evidence bundle (`--output-json` locally) containing:
 
 - Stamphog version and PR metadata (number, author, title)
 - Classification (tier, sub-tier, breadth, commit type, deny categories, ownership)
@@ -279,22 +266,25 @@ The hosted runtime persists it on the `ReviewRun` row, readable through the stam
 
 ## Architecture
 
-- `review_pr.py` — pipeline orchestrator (fetch → classify → gates → LLM)
-- `gates.py` — deterministic classification and deny-list logic
-- `github.py` — GitHub data fetching via `gh` CLI
-- `reviewer.py` — Claude Agent SDK reviewer (showstoppers prompt)
-- `review_local.py` — offline entrypoint the hosted sandbox runs, consuming a pre-fetched context
+- `review_pr.py` - pipeline orchestrator (fetch → classify → gates → LLM), and the manual local entrypoint
+- `review_local.py` - the entrypoint the hosted sandbox runs, consuming a pre-fetched context
+- `policy.py` - policy loader, resolver, and the untrusted-text sanitizer
+- `gates.py` - deterministic classification and deny-list logic
+- `github.py` - GitHub data fetching via `gh` CLI
+- `reviewer.py` - Claude Agent SDK reviewer (showstoppers prompt)
 
 ## Empirical basis
 
 Tier thresholds and deny categories calibrated against 356 PRs that received quick human approval (stamp) in the PostHog repo over ~90 days:
 
-- 126 tiny (1-10 lines), 102 small (11-50 lines) — most quick approvals are small
-- 284/356 single-area — narrow scope dominates
+- 126 tiny (1-10 lines), 102 small (11-50 lines) - most quick approvals are small
+- 284/356 single-area - narrow scope dominates
 - Top profiles: frontend-only (122), python-only (57), python+test (28), config-only (21), test-only (16)
-- 184 `fix`, 101 `chore` — fixes and chores are the modal commit types
+- 184 `fix`, 101 `chore` - fixes and chores are the modal commit types
 - Frontend-only cluster: median 9 lines/1 file, 0% has tests
 - Python+test cluster: median 73 lines/2.5 files, 100% has tests
 - Python-only cluster: median 13 lines/1 file, 3% has tests
 
-Key insight: size alone is not a safe proxy. Small PRs touching CI workflows, auth, or SAML should never be auto-approved regardless of size. The deny-list exists precisely for this.
+Key insight: size alone is not a safe proxy.
+Small PRs touching CI workflows, auth, or SAML should never be auto-approved regardless of size.
+The deny-list exists precisely for this.
