@@ -12,7 +12,7 @@ import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
 
-type Outcome = 'offered' | 'created' | 'failed'
+type Outcome = 'offered' | 'ready' | 'waiting_for_slack' | 'created' | 'failed'
 type Kind = 'scout' | 'notebook'
 
 interface StoryArgs {
@@ -165,7 +165,9 @@ type LogicProps = { streamKey: string; turnIndex: number; sessionId: string }
 function mountScoutStory(logicProps: LogicProps, outcome: Outcome): () => void {
     const logic = scoutSuggestionLogic(logicProps)
     const unmount = logic.mount()
-    if (outcome !== 'offered') {
+    if (outcome === 'waiting_for_slack') {
+        logic.actions.connectSlackClicked()
+    } else if (outcome !== 'offered') {
         logic.actions.setSlackIntegrationId(mockIntegration.id)
         logic.actions.setSlackChannel('C0123456789|#growth')
     }
@@ -282,6 +284,13 @@ export const ScoutSuggestion: Story = {}
 
 export const ScoutSuggestionWithoutSlack: Story = { decorators: [mswDecorator(mocksFor(false))] }
 
+export const ScoutSuggestionWaitingForSlack: Story = {
+    args: { outcome: 'waiting_for_slack' },
+    decorators: [mswDecorator(mocksFor(false))],
+}
+
+export const ScoutSuggestionReadyToCreate: Story = { args: { outcome: 'ready' } }
+
 export const ScoutCreated: Story = { args: { outcome: 'created' } }
 
 export const ScoutCreationFailed: Story = { args: { outcome: 'failed' } }
@@ -289,3 +298,5 @@ export const ScoutCreationFailed: Story = { args: { outcome: 'failed' } }
 export const NotebookSuggestion: Story = { args: { kind: 'notebook' } }
 
 export const NotebookSaved: Story = { args: { kind: 'notebook', outcome: 'created' } }
+
+export const NotebookSaveFailed: Story = { args: { kind: 'notebook', outcome: 'failed' } }
