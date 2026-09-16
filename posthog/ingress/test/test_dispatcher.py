@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.ingress.contracts import DeliveryOwnership, ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryDedup
+from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 
@@ -190,6 +190,34 @@ class TestWebhookDispatcher(SimpleTestCase):
             _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
 
         second.assert_not_called()
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestDeliveryDedup(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+        self.mark = {"provider": "github", "consumer": "alpha", "delivery_id": "delivery-1"}
+
+    def test_the_mark_reports_the_state_its_holder_left_it_in(self) -> None:
+        dedup = DeliveryDedup()
+
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+        # A redelivery that arrives before the first run settles must not read this as done. That
+        # run can still raise, and a receipt now stops the provider sending the delivery again.
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.IN_PROGRESS)
+
+        dedup.complete(**self.mark)
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.DONE)
+
+        dedup.release(**self.mark)
+        self.assertEqual(dedup.claim(**self.mark), DeliveryClaim.CLAIMED)
+
+    def test_a_mark_written_before_the_state_existed_still_dedupes(self) -> None:
+        cache.set(DeliveryDedup.key(**self.mark), True)
+
+        # Marks live for 24 hours, so a rollout meets the old ones. Reading one as in flight would
+        # cost a receipt for every delivery still holding it.
+        self.assertEqual(DeliveryDedup().claim(**self.mark), DeliveryClaim.DONE)
 
 
 class TestDeliveryOwnership(SimpleTestCase):

@@ -7,7 +7,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.ingress.contracts import DeliveryDispatch, DeliveryOwnership, WebhookConsumer, WebhookDelivery
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
-from posthog.ingress.dispatch.dedup import DeliveryDedup
+from posthog.ingress.dispatch.dedup import DeliveryClaim, DeliveryDedup
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.observability.metrics import observe_consumer_duration, observe_consumer_run, observe_ownership
 
@@ -36,14 +36,19 @@ class WebhookDispatcher:
     def _run(self, consumer: WebhookConsumer, delivery: WebhookDelivery) -> bool:
         """Run one consumer, and answer whether it accepted the delivery.
 
-        A deduped consumer accepted it on the earlier delivery, so it answers True too.
+        A consumer deduped against a finished run accepted it then, so it answers True too. One
+        deduped against a run that is still going answers False: that run can still fail, and a
+        receipt now would stop the provider from ever sending the delivery again.
         """
         # A consumer that opted out of dedup claims and releases nothing, so a redelivery always
         # reaches it. Skipping is not an outcome of its own: it simply runs.
         delivery_id = delivery.delivery_id if consumer.dedup else None
-        if delivery_id and not self._dedup.claim(
-            provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id
-        ):
+        claim = (
+            self._dedup.claim(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
+            if delivery_id
+            else DeliveryClaim.CLAIMED
+        )
+        if claim is DeliveryClaim.DONE:
             logger.info(
                 "ingress_consumer_deduped",
                 provider=delivery.provider,
@@ -53,6 +58,16 @@ class WebhookDispatcher:
             )
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="deduped")
             return True
+        if claim is DeliveryClaim.IN_PROGRESS:
+            logger.info(
+                "ingress_consumer_in_flight",
+                provider=delivery.provider,
+                consumer=consumer.name,
+                event_type=delivery.event_type,
+                delivery_id=delivery.delivery_id,
+            )
+            observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="in_flight")
+            return False
 
         started = time.monotonic()
         try:
@@ -71,6 +86,8 @@ class WebhookDispatcher:
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="failed")
             return False
         else:
+            if delivery_id:
+                self._dedup.complete(provider=delivery.provider, consumer=consumer.name, delivery_id=delivery_id)
             observe_consumer_run(provider=delivery.provider, consumer=consumer.name, outcome="succeeded")
             return True
         finally:

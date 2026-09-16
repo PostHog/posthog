@@ -20,8 +20,10 @@ DeliveryOutcome = Literal[
 ]
 
 # budget_exceeded means the delivery ran out of wall clock before this consumer started. It is
-# not marked in dedup, so the provider's redelivery reaches it.
-ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded"]
+# not marked in dedup, so the provider's redelivery reaches it. in_flight means another run of the
+# same consumer for the same delivery had not settled yet, so this one did nothing and does not
+# count as accepted.
+ConsumerOutcome = Literal["succeeded", "failed", "deduped", "budget_exceeded", "in_flight"]
 
 # What a consumer answered when asked which region owns the delivery's resource; `failed` is the
 # lookup raising, which counts as undecided.

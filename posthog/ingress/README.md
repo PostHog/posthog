@@ -222,6 +222,8 @@ Two shapes that already exist and are worth copying rather than re-deriving:
 
 Dedup is per `(provider, consumer, delivery_id)` in the Django cache, for 24 hours.
 The mark is set before the consumer runs and released when it raises, so a failure does not burn the delivery for a day.
+Because it is set before the work finishes, it carries a state rather than a bare flag: a claim answers `CLAIMED`, `IN_PROGRESS` or `DONE`, and the consumer settles it to done when it returns.
+Only `DONE` counts as accepted, so a delivery that meets a run still in flight is skipped with outcome `in_flight` and is not receipted, and a provider with `retry_status` sends it again once the first run settled rather than trusting a run that can still fail.
 Keying per consumer rather than per delivery matters: one delivery legitimately fans out to several consumers, and a delivery-wide key would starve every consumer but the first.
 A cache error fails **open** — dropping deliveries during a cache outage is worse than running a consumer twice, and consumers carry their own idempotency underneath this.
 
@@ -230,7 +232,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 ## Observability
 
 - **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
-- **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
+- **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`, `in_flight`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
 - **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.

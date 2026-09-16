@@ -562,6 +562,26 @@ class TestUnacceptedDelivery(_DispatchingViewTestCase):
         warnings = {call.args[0]: call.kwargs for call in logger.warning.call_args_list}
         self.assertEqual(warnings["ingress_delivery_retry_requested"]["consumers"], ["zulu"])
 
+    def test_a_duplicate_that_arrives_while_the_first_run_is_going_is_not_receipted(self) -> None:
+        runs = {"count": 0}
+        answered: list[int] = []
+
+        def deliver_again_mid_run(delivery: WebhookDelivery) -> None:
+            runs["count"] += 1
+            if runs["count"] == 1:
+                answered.append(view(self._github_request()).status_code)
+
+        view = self._view(
+            [_consumer(GITHUB_SPEC, name="probe", handler=Mock(side_effect=deliver_again_mid_run))],
+            provider=_RedeliveringGitHubProvider("posthog"),
+        )
+
+        self.assertEqual(view(self._github_request()).status_code, 202)
+        # The duplicate met a run that had not settled, so it asks for the delivery again rather
+        # than receipting work that can still raise.
+        self.assertEqual(answered, [502])
+        self.assertEqual(runs["count"], 1)
+
     def test_the_redelivery_reaches_only_the_consumer_that_did_not_accept(self) -> None:
         accepted = Mock()
         self.handler.side_effect = RuntimeError("the consumer's durable write failed")
