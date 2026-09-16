@@ -6,6 +6,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.models import Organization, OrganizationMembership, Team
 
@@ -187,3 +188,57 @@ class TestDesktopAccessPolicy(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+
+
+class TestEnforceCodeAccess(APIBaseTest):
+    def _enforce(self, **kwargs) -> None:
+        from products.tasks.backend.facade.api import enforce_code_access
+        from products.tasks.backend.models import Task
+
+        defaults = {
+            "origin_product": Task.OriginProduct.EXPERIMENTS,
+            "create_pr": True,
+            "internal": False,
+        }
+        enforce_code_access(self.team, self.user.id, **{**defaults, **kwargs})
+
+    @parameterized.expand(
+        [
+            ("experiments_pr_run", "experiments", True, False, True),
+            ("slack_pr_run", "slack", True, False, True),
+            ("no_pull_request", "experiments", False, False, False),
+            ("internal_machinery", "experiments", True, True, False),
+            ("onboarding_wizard", "onboarding", True, False, False),
+            ("inbox_report", "signal_report", True, False, False),
+            ("inbox_chat", "signals_chat", True, False, False),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_only_gates_pull_request_runs_from_non_exempt_origins(
+        self, _name, origin_product, create_pr, internal, expect_denied, mock_decision, _mock_usage
+    ) -> None:
+        mock_decision.return_value = MagicMock(allowed=False, reason=DesktopAccessReason.STARTUP_PLAN)
+
+        if expect_denied:
+            with self.assertRaises(PermissionDenied):
+                self._enforce(origin_product=origin_product, create_pr=create_pr, internal=internal)
+        else:
+            self._enforce(origin_product=origin_product, create_pr=create_pr, internal=internal)
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch(
+        "products.tasks.backend.access.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("billing unreachable"),
+    )
+    def test_fails_open_when_entitlement_cannot_be_resolved(self, _mock_decision, _mock_usage) -> None:
+        self._enforce()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response")
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_denies_an_entitled_organization_that_is_over_its_usage_limit(self, mock_decision, mock_usage) -> None:
+        mock_decision.return_value = MagicMock(allowed=True, reason=None)
+        mock_usage.return_value = MagicMock()
+
+        with self.assertRaises(Throttled):
+            self._enforce()

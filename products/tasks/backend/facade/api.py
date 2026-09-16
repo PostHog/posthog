@@ -1462,6 +1462,7 @@ def create_and_run_task(
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
     """
+    enforce_code_access(team, user_id, origin_product=origin_product, create_pr=create_pr, internal=internal)
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2741,6 +2742,85 @@ def enforce_self_driving_free_trial(
         return
     capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
     raise FreeTrialPullRequestRefused()
+
+
+# Origin products whose cloud PR runs are entitled without PostHog Desktop access, so
+# `enforce_code_access` lets them through. Each one has a documented reason:
+#
+# - ONBOARDING: the setup-wizard cloud run bills to nobody. It routes to the unbilled
+#   `onboarding` gateway product and PostHog absorbs the cost (see `create_wizard_cloud_run`).
+# - SIGNAL_REPORT and SIGNALS_CHAT: Inbox work, entitled through self-driving rather than the
+#   Desktop waitlist, and already priced by `enforce_self_driving_pr_quota` below. Auto-start
+#   opens the same run server-side, so gating the button would only make the outcome depend on
+#   who started it. `task_exempt_from_code_access` makes the same call for the run endpoints.
+#
+# Everything else is denied by default, so a new caller has to decide rather than inherit a pass.
+CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS = frozenset(
+    {
+        Task.OriginProduct.ONBOARDING,
+        Task.OriginProduct.SIGNAL_REPORT,
+        Task.OriginProduct.SIGNALS_CHAT,
+    }
+)
+
+
+def enforce_code_access(
+    team: Team,
+    user_id: int,
+    *,
+    origin_product: "Task.OriginProduct",
+    create_pr: bool,
+    internal: bool,
+) -> None:
+    """Refuse to start a cloud run that can open a pull request when the organization is not
+    entitled to PostHog Desktop, or is over its usage limit.
+
+    The run and command endpoints hold this bar through `code_access_required_response` and
+    `usage_limit_response`, but `create_and_run_task` is reached by product surfaces that never
+    pass through those views, so the bar has to be restated here. Raises `PermissionDenied` (403)
+    and `Throttled` (429), matching what those endpoints return.
+
+    Only `create_pr` runs are gated, for the same reason the self-driving quota below skips the
+    others: a session that cannot open the billable pull request costs the organization nothing.
+    `internal` runs are machinery rather than user-started work.
+
+    Fails open when the entitlement service cannot answer, which is what `usage_limit_response`
+    already does for an unreachable gateway. A degraded dependency must not stop teams working.
+    """
+    from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+        PermissionDenied,
+        Throttled,
+    )
+
+    from products.tasks.backend.access import (  # noqa: PLC0415 — keeps the entitlement client off the api import path
+        DesktopAccessResolutionError,
+        get_desktop_access_decision,
+    )
+    from products.tasks.backend.logic.services.code_usage_gate import (  # noqa: PLC0415 — keeps the gateway client off the api import path
+        usage_limit_response,
+    )
+
+    if not create_pr or internal or origin_product in CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS:
+        return
+
+    user = User.objects.filter(id=user_id).first()
+    if user is None:
+        raise PermissionDenied("A cloud run that opens a pull request needs a user to attribute it to.")
+
+    try:
+        decision = get_desktop_access_decision(user, team.organization)
+    except DesktopAccessResolutionError:
+        logger.warning(
+            "task_code_access_check_unavailable",
+            extra={"team_id": team.id, "origin_product": str(origin_product)},
+        )
+        return
+
+    if not decision.allowed:
+        raise PermissionDenied("PostHog Desktop access is required to run tasks in the cloud.")
+
+    if usage_limit_response(user, team.id) is not None:
+        raise Throttled(detail="Your organization reached its PostHog Desktop usage limit.")
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
