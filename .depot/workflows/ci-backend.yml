@@ -630,6 +630,9 @@ jobs:
             # the run-ci-backend label. turbo-discover.js reads it too, so a run that never
             # selects reports an empty mode rather than a selector error.
             SELECTION_APPLIES: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && needs.changes.outputs.backend == 'true' }}
+            # GitHub tests PRs as synthetic merges. The first parent pins the exact integrated
+            # base for ordinary, stacked, and merge-queue PRs.
+            TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('{0}^1', github.sha) || '' }}
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
             run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
@@ -652,7 +655,20 @@ jobs:
               with:
                   fetch-depth: 1000
                   filter: blob:none
-            - name: Fetch current PR base for Turbo affected diff
+            - name: Verify PR merge for test selection
+              id: verify-merge
+              if: github.event_name == 'pull_request'
+              env:
+                  PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+                  trap 'echo "::error::Cannot verify the PR merge checkout. Check the checkout ref and fetch depth before retrying." >&2' ERR
+                  test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+                  test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 3
+                  test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+                  git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
+
+            - name: Fetch PR base for schema cache
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -809,13 +825,11 @@ jobs:
               continue-on-error: true
               timeout-minutes: 8
               if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               shell: bash
               run: |
                   set -euo pipefail
                   uv run tools/snob_backend_test_selection_shadow.py \
-                      --base-ref "origin/$BASE_REF" \
+                      --base-ref "$TURBO_SCM_BASE" \
                       > /tmp/selection.json
 
             - name: Discover products to test
@@ -834,7 +848,6 @@ jobs:
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
-                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
                   SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
