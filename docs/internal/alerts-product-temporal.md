@@ -147,3 +147,73 @@ Tests verify local logging, queue-labelled SDK metrics, and trace relationships 
 Charts rollout must separately configure both deployments and verify Prometheus scraping and delivery to the tracing collector.
 This change does not configure deployments, dashboards, alert rules, or SLO emission.
 The `alerts-product` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
+
+## Source evaluation cycle
+
+`alerts-product-source-tick` starts one evaluation cycle per source, then returns without
+waiting for the cycles to finish. It reads `source_cycle_bindings()` in
+`products/alerts/backend/temporal/sources.py`, which names each source's workflow and task
+queue. The tick starts each cycle by workflow name, so the orchestrator imports nothing
+from the product that implements the cycle, and a source moves to its own fleet by changing
+its binding's `task_queue`.
+
+The tick registers on the evaluation queue until the shared orchestration queue reaches
+master. Its child ids are floored to the minute, so a retried start for one tick occasion
+collides instead of running the same cycle twice.
+
+`logs-alert-source-cycle` is the only binding today. It evaluates every due logs alert,
+then starts one `alerts-product-deliver-preview` child per notification on the delivery
+queue.
+
+Cohorts run one after another inside a single activity, so the cycle caps how many it
+evaluates rather than how long each one may take. A cohort whose ClickHouse query fails is
+skipped and the rest of the pass continues, because one team's failure must not cost every
+other team its evaluation. The cycle takes one attempt: a retry would re-run the same
+fleet-wide scan against a cluster that just failed it, and the next tick starts a fresh
+cycle anyway.
+
+Alerts are excluded from a cycle the way production excludes them before evaluating: a
+structurally broken filter config, and a schedule restriction that blocks a check at the
+tick occasion.
+
+### The cycle does not write
+
+The production `logs-alerting-task-queue` fleet evaluates these same alerts every minute.
+A write from this cycle would advance an alert's schedule or transition its state, and the
+person watching that alert would be notified twice for one breach. So the cycle calls no
+`apply_outcome`, advances no `next_check_at`, writes no `LogsAlertEvent`, and produces no
+Kafka message. Delivery stops at an `alerts_product_delivery_preview` log line that names
+the alert, the notification, the resolved destinations and the evaluation key.
+
+`products/logs/backend/test/test_alert_cycle.py` holds this invariant: a breaching alert
+produces a preview and its persisted fields are unchanged.
+
+### What it stands in for
+
+The cycle reads `LogsAlertConfiguration` through the existing `due_alerts_q()`. That read
+stands in for a shared alert configuration that the alerts platform does not own yet, so
+every source still reads its own product's model.
+
+Two behaviors are deliberately unresolved here. Overlap control between consecutive cycles
+of one source is not decided, and neither is what happens to an evaluation window that a
+delayed check skips, because `advance_next_check_at` moves past whole intervals when it is
+behind. Both belong to the shared configuration work, not to this cycle.
+
+The cycle also does not prove the ordering it changes. Logs today persists alert state only
+after Kafka accepts the notification. Delivery on its own queue inverts that, so evaluation
+would persist before delivery is known. Persisting nothing sidesteps the question rather
+than answering it.
+
+### Manual runs
+
+```bash
+docker exec posthog-temporal-admin-tools-1 \
+    temporal workflow start --address temporal:7233 --namespace default \
+    --task-queue alerts-product-evaluation-task-queue \
+    --type alerts-product-source-tick \
+    --workflow-id "alerts-product-source-tick-manual-$(date +%Y%m%d%H%M%S)" \
+    --input '{}'
+```
+
+Watch the cycle child and its delivery preview children in the Temporal UI. A cycle that
+finds no due alert starts no child, so an empty run is not evidence that the handoff works.

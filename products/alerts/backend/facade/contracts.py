@@ -125,3 +125,57 @@ class AlertDelivery:
     template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
+
+
+class SourceKind(StrEnum):
+    """Which product owns the data behind an alert configuration."""
+
+    LOGS = "logs"
+
+
+@frozen
+class SourceCycleBinding:
+    """Where the orchestrator sends one source's evaluation cycle.
+
+    The binding holds names, not imports. The orchestrator starts the cycle by workflow
+    name, so it never reaches into the product that implements the cycle, and a source
+    moves to its own fleet by changing `task_queue` here instead of changing the tick.
+    """
+
+    source_kind: SourceKind
+    workflow_name: str
+    task_queue: str
+
+
+@frozen
+class SourceCycleInputs:
+    """What the orchestrator hands one source's cycle."""
+
+    source_kind: SourceKind
+    # ISO-8601. The cycle evaluates against this instant rather than the clock, so a retried
+    # attempt selects the same alerts and derives the same evaluation keys as the first.
+    tick_started_at: str
+
+
+@frozen
+class SourceCycleResult:
+    source_kind: SourceKind
+    notifications_dispatched: int
+
+
+@frozen
+class AlertDeliveryPreview:
+    """What a delivery would send, for a cycle that must not contact a destination.
+
+    `evaluation_key` names the alert and the evaluation occasion, not the attempt, so two
+    deliveries carrying the same key describe one notification and not two. The occasion
+    alone does not identify a notification, because every alert evaluated in one cohort
+    shares a window end.
+    """
+
+    source_kind: SourceKind
+    alert_id: str
+    alert_name: str
+    notification: str
+    destination_names: tuple[str, ...]
+    evaluation_key: str
