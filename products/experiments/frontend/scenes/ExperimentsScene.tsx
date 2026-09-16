@@ -127,8 +127,8 @@ const ExperimentsTableFilters = ({
     onFiltersChange: (filters: ExperimentsFilters, replace?: boolean) => void
 }): JSX.Element => {
     return (
-        <div className="flex justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-6">
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-between gap-2 flex-wrap">
                 <Shortcut
                     name="SearchExperiments"
                     keybind={[keyBinds.filter]}
@@ -137,102 +137,98 @@ const ExperimentsTableFilters = ({
                     scope={Scene.Experiments}
                 >
                     <LemonInput
+                        className="w-[335px] !max-w-[335px]"
                         type="search"
                         placeholder="Search experiments"
                         onChange={(search) => onFiltersChange({ search, page: 1 })}
                         value={filters.search || ''}
                     />
                 </Shortcut>
-                <div className="flex items-center gap-2">
-                    <span>
-                        <b>Status</b>
-                    </span>
-                    <LemonSelect
-                        size="xsmall"
-                        onChange={(status) => {
-                            if (status === 'all') {
-                                const { status: _, ...restFilters } = filters
-                                onFiltersChange({ ...restFilters, page: 1 }, true)
-                            } else {
-                                onFiltersChange({ status: status as ExperimentStatus, page: 1 })
-                            }
-                        }}
-                        options={
-                            [
-                                { label: 'All', value: 'all' },
-                                { label: 'Draft', value: ExperimentStatus.Draft },
-                                { label: 'Running', value: ExperimentStatus.Running },
-                                { label: 'Paused', value: ExperimentStatus.Paused },
-                                { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
-                                { label: 'Complete', value: ExperimentStatus.Stopped },
-                            ] as { label: string; value: string }[]
-                        }
-                        value={filters.status ?? 'all'}
-                        dropdownMatchSelectWidth={false}
-                        dropdownMaxContentWidth
-                    />
-                    <span className="ml-1">
-                        <b>Created by</b>
-                    </span>
-                    <MemberMultiSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? []}
-                        size="xsmall"
-                        onChange={(userIds) => {
-                            if (!userIds.length) {
-                                const { created_by_id, ...restFilters } = filters
-                                onFiltersChange({ ...restFilters, page: 1 }, true)
-                            } else {
-                                onFiltersChange({ created_by_id: userIds, page: 1 })
-                            }
-                        }}
-                    />
-                    <span className="ml-1">
-                        <b>Tags</b>
-                    </span>
-                    <TagSelect
-                        defaultLabel="Any tags"
-                        value={filters.tags || []}
-                        size="xsmall"
-                        onChange={(tags) => {
-                            onFiltersChange({ tags: tags.length > 0 ? tags : undefined, page: 1 })
-                        }}
-                        data-attr="experiment-select-tags"
-                    />
-                    <span className="ml-1">
-                        <b>Exclude tags</b>
-                    </span>
-                    <TagSelect
-                        defaultLabel="No tags"
-                        value={filters.excluded_tags || []}
-                        size="xsmall"
-                        onChange={(excludedTags) => {
-                            onFiltersChange({
-                                excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
-                                page: 1,
-                            })
-                        }}
-                        data-attr="experiment-select-excluded-tags"
-                    />
-                    <span className="ml-1">
-                        <b>Archived</b>
-                    </span>
-                    <LemonSelect
-                        size="xsmall"
-                        onChange={(value) => {
-                            onFiltersChange({ archived: value === 'archived', page: 1 })
-                        }}
-                        options={[
-                            { label: 'Active', value: 'active' },
-                            { label: 'Archived', value: 'archived' },
-                        ]}
-                        value={filters.archived ? 'archived' : 'active'}
-                        dropdownMatchSelectWidth={false}
-                        dropdownMaxContentWidth
-                    />
-                </div>
+                <ExperimentVelocityStats />
             </div>
-            <ExperimentVelocityStats />
+            <div className="flex items-center gap-2 flex-wrap">
+                <span>
+                    <b>Status</b>
+                </span>
+                <LemonSelect
+                    onChange={(status) => {
+                        if (status === 'all') {
+                            const { status: _, ...restFilters } = filters
+                            onFiltersChange({ ...restFilters, page: 1 }, true)
+                        } else {
+                            onFiltersChange({ status: status as ExperimentStatus, page: 1 })
+                        }
+                    }}
+                    options={
+                        [
+                            { label: 'All', value: 'all' },
+                            { label: 'Draft', value: ExperimentStatus.Draft },
+                            { label: 'Running', value: ExperimentStatus.Running },
+                            { label: 'Paused', value: ExperimentStatus.Paused },
+                            { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
+                            { label: 'Complete', value: ExperimentStatus.Stopped },
+                        ] as { label: string; value: string }[]
+                    }
+                    value={filters.status ?? 'all'}
+                    dropdownMatchSelectWidth={false}
+                    dropdownMaxContentWidth
+                />
+                <span className="ml-1">
+                    <b>Created by</b>
+                </span>
+                <MemberMultiSelect
+                    defaultLabel="Any user"
+                    value={filters.created_by_id ?? []}
+                    onChange={(userIds) => {
+                        if (!userIds.length) {
+                            const { created_by_id, ...restFilters } = filters
+                            onFiltersChange({ ...restFilters, page: 1 }, true)
+                        } else {
+                            onFiltersChange({ created_by_id: userIds, page: 1 })
+                        }
+                    }}
+                />
+                <span className="ml-1">
+                    <b>Tags</b>
+                </span>
+                <TagSelect
+                    defaultLabel="Any tags"
+                    value={filters.tags || []}
+                    onChange={(tags) => {
+                        onFiltersChange({ tags: tags.length > 0 ? tags : undefined, page: 1 })
+                    }}
+                    data-attr="experiment-select-tags"
+                />
+                <span className="ml-1">
+                    <b>Exclude tags</b>
+                </span>
+                <TagSelect
+                    defaultLabel="No tags"
+                    value={filters.excluded_tags || []}
+                    onChange={(excludedTags) => {
+                        onFiltersChange({
+                            excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
+                            page: 1,
+                        })
+                    }}
+                    data-attr="experiment-select-excluded-tags"
+                />
+                <span className="ml-1">
+                    <b>Archived</b>
+                </span>
+                <LemonSelect
+                    onChange={(value) => {
+                        onFiltersChange({ archived: value === 'archived', page: 1 })
+                    }}
+                    options={[
+                        { label: 'Active', value: 'active' },
+                        { label: 'Archived', value: 'archived' },
+                    ]}
+                    value={filters.archived ? 'archived' : 'active'}
+                    dropdownMatchSelectWidth={false}
+                    dropdownMaxContentWidth
+                />
+            </div>
         </div>
     )
 }

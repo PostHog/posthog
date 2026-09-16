@@ -26,18 +26,18 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const changeColor = isPositive ? 'text-success' : isNegative ? 'text-danger' : 'text-text-secondary'
 
     return (
-        <div className="px-4 py-2 border rounded bg-bg-light flex items-center gap-4">
+        <div className="px-3 border rounded bg-bg-light flex items-center gap-3">
             <div className="metric-cell-header font-semibold flex items-center gap-1">
                 Velocity
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
-                    <IconInfo className="text-muted-alt" fontSize="16" />
+                    <IconInfo className="text-muted-alt" fontSize="14" />
                 </Tooltip>
             </div>
-            <div className="h-8 w-px bg-border" />
-            <div className="flex items-center gap-7">
-                <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-base font-semibold leading-5">{launched_last_30d}</span>
+            <div className="self-stretch my-1.5 w-px bg-border" />
+            <div className="flex items-center gap-5">
+                <div className="flex flex-col justify-center">
+                    <div className="flex items-center gap-1">
+                        <span className="text-sm font-semibold leading-4">{launched_last_30d}</span>
                         {percent_change !== 0 && (
                             <span className={`text-xs font-medium flex items-center gap-0.5 ${changeColor}`}>
                                 {arrow}
@@ -47,12 +47,12 @@ export function ExperimentVelocityStats(): JSX.Element | null {
                     </div>
                     <span className="text-xs text-text-secondary leading-4 whitespace-nowrap">launched (30d)</span>
                 </div>
-                <div className="flex flex-col">
-                    <span className="text-base font-semibold leading-5">{active_experiments}</span>
+                <div className="flex flex-col justify-center">
+                    <span className="text-sm font-semibold leading-4">{active_experiments}</span>
                     <span className="text-xs text-text-secondary leading-4">running</span>
                 </div>
-                <div className="flex flex-col">
-                    <span className="text-base font-semibold leading-5">{completed_last_30d}</span>
+                <div className="flex flex-col justify-center">
+                    <span className="text-sm font-semibold leading-4">{completed_last_30d}</span>
                     <span className="text-xs text-text-secondary leading-4">completed</span>
                 </div>
             </div>
