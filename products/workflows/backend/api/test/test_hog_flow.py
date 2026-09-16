@@ -3313,6 +3313,25 @@ class TestHogFlowAPI(APIBaseTest):
             mock_v1.assert_called_once()
             mock_v2.assert_called_once()
 
+    def test_hog_flow_user_blast_radius_ignores_the_feature_flags_gate(self):
+        # Workflows counts follow workflows-audience-query-v2 only. The flags product gates its
+        # own sampled count on a separate flag, and that gate must not reach this endpoint: a
+        # sampled count here would move workflows numbers outside the workflows rollout.
+        # The routing test above mocks get_user_blast_radius away, so it cannot see this.
+        with (
+            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=False),
+            patch("products.feature_flags.backend.user_blast_radius.use_blast_radius_query_v2", return_value=True),
+            patch("products.feature_flags.backend.user_blast_radius.sampled_person_blast_radius") as mock_sampled,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["total"] == self.team.persons_seen_so_far
+        mock_sampled.assert_not_called()
+
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
         HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,

@@ -26,14 +26,57 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.person_sampling import count_matching_persons
 
 
 @frozen
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+BLAST_RADIUS_QUERY_V2_FLAG = "flags-blast-radius-query-v2"
+
+QUERY_TYPE_V2 = "feature_flag_blast_radius_v2"
+
+
+def use_blast_radius_query_v2(team: Team) -> bool:
+    # Local-only, so a sizing request never waits on a flag fetch. That is also why the gate
+    # targets the project group: the project id travels with the call, where a person property
+    # would need the fetch to answer.
+    return feature_enabled_or_false(
+        BLAST_RADIUS_QUERY_V2_FLAG,
+        f"team-{team.pk}",
+        groups={"project": str(team.pk)},
+        group_properties={"project": {"id": str(team.pk)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> BlastRadiusResult:
+    """
+    Person blast radius whose peak query memory does not grow with the size of the person table.
+
+    The exact counts dedup the person table with a hash GROUP BY that holds every matched
+    person in memory, and HogQL queries cannot spill to disk, so on a large team both counts
+    cross the per-query memory limit and the caller gets an error instead of a number. These
+    counts read a sample of the persons and extrapolate, and fall back to an exact, streaming
+    count when the sample holds too few matches to extrapolate from.
+    """
+    # One database build shared by both counts; each execute_hogql_query call would otherwise
+    # rebuild it, and the build cost scales with the team's warehouse size.
+    database = Database.create_for(team=team)
+
+    total = count_matching_persons(team, None, database, query_type=query_type)
+    if len(filter.property_groups.flat) == 0:
+        return BlastRadiusResult(affected=total, total=total)
+
+    affected = count_matching_persons(team, filter, database, query_type=query_type)
+    return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
@@ -128,6 +171,21 @@ def get_user_blast_radius(
             return _get_group_blast_radius(team, cleaned_filter, group_type_index)
         else:
             return _get_person_blast_radius(team, cleaned_filter)
+
+
+def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+    """
+    Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
+
+    The gate is applied by the caller, not inside get_user_blast_radius: workflows shares that
+    function and gates its own audience counts on workflows-audience-query-v2, so a gate in
+    there would move workflows counts outside the workflows rollout.
+    """
+    with unevaluable_filters_as_validation_errors():
+        cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
+
+        tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
 
 
 def get_user_blast_radius_persons(
