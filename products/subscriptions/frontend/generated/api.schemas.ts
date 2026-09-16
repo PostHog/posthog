@@ -203,7 +203,7 @@ export interface UserBasicApi {
  * Typed view over the Subscription.delivery_config JSON blob.
  */
 export interface DeliveryConfigApi {
-    /** Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
+    /** Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
     post_all_insights_in_main_message?: boolean
     /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
     include_images?: boolean

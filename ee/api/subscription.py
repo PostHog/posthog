@@ -291,11 +291,12 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack only: when true, upload all insight images together in the main Slack message "
-            "instead of posting the first image in the main message and the rest as threaded replies. "
-            "Defaults to false. The request is rejected when target_type is not 'slack', and when the "
-            "Slack integration does not hold the files:write permission. Omit it unless the user asks "
-            "for one combined message."
+            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
+            "together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Defaults to false. The request is rejected "
+            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
+            "or dashboard, and when the Slack integration does not hold the files:write permission. "
+            "Omit it unless the user asks for one combined message."
         ),
     )
     include_images = serializers.BooleanField(
@@ -840,6 +841,18 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
                         ]
                     }
                 )
+        elif effective_delivery_config.get("post_all_insights_in_main_message"):
+            # The prompt Slack renderer already posts every chart in the main message and never reads this option.
+            raise ValidationError(
+                {
+                    "delivery_config": [
+                        "post_all_insights_in_main_message only applies to insight and dashboard "
+                        f"subscriptions. This subscription has resource_type '{resource_type}', so "
+                        "remove it from delivery_config. A prompt report already posts all its chart "
+                        "images in the main message."
+                    ]
+                }
+            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable

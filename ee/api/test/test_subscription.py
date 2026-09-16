@@ -56,6 +56,11 @@ from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+GALLERY_ON_PROMPT_ERROR = (
+    "post_all_insights_in_main_message only applies to insight and dashboard subscriptions. This "
+    "subscription has resource_type 'ai_prompt', so remove it from delivery_config. A prompt report "
+    "already posts all its chart images in the main message."
+)
 VALID_AI_QUERY_PLAN = {
     "overall_intent": "Count events",
     "steps": [
@@ -3967,8 +3972,61 @@ class TestAISubscriptionAPI(APILicensedTest):
         integration = Integration.objects.create(
             team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
         )
-        without_files_write = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(
+                target_type="slack",
+                target_value="C1234|#general",
+                integration_id=integration.id,
+            ),
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        subscription_id = create_response.json()["id"]
+        # Seeded directly because create rejects the option: the PATCH never resubmits it, so only
+        # validating the merged config catches it.
+        Subscription.objects.filter(id=subscription_id).update(
+            delivery_config={"post_all_insights_in_main_message": True}
+        )
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"include_images": False}},
+        )
+
+        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
+        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+
+    @parameterized.expand(
+        [
+            ("email", "email", "ai@posthog.com"),
+            ("slack", "slack", "C1234|#general"),
+        ]
+    )
+    def test_gallery_option_is_rejected_on_prompt_create(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        overrides: dict = {"target_type": target_type, "target_value": target_value}
+        if target_type == "slack":
+            # files:write present, so the permission rule cannot be what rejects the request.
+            overrides["integration_id"] = Integration.objects.create(
+                team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+            ).id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+
+    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
         )
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
@@ -3976,21 +4034,28 @@ class TestAISubscriptionAPI(APILicensedTest):
                 target_type="slack",
                 target_value="C1234|#general",
                 integration_id=integration.id,
-                delivery_config={"post_all_insights_in_main_message": True},
             ),
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
-            {
-                "integration_id": without_files_write.id,
-                "delivery_config": {"include_images": False},
-            },
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
 
         assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
-        assert "files:write" in str(patch_response.json())
+        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+
+    def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": False}),
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     @parameterized.expand(
         [

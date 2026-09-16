@@ -225,7 +225,7 @@ export const SubscriptionsCreateBody = () => zod
                     .boolean()
                     .default(subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
                     ),
                 include_images: zod
                     .boolean()
@@ -455,7 +455,7 @@ export const SubscriptionsPartialUpdateBody = () => zod
                     .boolean()
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
-                        "Slack only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
+                        "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, and when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message."
                     ),
                 include_images: zod
                     .boolean()
