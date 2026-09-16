@@ -71,9 +71,28 @@ if (getRes.status >= 400) {
     throw Error(f'Error looking up beehiiv subscription (status {getRes.status}): {getRes.body}')
 }
 
+// beehiiv ignores 'unsubscribe' on the update endpoint. Only a create call with
+// reactivate_existing brings an unsubscribed subscriber back.
+if (inputs.reactivateExisting and getRes.body.data.status != 'active') {
+    let reactivateRes := fetch(f'https://api.beehiiv.com/v2/publications/{inputs.publicationId}/subscriptions', {
+        'method': 'POST',
+        'headers': headers,
+        'body': {
+            'email': inputs.email,
+            'reactivate_existing': true,
+            'send_welcome_email': inputs.sendWelcomeEmail
+        }
+    })
+
+    if (reactivateRes.status >= 400) {
+        throw Error(f'Error reactivating beehiiv subscription (status {reactivateRes.status}): {reactivateRes.body}')
+    }
+
+    print(f'Successfully reactivated beehiiv subscription {inputs.email}')
+}
+
 let updateBody := {}
 if (not empty(customFields)) updateBody.custom_fields := customFields
-if (inputs.reactivateExisting) updateBody.unsubscribe := false
 
 if (empty(updateBody)) {
     print('Subscription already exists and there are no fields to update. Skipping...')

@@ -90,9 +90,9 @@ describe('beehiiv template', () => {
 
         expect(done.error).toBeUndefined()
         expect(done.finished).toBe(true)
-        expect(done.logs.some((log) => log.message.includes(`Successfully created beehiiv subscription ${EMAIL}`))).toBe(
-            true
-        )
+        expect(
+            done.logs.some((log) => log.message.includes(`Successfully created beehiiv subscription ${EMAIL}`))
+        ).toBe(true)
     })
 
     it('updates custom fields for an existing subscriber', async () => {
@@ -125,17 +125,56 @@ describe('beehiiv template', () => {
         expect(done.finished).toBe(true)
     })
 
-    it('requests reactivation for existing and newly created subscribers only when enabled', async () => {
+    it('reactivates an unsubscribed subscriber through the create endpoint when enabled', async () => {
         const inputs = { ...defaultInputs, reactivateExisting: true }
         const lookupRequest = await tester.invoke(inputs, {})
-        const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+        const reactivateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
             status: 200,
             body: { data: { id: 'sub_123', email: EMAIL, status: 'inactive' } },
         })
 
-        expect(parseBody(updateRequest.invocation)).toMatchObject({ unsubscribe: false })
+        expect(reactivateRequest.invocation.queueParameters).toMatchObject({
+            type: 'fetch',
+            url: COLLECTION_URL,
+            method: 'POST',
+        })
+        expect(parseBody(reactivateRequest.invocation)).toMatchObject({
+            email: EMAIL,
+            reactivate_existing: true,
+        })
 
-        const missingLookupRequest = await tester.invoke(inputs, {})
+        const updateRequest = await tester.invokeFetchResponse(reactivateRequest.invocation, {
+            status: 201,
+            body: { data: { id: 'sub_123', email: EMAIL, status: 'active' } },
+        })
+
+        expect(updateRequest.invocation.queueParameters).toMatchObject({
+            url: SUBSCRIPTION_URL,
+            method: 'PUT',
+        })
+        expect(parseBody(updateRequest.invocation)).toEqual({
+            custom_fields: [
+                { name: 'First Name', value: 'Max' },
+                { name: 'Last Name', value: 'AI' },
+            ],
+        })
+    })
+
+    it('leaves an active subscriber alone when reactivation is enabled', async () => {
+        const lookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})
+        const updateRequest = await tester.invokeFetchResponse(lookupRequest.invocation, {
+            status: 200,
+            body: { data: { id: 'sub_123', email: EMAIL, status: 'active' } },
+        })
+
+        expect(updateRequest.invocation.queueParameters).toMatchObject({
+            url: SUBSCRIPTION_URL,
+            method: 'PUT',
+        })
+    })
+
+    it('asks the create endpoint to reactivate a missing subscriber when enabled', async () => {
+        const missingLookupRequest = await tester.invoke({ ...defaultInputs, reactivateExisting: true }, {})
         const createRequest = await tester.invokeFetchResponse(missingLookupRequest.invocation, {
             status: 404,
             body: {},
