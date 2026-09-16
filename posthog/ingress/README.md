@@ -18,6 +18,19 @@ All four lanes are **provider-generic**; each third party is an incarnation unde
 Each provider has a `README.md` in its folder, which holds its headers, its scheme, its apps and secrets, its quirks and its consumers.
 Adding a provider is another `<provider>/` folder, not a change to the mechanisms.
 
+## The lanes one request runs through
+
+`build_webhook_view()` runs the same lanes for every provider, in this order:
+
+1. **Method** — anything but `POST` is 405, before any secret is read.
+2. **Verify** — `provider.verify(request)` over the raw body. A bad signature never reaches a consumer.
+3. **Parse** — `provider.parse(request)`, which decodes the verified body. The default is JSON; an `InvalidPayload` is 400.
+4. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
+5. **Dispatch** — ownership, the forward, then the consumers, all inside one wall-clock budget.
+
+Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
+It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
+
 ## Endpoints
 
 | Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
@@ -148,7 +161,7 @@ That is the transport deciding the response, not a consumer.
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
-- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well.
+- A `WebhookProvider` subclass — its `scheme()` (from `verify/`), its `deliveries()` (how to read event type, delivery id and context off the request), and any status codes its protocol fixes. The defaults are 403 on a bad signature, 500 when unconfigured, and 202 on success, with a short body naming the reason on the two rejections. An incarnation that answers 404 to withhold the endpoint's existence sets `explains_rejections = False` so the body stays empty as well. Two more hooks are optional: `parse()`, which decodes the body, and `throttle_class`, which caps request volume. See [The lanes one request runs through](#the-lanes-one-request-runs-through).
 - A `build_<provider>_provider(...)` function returning that provider, which the URLconf hands to `build_webhook_view()`.
 
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.

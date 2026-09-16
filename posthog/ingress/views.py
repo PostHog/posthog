@@ -1,6 +1,5 @@
 """The one inbound webhook view: verify, parse, dispatch, answer a fixed receipt."""
 
-import json
 from collections.abc import Callable
 
 from django.http import HttpRequest, HttpResponse
@@ -13,7 +12,7 @@ from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seco
 from posthog.ingress.dispatch.forward import forward_to_secondary_region
 from posthog.ingress.dispatch.loading import get_dispatcher
 from posthog.ingress.observability.metrics import observe_delivery
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.verify.schemes import VerificationOutcome
 from posthog.regions import is_primary_region
 
@@ -44,14 +43,19 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             reason = "Invalid signature" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.invalid_signature_status)
 
+        # Parse after verification, and keep that order: a provider that reads a form body
+        # overrides `parse` and reads `request.POST`, and under ASGI that read consumes the
+        # stream, so `request.body` is no longer available to the signature check afterwards.
         try:
-            # RecursionError: deeply nested JSON must answer 400, not 500.
-            payload = json.loads(request.body)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
-            logger.warning(
-                "ingress_delivery_invalid_payload", provider=provider.provider, app=provider.app, error=str(exc)
-            )
+            payload = provider.parse(request)
+        except InvalidPayload as error:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_payload")
+            logger.warning(
+                "ingress_delivery_invalid_payload",
+                provider=provider.provider,
+                app=provider.app,
+                error=str(error),
+            )
             return HttpResponse("Invalid JSON", status=400)
 
         handshake = provider.pre_dispatch_response(request, payload)

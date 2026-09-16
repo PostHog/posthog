@@ -1,10 +1,12 @@
 import hmac
 import json
-from typing import cast
+from typing import Any, cast
+from urllib.parse import urlencode
 
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
+from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import structlog.testing
@@ -43,6 +45,13 @@ class _RedeliveringGitHubProvider(GitHubProvider):
     # Stands in for a provider that replays a delivery the endpoint did not accept, which GitHub
     # itself does not do.
     forward_failure_status = 502
+
+
+class _FormBodyGitHubProvider(GitHubProvider):
+    # Stands in for a provider that posts a form rather than JSON, the way Slack's interactivity
+    # payloads and Mailgun's events do.
+    def parse(self, request: HttpRequest) -> Any:
+        return json.loads(request.POST["payload"])
 
 
 class TestWebhookView(SimpleTestCase):
@@ -169,6 +178,23 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.content, b"")
         self.dispatcher.dispatch.assert_not_called()
+
+    def test_a_parse_override_reads_a_form_body_and_still_reaches_deliveries(self) -> None:
+        body = urlencode({"payload": json.dumps({"action": "opened", "installation": {"id": 42}})}).encode()
+        request = self.factory.post(
+            "/webhooks/github/",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            headers={"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "pull_request"},
+        )
+
+        with patch("posthog.ingress.github.provider.get_instance_setting", return_value=SECRET):
+            response = build_webhook_view(_FormBodyGitHubProvider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 202)
+        delivery = self.dispatcher.dispatch.call_args.args[0]
+        self.assertEqual(delivery.payload, {"action": "opened", "installation": {"id": 42}})
+        self.assertEqual(delivery.context, {"installation_id": "42"})
 
     def test_slack_url_verification_echoes_the_challenge_before_dispatch(self) -> None:
         body = json.dumps({"type": "url_verification", "challenge": "abc123"}).encode()
