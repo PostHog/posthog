@@ -704,6 +704,14 @@ snapshots:
         hash: v1.k794b7964.8130eafe275f6eb471a60a4eec4f54f07f243c664aba0a64e5431f7728b22fe0.5-iHw88oelBcXyENYl4mnYzsVNsQR7qDfpYyz4GPdWw
     components-hogcharts-barchart--with-value-labels--light:
         hash: v1.k794b7964.6aff50b1c147df21230d149c147deb023f6308cd2e01983b58e65461dd4c7207.vLZ6XqXFhSTA3hr10RUEv9vzOgxKWYtUzWj0OvoCTU0
+    components-hogcharts-boxplot--horizontal--dark:
+        hash: v1.k794b7964.30cbeacc1f375b50732dd7c20765bbedfc0dc626d4896c8fa9687aa5f9bfc001.FTUzztXbfM9Du-zf-HPWGeBiY0cPJRqb3Ybj7dYNln8
+    components-hogcharts-boxplot--horizontal--light:
+        hash: v1.k794b7964.aec9e9c2b045f52ff9c7b439bc22260f45ca59a8965a8086ba9150aea221edd4.JkVfjROZzhUJfai3iKOmQmvmcOSY92m5tKg24b65qpA
+    components-hogcharts-boxplot--horizontal-log-scale--dark:
+        hash: v1.k794b7964.3ac079cae9db4bd2deb288342d8954ccd11e58a34e8e0cb8fc6ec92dfb82b1b1.Gm5cGG6ZEsju02uwqNvHF62mtJuI7Poo7cA_VCxmjHg
+    components-hogcharts-boxplot--horizontal-log-scale--light:
+        hash: v1.k794b7964.f4b58820e4955ee8d26de3cb2f9e743c3ff5f7cbfe94253ed95d7fce11b0fe51.47EN0L76m4Tszagv7IimkYbuVmbTOj3OHAkbertIvuA
     components-hogcharts-boxplot--multi-series-grouped--dark:
         hash: v1.k794b7964.fd8a8c11e35ef420a663807a21a6349eba0ae2658c6c3d114763f4629dd45934.d23KBypemM2QY55g8_QWVUc9diJoAL1oNZjK3d3Ebs4
     components-hogcharts-boxplot--multi-series-grouped--light:
