@@ -3264,10 +3264,18 @@ snapshots:
         hash: v1.k794b7964.ec5fcf8d9e4c3a49e94ffe769cb6147257f0e8fa0639f615e8d0f8a35d471492.jTfjU2lenc3lmyfgHtnetORnAO8bK6N9RMhAUqpTR7E
     insights-retentionlinechart--default--light:
         hash: v1.k794b7964.edbf96b6533735d758f0f8dd66c6b98ff08fdb85e62fc9da687604230eeb72df.ZBXowD5R6W-29bGliO8emlqCMONXlj-JHYTtKJ59_uE
+    insights-retentionlinechart--mean-line--dark:
+        hash: v1.k794b7964.fa01ad2ba765c81533d3cf2b46b2cdc9eccc2e9cda633dccecc1944345f98ab5.NwWGyEsGj5iAd_mEvX8M2w-6hn-V37pE00vcl5whwkI
+    insights-retentionlinechart--mean-line--light:
+        hash: v1.k794b7964.4eead0f414a9b5310777aab2b552e3eed8aa9867bab5102693716cb539d2acae.jWJ74kUWkNKI7GEsbY0cUkWdLGFOy1AykvoVVp0NLL8
     insights-retentionlinechart--realistic-curve--dark:
         hash: v1.k794b7964.5e7cb4e9649a3a925374122709e6e5f06079fbcee7b127e7bedfc9e559fd492a.wUhYjH1xkcQ02vo5Wimx2flSUHACY-Vxh3FIGoQi00I
     insights-retentionlinechart--realistic-curve--light:
         hash: v1.k794b7964.3e4141c2a16b3e2f47465433ef4a4c6465000255c97faec25f458a8c01fb8253.AVEwr4UWiTybgaqLQRr5pWoH814DvMPZPQ7UTz2XKAQ
+    insights-retentionlinechart--single-shade--dark:
+        hash: v1.k794b7964.c9b09cab9020fff3cc459d362f501eb3fb3cbdade8d95b79000f6ca29c729cd6.KiLyKmSPeyZcuFOPjeI6tUrWHWtTKbWiKuY6kQ-X1PY
+    insights-retentionlinechart--single-shade--light:
+        hash: v1.k794b7964.db509e943d13cdd2e8870f19668ea9696fd10d4ecae443970bca4f80b7587e85.UgARvcHkRuuLYsaVboElyOD_GeeiqqrzEYSoOzS87_s
     insights-sqlbargraph--grouped-bar-with-negative-values--dark:
         hash: v1.k794b7964.3958ab3fd470dfbf3a3dde5536bdbccdfd5205289f25a3ba5f3d98e069fdc4e7.WqKR9SVpum4z1_KyM3TXG6nN9BLC7cUiDWp0w0vpYms
     insights-sqlbargraph--grouped-bar-with-negative-values--light:
