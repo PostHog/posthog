@@ -1474,6 +1474,7 @@ tools:
                 - end_date
                 - created_at
                 - running_time_calculation
+                - excluded_variants
                 - metrics
                 - metrics_secondary
                 - saved_metrics
