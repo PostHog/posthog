@@ -7,7 +7,6 @@ import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
-// Replaces the chart with a grid of every chart type rendered from the insight's own data while the gallery is open.
 export function ChartGallery({
     children,
     editMode,
@@ -44,11 +43,11 @@ export function ChartGallery({
     }
 
     return (
-        <div className="flex flex-col gap-3 p-2" data-attr="chart-alternatives-gallery">
+        <div className="@container flex flex-col gap-3 p-2" data-attr="chart-alternatives-gallery">
             {sections.map((section) => (
                 <div key={section.title} className="flex flex-col gap-1.5">
                     <h5 className="m-0 text-xs font-semibold uppercase text-secondary">{section.title}</h5>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @xl:grid-cols-4">
                         {section.previews.map((preview) => (
                             <ChartPreviewTile
                                 key={preview.option.display}

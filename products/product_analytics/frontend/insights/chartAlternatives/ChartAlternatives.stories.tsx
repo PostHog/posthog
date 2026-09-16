@@ -36,9 +36,9 @@ async function openGallery(canvasElement: HTMLElement): Promise<void> {
     })
     button.click()
     await waitFor(() => {
-        const gallery = document.querySelector('[data-attr="chart-alternatives-gallery"]')
-        if (!gallery || gallery.querySelector('.Spinner')) {
-            throw new Error('Chart previews did not load.')
+        const gallery = canvasElement.querySelector('[data-attr="chart-alternatives-gallery"]')
+        if (!gallery?.querySelector('[data-attr^="chart-preview-"]')) {
+            throw new Error('Chart type gallery did not render.')
         }
     })
 }

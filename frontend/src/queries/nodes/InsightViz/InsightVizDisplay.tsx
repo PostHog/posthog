@@ -354,7 +354,6 @@ export function InsightVizDisplay({
     // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts
     // (including pie) do when the quill in-chart legend is on (`usesInChartLegend`).
     const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
-    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
     const showChartAlternatives =
         !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
         !!editMode &&
@@ -366,6 +365,9 @@ export function InsightVizDisplay({
         isTrends &&
         !!query &&
         !!querySource
+    const { galleryOpen } = useValues(chartAlternativesLogic({ ...insightProps, editMode, embedded, inSharedMode }))
+    const showChartAlternativesGallery = showChartAlternatives && galleryOpen
+    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend && !showChartAlternativesGallery
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
@@ -541,8 +543,7 @@ export function InsightVizDisplay({
         return <InsightAIAnalysis />
     }
 
-    const { galleryOpen } = useValues(chartAlternativesLogic({ ...insightProps, editMode, embedded, inSharedMode }))
-    const showComputationMetadata = (!disableLastComputation || !!samplingFactor) && !galleryOpen
+    const showComputationMetadata = (!disableLastComputation || !!samplingFactor) && !showChartAlternativesGallery
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -567,7 +568,7 @@ export function InsightVizDisplay({
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >
-                {disableHeader ? null : galleryOpen ? (
+                {disableHeader ? null : showChartAlternativesGallery ? (
                     <div className="flex items-center justify-between gap-2 p-2 border-b">
                         <span className="text-sm font-semibold">Choose a chart type</span>
                         <ChartAlternatives

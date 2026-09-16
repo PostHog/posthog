@@ -11,8 +11,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
-import type { TrendsQuery } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import type { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
@@ -82,19 +81,11 @@ describe('ChartAlternatives', () => {
                 </BindLogic>
             </Provider>
         )
-        const logic = chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })
-        if (!logic) {
-            throw new Error('Expected chart alternatives logic to mount')
-        }
-        return logic
+        return chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })!
     }
 
     function currentTrendsQuery(): TrendsQuery {
-        const query = builtInsightDataLogic.values.query
-        if (!isInsightVizNode(query) || !isTrendsQuery(query.source)) {
-            throw new Error('Expected a Trends insight query')
-        }
-        return query.source
+        return (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
     }
 
     it('applies the display rewrite when a chart is selected and closes the gallery', () => {
