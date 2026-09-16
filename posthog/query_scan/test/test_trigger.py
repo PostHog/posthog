@@ -46,22 +46,30 @@ def _execution(
     sql: str = _QUERY_WITH_SUBQUERY,
     rows_read: int = 100,
     values: dict[str, Any] | None = None,
-    duration_ms: float = 0.0,
     lookup: str | None = None,
 ) -> RecordedExecution:
     return RecordedExecution(
         tree=parse_select(sql),
         context=HogQLContext(team_id=1, values=values or {}),
         rows_read=rows_read,
-        duration_ms=duration_ms,
         lookup=lookup,
     )
 
 
 def _stats(
-    *, duration_ms: float = 2000.0, rows_read: int = 10, executions: list[RecordedExecution] | None = None
+    *,
+    duration_ms: float = 2000.0,
+    rows_read: int = 10,
+    executions: list[RecordedExecution] | None = None,
+    lookup_rows_read: int = 0,
+    lookup_duration_ms: float = 0.0,
 ) -> QueryStats:
-    stats = QueryStats(rows_read=rows_read, duration_ms=duration_ms)
+    stats = QueryStats(
+        rows_read=rows_read,
+        duration_ms=duration_ms,
+        lookup_rows_read=lookup_rows_read,
+        lookup_duration_ms=lookup_duration_ms,
+    )
     stats.executions.extend(executions if executions is not None else [_execution()])
     return stats
 
@@ -175,10 +183,18 @@ class TestQueryScanTrigger(SimpleTestCase):
     def test_a_runners_own_lookup_does_not_count_toward_the_run(
         self, _name: str, total_ms: float, expected_reason: str | None, expected_rows: int | None, expected_ms
     ) -> None:
-        lookup = _execution(rows_read=100, duration_ms=1500.0, lookup="earliest_timestamp")
-        query = _execution(rows_read=50, duration_ms=total_ms - 1500.0)
+        lookup = _execution(rows_read=100, lookup="earliest_timestamp")
+        query = _execution(rows_read=50)
 
-        result = self._trigger(stats=_stats(duration_ms=total_ms, rows_read=150, executions=[lookup, query]))
+        result = self._trigger(
+            stats=_stats(
+                duration_ms=total_ms,
+                rows_read=150,
+                lookup_rows_read=100,
+                lookup_duration_ms=1500.0,
+                executions=[lookup, query],
+            )
+        )
 
         assert result == expected_reason
         if expected_reason is not None:

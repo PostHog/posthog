@@ -103,6 +103,12 @@ class TestTreeFacts(BaseTest):
                 _facts(all_history=True),
             ),
             (
+                "a first-event helper beside an unbounded main read",
+                "SELECT count() FROM events AS e JOIN (SELECT person_id, min(timestamp) AS first FROM events "
+                "GROUP BY person_id) AS f ON e.person_id = f.person_id WHERE e.event = 'a'",
+                _facts(),
+            ),
+            (
                 "each person's first event in a range",
                 f"SELECT person_id, min(timestamp) FROM events WHERE {_RECENT} GROUP BY person_id",
                 _facts(timestamp_bound=True),

@@ -44,9 +44,11 @@ _RANKING_WINDOWS = frozenset({"row_number", "rank", "dense_rank"})
 class TreeFacts:
     """Facts about the tree's events reads, for the job to fold into the plan.
 
-    The plan's finding is about one read and the tree cannot tell which, so each fact is worded so
-    that it holds for that read whichever it is: ``timestamp_bound`` and ``property_filter`` hold
-    only when every read they apply to agrees, and a by-design shape counts when any read has it.
+    The plan's finding is about one read and the tree cannot tell which, so each fact holds only
+    when every read the finding could be about agrees: every read for ``timestamp_bound``, every
+    unbounded read for ``all_history``, every read without an event condition for the rest. A query
+    that mixes a by-design read with a plain one gets the plain wording, and the plan's evidence
+    says which read it means.
     """
 
     # Every events read carries a lower bound on `timestamp`, so an unbounded read in the plan is
@@ -54,13 +56,13 @@ class TreeFacts:
     timestamp_bound: bool
     # Every events read with no event condition narrows itself by a property instead.
     property_filter: bool
-    # A read finds a first event ever, with `min` or `argMin` over `timestamp` or a ranking window
-    # ordered by it, and has no lower bound: the answer needs all history.
+    # Every unbounded events read finds a first event ever, with `min` or `argMin` over `timestamp`
+    # or a ranking window ordered by it: the answer needs all history.
     all_history: bool
-    # A read groups by `event` with no event condition: the answer is the set of events itself.
+    # Every events read with no event condition groups by `event`: the answer is the set of events.
     groups_by_event: bool
-    # A read counts distinct actors or sessions, or finds each actor's last event, with no event
-    # condition: the answer needs every event.
+    # Every events read with no event condition counts distinct actors or sessions, or finds each
+    # actor's last event: the answer needs every event.
     counts_any_event: bool
     # The saved view every events read sits inside, when they all sit inside the same one.
     view_name: str | None
@@ -111,14 +113,15 @@ def tree_facts(tree: ast.AST) -> TreeFacts | None:
     parents.visit(tree)
     facts = [_read_facts(read, collect_conditions(tree, read), parents) for read in reads]
 
+    unbounded = [read for read in facts if not read.timestamp_bound]
     unfiltered = [read for read in facts if not read.event_condition]
     view_names = {read.view_name for read in facts}
     return TreeFacts(
-        timestamp_bound=all(read.timestamp_bound for read in facts),
+        timestamp_bound=not unbounded,
         property_filter=bool(unfiltered) and all(read.property_condition for read in unfiltered),
-        all_history=any(read.all_history for read in facts),
-        groups_by_event=any(read.groups_by_event for read in unfiltered),
-        counts_any_event=any(read.counts_any_event for read in unfiltered),
+        all_history=bool(unbounded) and all(read.all_history for read in unbounded),
+        groups_by_event=bool(unfiltered) and all(read.groups_by_event for read in unfiltered),
+        counts_any_event=bool(unfiltered) and all(read.counts_any_event for read in unfiltered),
         view_name=next(iter(view_names)) if len(view_names) == 1 else None,
     )
 

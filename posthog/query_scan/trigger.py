@@ -135,11 +135,11 @@ def maybe_trigger_query_scan(
 
     # A lookup a runner made on the way to its real query, such as the project's first event for
     # an All time range, is not the query the person wrote, so it neither counts toward the floor
-    # nor gets analyzed in the query's place.
+    # nor gets analyzed in the query's place. The totals cover raw lookups too, which never reach
+    # the executor and so are never recorded as executions.
     executions = [execution for execution in stats.executions if execution.lookup is None]
-    lookups = [execution for execution in stats.executions if execution.lookup is not None]
-    rows_read = max(0, stats.rows_read - sum(execution.rows_read for execution in lookups))
-    duration_ms = max(0, round(stats.duration_ms - sum(execution.duration_ms for execution in lookups)))
+    rows_read = max(0, stats.rows_read - stats.lookup_rows_read)
+    duration_ms = max(0, round(stats.duration_ms - stats.lookup_duration_ms))
     # The floor leaves alone the runs nobody minded. Nobody gets a result from a run ClickHouse
     # stopped, however fast it died, so a stopped run is analyzed at any duration.
     if duration_ms < flag.floor_ms and not killed:

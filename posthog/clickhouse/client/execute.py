@@ -278,7 +278,7 @@ def _record_query_stats(client: Any, query_info_before: Any, execute_start_time:
             return
         # elapsed_ns is 0 on old protocol revisions; fall back to the client-side round trip.
         duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
-        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms)
+        query_stats.record(rows_read=summary.rows, duration_ms=duration_ms, lookup=get_query_tags().lookup is not None)
     except Exception:
         logger.warning("query_stats_record_failed", exc_info=True)
 

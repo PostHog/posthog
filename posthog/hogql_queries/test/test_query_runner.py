@@ -64,6 +64,7 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
+from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -417,7 +418,6 @@ class TestQueryRunner(BaseTest):
         redis_client.get.return_value = None
         redis_client.incr.return_value = 1
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-        runner.apply_dashboard_filters(DashboardFilter(date_from=date_from))
         with (
             mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=_QUERY_SCAN_FLAG_SHOW),
             mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis_client),
@@ -425,7 +425,21 @@ class TestQueryRunner(BaseTest):
             mock.patch("posthog.tasks.query_scan.analyze_query_scan.delay") as delay,
             mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_over_the_floor),
         ):
-            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+            _run_query_runner(
+                runner,
+                dashboard_filters=DashboardFilter(date_from=date_from),
+                variables_override=None,
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=self.user,
+                query_id=None,
+                insight_id=None,
+                dashboard_id=None,
+                is_query_service=False,
+                cache_age_seconds=None,
+                pagination_cursor=None,
+                analytics_props=None,
+                allow_raw_results=False,
+            )
 
         assert delay.call_count == 1
         assert delay.call_args.kwargs["dashboard_all_time"] is expected

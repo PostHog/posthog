@@ -514,6 +514,7 @@ def _run_query_runner(
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if dashboard_filters:
         query_runner.apply_dashboard_filters(dashboard_filters)
+        query_runner.dashboard_all_time = dashboard_filters.date_from == "all"
     if variables_override:
         query_runner.apply_variable_overrides(variables_override)
     if pagination_cursor:
