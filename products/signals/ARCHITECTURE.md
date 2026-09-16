@@ -590,14 +590,14 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                              |
-| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `team`           | FK → Team | Owning team (reverse accessor sealed with `related_name="+"`)                                                                                                            |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                      |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                           |
-| `config`         | JSONField | Source-specific configuration, plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate                              |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                   |
+| Field            | Type      | Description                                                                                                                                                                                  |
+| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (reverse accessor sealed with `related_name="+"`)                                                                                                                                |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                          |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum)                     |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                               |
+| `config`         | JSONField | Source-specific configuration (for the Linear issue source, `linear_team_ids`), plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                       |
 
 **Behavioral notes:**
 
@@ -606,6 +606,7 @@ Per-team configuration for which signal sources are enabled.
 - Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations), and to the direct-emitting sources listed in `DIRECT_STEERABLE_SOURCES` (error tracking and health checks), which `emit_signal` runs through the gate in `backend/emission/direct_gate.py` before queueing the signal.
   A direct source is judged only when the team has written steering, and only against that text: the canonical prompt there states no criteria of its own, so a first rule filters what it describes and nothing else.
   Sources outside both sets persist the keys unread, and future consumers (report research, the autostart gate) are expected to read the same text.
+- The Linear issue source reads `config.linear_team_ids` (list of Linear team id strings, capped at `LINEAR_TEAM_IDS_MAX_COUNT`): the warehouse still syncs the whole workspace, but the emission fetcher adds an `IN` clause on the issue's team id, so only issues from those teams become signals. An absent or empty list means every team, which keeps rows written before the key existed working. Applies from the next sync; reports already in the inbox are not touched. The fetcher-side mechanism is generic (`scope_field` / `scope_config_key` on `SignalSourceTableConfig`), Linear is the only source that declares it.
 - The serializer exposes a computed `status` field:
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.

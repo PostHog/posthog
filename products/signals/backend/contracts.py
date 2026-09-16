@@ -22,6 +22,10 @@ DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
 # defensively so a row written by another path cannot bloat every gate prompt.
 STEERING_MAX_LENGTH = 2000
 
+# Linear team ids whose issues the Linear source reads; absent or empty means every team.
+LINEAR_TEAM_IDS_KEY = "linear_team_ids"
+LINEAR_TEAM_IDS_MAX_COUNT = 100
+
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
 # row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror

@@ -345,7 +345,9 @@ tools:
             reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT:
             create it with `enabled=false` (the per-scout `emit` flag is set separately via `scout-config-update`).
             There is at most one config per (source_product, source_type) per project; if one already exists, update it
-            instead.
+            instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear
+            team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams are read; omit it
+            to read every team in the workspace.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -387,7 +389,9 @@ tools:
         description: >
             Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or
             to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a
-            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config.
+            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. `config` is replaced as a
+            whole, so include the existing keys (such as `steering`) when changing one of them, for example the Linear
+            source's `linear_team_ids` allowlist.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true
