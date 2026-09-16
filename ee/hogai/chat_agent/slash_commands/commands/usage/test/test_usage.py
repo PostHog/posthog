@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.core.exceptions import SynchronousOnlyOperation
@@ -14,6 +14,10 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, HumanMessage
 
+from posthog.models import Organization, Team
+from posthog.tasks.usage_report import AI_BILLING_EXCLUDED_TOOLS, AI_COST_MARKUP_PERCENT
+from posthog.test.persons import create_group_type_mapping
+
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.slash_commands.commands.usage.command import UsageCommand
@@ -23,9 +27,11 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
     POSTHOG_AI_PRODUCTS,
+    AiProductCredits,
     AiUsagePeriod,
     format_usage_message,
     get_ai_credits,
+    get_ai_credits_by_product,
     get_ai_free_tier_credits,
     get_ai_usage_period,
     get_conversation_start_time,
@@ -165,6 +171,52 @@ class TestUsage(BaseTest):
 
             self.assertEqual(credits, 0)
             mock_sync_execute.assert_not_called()
+
+    def test_get_ai_credits_by_product_groups_on_ai_product(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+
+        with (
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter",
+                return_value={"region_group_property": "$group_1", "region_url": "https://eu.posthog.com"},
+            ),
+        ):
+            mock_region.return_value = "EU"
+            mock_sync_execute.return_value = [("posthog_ai", 3900), ("surveys", 120)]
+
+            breakdown = get_ai_credits_by_product(team_id=133393, begin=begin, end=end)
+
+            self.assertEqual(
+                breakdown,
+                [
+                    AiProductCredits(ai_product="posthog_ai", credits=3900),
+                    AiProductCredits(ai_product="surveys", credits=120),
+                ],
+            )
+            query = mock_sync_execute.call_args[0][0]
+            self.assertIn("c.ai_product AS ai_product", query)
+            self.assertIn("GROUP BY ai_product", query)
+
+    def test_get_ai_credits_totals_do_not_group_by_product(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+
+        with (
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter",
+                return_value={"region_group_property": "$group_1", "region_url": "https://eu.posthog.com"},
+            ),
+        ):
+            mock_region.return_value = "EU"
+            mock_sync_execute.return_value = [(4020,)]
+
+            self.assertEqual(get_ai_credits(team_id=133393, begin=begin, end=end), 4020)
+            self.assertNotIn("GROUP BY ai_product", mock_sync_execute.call_args[0][0])
 
     def test_get_conversation_start_time_exists(self):
         """Test retrieving conversation start time for existing conversation."""
@@ -374,6 +426,27 @@ class TestUsage(BaseTest):
         self.assertIn("**Remaining**: 1,500 credits", message)
         self.assertIn("25% of free tier", message)
 
+    def test_format_usage_message_credits_by_product(self):
+        message = format_usage_message(
+            conversation_credits=50,
+            period_credits=4030,
+            free_tier_credits=2000,
+            period_credits_by_product=[
+                AiProductCredits(ai_product="posthog_ai", credits=3900),
+                AiProductCredits(ai_product="surveys", credits=120),
+                AiProductCredits(ai_product="new_surface", credits=10),
+            ],
+        )
+        self.assertIn("**Credits by product**", message)
+        self.assertIn("- PostHog AI: 3,900 credits", message)
+        self.assertIn("- Surveys: 120 credits", message)
+        # A product with no label entry still appears, under its raw `ai_product` value.
+        self.assertIn("- new_surface: 10 credits", message)
+
+    def test_format_usage_message_omits_breakdown_without_products(self):
+        message = format_usage_message(conversation_credits=0, period_credits=0, free_tier_credits=2000)
+        self.assertNotIn("**Credits by product**", message)
+
     def test_format_usage_message_over_limit(self):
         """Test formatting when over the free tier limit."""
         message = format_usage_message(
@@ -440,3 +513,81 @@ class TestUsage(BaseTest):
         )
         self.assertIn("█" * 20, message)
         self.assertNotIn("░", message)
+
+
+class TestUsageCreditsAgainstClickhouse(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        self.analytics_team = Team.objects.create(organization=analytics_org, name="Analytics")
+        create_group_type_mapping(
+            team=self.analytics_team,
+            project_id=self.analytics_team.project_id,
+            group_type="instance",
+            group_type_index=1,
+        )
+
+    def _create_generation(self, *, ai_product: str, trace_id: str, cost_usd: float) -> None:
+        _create_event(
+            event="$ai_generation",
+            team=self.analytics_team,
+            distinct_id=f"user_{ai_product}",
+            timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+            properties={
+                "team_id": self.team.id,
+                "$ai_trace_id": trace_id,
+                "$ai_session_id": "session_1",
+                "$ai_total_cost_usd": cost_usd,
+                "$ai_billable": True,
+                "ai_product": ai_product,
+                "$group_1": CLOUD_REGION_TO_URL["US"],
+            },
+        )
+
+    def _create_unbillable_trace(self, *, trace_id: str) -> None:
+        _create_event(
+            event="$ai_trace",
+            team=self.analytics_team,
+            distinct_id="user_posthog_ai",
+            timestamp=datetime(2026, 5, 1, 12, tzinfo=UTC),
+            properties={
+                "$ai_trace_id": trace_id,
+                "$ai_session_id": "session_1",
+                "$ai_output_state": {
+                    "messages": [
+                        {"type": "human", "content": "hi"},
+                        {"type": "ai", "tool_calls": [{"name": AI_BILLING_EXCLUDED_TOOLS[0], "args": {}}]},
+                    ]
+                },
+                "$group_1": CLOUD_REGION_TO_URL["US"],
+            },
+        )
+
+    def test_traceless_product_counts_in_total_and_breakdown(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+        # Surveys and replay vision emit $ai_generation with a fresh trace id and no $ai_trace, so
+        # the LEFT JOIN never matches and the row survives only on the empty-trace fallback.
+        self._create_generation(ai_product="surveys", trace_id="trace_surveys", cost_usd=1.0)
+        # A trace whose only tool call is excluded stays unbilled, so the fallback must not keep it.
+        self._create_generation(ai_product="posthog_ai", trace_id="trace_unbillable", cost_usd=2.0)
+        self._create_unbillable_trace(trace_id="trace_unbillable")
+        flush_persons_and_events()
+
+        expected_credits = round(1.0 * 100 * (1 + AI_COST_MARKUP_PERCENT))
+
+        with (
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region",
+                return_value="US",
+            ),
+            patch.dict(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.CLOUD_REGION_TO_TEAM_ID",
+                {"US": self.analytics_team.id},
+            ),
+        ):
+            total = get_ai_credits(team_id=self.team.id, begin=begin, end=end)
+            breakdown = get_ai_credits_by_product(team_id=self.team.id, begin=begin, end=end)
+
+        self.assertEqual(total, expected_credits)
+        self.assertEqual(breakdown, [AiProductCredits(ai_product="surveys", credits=expected_credits)])
