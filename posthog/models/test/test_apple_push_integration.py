@@ -6,6 +6,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import ApplePushIntegration, Integration
+from posthog.models.integration.push import is_apns_bundle_id, is_apns_team_id
 
 
 class TestApplePushIntegration(BaseTest):
@@ -133,6 +134,35 @@ class TestApplePushIntegration(BaseTest):
     def test_rejects_an_identifier_that_could_forge_another_identity(self, _name, kwargs):
         with self.assertRaises(ValidationError):
             self._create_apple_push_integration(**kwargs)
+
+    @parameterized.expand(
+        [
+            ("empty", "", False),
+            ("plain", "TEAM1234", True),
+            ("trailing newline", "TEAM1234\n", False),
+            ("leading newline", "\nTEAM1234", False),
+            ("trailing space", "TEAM1234 ", False),
+            ("period", "TEAM.1234", False),
+            ("colon", "TEAM:1234", False),
+            ("non ascii digit", "TEAM١234", False),
+        ]
+    )
+    def test_team_id_accepts_ascii_letters_and_digits_only(self, _name, value, expected):
+        assert is_apns_team_id(value) is expected
+
+    @parameterized.expand(
+        [
+            ("empty", "", False),
+            ("plain", "com.example.app", True),
+            ("hyphen", "com.example.my-app", True),
+            ("trailing newline", "com.example.app\n", False),
+            ("colon", "com.example.app:sandbox", False),
+            ("space", "com.example app", False),
+            ("non ascii letter", "com.example.appé", False),
+        ]
+    )
+    def test_bundle_id_accepts_ascii_letters_digits_periods_and_hyphens_only(self, _name, value, expected):
+        assert is_apns_bundle_id(value) is expected
 
     def test_wrapper_properties(self):
         integration = self._create_apple_push_integration()

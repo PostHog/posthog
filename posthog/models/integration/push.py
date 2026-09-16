@@ -1,6 +1,5 @@
 """Push-notification provider credentials (APNS, Firebase) and device-identity verification config."""
 
-import re
 import time
 from datetime import timedelta
 
@@ -218,11 +217,22 @@ class FirebaseIntegration:
 
 APNS_ENVIRONMENTS = ("production", "sandbox")
 
+BUNDLE_ID_EXTRA_CHARACTERS = (".", "-")
+
+
 # Apple team ids are alphanumeric, and bundle ids add only hyphens and periods. A colon appears in
 # neither, which is what lets the environment suffix below never collide with a real bundle id.
 # The team id holds no period either, so the first period in an id always ends the team id.
-APNS_TEAM_ID = re.compile(r"^[A-Za-z0-9]+$")
-APNS_BUNDLE_ID = re.compile(r"^[A-Za-z0-9.\-]+$")
+def is_apns_team_id(value: str) -> bool:
+    return value.isascii() and value.isalnum()
+
+
+def is_apns_bundle_id(value: str) -> bool:
+    return (
+        bool(value)
+        and value.isascii()
+        and all(character.isalnum() or character in BUNDLE_ID_EXTRA_CHARACTERS for character in value)
+    )
 
 
 def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
@@ -286,10 +296,10 @@ class ApplePushIntegration:
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
 
-        if not APNS_TEAM_ID.match(team_id_apple):
+        if not is_apns_team_id(team_id_apple):
             raise ValidationError("APNS team_id_apple accepts letters and digits only")
 
-        if not APNS_BUNDLE_ID.match(bundle_id):
+        if not is_apns_bundle_id(bundle_id):
             raise ValidationError("APNS bundle_id accepts letters, digits, hyphens and periods only")
 
         if environment not in APNS_ENVIRONMENTS:
