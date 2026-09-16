@@ -190,15 +190,27 @@ def parse_openai_responses_citations(body: dict[str, Any]) -> ParsedAnswer:
     return ParsedAnswer(answer_text="".join(answer_parts), cited_urls=_dedupe_urls(cited), search_queries=queries)
 
 
+def _has_answer_text(body: dict[str, Any]) -> bool:
+    """True when the body carries at least one non-empty output_text block, which is
+    the only part of a Responses body that can carry an answer and its citations."""
+    for item in body.get("output") or []:
+        if item.get("type") != "message":
+            continue
+        for content in item.get("content") or []:
+            if content.get("type") == "output_text" and content.get("text"):
+                return True
+    return False
+
+
 def openai_response_error(body: dict[str, Any]) -> str | None:
-    """A Responses body that reports a non-completed status and produced no message
-    item did not answer (budget exhausted, failed, or cancelled). That is a failed
-    check, not a zero-citation answer, so the scout can tell "the engine broke" from
-    "the citations disappeared"."""
+    """A Responses body that reports a non-completed status and produced no answer text
+    did not answer (budget exhausted, failed, or cancelled). That is a failed check, not
+    a zero-citation answer, so the scout can tell "the engine broke" from "the citations
+    disappeared". An empty message item is not an answer, so it counts as neither."""
     status = body.get("status")
     if status in (None, "completed"):
         return None
-    if any(item.get("type") == "message" for item in body.get("output") or []):
+    if _has_answer_text(body):
         return None
     # 'incomplete' carries incomplete_details.reason; 'failed' carries error.message.
     details = body.get("incomplete_details") or body.get("error")

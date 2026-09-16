@@ -155,8 +155,21 @@ OPENAI_FAILED_BODY = {
         # A non-completed status with no message item never answered, so it is a failed check.
         ("incomplete_no_message", OPENAI_INCOMPLETE_BODY, "incomplete_response: max_output_tokens"),
         ("failed_no_message", OPENAI_FAILED_BODY, "failed_response: upstream boom"),
-        # A message item means the model answered, and a completed/absent status is a normal answer.
-        ("incomplete_with_message", {**OPENAI_INCOMPLETE_BODY, "output": [{"type": "message", "content": []}]}, None),
+        # An empty message item carries no answer, so it is still a failed check.
+        (
+            "incomplete_with_empty_message",
+            {**OPENAI_INCOMPLETE_BODY, "output": [{"type": "message", "content": []}]},
+            "incomplete_response: max_output_tokens",
+        ),
+        # Answer text means the model answered, and a completed/absent status is a normal answer.
+        (
+            "incomplete_with_answer_text",
+            {
+                **OPENAI_INCOMPLETE_BODY,
+                "output": [{"type": "message", "content": [{"type": "output_text", "text": "partial"}]}],
+            },
+            None,
+        ),
         ("completed", OPENAI_RESPONSES_BODY, None),
         ("no_status", {"output": []}, None),
     ]
