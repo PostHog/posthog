@@ -1509,6 +1509,8 @@ export const searchLogic = kea<searchLogicType>([
                         disabledReason: getEntryAccessDisabledReason(result),
                         record: {
                             type: result.type,
+                            // The entity id the rest of the app reads as `ref`; for an insight it is the short id.
+                            ref: result.result_id,
                             ...result.extra_fields,
                         },
                     })

@@ -131,6 +131,33 @@ describe('searchLogic', () => {
         expect(logic.values.allCategories.find((category) => category.key === 'tickets')?.items).toHaveLength(1)
     })
 
+    // Without a `ref` on the record, an insight opened from search cannot be identified, so its
+    // view is reported as coming from nowhere in particular.
+    it('exposes the entity id of a unified search result as its record ref', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/search/': {
+                    results: [
+                        {
+                            type: 'insight',
+                            result_id: 'ab12cd',
+                            extra_fields: { name: 'Weekly signups', description: '', query: null },
+                            rank: 0.5,
+                        },
+                    ],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch('signups')).toDispatchActions([
+            'loadUnifiedSearchResultsSuccess',
+        ])
+
+        expect(logic.values.unifiedSearchItems.insight[0].record).toEqual(
+            expect.objectContaining({ type: 'insight', ref: 'ab12cd' })
+        )
+    })
+
     // A Slack or widget ticket has no email subject, so the first message stands in as the title.
     it('falls back to the last message when a ticket has no subject', async () => {
         useMocks({
