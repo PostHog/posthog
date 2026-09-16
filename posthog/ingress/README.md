@@ -56,6 +56,7 @@ An HMAC over raw bytes proves only the signature, so its `facts` are empty and `
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
 Every other endpoint is declared by the product that registered the App, in its own `routes.py`.
+The SES endpoint is the exception for now, because its view still lives in `backend/api/` rather than behind the ingress builders.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, from before ingress had a throttle lane.
 It moves onto `throttle_class` next.
