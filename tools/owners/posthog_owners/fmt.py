@@ -162,7 +162,13 @@ class CanonicalPlacer:
             by_dir.setdefault(d, []).append((path, owners))
         return by_dir
 
-    def _label_tree(self, node: _Node, by_dir: dict[str, list[tuple[str, OwnerSet]]]) -> None:
+    def _label_tree(
+        self,
+        node: _Node,
+        by_dir: dict[str, list[tuple[str, OwnerSet]]],
+        enclosing_glob_label: OwnerSet = None,
+        under_glob_file: bool = False,
+    ) -> None:
         """Bottom-up labeling that minimizes boundaries. Each dir takes the owner set
         held by the most of its *immediate* children and direct files — each becomes a
         boundary only if it disagrees, so this is the local min-boundary choice.
@@ -171,7 +177,12 @@ class CanonicalPlacer:
         manifest, a glob file) and do not vote in their parent, so a manifest at
         ``products/foo`` keeps ownership there instead of floating a rule up the tree."""
         for child in node.children.values():
-            self._label_tree(child, by_dir)
+            if node.frozen:
+                self._label_tree(child, by_dir, node.pinned_label, True)
+            elif node.pinned:
+                self._label_tree(child, by_dir, None, False)
+            else:
+                self._label_tree(child, by_dir, enclosing_glob_label, under_glob_file)
 
         # A frozen dir labels itself from its own file too: its direct files are
         # glob-served and excluded from voting, so deriving the label from children
@@ -179,6 +190,13 @@ class CanonicalPlacer:
         # nearer file shadows it and the proof fails.
         if node.pinned or node.frozen:
             node.label = node.pinned_label
+            return
+
+        # Below a frozen dir the visible files are only those a nearer carrier serves, so
+        # they cannot speak for the glob-served ones beside them. A label derived from
+        # them lands in a carrier nearer than the frozen file and shadows its globs.
+        if under_glob_file:
+            node.label = enclosing_glob_label
             return
 
         votes: dict[OwnerSet, int] = {}
@@ -572,9 +590,7 @@ class _InMemoryResolver(OwnersResolver):
     disk — used to prove the proposed layout resolves identically."""
 
     def __init__(self, repo_root: Path, files: dict[str, OwnersFile]) -> None:
-        self.repo_root = repo_root
-        self._dir_cache = {}
-        self._teams_cache = None
+        super().__init__(repo_root)
         self._files = files
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:  # type: ignore[override]

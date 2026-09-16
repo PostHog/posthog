@@ -1,0 +1,12 @@
+{
+    "id": "LB14",
+    "file": "products/tasks/backend/facade/api.py",
+    "lines": "504-509",
+    "priority": "must_fix",
+    "title": "Report-linked discussion tasks are classified as implementations",
+    "problem": "The function treats every non-internal task with `signal_report_id` as an implementation task. The Tasks API also supports non-internal discussion and other report-linked tasks. Only real implementation tasks have the durable `relationship=\"implementation\"` link. A PR from a discussion task can therefore bypass the standard bot, draft, review-mode, and permission gates.",
+    "suggestion": "Check `Task.OriginProduct.SIGNAL_REPORT` and the durable implementation relationship before returning the DTO. Use `SignalReportTask.relationship == \"implementation\"` or the typed implementation artefact that existing Signals code uses. Return None for other report-linked tasks.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

@@ -22,13 +22,13 @@ from django.db.models import F
 
 import structlog
 import posthoganalytics
-from slack_sdk import WebClient
 
 from posthog.comment.formatting import (
     extract_slack_user_ids,
     slack_to_content_and_rich_content,
     strip_slack_user_mentions,
 )
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
@@ -55,16 +55,25 @@ from .services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
+from .services.inbound_events import (
+    INBOUND_LEASE_RENEW_EVERY_REPLIES,
+    InboundClaim,
+    get_current_inbound_claim,
+    renew_inbound_lease,
+)
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_FILE_READ_SCOPE,
     get_support_slack_bot_token,
+    get_support_slack_workspace_id,
     supporthog_missing_file_scopes,
 )
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+# 200 replies per page. Stop so a runaway next_cursor cannot hold the worker.
+BACKFILL_THREAD_MAX_PAGES = 25
 
 # Slack message subtypes that carry real, user-authored content and may open or update a
 # ticket. A normal message has no subtype at all; these few subtypes also count as content
@@ -118,6 +127,10 @@ def get_safe_ticket_emoji(settings_dict: dict) -> str:
 TICKET_CONFIRM_ACTION_OPEN = "supporthog_open_ticket_confirm"
 TICKET_CONFIRM_ACTION_DISMISS = "supporthog_open_ticket_dismiss"
 
+# "View ticket" button on a ticket confirmation. The URL stays out of the message because
+# Slack has no message that only part of a channel can see (see _post_ticket_link).
+TICKET_VIEW_ACTION = "supporthog_view_ticket"
+
 
 def _get_team_id(team: Team) -> int:
     team_id = getattr(team, "id", None)
@@ -129,6 +142,36 @@ def _get_team_id(team: Team) -> int:
 def ticket_created_text(ticket: "Ticket | None") -> str:
     """Copy for message to confirm creation of ticket."""
     return f":ticket: Ticket #{ticket.ticket_number} created" if ticket else ":ticket: Ticket created"
+
+
+def ticket_deep_link(ticket: "Ticket", team: Team) -> str:
+    """App URL for a ticket. The detail scene is addressed by ticket number, not by UUID."""
+    return f"{settings.SITE_URL}/project/{_get_team_id(team)}/support/tickets/{ticket.ticket_number}"
+
+
+def ticket_created_blocks(ticket: "Ticket | None", team: Team) -> list[dict]:
+    """Blocks for the ticket confirmation, carrying a "View ticket" button when there is a ticket.
+
+    The button holds the ticket number rather than the link, so the channel never shows the URL.
+    Without a ticket there is nothing to view, so the section stands alone.
+    """
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": ticket_created_text(ticket)}}]
+    if ticket is None:
+        return blocks
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": TICKET_VIEW_ACTION,
+                    "text": {"type": "plain_text", "text": "View ticket", "emoji": True},
+                    "value": json.dumps({"ticket_number": ticket.ticket_number}),
+                }
+            ],
+        }
+    )
+    return blocks
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -144,7 +187,12 @@ def get_slack_client(team: Team) -> WebClient:
     """
     bot_token = get_support_slack_bot_token(team)
     if bot_token:
-        return WebClient(token=bot_token)
+        return WebClient(
+            token=bot_token,
+            source="conversations",
+            workspace_id=get_support_slack_workspace_id(team),
+            app_id="support",
+        )
     raise ValueError("Support Slack bot token is not configured")
 
 
@@ -584,15 +632,7 @@ def create_or_update_slack_ticket(
             "channel": slack_channel_id,
             "thread_ts": thread_ts,
             "text": f"Ticket #{ticket.ticket_number} created.",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": ticket_created_text(ticket),
-                    },
-                },
-            ],
+            "blocks": ticket_created_blocks(ticket, team),
         }
         bot_display_name = support_settings.get("slack_bot_display_name")
         bot_icon_url = support_settings.get("slack_bot_icon_url")
@@ -841,10 +881,10 @@ def nudge_event_properties(
     }
 
 
-def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
-    """Internal product analytics for the nudge funnel, attributed to the team like
-    report_team_action — but through a scoped client, since both call sites run in
-    Celery tasks where the global client's flush can be lost."""
+def capture_support_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics attributed to the team like report_team_action — but through
+    a scoped client, since every call site runs in a Celery task where the global client's
+    flush can be lost."""
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(team.uuid),
@@ -852,6 +892,11 @@ def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> N
             properties=properties,
             groups=groups(team=team),
         )
+
+
+def capture_nudge_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Internal product analytics for the nudge funnel."""
+    capture_support_event(team, event, properties)
 
 
 def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
@@ -1112,6 +1157,10 @@ def _create_ticket_and_backfill(
     return ticket
 
 
+class SlackConfirmationNeedsRetry(Exception):
+    """Transient confirmation failure. The interactivity handler retries this."""
+
+
 def create_ticket_from_confirmation(
     *,
     team: Team,
@@ -1124,9 +1173,8 @@ def create_ticket_from_confirmation(
     Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
     backfill any replies posted while the prompt was pending. Idempotent — a duplicate
     click returns the already-open ticket so the caller can confirm rather than error.
-    Returns None on genuine failure (source message gone, fetch error, empty content), but
-    also when a concurrent duplicate delivery holds the create lock mid-flight — callers
-    should treat None as retryable, since a re-run resolves to the winner's committed ticket.
+    Returns None only for a missing or unusable source message.
+    Raises SlackConfirmationNeedsRetry for Slack fetch errors and create-lock contention.
     """
     existing = Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).first()
     if existing:
@@ -1144,9 +1192,9 @@ def create_ticket_from_confirmation(
             limit=1,
         )
         messages: list[dict] = result.get("messages", [])
-    except Exception:
+    except Exception as exc:
         logger.warning("slack_support_confirmation_fetch_failed", channel=slack_channel_id, message_ts=message_ts)
-        return None
+        raise SlackConfirmationNeedsRetry from exc
 
     if not messages:
         return None
@@ -1163,7 +1211,7 @@ def create_ticket_from_confirmation(
     if not original_msg.get("user") or (not original_text.strip() and not original_msg.get("files")):
         return None
 
-    return _create_ticket_and_backfill(
+    ticket = _create_ticket_and_backfill(
         client=client,
         team=team,
         slack_channel_id=slack_channel_id,
@@ -1174,6 +1222,9 @@ def create_ticket_from_confirmation(
         # The interactivity handler updates the prompt in place into the confirmation.
         post_confirmation=False,
     )
+    if ticket is None:
+        raise SlackConfirmationNeedsRetry
+    return ticket
 
 
 def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
@@ -1272,6 +1323,37 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     )
 
 
+def _renew_backfill_lease(claim: InboundClaim | None) -> InboundClaim | None:
+    """Extend the inbound lease. On fencing failure or renew error return None and keep going.
+
+    create_or_update_slack_ticket returns None to losers so they do not backfill.
+    This worker already created the ticket, so aborting here would drop the rest of
+    the thread permanently. Fencing still stops this worker settling the receipt.
+    """
+    if claim is None:
+        return None
+    try:
+        if renew_inbound_lease(claim):
+            return claim
+    except Exception as exc:
+        capture_exception(
+            exc,
+            {"inbound_event_id": str(claim.event.id), "fencing_token": claim.event.fencing_token},
+        )
+        logger.warning(
+            "inbound_event_lease_renew_error",
+            inbound_event_id=str(claim.event.id),
+            fencing_token=claim.event.fencing_token,
+        )
+        return None
+    logger.warning(
+        "inbound_event_lease_renew_rejected",
+        inbound_event_id=str(claim.event.id),
+        fencing_token=claim.event.fencing_token,
+    )
+    return None
+
+
 def _backfill_thread_replies(
     client: WebClient,
     team: Team,
@@ -1281,6 +1363,7 @@ def _backfill_thread_replies(
     *,
     slack_team_id: str | None,
     after_ts: str | None = None,
+    claim: InboundClaim | None = None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket.
 
@@ -1289,12 +1372,31 @@ def _backfill_thread_replies(
     isn't pulled in. Slack ts values are lexicographically ordered, so string comparison is
     safe.
     """
-    try:
-        result = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
-        replies: list[dict] = result.get("messages", [])
-    except Exception:
-        logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
-        return
+    active_claim = claim if claim is not None else get_current_inbound_claim()
+    replies: list[dict] = []
+    cursor: str | None = None
+    for _ in range(BACKFILL_THREAD_MAX_PAGES):
+        kwargs: dict[str, Any] = {"channel": channel, "ts": thread_ts, "limit": 200}
+        if cursor is not None:
+            kwargs["cursor"] = cursor
+        try:
+            result = client.conversations_replies(**kwargs)
+        except Exception:
+            logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
+            break
+        replies.extend(result.get("messages") or [])
+        next_cursor = ((result.get("response_metadata") or {}).get("next_cursor")) or None
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+        active_claim = _renew_backfill_lease(active_claim)
+    else:
+        logger.warning(
+            "slack_support_reaction_backfill_page_cap",
+            channel=channel,
+            thread_ts=thread_ts,
+            max_pages=BACKFILL_THREAD_MAX_PAGES,
+        )
 
     thread_replies = [
         r for r in replies if r.get("ts") != thread_ts and (after_ts is None or (r.get("ts") or "") > after_ts)
@@ -1310,6 +1412,8 @@ def _backfill_thread_replies(
         thread_reply_count=len(thread_replies),
     )
 
+    active_claim = _renew_backfill_lease(active_claim)
+
     own_bot_user_id = get_bot_user_id(client)
     user_cache: dict[str, dict] = {}
     posthog_user_cache: dict[str, User | None] = {}
@@ -1317,7 +1421,9 @@ def _backfill_thread_replies(
     customer_message_count = 0
     team_message_count = 0
 
-    for reply in thread_replies:
+    for reply_index, reply in enumerate(thread_replies, start=1):
+        if reply_index % INBOUND_LEASE_RENEW_EVERY_REPLIES == 0:
+            active_claim = _renew_backfill_lease(active_claim)
         reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
         if not _is_ticketable_message(reply, is_bot=reply_is_bot):
             continue

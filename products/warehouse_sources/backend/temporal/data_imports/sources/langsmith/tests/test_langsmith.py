@@ -4,24 +4,32 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     MAX_CURSOR_BYTES,
+    MAX_LOGGED_RUN_ID_CHARS,
+    MAX_LOGGED_RUN_IDS,
     LangSmithHostNotAllowedError,
     LangSmithPageLimitError,
+    LangSmithPaginationTooLargeError,
     LangSmithRepeatedCursorError,
     LangSmithResponseTooLargeError,
     LangSmithResumeConfig,
+    LangSmithRunsPageTooLargeError,
+    _bounded_run_ids,
     _fetch_page,
     _read_capped_body,
     _resolve_window_start,
+    _runs_select_fields,
     get_rows,
     normalize_base_url,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.settings import (
     LANGSMITH_ENDPOINTS,
+    RUNS_HEAVY_SELECT_FIELDS,
     RUNS_SELECT_FIELDS,
 )
 
@@ -248,6 +256,100 @@ class TestRunsPagination:
         assert manager.saved == [LangSmithResumeConfig(cursor=None, window_start=None)]
 
 
+class TestRunsPageShrinking:
+    def test_oversized_page_halves_limit_and_retries_same_cursor(self):
+        # A legitimate host with large prompt payloads can trip MAX_RESPONSE_BYTES on a full page.
+        # The walk must halve the limit and re-request the same cursor (skipping no runs), not fail.
+        manager = FakeManager()
+        limits: list[int] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            limit = json_body["limit"]
+            limits.append(limit)
+            if limit > 25:
+                raise LangSmithResponseTooLargeError("oversized")
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [r["id"] for r in rows] == ["a"]
+        assert limits == [100, 50, 25]  # halved on the same cursorless first page until it fits
+
+    def test_single_oversized_run_is_imported_without_its_heavy_fields(self):
+        manager = FakeManager()
+        selects: list[list[str]] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            selects.append(json_body["select"])
+            if any(name in json_body["select"] for name in RUNS_HEAVY_SELECT_FIELDS):
+                raise LangSmithResponseTooLargeError("oversized")
+            return {"runs": [_run("huge")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            rows = _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert [r["id"] for r in rows] == ["huge"]
+        assert selects[-1] == [name for name in RUNS_SELECT_FIELDS if name not in RUNS_HEAVY_SELECT_FIELDS]
+
+    def test_logged_run_ids_are_bounded_in_count_and_length(self):
+        # The host chooses how many runs a page holds and how long each id is, so the warning that
+        # names them must not grow with the response.
+        runs = [{"id": "x" * 1_000} for _ in range(100)]
+
+        ids = _bounded_run_ids(runs)
+
+        assert len(ids) == MAX_LOGGED_RUN_IDS
+        assert all(len(run_id) == MAX_LOGGED_RUN_ID_CHARS for run_id in ids)
+
+    def test_single_run_page_oversized_without_heavy_fields_raises(self):
+        manager = FakeManager()
+        attempts = 0
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            nonlocal attempts
+            attempts += 1
+            raise LangSmithResponseTooLargeError("oversized")
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            with pytest.raises(LangSmithRunsPageTooLargeError):
+                _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
+
+        # 100 -> 50 -> 25 -> 12 -> 6 -> 3 -> 1, then one narrowed attempt.
+        assert attempts == 8
+
+
+class TestRunsColumnSelection:
+    @pytest.mark.parametrize(
+        "enabled_columns,expected",
+        [
+            (None, RUNS_SELECT_FIELDS),
+            # An empty selection means what it means downstream: the required columns only, never
+            # everything. Otherwise deselecting every column still downloads inputs and outputs.
+            ([], ["id", "start_time"]),
+            # The primary key and the partition key ride along whatever the user picked.
+            (["outputs"], ["id", "start_time", "outputs"]),
+            (["id", "name"], ["id", "name", "start_time"]),
+            (["not_a_run_field"], ["id", "start_time"]),
+        ],
+    )
+    def test_select_keeps_the_columns_the_load_needs(self, enabled_columns, expected):
+        assert _runs_select_fields(LANGSMITH_ENDPOINTS["runs"], enabled_columns) == expected
+
+    def test_enabled_columns_narrow_the_request_body(self):
+        manager = FakeManager()
+        bodies: list[dict[str, Any]] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            bodies.append(json_body)
+            return {"runs": [_run("a")], "cursors": {"next": None}}
+
+        with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
+            _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1, enabled_columns=["name"]))  # type: ignore[arg-type]
+
+        assert bodies[0]["select"] == ["id", "name", "start_time"]
+
+
 class TestOffsetPagination:
     def test_walks_offsets_until_short_page(self):
         manager = FakeManager()
@@ -295,6 +397,89 @@ class TestOffsetPagination:
         assert "min_created_at=2026-01-01T00%3A00%3A00.000000Z" in urls[0]
 
 
+class TestExamplesPagination:
+    def test_examples_are_scoped_per_dataset(self):
+        # GET /examples rejects an unscoped request (a 400), so examples must be paged per dataset
+        # with a `dataset` filter — the regression that failed every examples sync.
+        manager = FakeManager()
+        dataset_ids = ["ds-1", "ds-2"]
+        urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            urls.append(url)
+            if "/api/v1/examples" in url:
+                return [{"id": "ex-1"}]
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        example_urls = [u for u in urls if "/api/v1/examples" in u]
+        assert len(example_urls) == 2
+        assert "dataset=ds-1" in example_urls[0]
+        assert "dataset=ds-2" in example_urls[1]
+        assert len(rows) == 2
+
+    def test_no_datasets_in_workspace_skips_examples_entirely(self):
+        # With no datasets there is nothing to scope to, so no examples request should be issued.
+        manager = FakeManager()
+        urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            urls.append(url)
+            return []
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            rows = _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert rows == []
+        assert all("/api/v1/examples" not in u for u in urls)
+
+    def test_resume_continues_from_saved_dataset_and_offset(self):
+        # A resumed run skips datasets already fully read, picks the interrupted dataset up at its
+        # saved offset, and reads the remaining datasets from the start.
+        manager = FakeManager(resume=LangSmithResumeConfig(dataset_id="ds-2", offset=100))
+        dataset_ids = ["ds-1", "ds-2", "ds-3"]
+        example_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if "/api/v1/examples" in url:
+                example_urls.append(url)
+                return [{"id": "ex"}]
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert len(example_urls) == 2
+        assert "dataset=ds-2" in example_urls[0] and "offset=100" in example_urls[0]
+        assert "dataset=ds-3" in example_urls[1] and "offset=0" in example_urls[1]
+        assert all("dataset=ds-1" not in u for u in example_urls)
+
+    def test_many_short_pages_still_hit_the_page_limit(self):
+        # A dataset whose examples fit on a single short page must still cost one request against
+        # MAX_PAGES_PER_RUN. Otherwise a host serving many datasets (bounded only by
+        # MAX_DATASET_IDS_BYTES), each with one short page, could page forever without ever
+        # tripping the per-run limit.
+        manager = FakeManager()
+        dataset_ids = [f"ds-{i}" for i in range(10)]
+        example_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if "/api/v1/examples" in url:
+                example_urls.append(url)
+                return [{"id": "ex"}]  # a single-item, short page — never the "full page" branch
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithPageLimitError):
+                _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert len(example_urls) == 3
+        assert manager.saved[-1].dataset_id == "ds-3"
+        assert manager.saved[-1].offset == 0
+
+
 class TestPaginationAbuseGuards:
     def test_oversized_session_id_accumulation_raises(self):
         # A host controls both the count and size of session ids returned while scoping the runs
@@ -305,7 +490,7 @@ class TestPaginationAbuseGuards:
         page_size = LANGSMITH_ENDPOINTS["projects"].page_size
 
         with mock.patch(_FETCH_PAGE, return_value=[{"id": huge_id} for _ in range(page_size)]):
-            with pytest.raises(LangSmithResponseTooLargeError):
+            with pytest.raises(LangSmithPaginationTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
     def test_repeated_runs_cursor_raises(self):
@@ -330,7 +515,7 @@ class TestPaginationAbuseGuards:
             return {"runs": [_run("a")], "cursors": {"next": big_cursor}}
 
         with mock.patch(_FETCH_PAGE, side_effect=_with_session_page(fake_fetch)):
-            with pytest.raises(LangSmithResponseTooLargeError):
+            with pytest.raises(LangSmithPaginationTooLargeError):
                 _collect(get_rows("key", BASE_URL, "runs", logger, manager, 1))  # type: ignore[arg-type]
 
     def test_runs_page_limit_checkpoints_and_raises(self):
@@ -455,10 +640,20 @@ class TestHostSafety:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code,expected_valid",
-        [(200, True), (401, False), (403, False), (404, False), (500, False)],
+        "status_code,expected_fragment",
+        [
+            (200, None),
+            (401, "invalid or has been revoked"),
+            (403, "read this workspace"),
+            (404, "no LangSmith API there"),
+            # A rate limit and a LangSmith outage are not a bad key, so both ask for a retry
+            # instead of sending the user to replace a key that works.
+            (429, "Try again in a few minutes"),
+            (500, "Try again in a few minutes"),
+            (418, "valid key from your LangSmith"),
+        ],
     )
-    def test_status_mapping(self, status_code, expected_valid):
+    def test_status_mapping(self, status_code, expected_fragment):
         response = mock.MagicMock()
         response.status_code = status_code
 
@@ -466,9 +661,26 @@ class TestValidateCredentials:
             session.return_value.get.return_value = response
             valid, message = validate_credentials("key", None)
 
-        assert valid is expected_valid
-        if not expected_valid:
-            assert message
+        assert valid is (expected_fragment is None)
+        if expected_fragment is None:
+            assert message is None
+        else:
+            assert message is not None
+            assert expected_fragment in message
+            # The wizard shows this message verbatim, so no status code may reach it.
+            assert str(status_code) not in message
+
+    def test_unreachable_host_does_not_surface_the_raw_exception(self):
+        with mock.patch(_MAKE_SESSION) as session:
+            session.return_value.get.side_effect = requests.ConnectionError(
+                "HTTPSConnectionPool(host='langsmith.example', port=443): Max retries exceeded"
+            )
+            valid, message = validate_credentials("key", None)
+
+        assert valid is False
+        assert message is not None
+        assert "HTTPSConnectionPool" not in message
+        assert "Try again in a few minutes" in message
 
     def test_unsafe_host_fails_before_network_call(self):
         with (

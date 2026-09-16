@@ -13,12 +13,14 @@ import {
     RequestInit,
     Response,
     request,
+    errors as undiciErrors,
     fetch as undiciFetch,
 } from 'undici'
 import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
 
+import { ColdStartGate } from './cold-start-gate'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
@@ -50,7 +52,14 @@ export type FetchOptions = {
     headers?: HeadersInit
     body?: string | Buffer
     timeoutMs?: number
+    // The TLS handshake offers HTTP/2 and HTTP/1.1. The origin selects the protocol. undici lists HTTP/1.1 first, so an
+    // origin that follows the client's order selects HTTP/1.1. APNs supports only HTTP/2, so it selects HTTP/2. The
+    // undici connect option `preferH2` lists HTTP/2 first.
     allowH2?: boolean
+    // The time an idle HTTP/2 session to the origin stays open. The default is the keep-alive timeout. An origin that
+    // negotiates HTTP/1.1 uses the same dispatcher, so its idle sockets also close after this time. Pass a constant:
+    // each distinct value keeps a dispatcher for the life of the process, and at most 8 values are allowed.
+    http2IdleTimeoutMs?: number
 }
 
 export type FetchResponse = {
@@ -253,25 +262,14 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     await staticLookupAsync(parsedUrl.hostname)
 }
 
-class SecureAgent extends Agent {
-    constructor() {
-        super({
-            keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            connect: {
-                lookup: httpStaticLookup,
-                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-            },
-        })
-    }
-}
-
 // Safe way to use the same helpers for talking to internal endpoints such as other services
 class InsecureAgent extends Agent {
     constructor() {
         super({
             keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            // undici enables HTTP/2 by default. Internal services stay on HTTP/1.1 because nothing here needs multiplexing. HTTP/2 sessions also fail in different ways, with GOAWAY replays and refused streams.
+            allowH2: false,
             connect: {
                 timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
@@ -282,36 +280,125 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher(): Dispatcher {
+function makeSecureDispatcher({
+    allowH2,
+    keepAliveTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+}: {
+    allowH2: boolean
+    keepAliveTimeoutMs?: number
+}): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    const connections = allowH2
+        ? requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS
+        : requestConfig.EXTERNAL_REQUEST_CONNECTIONS
 
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
-            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            requestTls: {},
+            keepAliveTimeout: keepAliveTimeoutMs,
+            connections,
+            // undici 8 tunnels only https targets by default. The proxy applies its checks to the tunnel, so a plain
+            // http target must not go to the proxy as an absolute-form request instead.
+            proxyTunnel: true,
+            allowH2,
+            requestTls: { allowH2 },
         })
     }
-    return new SecureAgent()
+    return new Agent({
+        keepAliveTimeout: keepAliveTimeoutMs,
+        connections,
+        allowH2,
+        connect: {
+            lookup: httpStaticLookup,
+            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+        },
+    })
 }
 
-const sharedSecureAgent = makeSecureDispatcher()
-// Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
-// set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
-// the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
-// H2 traffic (e.g. APNs) doesn't silently keep going direct.
-const sharedSecureH2Agent = new Agent({
-    keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-    connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-    allowH2: true,
-    connect: {
-        lookup: httpStaticLookup,
-        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-    },
-})
+const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
 const sharedInsecureAgent = new InsecureAgent()
+
+// undici only reads the value when the first HTTP/2 request builds its pool, and treats 0 as unbounded, so a bad
+// value would surface late and as a retriable error. Failing here stops the process at startup instead.
+if (
+    !Number.isInteger(requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS) ||
+    requestConfig.EXTERNAL_REQUEST_H2_CONNECTIONS < 1
+) {
+    throw new Error(
+        `EXTERNAL_REQUEST_H2_CONNECTIONS must be a positive integer, got ${process.env.EXTERNAL_REQUEST_H2_CONNECTIONS}`
+    )
+}
+
+type SecureDispatcher = { dispatcher: Dispatcher; gate: ColdStartGate | null }
+
+// undici sets the idle timeout per dispatcher, so each distinct idle timeout gets its own HTTP/2 dispatcher.
+const sharedSecureH2Agents = new Map<number, SecureDispatcher>()
+const MAX_SECURE_H2_AGENTS = 8
+// Node clamps a setTimeout delay above this value to 1 ms. A session would then close as soon as it goes idle.
+const MAX_H2_IDLE_TIMEOUT_MS = 2_147_483_647
+let sharedAgentsClosed = false
+
+function getSecureH2Agent(idleTimeoutMs = requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS): SecureDispatcher {
+    // InvalidRequestError is not retriable in cdp-fetch, so a value that can never work fails once.
+    if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0 || idleTimeoutMs > MAX_H2_IDLE_TIMEOUT_MS) {
+        throw new InvalidRequestError(`http2IdleTimeoutMs must be a number between 1 and ${MAX_H2_IDLE_TIMEOUT_MS}`)
+    }
+    let agent = sharedSecureH2Agents.get(idleTimeoutMs)
+    if (!agent) {
+        if (sharedAgentsClosed) {
+            throw new undiciErrors.ClientDestroyedError()
+        }
+        if (sharedSecureH2Agents.size >= MAX_SECURE_H2_AGENTS) {
+            throw new InvalidRequestError(`http2IdleTimeoutMs takes at most ${MAX_SECURE_H2_AGENTS} distinct values`)
+        }
+        agent = {
+            dispatcher: makeSecureDispatcher({ allowH2: true, keepAliveTimeoutMs: idleTimeoutMs }),
+            gate: new ColdStartGate(idleTimeoutMs),
+        }
+        sharedSecureH2Agents.set(idleTimeoutMs, agent)
+    }
+    return agent
+}
+
+function getSecureDispatcher(options: { allowH2?: boolean; http2IdleTimeoutMs?: number }): SecureDispatcher {
+    return options.allowH2
+        ? getSecureH2Agent(options.http2IdleTimeoutMs)
+        : { dispatcher: sharedSecureAgent, gate: null }
+}
+
+// The timer only bounds the wait in closeSharedAgents. When close finishes first, an unref'd timer does not keep the
+// process alive for the rest of the grace period.
+function unrefDelay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms).unref())
+}
+
+/**
+ * Closes the shared dispatchers at shutdown. Idle keep-alive sockets and HTTP/2 sessions close now
+ * instead of at their idle timeout. `close` waits for in-flight requests to settle. A streamed body
+ * that no caller reads or discards holds its socket forever, so the grace period bounds the wait and
+ * `destroy` ends whatever remains.
+ */
+export async function closeSharedAgents(gracePeriodMs = 5000): Promise<void> {
+    sharedAgentsClosed = true
+    const agents = [
+        sharedSecureAgent,
+        sharedInsecureAgent,
+        ...[...sharedSecureH2Agents.values()].map((h2) => h2.dispatcher),
+    ]
+    const stillOpen = new Set(agents)
+    const closed = Promise.allSettled(agents.map((agent) => agent.close().finally(() => stillOpen.delete(agent)))).then(
+        () => true
+    )
+    const closedInTime = await Promise.race([closed, unrefDelay(gracePeriodMs).then(() => false)])
+    if (!closedInTime) {
+        logger.warn('[request] Destroying shared agents with requests still in flight at shutdown', {
+            gracePeriodMs,
+            openAgents: stillOpen.size,
+        })
+    }
+    await Promise.allSettled(agents.map((agent) => agent.destroy()))
+}
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
     try {
@@ -352,11 +439,22 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     return text
 }
 
+// Hooks for the cold-start gate. The signal is created before the hold, so time spent held counts against the
+// caller's timeout. onHeaders or onError runs once the request settles; onBodyDone runs when the caller has read or
+// discarded the body.
+type RequestLifecycle = {
+    signal: AbortSignal | undefined
+    onHeaders: () => void
+    onError: () => void
+    onBodyDone: () => void
+}
+
 export async function _fetch(
     url: string,
     options: FetchOptions = {},
     dispatcher: Dispatcher,
-    defaultTimeoutMs: number = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    defaultTimeoutMs: number = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+    lifecycle?: RequestLifecycle
 ): Promise<FetchResponse> {
     let parsed: URL
     try {
@@ -371,14 +469,21 @@ export async function _fetch(
 
     options.timeoutMs = options.timeoutMs ?? defaultTimeoutMs
 
-    const result = await request(parsed.toString(), {
-        method: options.method ?? 'GET',
-        headers: options.headers,
-        body: options.body,
-        dispatcher,
-        // request() does not follow redirects, so a response can never bounce to an unvalidated host
-        signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
-    })
+    let result: Dispatcher.ResponseData
+    try {
+        result = await request(parsed.toString(), {
+            method: options.method ?? 'GET',
+            headers: options.headers,
+            body: options.body,
+            dispatcher,
+            // request() does not follow redirects, so a response can never bounce to an unvalidated host
+            signal: lifecycle?.signal ?? (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
+        })
+    } catch (error) {
+        lifecycle?.onError()
+        throw error
+    }
+    lifecycle?.onHeaders()
 
     const headers = flattenHeaders(result.headers)
 
@@ -389,7 +494,7 @@ export async function _fetch(
 
     const readBody = (): Promise<string> => {
         if (!bodyPromise) {
-            bodyPromise = readAndDestroyBody(result.body)
+            bodyPromise = readAndDestroyBody(result.body).finally(() => lifecycle?.onBodyDone())
         }
         return bodyPromise
     }
@@ -403,9 +508,42 @@ export async function _fetch(
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
                 destroyBody(result.body)
+                lifecycle?.onBodyDone()
             }
             return Promise.resolve()
         },
+    }
+}
+
+const coldStartGateCounter = new Counter({
+    name: 'node_request_cold_start_gate_total',
+    help: 'Requests the HTTP/2 cold-start gate saw: probes to a cold origin, requests held behind a probe, and probes that failed',
+    labelNames: ['event'],
+})
+
+async function gatedLifecycle(
+    gate: ColdStartGate | null,
+    origin: string,
+    signal: AbortSignal | undefined
+): Promise<RequestLifecycle | undefined> {
+    if (!gate) {
+        return undefined
+    }
+    const { probe, release } = await gate.acquire(origin, signal)
+    coldStartGateCounter.inc({ event: probe ? 'probe' : 'held' })
+    return {
+        signal,
+        onHeaders: () => {
+            gate.touch(origin)
+            release()
+        },
+        onError: () => {
+            if (probe) {
+                coldStartGateCounter.inc({ event: 'probe_failed' })
+            }
+            release()
+        },
+        onBodyDone: () => gate.touch(origin),
     }
 }
 
@@ -423,9 +561,17 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
+    let lifecycle: RequestLifecycle | undefined
     try {
-        const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
+        const { dispatcher, gate } = getSecureDispatcher(options)
+        options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
+        const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined
+        lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
+        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS, lifecycle)
+    } catch (error) {
+        // Releases the probe when a throw happens before request() runs. The release is idempotent.
+        lifecycle?.onError()
+        throw error
     } finally {
         inflightExternalRequests.dec()
     }
@@ -434,17 +580,46 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
 export type StreamedFetchOptions = {
     headers?: HeadersInit
     timeoutMs: number
+    allowH2?: boolean
+    http2IdleTimeoutMs?: number
 }
 
 export type StreamedResponse = {
     status: number
     headers: Record<string, string>
+    headerLines: Array<{ name: string; value: string }>
     /**
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
-     * `bytes` is then empty, because a truncated payload is not usable.
+     * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
     discard: () => void
+}
+
+function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
+    if (Array.isArray(raw)) {
+        const lines: Array<{ name: string; value: string }> = []
+        for (let index = 0; index + 1 < raw.length; index += 2) {
+            lines.push({ name: String(raw[index]).toLowerCase(), value: String(raw[index + 1]) })
+        }
+        return lines
+    }
+    if (!raw || typeof raw !== 'object') {
+        return []
+    }
+    return Object.entries(raw).flatMap(([name, value]) =>
+        (Array.isArray(value) ? value : [value]).flatMap((line) =>
+            line === undefined ? [] : [{ name: name.toLowerCase(), value: String(line) }]
+        )
+    )
+}
+
+function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const { name, value } of lines) {
+        headers[name] ??= value
+    }
+    return headers
 }
 
 /**
@@ -457,7 +632,8 @@ export type StreamedResponse = {
  */
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
-    maxBytes: number
+    maxBytes: number,
+    retainPrefixOnOverflow: boolean
 ): Promise<{ bytes: Buffer; overLimit: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
@@ -465,17 +641,26 @@ async function readCappedBody(
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-            total += buffer.length
-            if (total > maxBytes) {
+            const remaining = maxBytes - total
+            if (buffer.length > remaining) {
+                if (remaining > 0) {
+                    chunks.push(buffer.subarray(0, remaining))
+                    total += remaining
+                }
                 overLimit = true
+                if (!retainPrefixOnOverflow) {
+                    chunks.length = 0
+                    total = 0
+                }
                 break
             }
             chunks.push(buffer)
+            total += buffer.length
         }
     } finally {
         destroyBody(body)
     }
-    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
+    return { bytes: Buffer.concat(chunks, total), overLimit }
 }
 
 /**
@@ -496,17 +681,24 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
 
     inflightExternalRequests.inc()
     let result: Dispatcher.ResponseData
+    let lifecycle: RequestLifecycle | undefined
     try {
+        const { dispatcher, gate } = getSecureDispatcher(options)
+        const signal = AbortSignal.timeout(options.timeoutMs)
+        lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: sharedSecureAgent,
-            signal: AbortSignal.timeout(options.timeoutMs),
+            dispatcher,
+            signal,
+            responseHeaders: 'raw',
         })
     } catch (error) {
+        lifecycle?.onError()
         inflightExternalRequests.dec()
         throw error
     }
+    lifecycle?.onHeaders()
 
     // The gauge holds until the body is done, not until the headers arrive, because the body takes
     // nearly all the time of an image request.
@@ -516,20 +708,23 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
             return false
         }
         settled = true
+        lifecycle?.onBodyDone()
         inflightExternalRequests.dec()
         return true
     }
 
-    const headers = flattenHeaders(result.headers)
+    const headerLines = orderedHeaderLines(result.headers)
+    const headers = flattenHeaderLines(headerLines)
     return {
         status: result.statusCode,
         headers,
-        read: async (maxBytes: number) => {
+        headerLines,
+        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
             } finally {
                 settle()
             }

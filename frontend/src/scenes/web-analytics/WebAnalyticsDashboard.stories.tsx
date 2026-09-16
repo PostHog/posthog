@@ -84,19 +84,36 @@ export function WebAnalyticsDashboard(): JSX.Element {
     return <App />
 }
 
-WebAnalyticsDashboardMetricCards.parameters = {
-    ...meta.parameters,
-    featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
+WebAnalyticsDashboardTileHeaderV2Medium.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 900, height: 2000 },
+    },
 }
-export function WebAnalyticsDashboardMetricCards(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+export function WebAnalyticsDashboardTileHeaderV2Medium(): JSX.Element {
+    return <WebAnalyticsDashboard />
+}
 
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
-    return <App />
+WebAnalyticsDashboardTileHeaderV2Wide.parameters = {
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]: 'test',
+    },
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewport: { width: 1600, height: 2000 },
+    },
+}
+export function WebAnalyticsDashboardTileHeaderV2Wide(): JSX.Element {
+    return <WebAnalyticsDashboard />
 }
 
 WebAnalyticsDashboardLoading.parameters = {

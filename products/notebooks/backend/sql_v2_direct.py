@@ -273,8 +273,8 @@ def sync_direct_run(run: NotebookNodeRun) -> list[list[Any]] | None:
     except QueryNotFoundError:
         age_seconds = (timezone.now() - run.created_at).total_seconds()
         if run.status == NotebookNodeRun.Status.RUNNING and age_seconds > DIRECT_RUN_RESULT_GRACE_SECONDS:
-            # The watchdog the kernel lane never had: with no status left to complete
-            # this run, waiting longer cannot help.
+            # With no status left to complete this run, waiting longer cannot help.
+            # `expire_stale_kernel_run` is the kernel lane's counterpart.
             finish_node_run(
                 run,
                 NotebookNodeRun.Status.FAILED,

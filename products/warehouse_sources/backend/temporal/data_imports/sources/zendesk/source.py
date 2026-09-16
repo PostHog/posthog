@@ -1,19 +1,20 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    required_parents_from_endpoint_configs,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
@@ -60,6 +61,9 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
             "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
         }
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        return required_parents_from_endpoint_configs(ZENDESK_ENDPOINTS, schema_name)
 
     def get_schemas(
         self,
@@ -118,7 +122,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZENDESK,
+            name=ExternalDataSourceType.ZENDESK,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
@@ -168,6 +172,8 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
             incremental_field_name=inputs.incremental_field,
+            source_id=inputs.source_id,
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )
         # The original nine endpoints aren't in the declarative catalog; they keep the `id`
         # primary key and ascending sort they have always used.

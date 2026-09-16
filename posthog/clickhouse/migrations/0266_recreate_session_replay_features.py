@@ -1,6 +1,7 @@
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.run_mode import run_mode
 from posthog.session_recordings.sql.session_replay_feature_sql import (
     DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL,
     KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL,
@@ -12,8 +13,6 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
 )
 
 # Recreate session_replay_features from scratch.
-
-_is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
 
 operations = [
     # 1. Sharded storage on AUX.
@@ -49,7 +48,7 @@ operations = [
                 node_roles=[NodeRole.INGESTION_MEDIUM],
             ),
         ]
-        if _is_cloud
+        if run_mode().is_deployed_cloud
         else [
             run_sql_with_exceptions(
                 KAFKA_SESSION_REPLAY_FEATURES_TABLE_SQL(on_cluster=False),

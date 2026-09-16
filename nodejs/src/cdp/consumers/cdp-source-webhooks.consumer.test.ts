@@ -14,11 +14,12 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -92,9 +93,8 @@ describe('SourceWebhooksConsumer', () => {
     let team: Team
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
     })
@@ -110,6 +110,7 @@ describe('SourceWebhooksConsumer', () => {
         let hogFunction: HogFunctionType
         let hogFunctionPixel: HogFunctionType
         let server: Server
+        let incomingWebhookTemplateId: string
 
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
@@ -151,6 +152,7 @@ describe('SourceWebhooksConsumer', () => {
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
             await api.start()
+            incomingWebhookTemplateId = `${incomingWebhookTemplate.id}-${team.id}`
         })
 
         afterEach(async () => {
@@ -255,13 +257,19 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockInternalFetch).toHaveBeenCalledTimes(1)
                 const internalEvents = mockInternalFetch.mock.calls[0][1]
 
-                expect(forSnapshot(internalEvents)).toEqual({
-                    body: `{"api_key":"THIS IS NOT A TOKEN FOR TEAM 2","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"test-distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"my-event","properties":{"$ip":"0000:0000:0000:0000:0000:ffff:7f00:0001","$lib":"posthog-webhook","$source_url":"/project/2/functions/<REPLACED-UUID-0>","$hog_function_execution_count":1,"capture_internal":true}}`,
-                    headers: {
-                        'Content-Type': 'application/json',
+                expect(parseJSON(internalEvents.body)).toMatchObject({
+                    api_key: team.api_token,
+                    event: 'my-event',
+                    distinct_id: 'test-distinct-id',
+                    properties: {
+                        $lib: 'posthog-webhook',
+                        $source_url: `/project/${team.id}/functions/${hogFunction.id}`,
+                        $hog_function_execution_count: 1,
+                        capture_internal: true,
                     },
-                    method: 'POST',
                 })
+                expect(internalEvents.headers).toEqual({ 'Content-Type': 'application/json' })
+                expect(internalEvents.method).toBe('POST')
             })
 
             it('should log custom errors', async () => {
@@ -458,7 +466,10 @@ describe('SourceWebhooksConsumer', () => {
             let hogFlow: HogFlow
 
             beforeEach(async () => {
-                const template = await insertHogFunctionTemplate(hub.postgres, incomingWebhookTemplate)
+                const template = await insertHogFunctionTemplate(hub.postgres, {
+                    ...incomingWebhookTemplate,
+                    id: incomingWebhookTemplateId,
+                })
                 hogFlow = new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
                     .withSimpleWorkflow({
@@ -528,12 +539,103 @@ describe('SourceWebhooksConsumer', () => {
                         metric_name: 'triggered',
                         count: 1,
                     }),
+                ])
+            })
+
+            it('records a running row and stamps the run start into the queued state', async () => {
+                // Lifecycle rows are gated on this flag, which is off by default outside dev.
+                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                let stateWhenQueued: string | undefined
+                // Snapshot at call time, so a stamp applied after queueInvocations does not count.
+                mockQueueHogflowInvocationsSpy.mockImplementation((invocations: any[]) => {
+                    stateWhenQueued = JSON.stringify(invocations[0].state)
+                    return Promise.resolve()
+                })
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+
+                const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                expect(rows).toHaveLength(1)
+                expect(rows[0].value).toMatchObject({
+                    invocation_id: mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id,
+                    team_id: team.id,
+                    function_kind: 'hog_flow',
+                    function_id: hogFlow.id,
+                    status: 'running',
+                })
+
+                expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(rows[0].value.first_scheduled_at)
+            })
+
+            it('records no running row when the workflow cannot be queued', async () => {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(500)
+                await waitForBackgroundTasks()
+                // A row here would show a run that never entered cyclotron as permanently running.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
+            })
+
+            it('does not report a workflow trigger as CDP usage', async () => {
+                const reportBillableInvocation = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
+                    'reportBillableInvocation'
+                )
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+                expect(reportBillableInvocation).not.toHaveBeenCalled()
+            })
+
+            it('does not report usage when queueing the workflow fails', async () => {
+                const reportBillableInvocation = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
+                    'reportBillableInvocation'
+                )
+                mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(500)
+                await waitForBackgroundTasks()
+                expect(reportBillableInvocation).not.toHaveBeenCalled()
+                expect(getMetrics()).not.toContainEqual(
                     expect.objectContaining({
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
-                        count: 1,
-                    }),
-                ])
+                    })
+                )
             })
 
             it('should not capture webhook event to database and should remove execution count property', async () => {
@@ -604,7 +706,7 @@ describe('SourceWebhooksConsumer', () => {
                     .withSimpleWorkflow({
                         trigger: {
                             type: 'webhook',
-                            template_id: incomingWebhookTemplate.id,
+                            template_id: incomingWebhookTemplateId,
                             inputs: {
                                 distinct_id: {
                                     value: '{i.do.not.exist}',

@@ -5,9 +5,6 @@ import { normalizeDirectoryPath } from "../normalize-path";
 import { defaultAdditionalDirectories } from "../schema";
 import type { DatabaseService } from "../service";
 
-export type DefaultAdditionalDirectory =
-  typeof defaultAdditionalDirectories.$inferSelect;
-
 export interface IDefaultAdditionalDirectoryRepository {
   list(): string[];
   add(path: string): void;

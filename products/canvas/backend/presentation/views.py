@@ -1,17 +1,21 @@
 import json
+import hashlib
 from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.http import HttpResponseBase
 from django.utils import timezone
+from django.utils.cache import get_conditional_response
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
@@ -21,15 +25,29 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
-from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
+from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
+from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion, CanvasState
+from products.canvas.backend.facade.api import (
+    CanvasStateReader,
+    apply_layout_ops,
+    call_connector_tool,
+    canvas_connectors_enabled,
+    connector_listings,
+    default_layout,
+    native_connector_listings,
+    seed_home_canvas,
+    subtract_preexisting_diagnostics,
+    validate_layout,
+    validate_layout_references,
+)
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -40,10 +58,17 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
     CanvasCapabilityWideningSerializer,
+    CanvasConnectorCallResultSerializer,
+    CanvasConnectorCallSerializer,
+    CanvasConnectorsResponseSerializer,
     CanvasCreateSerializer,
     CanvasDraftSerializer,
     CanvasErrorReportResultSerializer,
     CanvasFixRequestResultSerializer,
+    CanvasLayoutPatchSerializer,
+    CanvasLayoutPublishResponseSerializer,
+    CanvasLayoutPublishSerializer,
+    CanvasLayoutWithComponentsResponseSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
     CanvasPublishCurrentVersionSerializer,
@@ -59,17 +84,24 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSourcePublishSerializer,
     CanvasSourceResponseSerializer,
     CanvasStateEntrySerializer,
+    CanvasStateQuerySerializer,
     CanvasStateResponseSerializer,
     CanvasStateSetSerializer,
+    CanvasStateValueQuerySerializer,
+    CanvasStateValueResponseSerializer,
     CanvasSummarySerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
     CanvasVersionSerializer,
+    CanvasViewResponseSerializer,
     canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response
+
+logger = structlog.get_logger(__name__)
 
 # The canvas's build lifecycle returns this many recent builds (the published
 # build is unioned in even when it has aged past the window).
@@ -120,6 +152,160 @@ def _state_rejection() -> Response:
     )
 
 
+def _grid_rejection(canvas: Canvas) -> Response | None:
+    """Reject file-source reads/writes on a grid canvas, whose source is a layout document."""
+    if canvas.kind != Canvas.KIND_GRID:
+        return None
+    return _wrong_kind_response(
+        "Grid canvases are compositions of components; use the layout endpoints, not file source."
+    )
+
+
+def _layout_diagnostics(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
+    diagnostics = validate_layout(layout)
+    if has_errors(diagnostics):
+        return diagnostics
+    return [*diagnostics, *validate_layout_references(team_id, user_id, layout)]
+
+
+def _non_grid_rejection(canvas: Canvas) -> Response | None:
+    """Reject layout reads/writes on canvases whose source is a file project."""
+    if canvas.kind == Canvas.KIND_GRID:
+        return None
+    return _wrong_kind_response(
+        "Only grid canvases have a layout; freeform and component canvases publish source projects."
+    )
+
+
+def _canvas_etag(*parts: Any) -> str:
+    seed = "|".join("" if part is None else str(part) for part in parts)
+    return '"' + hashlib.sha256(seed.encode()).hexdigest() + '"'
+
+
+def _with_revalidation_headers(response: HttpResponseBase, etag: str) -> HttpResponseBase:
+    # no-cache means "store, but revalidate every time": polling clients that
+    # send If-None-Match pay a hash comparison instead of a full body.
+    response["ETag"] = etag
+    response["Cache-Control"] = "private, no-cache"
+    return response
+
+
+def _conditional_response(request: Request, payload: dict[str, Any]) -> HttpResponseBase:
+    """The payload with a content ETag, or 304 when the client already has it.
+
+    get_conditional_response (not a string compare) matches weak validators
+    too, so a proxy or middleware that weakens the ETag cannot silently break
+    the 304 path."""
+    etag = _canvas_etag(json.dumps(payload, sort_keys=True, default=str))
+    not_modified = get_conditional_response(request._request, etag=etag)
+    if not_modified is not None:
+        return _with_revalidation_headers(not_modified, etag)
+    return _with_revalidation_headers(Response(payload), etag)
+
+
+def _renderable_build(build: CanvasBuild | None) -> CanvasBuild | None:
+    """The build if it can actually be served: ready, artifacts retained, and
+    manifest frozen (the serializer needs the manifest to mint the entry URL)."""
+    if (
+        build is not None
+        and build.status == CanvasBuild.STATUS_READY
+        and build.artifact_object_prefix
+        and isinstance(build.manifest, dict)
+    ):
+        return build
+    return None
+
+
+def _component_lifecycles(team_id: int, canvases: QuerySet[Canvas], layout: dict[str, Any]) -> list[dict[str, Any]]:
+    """The renderable build for each distinct (component, pinned version) the
+    layout's live placements reference.
+
+    The authorized queryset also enforces sandbox access. A component the
+    caller may not read is omitted, identically to one that is missing."""
+    placements = layout.get("placements")
+    if not isinstance(placements, list):
+        return []
+    wanted: set[tuple[str, str | None]] = set()
+    for placement in placements:
+        if not isinstance(placement, dict) or placement.get("status") != "live":
+            continue
+        component = placement.get("component")
+        if not isinstance(component, str):
+            continue
+        version = placement.get("version")
+        pinned: str | None = None
+        if isinstance(version, str) and version != "latest":
+            try:
+                pinned = str(UUID(version))
+            except ValueError:
+                continue
+        try:
+            component = str(UUID(component))
+        except ValueError:
+            continue
+        wanted.add((component, pinned))
+    if not wanted:
+        return []
+
+    component_ids = {component_id for component_id, _ in wanted}
+    pinned_version_ids = {version_id for _, version_id in wanted if version_id}
+    with team_scope(team_id):
+        components = {
+            str(canvas.id): canvas
+            for canvas in canvases.filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT).select_related(
+                "published_build"
+            )
+        }
+        pinned_builds: dict[str, CanvasBuild] = {}
+        if pinned_version_ids:
+            # One row per version (its newest ready build) instead of loading a
+            # retry-loop's whole build history with manifests.
+            for build in (
+                CanvasBuild.objects.for_team(team_id)
+                .filter(
+                    source_version_id__in=pinned_version_ids,
+                    canvas_id__in=components.keys(),
+                    status=CanvasBuild.STATUS_READY,
+                    artifact_object_prefix__isnull=False,
+                )
+                .order_by("source_version_id", "-created_at")
+                .distinct("source_version_id")
+            ):
+                pinned_builds[str(build.source_version_id)] = build
+
+    entries: list[dict[str, Any]] = []
+    for component_id, pinned_version_id in sorted(wanted, key=lambda pair: (pair[0], pair[1] or "")):
+        component_canvas = components.get(component_id)
+        if component_canvas is None:
+            continue
+        if pinned_version_id:
+            pinned_build = _renderable_build(pinned_builds.get(pinned_version_id))
+            builds = [pinned_build] if pinned_build is not None and str(pinned_build.canvas_id) == component_id else []
+        else:
+            published = _renderable_build(component_canvas.published_build)
+            builds = [published] if published is not None else []
+        entries.append(
+            {
+                "canvas_id": component_id,
+                "requested_version_id": pinned_version_id,
+                "published_build_id": (
+                    str(component_canvas.published_build_id) if component_canvas.published_build_id else None
+                ),
+                "current_version_id": (
+                    str(component_canvas.current_source_version_id)
+                    if component_canvas.current_source_version_id
+                    else None
+                ),
+                "builds": builds,
+            }
+        )
+    return entries
+
+
+def _wrong_kind_response(detail: str) -> Response:
+    return Response({"detail": detail, "code": "wrong_canvas_kind"}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class CanvasStateWriteThrottle(SimpleRateThrottle):
     """Per viewer per canvas. State writes are interaction-driven app data, so
     the ceiling is generous — it exists to stop a canvas render loop from
@@ -140,79 +326,16 @@ class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
     rate = "60/min"
 
 
-class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """Canvases: agent-built sandboxed browser apps, filed into channels.
+class CanvasConnectorCallThrottle(CanvasStateWriteThrottle):
+    scope = "canvas_connector_call"
+    rate = "120/min"
 
-    Source is versioned per publish and built server-side; the canvas app
-    renders the published build's artifact from the isolated artifact origin.
-    """
 
-    scope_object = "canvas"
-    # unscoped() because a class attribute is built before any team context
-    # exists; safely_get_queryset applies the team filter explicitly.
-    queryset = Canvas.objects.unscoped().select_related("created_by")
-    serializer_class = CanvasSerializer
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate", "state"]
-    scope_object_write_actions = [
-        "create",
-        "partial_update",
-        "destroy",
-        "publish",
-        "publish_current_version",
-        "edit",
-        "draft",
-        "promote",
-        "revert",
-        "build_action",
-        "report_error",
-        "request_fix",
-        "set_state",
-        "invoke_action",
-        "request_agent",
-    ]
+class CanvasAccessMixin(TeamAndOrgViewSetMixin):
+    """Team, channel, and sandbox visibility rules shared by every canvas-like resource."""
 
-    def get_throttles(self) -> list[BaseThrottle]:
-        # On top of the defaults, not instead of them: the per-canvas key must
-        # not let a caller rotate canvases past the project-wide limits.
-        if self.action == "set_state":
-            return [*super().get_throttles(), CanvasStateWriteThrottle()]
-        if self.action == "invoke_action":
-            return [*super().get_throttles(), CanvasActionInvokeThrottle()]
-        return super().get_throttles()
-
-    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # Invoking a verb writes the target resource, so a scoped credential
-        # must hold that resource's scope — canvas:write alone is not consent
-        # to create tasks or annotations.
-        if getattr(view, "action", None) != "invoke_action":
-            return None
-        verb = request.data.get("verb") if isinstance(request.data, dict) else None
-        entry = CANVAS_ACTIONS.get(verb) if isinstance(verb, str) else None
-        if entry is None:
-            return None
-        return ["canvas:write", *entry.required_scopes]
-
-    _CREATOR_ONLY_ACTIONS = {
-        "partial_update",
-        "destroy",
-        "publish",
-        "edit",
-        "draft",
-        "promote",
-        "revert",
-        "build_action",
-    }
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "channel", OpenApiTypes.UUID, required=False, description="Only return canvases in this channel."
-            ),
-        ]
-    )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return super().list(request, *args, **kwargs)
+    scope_object_read_actions: list[str] = []
+    _EDITOR_ACTIONS: set[str] = set()
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
@@ -231,16 +354,202 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
+                can_use_visible_canvas = self.action in [
+                    *self.scope_object_read_actions,
+                    "set_state",
+                    *self._EDITOR_ACTIONS,
+                ]
                 queryset = queryset.filter(
-                    public_canvas_q | actor_canvas_q
-                    if self.action in self.scope_object_read_actions
-                    else actor_canvas_q
+                    public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q
                 )
         else:
             # Channels are per-user for the personal kind: the facade's visibility
             # rule makes a canvas filed into someone else's personal channel
             # invisible (and unwritable) to everyone but its owner.
             queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        return queryset
+
+    def _request_user(self) -> User | None:
+        """The requesting real user, or None for anonymous/service principals."""
+        user = self.request.user
+        return user if isinstance(user, User) else None
+
+    @staticmethod
+    def _request_task_id(request: Request) -> UUID | None:
+        """The publishing task's id, when the sandbox stamped one on the call."""
+        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+        try:
+            return UUID(raw_task_id)
+        except ValueError:
+            return None
+
+    def _sandbox_task_id(self, request: Request) -> UUID | None:
+        """Return the calling sandbox's task when its header matches the OAuth binding."""
+        task_id = self._request_task_id(request)
+        if task_id is None or not self._is_sandbox_authenticated(request):
+            return None
+        authenticator = cast(OAuthAccessTokenAuthentication, request.successful_authenticator)
+        if authenticator.access_token.sandbox_task_id != task_id:
+            return None
+        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
+
+    @staticmethod
+    def _is_sandbox_authenticated(request: Request) -> bool:
+        """True when the request bears an OAuth token minted for a task sandbox —
+        the credential a task sandbox (via the MCP server) calls this API with.
+
+        The sandbox apps also issue the desktop app's interactive grants, so the application
+        alone does not prove sandbox origin. Server-minted tokens carry either a task binding
+        or the internal provenance scope. An unbound server token must still fail closed rather
+        than inherit its user's Canvas visibility.
+        """
+        authenticator = request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return False
+        access_token = authenticator.access_token
+        scopes = set((access_token.scope or "").split())
+        if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
+            return False
+        application = access_token.application
+        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
+
+    def _validate_sandbox_channel(self, channel_id: UUID, task_id: UUID | None) -> None:
+        if not self._is_sandbox_authenticated(self.request):
+            return
+        task_channel_id = tasks_facade.task_channel_id(task_id, self.team_id) if task_id else None
+        if task_channel_id != channel_id:
+            # Naming the right channel lets the agent recover in one step
+            # and tell the user where the canvas will actually land.
+            hint = f' Use the task\'s channel "{task_channel_id}".' if task_channel_id else ""
+            raise PermissionDenied(f"This sandbox can file canvases only in its task's space.{hint}")
+
+
+class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
+    """Canvases: agent-built sandboxed browser apps, filed into channels.
+
+    Source is versioned per publish and built server-side; the canvas app
+    renders the published build's artifact from the isolated artifact origin.
+    """
+
+    scope_object = "canvas"
+    # unscoped() because a class attribute is built before any team context
+    # exists; safely_get_queryset applies the team filter explicitly.
+    # current_source_version feeds the component_meta field on every row.
+    queryset = Canvas.objects.unscoped().select_related("created_by", "current_source_version")
+    serializer_class = CanvasSerializer
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "source",
+        "versions",
+        "drafts",
+        "builds",
+        "validate",
+        "state",
+        "state_value",
+        "layout",
+        "connectors",
+        "view",
+    ]
+    scope_object_write_actions = [
+        "create",
+        "partial_update",
+        "destroy",
+        "publish",
+        "publish_current_version",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "build_action",
+        "report_error",
+        "request_fix",
+        "set_state",
+        "invoke_action",
+        "call_connector",
+        "request_agent",
+        "publish_layout",
+        "patch_layout",
+        "home",
+    ]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # On top of the defaults, not instead of them: the per-canvas key must
+        # not let a caller rotate canvases past the project-wide limits.
+        if self.action == "set_state":
+            return [*super().get_throttles(), CanvasStateWriteThrottle()]
+        if self.action == "invoke_action":
+            return [*super().get_throttles(), CanvasActionInvokeThrottle()]
+        if self.action == "call_connector":
+            return [*super().get_throttles(), CanvasConnectorCallThrottle()]
+        return super().get_throttles()
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Invoking a verb writes the target resource, so a scoped credential
+        # must hold that resource's scope — canvas:write alone is not consent
+        # to create tasks or annotations.
+        if getattr(view, "action", None) != "invoke_action":
+            return None
+        verb = request.data.get("verb") if isinstance(request.data, dict) else None
+        entry = CANVAS_ACTIONS.get(verb) if isinstance(verb, str) else None
+        if entry is None:
+            return None
+        return ["canvas:write", *entry.required_scopes]
+
+    # Content writes. Every member who can see a canvas in a public space may
+    # publish a new version of it; a canvas in a personal space is only visible
+    # to its owner, so the creator rule is implied there. partial_update is in
+    # this set because a member must record their own generation task on the
+    # canvas; every other metadata field stays creator-only (see partial_update).
+    _EDITOR_ACTIONS = {
+        "partial_update",
+        "publish",
+        "publish_current_version",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "build_action",
+        "publish_layout",
+        "patch_layout",
+    }
+    _CREATOR_ONLY_ACTIONS = {"destroy"}
+    _NON_CREATOR_UPDATE_FIELDS = {"generation_task_id"}
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "channel", OpenApiTypes.UUID, required=False, description="Only return canvases in this channel."
+            ),
+            OpenApiParameter(
+                "kind",
+                OpenApiTypes.STR,
+                required=False,
+                enum=Canvas.KINDS,
+                description="Only return canvases of this kind. kind=component lists the component store.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                required=False,
+                description="Only return canvases whose name or description contains this text (case-insensitive).",
+            ),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = super().safely_get_queryset(queryset).filter(source_policy=Canvas.SOURCE_POLICY_STANDARD)
+        user = self._request_user()
+        is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if not is_sandbox_authenticated and self.action in self._EDITOR_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(created_by_id=user.id) | tasks_facade.visible_channels_q(None, relation="channel")
+            )
         if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
@@ -253,6 +562,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 except ValueError:
                     return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
+            kind = self.request.query_params.get("kind")
+            if kind:
+                if kind not in Canvas.KINDS:
+                    return queryset.none()
+                queryset = queryset.filter(kind=kind)
+            search = self.request.query_params.get("search")
+            if search:
+                queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
         return queryset.order_by("-created_at")
 
     @extend_schema(
@@ -274,20 +591,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         sandbox_task_id = self._sandbox_task_id(request)
-        if self._is_sandbox_authenticated(request):
-            task_channel_id = tasks_facade.task_channel_id(sandbox_task_id, self.team_id) if sandbox_task_id else None
-            if task_channel_id != channel_id:
-                # Naming the right channel lets the agent recover in one step
-                # and tell the user where the canvas will actually land.
-                hint = f' Use the task\'s channel "{task_channel_id}".' if task_channel_id else ""
-                return Response(
-                    {"detail": f"This sandbox can create canvases only in its task's space.{hint}"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        self._validate_sandbox_channel(channel_id, sandbox_task_id)
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
             name=payload.validated_data["name"],
+            kind=payload.validated_data["kind"],
+            description=payload.validated_data["description"],
             template_id=payload.validated_data["template_id"],
             created_by=user,
             # A sandbox-created canvas is its task's deliverable: bind
@@ -300,6 +610,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._report_canvas_action(
             "canvas created",
             canvas,
+            kind=canvas.kind,
             template_id=canvas.template_id,
             is_sandbox_created=canvas.generation_task_id is not None,
         )
@@ -308,14 +619,26 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_partial_update",
         request=CanvasUpdateSerializer,
-        responses={200: CanvasSerializer},
+        responses={
+            200: CanvasSerializer,
+            403: OpenApiResponse(
+                description="Only the canvas creator can change the name, description, space, or pin state."
+            ),
+        },
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Update canvas metadata (name, author context, pin, generation-task pointer)."""
+        """Update canvas metadata, including the space it belongs to."""
         canvas = self.get_object()
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        requester = self._request_user()
+        is_creator = requester is not None and canvas.created_by_id == requester.id
+        if not is_creator and set(data) - self._NON_CREATOR_UPDATE_FIELDS:
+            return Response(
+                {"detail": "Only the canvas creator can rename, move, pin, or describe it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         update_fields = ["updated_at"]
         changes: list[Change] = []
 
@@ -327,13 +650,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 record("name", canvas.name, data["name"])
             canvas.name = data["name"]
             update_fields.append("name")
-        if "context" in data:
-            # The author-context markdown is content, not configuration — record
-            # that it changed without copying it into the audit trail.
-            if data["context"] != canvas.context:
-                record("context")
-            canvas.context = data["context"]
-            update_fields.append("context")
+        if "description" in data:
+            if data["description"] != canvas.description:
+                record("description", canvas.description, data["description"])
+            canvas.description = data["description"]
+            update_fields.append("description")
+        if "channel_id" in data:
+            channel_id = data["channel_id"]
+            user = self._request_user()
+            if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
+                return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+            self._validate_sandbox_channel(channel_id, self._sandbox_task_id(request))
+            if channel_id != canvas.channel_id:
+                record("channel", str(canvas.channel_id), str(channel_id))
+                if canvas.pinned_at is not None:
+                    record("pinned", True, False)
+                    canvas.pinned_at = None
+                    update_fields.append("pinned_at")
+            canvas.channel_id = channel_id
+            update_fields.append("channel_id")
         if "pinned" in data:
             was_pinned = canvas.pinned_at is not None
             if data["pinned"] != was_pinned:
@@ -383,6 +718,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         `?version_id=` reads a historical version instead of the head.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         requested_version_id = request.query_params.get("version_id")
         try:
             if requested_version_id:
@@ -409,6 +747,63 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
         return Response(response)
+
+    @extend_schema(
+        operation_id="canvases_view_retrieve",
+        responses={
+            200: CanvasViewResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached view payload is current."),
+        },
+        request=None,
+    )
+    @action(methods=["GET"], detail=True)
+    def view(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        """Everything needed to open the canvas, in one round trip.
+
+        Returns the record, the live build (with its signed artifact URL), and —
+        only when there is nothing built to render — the head source project
+        (freeform/component) or the layout document (grid). Send the response's
+        ETag back as If-None-Match to revalidate without a body.
+        """
+        canvas = self.get_object()
+        live_build = _renderable_build(canvas.published_build)
+        newest_active = (
+            canvas.builds.filter(status__in=CanvasBuild.ACTIVE_STATUSES)
+            .order_by("-created_at")
+            .values_list("id", "status")
+            .first()
+        )
+        source: dict[str, Any] | None = None
+        layout: dict[str, Any] | None = None
+        degraded = False
+        # Object storage is read only when there is no artifact to render. A
+        # storage hiccup degrades to the client's per-endpoint fallback instead
+        # of failing the whole open.
+        try:
+            if canvas.kind == Canvas.KIND_GRID:
+                layout = self._read_current_layout(canvas)
+            elif live_build is None:
+                source, _ = build_service.current_source_project(canvas)
+        except ObjectStorageError:
+            degraded = True
+        instance: dict[str, Any] = {
+            "canvas": canvas,
+            "published_build": live_build,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
+            "has_active_build": newest_active is not None,
+            "source": source,
+            "layout": layout,
+        }
+        if layout is not None:
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
+        payload = CanvasViewResponseSerializer(instance=instance).data
+        if degraded:
+            # A payload missing its source/layout must not revalidate as
+            # current after storage recovers: no validator, no caching.
+            response = Response(payload)
+            response["Cache-Control"] = "private, no-store"
+            return response
+        return _conditional_response(request, payload)
 
     @extend_schema(
         operation_id="canvases_versions_retrieve",
@@ -442,10 +837,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def validate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Validate a candidate source project without publishing it. Side-effect free."""
-        self.get_object()
+        canvas = self.get_object()
         payload = CanvasValidateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        diagnostics = validate_source_project(payload.validated_data["project"])
+        diagnostics = validate_source_project(payload.validated_data["project"], kind=canvas.kind)
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
 
     @extend_schema(
@@ -464,6 +859,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Queue a build for the current source version without changing source or metadata."""
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasPublishCurrentVersionSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
@@ -491,6 +889,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=CanvasSourcePublishSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when publishing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
@@ -511,6 +910,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         A successful publish queues a server-side build.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourcePublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         return self._publish(
@@ -528,6 +930,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=CanvasSourceEditSerializer,
         responses={
             200: CanvasSourcePublishResponseSerializer,
+            403: OpenApiResponse(description="Only the canvas creator can supply a name when editing."),
             400: OpenApiResponse(
                 response=CanvasSourceInvalidSerializer,
                 description="An edit targeted a missing file, or the edited project failed validation.",
@@ -550,6 +953,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         someone else's newer work.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourceEditSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -592,11 +998,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has_expected_version: bool,
         expected_version_id: str | None,
     ) -> Response:
-        diagnostics = validate_source_project(project)
+        user = self._request_user()
+        if name is not None and (user is None or canvas.created_by_id != user.id):
+            raise PermissionDenied("Only the canvas creator can rename it.")
+
+        diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
 
-        user = self._request_user()
         task_id = self._sandbox_task_id(request)
         try:
             canvas, version, _build, first_publish = build_service.publish_source_project(
@@ -712,10 +1121,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         No version guard applies: a draft conflicts with nothing.
         """
         canvas = self.get_object()
+        rejection = _grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
         payload = CanvasSourceDraftSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         project = payload.validated_data["project"]
-        diagnostics = validate_source_project(project)
+        diagnostics = validate_source_project(project, kind=canvas.kind)
         if has_errors(diagnostics):
             return _invalid_response(diagnostics)
         task_id = self._sandbox_task_id(request)
@@ -828,7 +1240,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         operation_id="canvases_builds_retrieve",
-        responses={200: CanvasBuildsResponseSerializer},
+        responses={
+            200: CanvasBuildsResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached lifecycle is current."),
+        },
         request=None,
         parameters=[
             OpenApiParameter(
@@ -836,19 +1251,40 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 type=OpenApiTypes.UUID,
                 required=False,
                 description="Include the retained ready build for this historical source version.",
-            )
+            ),
+            OpenApiParameter(
+                name="scope",
+                type=OpenApiTypes.STR,
+                required=False,
+                description=(
+                    '"slim" returns only what rendering needs — the live build, the head version\'s builds, '
+                    "and anything still in flight — instead of the full recent-build history. Any other value "
+                    "(or none) returns the full window."
+                ),
+            ),
         ],
     )
     @action(methods=["GET"], detail=True)
-    def builds(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def builds(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Read the canvas's build lifecycle: live pointers plus recent builds.
 
         A publish queues a build; poll this until it is ready (the live pointer
         advances) or failed (fix the error diagnostics and publish again — the
-        last good build stays live).
+        last good build stays live). Send the response's ETag back as
+        If-None-Match to make the poll revalidate without a body.
         """
         canvas = self.get_object()
-        builds = list(canvas.builds.order_by("-created_at")[:BUILDS_WINDOW])
+        if request.query_params.get("scope") == "slim":
+            # Pollers re-read this every couple of seconds; they need render
+            # state, not 20 manifests of history.
+            slim_q = Q(status__in=CanvasBuild.ACTIVE_STATUSES)
+            if canvas.published_build_id:
+                slim_q |= Q(id=canvas.published_build_id)
+            if canvas.current_source_version_id:
+                slim_q |= Q(source_version_id=canvas.current_source_version_id)
+            builds = list(canvas.builds.filter(slim_q).order_by("-created_at")[:BUILDS_WINDOW])
+        else:
+            builds = list(canvas.builds.order_by("-created_at")[:BUILDS_WINDOW])
         # The live build must always be visible, even when newer (e.g. failed)
         # builds have pushed it past the window.
         if canvas.published_build_id and all(build.id != canvas.published_build_id for build in builds):
@@ -870,12 +1306,328 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             if historical_build is not None and all(build.id != historical_build.id for build in builds):
                 builds.append(historical_build)
-        response = {
+        payload = {
             "published_build_id": str(canvas.published_build_id) if canvas.published_build_id else None,
             "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
             "builds": CanvasBuildSerializer(builds, many=True).data,
         }
-        return Response(response)
+        return _conditional_response(request, payload)
+
+    @extend_schema(
+        operation_id="canvases_layout_retrieve",
+        responses={
+            200: CanvasLayoutWithComponentsResponseSerializer,
+            304: OpenApiResponse(description="Not modified — the client's cached layout is current."),
+            400: OpenApiResponse(description="The canvas is not a grid canvas."),
+        },
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                name="version_id",
+                type=str,
+                required=False,
+                description="Read this historical layout version instead of the head (for version browsing).",
+            ),
+            OpenApiParameter(
+                name="include_components",
+                type=OpenApiTypes.BOOL,
+                required=False,
+                description=(
+                    "Also return the renderable build (with signed artifact URL) of every component the layout's "
+                    "live placements reference, so a grid renders from this one call."
+                ),
+            ),
+        ],
+    )
+    @action(methods=["GET"], detail=True)
+    def layout(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        """Read a grid canvas's layout document and its `current_version_id`.
+
+        Always call this before editing: pass the returned version id as
+        `expected_current_version_id` on publish/patch so concurrent edits are
+        not overwritten. A grid canvas with no versions yet returns the
+        default empty layout with a null version id.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        requested_version_id = request.query_params.get("version_id")
+        try:
+            if requested_version_id:
+                version = (
+                    CanvasSourceVersion.objects.for_team(self.team_id)
+                    .filter(pk=requested_version_id, canvas_id=canvas.id)
+                    .first()
+                )
+                if version is None:
+                    return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+                layout = build_service.read_source_project(version)
+            else:
+                layout = self._read_current_layout(canvas)
+        except DjangoValidationError:
+            return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "The canvas's layout is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        instance: dict[str, Any] = {
+            "canvas": canvas,
+            "layout": layout,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
+        }
+        if request.query_params.get("include_components") in ("1", "true"):
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
+        return _conditional_response(request, CanvasLayoutWithComponentsResponseSerializer(instance=instance).data)
+
+    @extend_schema(
+        operation_id="canvases_layout_publish_create",
+        request=CanvasLayoutPublishSerializer,
+        responses={
+            200: CanvasLayoutPublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="The canvas is not a grid canvas, or the layout failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="layout/publish")
+    def publish_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a complete layout document as the grid canvas's new head version.
+
+        Layout is data, not code: the new version is live immediately, with no
+        build. Validation errors reject the publish (400) and leave the canvas
+        untouched; a stale `expected_current_version_id` is rejected with 409.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        payload = CanvasLayoutPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        return self._publish_layout(
+            request,
+            canvas,
+            layout=payload.validated_data["layout"],
+            prompt=payload.validated_data.get("prompt"),
+            has_expected_version="expected_current_version_id" in payload.validated_data,
+            expected_version_id=payload.validated_data.get("expected_current_version_id"),
+        )
+
+    @extend_schema(
+        operation_id="canvases_layout_patch_create",
+        request=CanvasLayoutPatchSerializer,
+        responses={
+            200: CanvasLayoutPublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="An operation targeted a missing placement, or the edited layout failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="layout/patch")
+    def patch_layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Apply surgical operations to the grid canvas's current layout.
+
+        The default write path for both the editor and agents: add, move,
+        resize, fill, or remove one placement without resending the layout.
+        `expected_current_version_id` is mandatory so an agent filling a box
+        and a user rearranging widgets cannot overwrite each other.
+        """
+        canvas = self.get_object()
+        rejection = _non_grid_rejection(canvas)
+        if rejection is not None:
+            return rejection
+        payload = CanvasLayoutPatchSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            current = self._read_current_layout(canvas)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "The canvas's layout is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        layout, diagnostics = apply_layout_ops(current, payload.validated_data["operations"])
+        if diagnostics:
+            return Response(
+                {
+                    "detail": "The operations could not be applied to the canvas's current layout.",
+                    "code": "invalid_layout",
+                    "diagnostics": diagnostics,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return self._publish_layout(
+            request,
+            canvas,
+            layout=layout,
+            prompt=payload.validated_data.get("prompt"),
+            has_expected_version=True,
+            expected_version_id=payload.validated_data["expected_current_version_id"],
+            baseline_layout=current,
+        )
+
+    def _publish_layout(
+        self,
+        request: Request,
+        canvas: Canvas,
+        *,
+        layout: dict[str, Any],
+        prompt: str | None,
+        has_expected_version: bool,
+        expected_version_id: str | None,
+        baseline_layout: dict[str, Any] | None = None,
+    ) -> Response:
+        acting_user = self._request_user()
+        acting_user_id = acting_user.id if acting_user else None
+        diagnostics = _layout_diagnostics(self.team_id, acting_user_id, layout)
+        # Patches (which pass their baseline) answer only for the problems they
+        # introduce; publishes replace the whole document and stay strict.
+        if baseline_layout is not None and has_errors(diagnostics):
+            diagnostics = subtract_preexisting_diagnostics(
+                diagnostics, _layout_diagnostics(self.team_id, acting_user_id, baseline_layout)
+            )
+        if has_errors(diagnostics):
+            return Response(
+                {
+                    "detail": "The layout failed validation; fix the error diagnostics and publish again.",
+                    "code": "invalid_layout",
+                    "diagnostics": diagnostics,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = self._request_user()
+        task_id = self._sandbox_task_id(request)
+        try:
+            canvas, version = build_service.publish_grid_layout(
+                canvas,
+                layout=layout,
+                prompt=prompt,
+                has_expected_version=has_expected_version,
+                expected_version_id=expected_version_id,
+                task_id=task_id,
+                created_by=user,
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the layout was not saved."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas layout published",
+            canvas,
+            version_id=str(version.id),
+            placement_count=len(layout.get("placements", [])),
+            is_sandbox_publish=task_id is not None,
+        )
+        return Response(
+            CanvasLayoutPublishResponseSerializer(
+                instance={"canvas": canvas, "layout": layout, "current_version_id": str(version.id)}
+            ).data
+        )
+
+    def _read_current_layout(self, canvas: Canvas) -> dict[str, Any]:
+        """The canvas's head layout document, or the default empty layout before
+        the first publish. Raises ObjectStorageError when storage is unavailable."""
+        if canvas.current_source_version is None:
+            return default_layout()
+        return build_service.read_source_project(canvas.current_source_version)
+
+    @extend_schema(
+        operation_id="canvases_home_create",
+        request=None,
+        responses={
+            200: OpenApiResponse(response=CanvasSerializer, description="The caller's existing home canvas."),
+            201: OpenApiResponse(
+                response=CanvasSerializer, description="A home canvas was provisioned for the caller."
+            ),
+            403: OpenApiResponse(description="Home is a viewer surface; sandbox tokens cannot provision it."),
+        },
+    )
+    @action(methods=["POST"], detail=False)
+    def home(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get or provision the caller's home canvas.
+
+        Idempotent: returns the user's existing home canvas, or creates a grid
+        canvas in their personal channel and points their home preference at
+        it. The home surface calls this on open.
+        """
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Home is a viewer surface; sandbox tokens cannot provision it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        existing = self._home_canvas_for(user)
+        if existing is not None:
+            return Response(CanvasSerializer(existing).data)
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
+        with transaction.atomic():
+            # Serialize provisioning per user: two concurrent first-opens (two
+            # tabs, or desktop plus web) would otherwise both miss the read above
+            # and each create a "Home" canvas, leaving one orphaned. Re-read under
+            # the lock so the loser returns the winner's canvas instead.
+            self._lock_home_provisioning(user.id)
+            existing = self._home_canvas_for(user)
+            if existing is not None:
+                return Response(CanvasSerializer(existing).data)
+            canvas = Canvas.objects.create(
+                team_id=self.team_id,
+                channel_id=channel_id,
+                name="Home",
+                kind=Canvas.KIND_GRID,
+                description="Your personal home canvas.",
+                created_by=user,
+            )
+            CanvasHomePreference.objects.for_team(self.team_id).update_or_create(
+                team_id=self.team_id, user=user, defaults={"canvas": canvas}
+            )
+        # Starter content is best-effort: an empty home still provisions when
+        # object storage or the seed publish is unavailable.
+        try:
+            seed_home_canvas(canvas, user=user, channel_id=channel_id)
+        except Exception:
+            logger.exception("Failed to seed home canvas", canvas_id=str(canvas.id), team_id=self.team_id)
+        self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
+        self._report_canvas_action("canvas home provisioned", canvas)
+        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
+
+    def _lock_home_provisioning(self, user_id: int) -> None:
+        """Serialize home provisioning for one user inside the current transaction.
+
+        There is no preference row to lock before the first provision, so a
+        transaction-scoped advisory lock guards the read-then-create window.
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"canvas_home:{self.team_id}:{user_id}"],
+            )
+
+    def _home_canvas_for(self, user: User) -> Canvas | None:
+        """The user's home canvas, or None when there is none to open.
+
+        Deleting a canvas is a soft delete that leaves the pointer behind, so a
+        pointer at a deleted canvas means "no home set", not a broken home.
+        """
+        preference = (
+            CanvasHomePreference.objects.for_team(self.team_id).select_related("canvas").filter(user=user).first()
+        )
+        if preference is None or preference.canvas.deleted:
+            return None
+        return preference.canvas
 
     @extend_schema(
         operation_id="canvases_build_action_create",
@@ -1063,7 +1815,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             202: CanvasAgentRequestResultSerializer,
             403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
             409: OpenApiResponse(description="The canvas has no authoring task."),
-            429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
+            429: OpenApiResponse(
+                description=(
+                    "The request was denied for compute: the team's quota is exhausted (retry later), "
+                    "or the organization is deactivated (not retryable)."
+                )
+            ),
         },
     )
     # task:write as well: the dispatched run executes with the creator's
@@ -1105,6 +1862,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "The authoring task for this canvas no longer exists."},
                 status=status.HTTP_409_CONFLICT,
             )
+        if outcome == "organization_deactivated":
+            return Response(
+                {
+                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         if outcome == "quota_exhausted":
             return Response(
                 {"detail": "The team's compute quota is exhausted; retry later."},
@@ -1145,12 +1909,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return build
 
     def _state_actor(self, request: Request) -> User | None:
-        """The viewer whose state is read or written; None rejects the call.
+        """The user whose personal state is read or written."""
+        return self._request_user()
 
-        Sandboxes are excluded by design: runtime state belongs to viewer
-        sessions, and the authoring agent works with it through the source
-        code it publishes, not by writing rows.
-        """
+    def _connector_actor(self, request: Request) -> User | None:
+        """The viewer whose third-party connections a connector call may use.
+        A sandbox token acts for an agent, not a viewer, so it gets none."""
         if self._is_sandbox_authenticated(request):
             return None
         return self._request_user()
@@ -1220,8 +1984,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         verb_payload = entry.payload_serializer(data=payload.validated_data["payload"])
         verb_payload.is_valid(raise_exception=True)
+        if entry.starts_cloud_run:
+            if access_response := code_access_required_response(request, self.organization):
+                return access_response
         try:
             result = entry.execute(self.team_id, user.id, canvas, verb_payload.validated_data)
+        except CanvasActionDenied as error:
+            return error.response
         except ValueError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         # Every execution is audited: the trigger names the verb, the activity
@@ -1238,27 +2007,139 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
 
     @extend_schema(
-        operation_id="canvases_state_retrieve",
+        operation_id="canvases_connectors_retrieve",
         parameters=[
             OpenApiParameter(
-                "scope",
+                "mcp_hosts",
                 OpenApiTypes.STR,
                 required=False,
-                enum=CanvasState.SCOPES,
-                description="Only return entries in this scope.",
+                description=(
+                    "Comma-separated MCP server hosts to include (e.g. 'mcp.calendly.com'). Defaults to every "
+                    "server the caller has connected in the MCP store."
+                ),
             )
         ],
         responses={
+            200: CanvasConnectorsResponseSerializer,
+            403: OpenApiResponse(description="Connectors are not enabled for this team."),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="connectors")
+    def connectors(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
+
+        Authoring agents read this to write ph.connectors.call sites and the
+        matching capabilities.connectors declarations. Sandbox tokens receive
+        only static native tools, with no connection lookup or MCP installation data.
+        """
+        user = self._connector_actor(request)
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        raw_hosts = request.query_params.get("mcp_hosts")
+        mcp_hosts = [host.strip() for host in raw_hosts.split(",") if host.strip()] if raw_hosts else None
+        listings = native_connector_listings() if user is None else connector_listings(self.team_id, user.id, mcp_hosts)
+        return Response(CanvasConnectorsResponseSerializer(instance={"connectors": listings}).data)
+
+    @extend_schema(
+        operation_id="canvases_connectors_call",
+        request=CanvasConnectorCallSerializer,
+        responses={
+            200: CanvasConnectorCallResultSerializer,
+            400: OpenApiResponse(description="The arguments failed the tool's schema."),
+            403: OpenApiResponse(
+                description="The provider or tool is not declared in the canvas's capabilities, connectors are "
+                "not enabled for the team, or the caller is a sandbox."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="connectors/call", required_scopes=["canvas:write", "user:read"])
+    def call_connector(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Call one declared connector tool as the viewer.
+
+        The canvas must declare the provider and tool in capabilities.connectors
+        (the reviewed permission boundary); the call runs with the viewer's own
+        connection, so two viewers of the same canvas see their own data.
+        """
+        canvas = self.get_object()
+        user = self._connector_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not canvas_connectors_enabled(self.team):
+            return Response(
+                {"detail": "Canvas connectors are not enabled for this team."}, status=status.HTTP_403_FORBIDDEN
+            )
+        payload = CanvasConnectorCallSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        provider = payload.validated_data["provider"]
+        tool = payload.validated_data["tool"]
+        version = canvas.current_source_version
+        declared = declared_connectors(version.capabilities if version else None)
+        if "shared" in declared_state_scopes(version.capabilities if version else None):
+            return Response(
+                {"detail": "Canvases with connectors cannot use shared state."}, status=status.HTTP_403_FORBIDDEN
+            )
+        if tool not in declared.get(provider, set()):
+            return Response(
+                {
+                    "detail": f'The canvas does not declare connector tool "{tool}" on "{provider}". '
+                    "Add it to capabilities.connectors and publish."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        result = call_connector_tool(
+            self.team_id,
+            user.id,
+            provider,
+            tool,
+            payload.validated_data["arguments"],
+            actor_label=user.email or "",
+            approval_token=payload.validated_data["approval_token"],
+            approval_context=f"{canvas.id}:{version.id if version else ''}",
+        )
+        # Every call is audited: the trigger names the tool, the activity log
+        # row names the viewer whose connection it used. Never the arguments.
+        self._log_canvas_activity(
+            canvas,
+            "connector_tool_called",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(
+                    job_type="canvas_connector",
+                    job_id=f"{provider}/{tool}",
+                    payload={"provider": provider, "tool": tool, "status": str(result.status)},
+                ),
+            ),
+        )
+        self._report_canvas_action(
+            "canvas connector tool called", canvas, provider=provider, tool=tool, status=str(result.status)
+        )
+        return Response(CanvasConnectorCallResultSerializer(instance=result).data)
+
+    def _readable_state_entries(self, canvas: Canvas, user: User) -> QuerySet[CanvasState]:
+        version = canvas.current_source_version
+        declared = declared_state_scopes(version.capabilities if version else None)
+        readable = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user)
+        return CanvasState.objects.for_team(self.team_id).filter(readable, canvas=canvas, scope__in=declared)
+
+    @extend_schema(
+        operation_id="canvases_state_retrieve",
+        parameters=[CanvasStateQuerySerializer],
+        responses={
             200: CanvasStateResponseSerializer,
-            403: OpenApiResponse(description="Canvas state is a viewer surface; sandbox tokens cannot use it."),
+            403: OpenApiResponse(description="Canvas state requires an authenticated user."),
         },
     )
     @action(methods=["GET"], detail=True)
     def state(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the canvas's runtime key-value state (the ph.state store).
 
-        Returns the canvas's shared entries plus the caller's own user-scoped
-        entries — never another viewer's.
+        Returns shared entries plus the authenticated user's own user-scoped
+        entries — never another user's.
         """
         canvas = self.get_object()
         user = self._state_actor(request)
@@ -1267,19 +2148,44 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Reads honor the same reviewed boundary as writes: a canvas only sees
         # the scopes its head version declares, so narrowing capabilities also
         # stops reads of previously written entries.
-        version = canvas.current_source_version
-        declared = declared_state_scopes(version.capabilities if version else None)
-        entries = (
-            CanvasState.objects.for_team(self.team_id)
-            .filter(canvas=canvas, scope__in=declared)
-            .filter(Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user))
-        )
-        scope = request.query_params.get("scope")
-        if scope:
-            if scope not in CanvasState.SCOPES:
-                return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
-            entries = entries.filter(scope=scope)
-        return Response(CanvasStateResponseSerializer(instance={"entries": entries.order_by("scope", "key")}).data)
+        query = CanvasStateQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        result = CanvasStateReader.entries(self._readable_state_entries(canvas, user), **query.validated_data)
+        return Response(CanvasStateResponseSerializer(result).data)
+
+    @extend_schema(
+        operation_id="canvases_state_value_retrieve",
+        parameters=[CanvasStateValueQuerySerializer],
+        responses={
+            200: CanvasStateValueResponseSerializer,
+            400: OpenApiResponse(description="Invalid query, or the offset exceeds the value length."),
+            404: OpenApiResponse(description="No readable value for this scope and key."),
+            409: OpenApiResponse(description="The value changed. Restart from offset zero."),
+        },
+    )
+    @action(methods=["GET"], detail=True, url_path="state/value")
+    def state_value(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return _state_rejection()
+        query = CanvasStateValueQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        entry = self._readable_state_entries(canvas, user).filter(scope=params["scope"], key=params["key"]).first()
+        if entry is None:
+            raise NotFound("No readable value for this scope and key. Read the key inventory first.")
+        result = CanvasStateReader.value(entry, offset=params["offset"], limit=params["limit"])
+        if params.get("revision") and params["revision"] != result["revision"]:
+            return Response(
+                {"detail": "The value changed. Read again from offset zero."}, status=status.HTTP_409_CONFLICT
+            )
+        if params["offset"] > result["total_length"]:
+            return Response(
+                {"detail": "Offset exceeds the value length. Read again from offset zero."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(CanvasStateValueResponseSerializer(result).data)
 
     @extend_schema(
         operation_id="canvases_state_set",
@@ -1309,6 +2215,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # the canvas's reviewed permission boundary, exactly like insights.
         version = canvas.current_source_version
         declared = declared_state_scopes(version.capabilities if version else None)
+        if scope == CanvasState.SCOPE_SHARED and declared_connectors(version.capabilities if version else None):
+            return Response(
+                {"detail": "Canvases with connectors cannot use shared state."}, status=status.HTTP_403_FORBIDDEN
+            )
         if scope not in declared:
             return Response(
                 {
@@ -1372,30 +2282,6 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 request=self.request,
             )
 
-    def _request_user(self) -> User | None:
-        """The requesting real user, or None for anonymous/service principals."""
-        user = self.request.user
-        return user if isinstance(user, User) else None
-
-    @staticmethod
-    def _request_task_id(request: Request) -> UUID | None:
-        """The publishing task's id, when the sandbox stamped one on the call."""
-        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
-        try:
-            return UUID(raw_task_id)
-        except ValueError:
-            return None
-
-    def _sandbox_task_id(self, request: Request) -> UUID | None:
-        """Return the calling sandbox's task when its header matches the OAuth binding."""
-        task_id = self._request_task_id(request)
-        if task_id is None or not self._is_sandbox_authenticated(request):
-            return None
-        authenticator = cast(OAuthAccessTokenAuthentication, request.successful_authenticator)
-        if authenticator.access_token.sandbox_task_id != task_id:
-            return None
-        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
-
     def _announce_canvas_created(self, task_id: UUID | None, user: User | None, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.
 
@@ -1411,23 +2297,3 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             canvas_name=canvas.name or "Canvas",
             canvas_url=canvas_url(canvas),
         )
-
-    @staticmethod
-    def _is_sandbox_authenticated(request: Request) -> bool:
-        """True when the request bears an OAuth token minted for a task sandbox —
-        the credential a task sandbox (via the MCP server) calls this API with.
-
-        The sandbox apps also issue the desktop app's interactive grants, so the application
-        alone does not prove sandbox origin. Server-minted tokens carry either a task binding
-        or the internal provenance scope. An unbound server token must still fail closed rather
-        than inherit its user's Canvas visibility.
-        """
-        authenticator = request.successful_authenticator
-        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-            return False
-        access_token = authenticator.access_token
-        scopes = set((access_token.scope or "").split())
-        if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
-            return False
-        application = access_token.application
-        return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS

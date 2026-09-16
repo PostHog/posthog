@@ -17,7 +17,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+
 import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
@@ -177,7 +178,7 @@ export function Exposures(): JSX.Element {
     const headerContent = {
         style: { backgroundColor: 'var(--color-bg-table)' },
         children: (
-            <div className="flex items-center gap-3 metric-cell" style={{ minHeight: '33px' }}>
+            <div className="flex items-center gap-3 metric-cell min-h-[33px]">
                 <span className="metric-cell-header font-bold inline-flex items-center gap-1">
                     Exposures
                     <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">

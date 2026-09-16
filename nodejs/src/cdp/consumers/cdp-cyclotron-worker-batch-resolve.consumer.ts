@@ -29,6 +29,7 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterBatchHogFlowTriggerFailed } from './metrics'
 
 const RETRY_BACKOFF_MS = 5_000
+const HEARTBEAT_INTERVAL_MS = 10_000
 
 const counterBatchHogFlowAudienceTruncated = new Counter({
     name: 'cdp_batch_hog_flow_audience_truncated',
@@ -45,7 +46,7 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
 const counterBatchHogFlowResolverJobs = new Counter({
     name: 'cdp_batch_hog_flow_resolver_jobs',
     help: 'Batch hog flow resolver jobs by lifecycle outcome',
-    labelNames: ['outcome'], // started | completed | failed
+    labelNames: ['outcome'], // started | completed | failed | canceled
 })
 
 /**
@@ -96,6 +97,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
+        // Checked before state deserialization so a cancel lands even on a job whose state
+        // this deploy can no longer parse. `parentRunId` carries the batch job id
+        // independently of state, so the log still keys to the run.
+        if (job.cancelRequestedAt) {
+            await this.cancelResolverJob(job)
+            return
+        }
+
         let state: BatchResolverState
         try {
             state = deserializeResolverState(job.state)
@@ -129,6 +138,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
+        // Heartbeat the lock while the page (or terminal write) runs: the audience fetch alone
+        // can hold this job for the full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget,
+        // which is on the order of the janitor's stall threshold — without heartbeats the
+        // janitor would reclaim the lock mid-page and the commit would be refused.
+        const heartbeat = setInterval(() => {
+            job.heartbeat().catch((err) => {
+                logger.warn('⚠️', `${this.name} - failed to heartbeat resolver job`, {
+                    jobId: job.id,
+                    error: String(err),
+                })
+            })
+        }, HEARTBEAT_INTERVAL_MS)
+
         try {
             if (state.pendingTerminal) {
                 try {
@@ -157,6 +179,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
             await this.processOnePage(job, state)
         } finally {
+            clearInterval(heartbeat)
             // Flush monitoring every dequeue, not just on terminal-write. Non-terminal
             // paths (truncation log queued in processOnePage, failure log in
             // transitionToFailedTerminal) would otherwise wait for a later terminal
@@ -171,6 +194,40 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 })
             })
         }
+    }
+
+    /**
+     * Terminate a cancel-flagged resolver job: no further pages, and no terminal status
+     * PUT — Django flips the batch job's status itself as part of the cancel request, and
+     * the internal status endpoint absorbs terminal states, so a racing completion still
+     * resolves consistently. The log lands on the batch run's log stream so the stop is
+     * visible next to its runs. Flushes monitoring itself because the cancel paths return
+     * before processResolverJob's finally-flush.
+     */
+    private async cancelResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
+        counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: job.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: job.parentRunId ?? job.functionId ?? '',
+                    instance_id: job.parentRunId ?? job.id,
+                    ...logEntry('info', 'Batch run canceled. The remaining audience will not receive this workflow.'),
+                },
+            ],
+            'hog_flow'
+        )
+        await this.hogFunctionMonitoringService.flush().catch((err) => {
+            logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver cancel`, {
+                error: serializeError(err),
+            })
+        })
+        await job.cancel()
+        logger.info('🛑', `${this.name} - resolver job canceled`, {
+            jobId: job.id,
+            parentRunId: job.parentRunId,
+        })
     }
 
     /**
@@ -317,8 +374,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             newState.pendingTerminal = 'completed'
         }
 
+        let checkIn: { newJobIds: string[]; cancelRequested?: boolean }
         try {
-            await job.bulkCreateAndCheckIn({
+            checkIn = await job.bulkCreateAndCheckIn({
                 newJobs: children,
                 selfDisposition: {
                     kind: 'reschedule',
@@ -337,6 +395,19 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 notMasked.map((invocation) => invocation.id)
             )
             throw err
+        }
+
+        if (checkIn.cancelRequested) {
+            // A cancel flag landed while this page was being built, so the check-in was
+            // refused and nothing committed. Undo the mask claims and queued `running`
+            // rows exactly like the failure path — these children will never run — then
+            // terminate the resolver instead of scheduling another page.
+            await release()
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                notMasked.map((invocation) => invocation.id)
+            )
+            await this.cancelResolverJob(job)
+            return
         }
 
         // Queued only after a successful commit: a failed page is replayed, so metrics
@@ -558,6 +629,7 @@ export function buildAccountHogFlowInvocation(params: {
             event: invocationGlobals.event,
             accountAudience: true,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
@@ -602,6 +674,7 @@ function buildHogFlowInvocation(params: {
             event: invocationGlobals.event,
             personId: params.personId,
             actionStepCount: 0,
+            customerTaskIdempotencyVersion: 1,
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.

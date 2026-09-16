@@ -9,18 +9,21 @@ from posthog.temporal.common.base import PostHogWorkflow
 with workflow.unsafe.imports_passed_through():
     from products.error_tracking.backend.temporal.symbol_set_cleanup.activities import cleanup_symbol_sets_activity
     from products.error_tracking.backend.temporal.symbol_set_cleanup.types import (
+        SYMBOL_SET_CLEANUP_BUCKET_COUNT,
         SymbolSetCleanupInputs,
         SymbolSetCleanupResult,
     )
 
 WORKFLOW_NAME = "error-tracking-symbol-set-cleanup"
 PARALLEL_CLEANUP_PATCH_ID = "error-tracking-parallel-symbol-set-cleanup"
+BUCKETED_CLEANUP_PATCH_ID = "error-tracking-bucketed-symbol-set-cleanup"
 
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(maximum_attempts=1)
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(hours=2)
+BUCKET_ROTATION_INTERVAL = timedelta(minutes=30)
 
 
-def _activity_inputs(inputs: SymbolSetCleanupInputs) -> list[SymbolSetCleanupInputs]:
+def _legacy_activity_inputs(inputs: SymbolSetCleanupInputs) -> list[SymbolSetCleanupInputs]:
     if inputs.dry_run or inputs.total_per_run <= 0:
         return [inputs]
 
@@ -34,6 +37,28 @@ def _activity_inputs(inputs: SymbolSetCleanupInputs) -> list[SymbolSetCleanupInp
             batch_size=inputs.batch_size,
             parallelism=1,
             dry_run=False,
+        )
+        for index in range(parallelism)
+    ]
+
+
+def _bucketed_activity_inputs(inputs: SymbolSetCleanupInputs, bucket_offset: int) -> list[SymbolSetCleanupInputs]:
+    if inputs.dry_run or inputs.total_per_run <= 0:
+        return [inputs]
+
+    parallelism = max(1, min(inputs.parallelism, inputs.total_per_run))
+    per_activity_limit, remainder = divmod(inputs.total_per_run, parallelism)
+    return [
+        SymbolSetCleanupInputs(
+            days_old=inputs.days_old,
+            delete_unused=inputs.delete_unused,
+            total_per_run=per_activity_limit + (1 if index < remainder else 0),
+            batch_size=inputs.batch_size,
+            parallelism=1,
+            dry_run=False,
+            bucket_worker_index=index,
+            bucket_worker_count=parallelism,
+            bucket_offset=bucket_offset,
         )
         for index in range(parallelism)
     ]
@@ -72,15 +97,24 @@ class ErrorTrackingSymbolSetCleanupWorkflow(PostHogWorkflow):
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
 
+        if workflow.patched(BUCKETED_CLEANUP_PATCH_ID):
+            bucket_offset = (
+                int(workflow.now().timestamp() / BUCKET_ROTATION_INTERVAL.total_seconds())
+                % SYMBOL_SET_CLEANUP_BUCKET_COUNT
+            )
+            activity_inputs = _bucketed_activity_inputs(inputs, bucket_offset)
+        else:
+            activity_inputs = _legacy_activity_inputs(inputs)
+
         results = await asyncio.gather(
             *[
                 workflow.execute_activity(
                     cleanup_symbol_sets_activity,
-                    activity_inputs,
+                    activity_input,
                     start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
-                for activity_inputs in _activity_inputs(inputs)
+                for activity_input in activity_inputs
             ]
         )
         return _combine_results(results)

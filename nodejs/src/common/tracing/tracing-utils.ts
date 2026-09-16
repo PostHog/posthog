@@ -105,6 +105,32 @@ interface FunctionInstrumentationOptions {
     logExecutionTime?: boolean
     sendException?: boolean
     measureTime?: boolean
+    /** Stamped as the `tag` attribute on the span and the summary metric, to tell apart callers sharing a key. */
+    tag?: string
+    /** Attributes set on the tracing span only. They never reach the Prometheus metrics. */
+    attributes?: Attributes
+}
+
+/**
+ * True when a span started now would be exported. With parent-based sampling the parent decides,
+ * so callers can skip building attributes for the ~99% of spans a low sample rate discards.
+ */
+export function isTracingActive(): boolean {
+    if (defaultConfig.DISABLE_OPENTELEMETRY_TRACING) {
+        return false
+    }
+    return trace.getActiveSpan()?.isRecording() ?? false
+}
+
+/** Set attributes on the active span. No-op when tracing is disabled or the span is not sampled. */
+export function setSpanAttributes(attrs: Attributes): void {
+    if (defaultConfig.DISABLE_OPENTELEMETRY_TRACING) {
+        return
+    }
+    const span = trace.getActiveSpan()
+    if (span?.isRecording()) {
+        span.setAttributes(attrs)
+    }
 }
 
 /**
@@ -123,6 +149,8 @@ export async function instrumentFn<T>(
     const sendException = (typeof options === 'string' ? undefined : options.sendException) ?? true
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
+    const tag = typeof options === 'string' ? undefined : options.tag
+    const attributes = (typeof options === 'string' ? undefined : options.attributes) ?? {}
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
@@ -134,7 +162,7 @@ export async function instrumentFn<T>(
         // Skip expensive span creation when tracing is disabled
         const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
             ? await func()
-            : await withSpan('instrumented_function', key, {}, func)
+            : await withSpan('instrumented_function', key, tag ? { ...attributes, tag } : attributes, func)
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)

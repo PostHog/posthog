@@ -7,12 +7,11 @@ from posthog.models import Comment, OrganizationMembership, User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.models import Canvas
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import Channel, TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
-
-from ee.models.rbac.access_control import AccessControl
 
 SLACK_WORKSPACE_ID = "T123"
 

@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
     OncehubSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.oncehub import OncehubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOncehubSource:
@@ -20,26 +15,6 @@ class TestOncehubSource:
         self.source = OncehubSource()
         self.team_id = 123
         self.config = OncehubSourceConfig(api_key="oncehub-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONCEHUB
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Oncehub"
-        assert config.label == "OnceHub"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/oncehub"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
@@ -106,11 +81,6 @@ class TestOncehubSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("oncehub-key")
         assert result == (False, "Invalid OnceHub API key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OncehubResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source.oncehub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

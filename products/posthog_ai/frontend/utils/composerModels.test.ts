@@ -7,7 +7,16 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRunCreateRequest, listRuntimeAdapters, modelsForRuntimeAdapter } from './composerModels'
+import {
+    buildRunCreateRequest,
+    getCapabilityLadder,
+    getDefaultModelForRuntimeAdapter,
+    getEffortsForModel,
+    getModelLabel,
+    getRuntimeAdapterForModel,
+    listRuntimeAdapters,
+    modelsForRuntimeAdapter,
+} from './composerModels'
 import { type PermissionMode } from './composerModes'
 
 describe('composerModels', () => {
@@ -25,6 +34,34 @@ describe('composerModels', () => {
             supported_efforts: ['low', 'medium', 'high'],
         },
     ]
+
+    it.each([
+        [null, 'gpt-5.6-sol'],
+        ['gpt-5.6-luna', 'gpt-5.6-luna'],
+        ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
+        ['claude-opus-4-8', 'gpt-5.6-sol'],
+        ['retired-model', 'gpt-5.6-sol'],
+    ])('selects the Codex default with preference %s', (preference, expected) => {
+        const catalogue: ModelChoiceApi[] = [
+            ...CATALOGUE,
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-5.6-sol',
+                display_name: 'GPT-5.6 Sol',
+                supported_efforts: ['low', 'medium', 'high'],
+            },
+        ]
+
+        expect(getDefaultModelForRuntimeAdapter(catalogue, RuntimeAdapterEnumApi.Codex, preference)).toBe(expected)
+    })
+
+    it.each([
+        [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
+        [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
+        [[], RuntimeAdapterEnumApi.Codex, null],
+    ])('uses an available model when no preferred default is available', (catalogue, adapter, expected) => {
+        expect(getDefaultModelForRuntimeAdapter(catalogue, adapter, 'retired-model')).toBe(expected)
+    })
 
     // The runtime follows from the model, so a Codex pick must not launch on the Claude adapter — and each
     // runtime validates permission modes against its own vocabulary, so `bypassPermissions` has to become
@@ -47,6 +84,27 @@ describe('composerModels', () => {
             initial_permission_mode: expectedMode,
             branch: 'main',
         })
+    })
+
+    // The gateway serves some models provider-qualified, so a run or workflow config can hold either spelling.
+    // The backend and the desktop app both fold them onto the bare id; without this the web alone reads a stored
+    // `anthropic/...` run as an unknown model — raw id for a name, and the generic effort floor.
+    it.each([
+        ['anthropic/claude-opus-4-8', 'Claude Opus 4.8'],
+        ['openai/gpt-5.6-luna', 'GPT-5.6 Luna'],
+    ])('resolves the provider-qualified id %s like the bare one', (qualified, expectedLabel) => {
+        const bare = qualified.split('/')[1]
+        expect(getModelLabel(CATALOGUE, qualified)).toBe(expectedLabel)
+        expect(getEffortsForModel(CATALOGUE, qualified)).toEqual(getEffortsForModel(CATALOGUE, bare))
+        expect(
+            buildRunCreateRequest(
+                CATALOGUE,
+                qualified,
+                ReasoningEffortEnumApi.High,
+                InitialPermissionModeEnumApi.Auto as PermissionMode,
+                {}
+            )
+        ).toMatchObject({ runtime_adapter: getRuntimeAdapterForModel(CATALOGUE, bare) })
     })
 
     // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
@@ -83,6 +141,56 @@ describe('composerModels', () => {
         )
 
         expect((request as ClaudeTaskRunCreateSchemaApi).reasoning_effort).toBeUndefined()
+    })
+
+    // Every rung the Faster/Smarter slider offers has to be sendable. The ladder is a hardcoded progression, so a
+    // model the gateway has retired — or one that no longer takes the paired effort — must drop out of the stops
+    // rather than become a notch whose run the backend rejects.
+    it('keeps only the ladder rungs the catalogue still serves', () => {
+        const catalogue: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-5',
+                display_name: 'Claude Sonnet 5',
+                supported_efforts: ['low', 'medium'],
+            },
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5',
+                display_name: 'Claude Opus 5',
+                supported_efforts: ['medium', 'high', 'xhigh'],
+            },
+        ]
+
+        // Dropped: sonnet at `high` (unsupported effort) and fable entirely (absent from the catalogue).
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Claude)).toEqual([
+            { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
+        ])
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex)).toEqual([])
+    })
+
+    it('uses GPT-6 Astra at Max as the smartest Codex rung', () => {
+        const catalogue: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-5.6-sol',
+                display_name: 'GPT-5.6 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-6-astra',
+                display_name: 'GPT-6 Astra',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+        ]
+
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex).at(-1)).toEqual({
+            model: 'gpt-6-astra',
+            effort: ReasoningEffortEnumApi.Max,
+        })
     })
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather

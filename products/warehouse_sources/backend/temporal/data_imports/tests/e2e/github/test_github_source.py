@@ -45,7 +45,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.git
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import (
+    GITHUB_WEBHOOK_EVENT_LABELS,
+    GITHUB_WEBHOOK_RESOURCE_MAP,
+    GithubSource,
+)
 
 
 def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:
@@ -429,7 +433,7 @@ class TestValidateCredentials:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
+            mock_get.return_value.request.return_value = mock.MagicMock(status_code=200)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is True
@@ -445,7 +449,7 @@ class TestValidateCredentials:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+            mock_get.return_value.request.return_value = mock.MagicMock(status_code=status_code)
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
@@ -455,19 +459,19 @@ class TestValidateCredentials:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_response = mock.MagicMock(status_code=403)
-            mock_response.json.return_value = {"message": "API rate limit exceeded"}
-            mock_get.return_value.get.return_value = mock_response
+            mock_response = mock.MagicMock(status_code=403, headers={}, text="Resource not accessible by integration")
+            mock_response.json.return_value = {"message": "Resource not accessible by integration"}
+            mock_get.return_value.request.return_value = mock_response
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
-        assert error == "API rate limit exceeded"
+        assert error == "Resource not accessible by integration"
 
     def test_request_exception(self) -> None:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+            mock_get.return_value.request.side_effect = requests.exceptions.ConnectionError("Connection refused")
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
@@ -478,11 +482,11 @@ class TestValidateCredentials:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_get.return_value.get.return_value = mock.MagicMock(status_code=200)
+            mock_get.return_value.request.return_value = mock.MagicMock(status_code=200)
             validate_credentials("my-token", "owner/repo")
 
-        mock_get.return_value.get.assert_called_once()
-        call_kwargs = mock_get.return_value.get.call_args
+        mock_get.return_value.request.assert_called_once()
+        call_kwargs = mock_get.return_value.request.call_args
         assert call_kwargs is not None
         headers = call_kwargs.kwargs["headers"]
         assert headers["Authorization"] == "Bearer my-token"
@@ -1467,7 +1471,19 @@ class TestGithubWebhookSource:
             "deployments": "deployment",
             "deployment_statuses": "deployment_status",
             "check_runs": "check_run",
+            "commit_statuses": "status",
+            "issue_comments": "issue_comment",
+            "pull_request_comments": "pull_request_review_comment",
+            "commit_comments": "commit_comment",
         }
+
+    def test_manual_setup_instructions_list_every_mapped_event(self) -> None:
+        # A mapped event missing from the instructions leaves a manually-created hook unsubscribed
+        # from it, so the table stays empty with no error. The list already lost check_runs once.
+        caption = self.source.get_source_config.webhookSetupCaption
+        assert caption is not None
+        for event in set(GITHUB_WEBHOOK_RESOURCE_MAP.values()):
+            assert GITHUB_WEBHOOK_EVENT_LABELS[event] in caption
 
     def test_webhook_template_identity(self) -> None:
         template = self.source.webhook_template
@@ -1485,6 +1501,10 @@ class TestGithubWebhookSource:
             "deployments",
             "deployment_statuses",
             "check_runs",
+            "commit_statuses",
+            "issue_comments",
+            "pull_request_comments",
+            "commit_comments",
         }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
@@ -1519,15 +1539,9 @@ class TestGithubWebhookSource:
         assert self.source.get_desired_webhook_events(_pat_config(), eligible) == expected_events
 
     def test_create_webhook_sends_secret_and_returns_it_as_extra_input(self) -> None:
-        captured: dict[str, Any] = {}
-
-        def post(url: str, headers: Any = None, json: Any = None, timeout: Any = None) -> Any:
-            captured["url"] = url
-            captured["json"] = json
-            return _make_response(status=201, body={"id": 99})
-
-        session = mock.Mock()
-        session.post.side_effect = post
+        session = self._hook_session(
+            _make_response(status=200, body=[]), post_response=_make_response(status=201, body={"id": 99})
+        )
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1535,8 +1549,9 @@ class TestGithubWebhookSource:
         ):
             result = self.source.create_webhook(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
 
-        assert "/repos/owner/repo/hooks" in captured["url"]
-        sent_secret = captured["json"]["config"]["secret"]
+        post = next(call for call in session.request.call_args_list if call.args[0] == "POST")
+        assert "/repos/owner/repo/hooks" in post.args[1]
+        sent_secret = post.kwargs["json"]["config"]["secret"]
         assert sent_secret  # a non-empty secret is minted and handed to GitHub
         assert result.success is True
         # GitHub never echoes the secret, so create_webhook returns the minted one
@@ -1544,8 +1559,9 @@ class TestGithubWebhookSource:
         assert result.extra_inputs["signing_secret"] == sent_secret
 
     def test_create_webhook_permission_error_falls_back_to_manual(self) -> None:
-        session = mock.Mock()
-        session.post.return_value = _make_response(status=403, body={"message": "Forbidden"})
+        denied = _make_response(status=403, body={"message": "Forbidden"})
+        denied.text = "Forbidden"  # no rate-limit markers, so this must map to the grant hint
+        session = self._hook_session(_make_response(status=200, body=[]), post_response=denied)
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1558,16 +1574,23 @@ class TestGithubWebhookSource:
         assert "admin:repo_hook" in result.error
 
     @staticmethod
-    def _hook_session(list_response: mock.Mock, patch_response: mock.Mock | None = None) -> mock.Mock:
-        # The hook list rides github_request, which sends via session.request(method, url, ...);
+    def _hook_session(
+        list_response: mock.Mock,
+        patch_response: mock.Mock | None = None,
+        post_response: mock.Mock | None = None,
+        delete_response: mock.Mock | None = None,
+    ) -> mock.Mock:
+        # Every hook call rides github_request, which sends via session.request(method, url, ...);
         # route by method so a stray write (e.g. a PATCH on a no-drift path) fails loudly.
         session = mock.Mock()
+        write_responses = {"PATCH": patch_response, "POST": post_response, "DELETE": delete_response}
 
         def route(method: str, url: str, **kwargs: Any) -> mock.Mock:
             if method == "GET":
                 return list_response
-            if method == "PATCH" and patch_response is not None:
-                return patch_response
+            write_response = write_responses.get(method)
+            if write_response is not None:
+                return write_response
             raise AssertionError(f"Unexpected {method} request: {url}")
 
         session.request.side_effect = route
@@ -1575,8 +1598,10 @@ class TestGithubWebhookSource:
 
     def test_delete_webhook_lists_then_deletes_matching_hook(self) -> None:
         webhook_url = "https://app.posthog.com/webhook"
-        session = self._hook_session(_make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]))
-        session.delete.return_value = _make_response(status=204)
+        session = self._hook_session(
+            _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]),
+            delete_response=_make_response(status=204),
+        )
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1585,8 +1610,8 @@ class TestGithubWebhookSource:
             result = self.source.delete_webhook(_pat_config(), webhook_url, team_id=1)
 
         assert result.success is True
-        delete_url = session.delete.call_args.args[0]
-        assert "/repos/owner/repo/hooks/42" in delete_url
+        delete = next(call for call in session.request.call_args_list if call.args[0] == "DELETE")
+        assert "/repos/owner/repo/hooks/42" in delete.args[1]
 
     def test_get_external_webhook_info_reports_existing_hook(self) -> None:
         webhook_url = "https://app.posthog.com/webhook"
@@ -1620,8 +1645,10 @@ class TestGithubWebhookSource:
         # The hook is found in the list but DELETE races a concurrent removal and
         # 404s — the desired end state, so it must not surface as a permission error.
         webhook_url = "https://app.posthog.com/webhook"
-        session = self._hook_session(_make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]))
-        session.delete.return_value = _make_response(status=404, body={"message": "Not Found"})
+        session = self._hook_session(
+            _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}]),
+            delete_response=_make_response(status=404, body={"message": "Not Found"}),
+        )
 
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
@@ -1674,9 +1701,13 @@ class TestGithubWebhookSource:
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == [
             "check_run",
+            "commit_comment",
             "deployment",
             "deployment_status",
+            "issue_comment",
             "pull_request_review",
+            "pull_request_review_comment",
+            "status",
             "workflow_job",
             "workflow_run",
         ]
@@ -1738,6 +1769,38 @@ class TestGithubWebhookSource:
             return_value=session,
         ):
             result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
+
+        assert result.success is False
+        assert result.error is not None
+        assert "rate limit" in result.error
+        assert "admin:repo_hook" not in result.error
+
+    @parameterized.expand(
+        [
+            ("create", [], "post_response", "create_webhook"),
+            (
+                "delete",
+                [{"id": 42, "config": {"url": "https://app.posthog.com/webhook"}}],
+                "delete_response",
+                "delete_webhook",
+            ),
+        ]
+    )
+    def test_webhook_write_rate_limit_is_not_a_permission_error(
+        self, _name: str, hooks: list[dict[str, Any]], write_response: str, method: str
+    ) -> None:
+        # The listing succeeds but the write itself is rate limited; reading that 403 as a missing
+        # admin:repo_hook grant would send the user off to rotate a token that is fine.
+        rate_limited = _make_response(status=403, body={"message": "API rate limit exceeded"})
+        rate_limited.headers = {"x-ratelimit-remaining": "0"}
+        rate_limited.text = "API rate limit exceeded"
+        session = self._hook_session(_make_response(status=200, body=hooks), **{write_response: rate_limited})
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = getattr(self.source, method)(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
 
         assert result.success is False
         assert result.error is not None

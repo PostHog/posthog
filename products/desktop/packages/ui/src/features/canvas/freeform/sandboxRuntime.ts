@@ -7,6 +7,10 @@ import {
 } from "@posthog/core/canvas/freeformWhitelist";
 import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
 import {
+  CANVAS_SDK_MODULE_SOURCE,
+  CANVAS_SDK_SPECIFIER,
+} from "@posthog/shared";
+import {
   commentActionAnchorRect,
   installSelectionSettleGate,
 } from "@posthog/ui/features/sessions/components/selectionCommentAction";
@@ -244,16 +248,17 @@ export function buildSandboxDocument(
           shortId,
           dateRange: opts && opts.dateRange,
           variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
         }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
       // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
-      query: (queryOrHogql, params) =>
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -282,13 +287,27 @@ export function buildSandboxDocument(
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
       },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for \`refresh\` seconds (default 60):
+      // \`ph.connectors.call("github", "list_pull_requests", { repository: "app" })\`.
+      // A "not_connected" status carries a connect_path; \`connect(provider)\`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
+        connect: (provider) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
+          post({ type: "navigate", nav: { target: "connect", provider } });
+        },
+      },
       // Ask the authoring agent for a change; the host shows the exact prompt
       // and asks the viewer to approve before anything is dispatched:
       // \`ph.agent.request("Make the square blue")\`.
       agent: {
         request: (prompt) => call("agentRequest", { prompt }),
       },
-      // Brokered by the host: PostHog-only https URLs, rate-limited, and
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),
       // Navigate the host app. Fire-and-forget: the host validates the intent
@@ -296,7 +315,10 @@ export function buildSandboxDocument(
       // cannot pick the channel or an arbitrary path — only these four targets.
       navigate: {
         toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
-        toNewTask: () => post({ type: "navigate", nav: { target: "new-task" } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
         toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
         toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
       },
@@ -510,6 +532,19 @@ export function buildSandboxDocument(
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
 
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
     // --- error reporting (feeds the host's self-repair loop) ---
     const reportError = (message, stack) =>
       post({ type: "error", message: String(message ?? "Unknown error"), stack });
@@ -612,7 +647,16 @@ export function buildSandboxDocument(
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
-        if (seq === mountSeq) reportError(err && err.message, err && err.stack);
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
       }
     };
 
@@ -647,7 +691,19 @@ export function buildSandboxDocument(
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
-<script type="importmap">${importMap}</script>
+<script>
+  // The map is assembled here rather than baked into the HTML because
+  // "@posthog/canvas-sdk" is platform-provided rather than CDN-pinned, and the
+  // blob holding it only exists inside this document. Keep this ahead of the
+  // bootstrap module: a map added after module loading starts is ignored.
+  var canvasImportMap = ${importMap};
+  canvasImportMap.imports[${JSON.stringify(CANVAS_SDK_SPECIFIER)}] =
+    URL.createObjectURL(new Blob([${JSON.stringify(CANVAS_SDK_MODULE_SOURCE)}], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
 ${tailwind}
 ${reset}
 ${FREEFORM_QUILL_CSS_URLS.map(

@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -21,6 +20,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { LinkType } from '~/types'
 
+import { linksEmptyState } from './emptyState/linksEmptyState'
 import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
 
@@ -28,11 +28,11 @@ export const scene: SceneExport = {
     component: LinksScene,
     logic: linksLogic,
     productKey: ProductKey.LINKS,
+    emptyState: linksEmptyState,
 }
 
 export function LinksScene(): JSX.Element {
     const { links, linksLoading } = useValues(linksLogic)
-    const shouldShowEmptyState = links.length == 0 && !linksLoading
 
     const columns = [
         {
@@ -153,18 +153,7 @@ export function LinksScene(): JSX.Element {
                 </p>
             </LemonBanner>
 
-            <ProductIntroduction
-                isEmpty={shouldShowEmptyState}
-                productName="Links"
-                productKey={ProductKey.LINKS}
-                thingName="link"
-                description="Start creating links for your marketing campaigns, referral programs, and more."
-                action={() => router.actions.push(urls.link('new'))}
-                docsURL="https://posthog.com/docs/links"
-                className="my-0"
-            />
-
-            {!shouldShowEmptyState && <LemonTable loading={linksLoading} columns={columns} dataSource={links} />}
+            <LemonTable loading={linksLoading} columns={columns} dataSource={links} />
         </SceneContent>
     )
 }

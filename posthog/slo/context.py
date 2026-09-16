@@ -54,8 +54,12 @@ class SloSpec:
     # can weight each event by 1/sample_rate to reconstruct the true rate.
     sample_rate: float = 1.0
 
+    def __post_init__(self) -> None:
+        if not (0.0 <= self.sample_rate <= 1.0):
+            raise ValueError(f"SloSpec sample_rate must be between 0 and 1, got {self.sample_rate}")
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=False)
 class SloHandle:
     operation: SloOperation | None = None
     completion_properties: dict[str, JsonValue] = dataclasses.field(default_factory=dict)

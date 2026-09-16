@@ -1,7 +1,7 @@
 import time
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -41,8 +41,8 @@ def _mock_credentials(token: str = "access-token-1", expiry_offset: int = 3600):
 
 
 class TestFirebaseIntegration(BaseTest):
-    @patch("posthog.models.integration.GoogleRequest")
-    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
     def _create_firebase_integration(self, mock_from_sa, mock_google_request, **overrides) -> Integration:
         mock_from_sa.return_value = _mock_credentials()
         key_info = overrides.pop("key_info", FAKE_KEY_INFO)
@@ -112,16 +112,16 @@ class TestFirebaseIntegration(BaseTest):
 
         assert first.id != second.id
 
-    @patch("posthog.models.integration.GoogleRequest")
-    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
     def test_validates_service_account_key(self, mock_from_sa, mock_google_request):
         mock_from_sa.side_effect = Exception("invalid key")
 
         with self.assertRaises(ValidationError):
             FirebaseIntegration.integration_from_key(FAKE_KEY_INFO, self.team.id)
 
-    @patch("posthog.models.integration.GoogleRequest")
-    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
     def test_validates_project_id_present(self, mock_from_sa, mock_google_request):
         mock_from_sa.return_value = _mock_credentials()
         key_info_no_project = {k: v for k, v in FAKE_KEY_INFO.items() if k != "project_id"}
@@ -146,7 +146,7 @@ class TestFirebaseIntegration(BaseTest):
         with self.assertRaisesMessage(Exception, "FirebaseIntegration init called with Integration with wrong 'kind'"):
             FirebaseIntegration(integration)
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_not_expired_initially(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -163,7 +163,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is False
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_after_half_expiry(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -180,7 +180,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is True
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_custom_threshold(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -200,9 +200,9 @@ class TestFirebaseIntegration(BaseTest):
         # Expired with a generous threshold
         assert wrapper.access_token_expired(time_threshold=timedelta(seconds=3500)) is True
 
-    @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GoogleRequest")
-    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    @patch("posthog.models.integration.push.reload_integrations_on_workers")
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
     def test_refresh_access_token(self, mock_from_sa, mock_google_request, mock_reload):
         integration = Integration.objects.create(
             team=self.team,
@@ -226,9 +226,9 @@ class TestFirebaseIntegration(BaseTest):
         assert integration.sensitive_config["access_token"] == "new-token"
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
-    @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GoogleRequest")
-    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    @patch("posthog.models.integration.push.reload_integrations_on_workers")
+    @patch("posthog.models.integration.push.GoogleRequest")
+    @patch("posthog.models.integration.push.service_account.Credentials.from_service_account_info")
     def test_get_access_token_refreshes_when_expired(self, mock_from_sa, mock_google_request, mock_reload):
         integration = Integration.objects.create(
             team=self.team,

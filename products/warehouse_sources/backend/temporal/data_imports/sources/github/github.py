@@ -1,20 +1,24 @@
 import re
+import time
 import random
 import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
+from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
     ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
@@ -43,6 +48,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 )
 
 GITHUB_BASE_URL = "https://api.github.com"
+
+# A capped fan-out drops the oldest admitted parents, and the cursor still advances past them.
+FAN_OUT_PARENT_CAP_HITS = Counter(
+    "warehouse_github_fan_out_parent_cap_hits_total",
+    "Fan-out walks that hit max_fan_out_parents and skipped older parents in the window.",
+    labelnames=["endpoint"],
+)
+
+# The reconcile cursor is a PostHog job timestamp compared against GitHub's updated_at, so allow
+# for clock skew between the two before trusting it to skip a parent.
+_RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
 # the only version-dependent part for the endpoints we sync — response shapes are compatible across
@@ -182,6 +198,7 @@ def _build_initial_params(
     params["sort"] = "created"
     params["direction"] = "asc"
 
+    since_capable = endpoint in ("issues", "commits") or config.supports_since_param
     if should_use_incremental_field and db_incremental_field_last_value:
         formatted_value = _format_incremental_value(db_incremental_field_last_value)
         incremental = incremental_field or config.default_incremental_field or "updated_at"
@@ -195,8 +212,18 @@ def _build_initial_params(
             )
         params["sort"] = sort_field_mapping[incremental]
         params["direction"] = config.sort_mode
-        if endpoint in ("issues", "commits") or config.supports_since_param:
+        if since_capable:
             params["since"] = formatted_value
+    elif should_use_incremental_field and config.initial_lookback_days is not None and since_capable:
+        # First incremental sync with no watermark: floor the backfill with a server-side `since`
+        # window instead of walking the endpoint's whole history, the repo-wide counterpart of the
+        # fan-out parent floor in _fan_out_get_rows. Scoped to the first incremental run on
+        # purpose, because an explicit full refresh should still pull everything, and once a
+        # watermark exists the branch above bounds the read with it. History past the window is a
+        # deliberate one-off backfill, not a connect-time cost. `is not None` keeps the field's
+        # zero contract uniform with the fan-out floor: zero floors at now, so the poll backfills
+        # nothing, rather than reading as "no floor" and walking the whole history.
+        params["since"] = _format_incremental_value(_now_utc() - timedelta(days=config.initial_lookback_days))
 
     return params
 
@@ -301,6 +328,12 @@ def _is_repository_too_large_for_code_frequency(response: requests.Response) -> 
     return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
 
 
+def _is_topics_endpoint(page_url: str) -> bool:
+    """The repository topics endpoint (/repos/{owner}/{repo}/topics). Matched on the URL path so a
+    repository literally named `topics`, or a query string, can't be mistaken for it."""
+    return urlsplit(page_url).path.endswith("/topics")
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -341,15 +374,24 @@ def _should_stop_desc(
     return any(_is_older_than_cutoff(item.get(incremental_field), cutoff) for item in data if item)
 
 
+# GitHub answers 404 both for a repository that doesn't exist and for one the token can't see, so
+# the reason can't tell the two apart. The source layer matches this text to append the next step
+# once for the whole batch instead of repeating it per repository.
+REPOSITORY_NOT_ACCESSIBLE_REASON = "not found or not accessible"
+
+
 def validate_credentials(
-    personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
+    personal_access_token: str,
+    repository: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
-    # A pasted clone URL (github.com/owner/repo.git) or a bare owner name otherwise reaches the API
-    # as a nonsense path, 404s, and gets reported as "not found or not accessible" — which points the
-    # user at permissions rather than the real problem, the identifier format. Catch the wrong shape
-    # before the request so the message names the fix.
-    repo = repository.strip()
+    # A bare owner name otherwise reaches the API as a nonsense path, 404s, and gets reported as
+    # "not found or not accessible" — which points the user at permissions rather than the real
+    # problem, the identifier format. Catch the wrong shape before the request so the message
+    # names the fix.
+    repo = normalize_repository(repository)
     if repo.count("/") != 1 or not all(repo.split("/")):
         # Name the offending entry, like the 404 message below. Without it, two malformed repos both
         # return this identical sentence and the caller joins them into one repeated string that names
@@ -359,11 +401,22 @@ def validate_credentials(
             f"'{repo}' isn't a valid repository. Enter it as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
         )
 
-    url = f"{GITHUB_BASE_URL}/repos/{repository}"
+    url = f"{GITHUB_BASE_URL}/repos/{repo}"
     headers = _get_headers(personal_access_token, api_version=api_version)
 
     try:
-        response = make_tracked_session().get(url, headers=headers, timeout=10)
+        # NORMAL, not BATCH: the source wizard waits on this answer.
+        response = github_request(
+            "GET",
+            url,
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=10,
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+        )
+        raise_if_github_rate_limited(response)
 
         if response.status_code == 200:
             return True, None
@@ -372,7 +425,7 @@ def validate_credentials(
             return False, "Invalid personal access token"
 
         if response.status_code == 404:
-            return False, f"Repository '{repository}' not found or not accessible"
+            return False, f"Repository '{repo}' {REPOSITORY_NOT_ACCESSIBLE_REASON}"
 
         try:
             body = response.json()
@@ -390,6 +443,8 @@ def validate_credentials(
             False,
             f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
         )
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return False, "GitHub rate limit reached while validating the repository; please retry shortly."
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -432,7 +487,7 @@ def check_org_endpoint_permission(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=10,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
         raise_if_github_rate_limited(response)
@@ -681,11 +736,14 @@ GITHUB_MAX_RETRY_AFTER_SECONDS = 300.0
 # us no reset to honor.
 _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 
+
 # Disable the tracked session's default adapter retries on this path. That policy
 # retries 429/5xx and honors Retry-After *uncapped*, underneath _fetch_page — which
 # would defeat the 300s cap below and stack a second, untested retry layer. With
 # adapter retries off, _fetch_page sees every response/exception and our tenacity
 # layer is the single, rate-limit-aware retry authority.
+# Every gated GET uses it too: an adapter retry happens after egress admission, so one admitted
+# call could send several GitHub requests that the installation budget never counts.
 _NO_ADAPTER_RETRY = Retry(total=0)
 
 
@@ -806,6 +864,36 @@ def _github_retry_wait(state: RetryCallState) -> float:
     return _github_backoff_wait(state)
 
 
+def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> None:
+    """Wait out this installation's share of the shared egress budget before the next request.
+
+    A backfill spends one request per page and can run for hours, so at full speed it drains the
+    installation's budget and is then shed for the rest of the window. Each shed page costs a retry
+    attempt and a backoff that knows nothing about when the budget frees. Waiting first keeps the run
+    inside the budget instead of recovering from it, and leaves the headroom the budget reserves for
+    the interactive products that share this installation.
+
+    The wait is bounded by the worker drain signal rather than by sleep. The pipeline tests for
+    worker shutdown only between the chunks a source yields, so a plain sleep here would hold a
+    draining pod for the full wait and delay the hand-off by that much. Waiting on the shutdown event
+    returns as soon as the pod starts draining, so pacing costs the hand-off nothing.
+    """
+    # The same ceiling the Retry-After path honors, and safe here for the reason recorded on
+    # GITHUB_MAX_RETRY_AFTER_SECONDS: this runs in the source thread pool, while the activity's
+    # liveness heartbeat fires from the event loop.
+    pace = min(
+        github_installation_pace_seconds(installation_id, priority=Priority.BATCH), GITHUB_MAX_RETRY_AFTER_SECONDS
+    )
+    if pace <= 0:
+        return
+
+    logger.debug(f"Github: waiting {pace:.1f}s for egress budget before the next request")
+    if activity.in_activity():
+        activity.wait_for_worker_shutdown_sync(timeout=pace)
+    else:
+        time.sleep(pace)
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -840,6 +928,13 @@ def _fetch_page(
     # this function's @retry backs off on; transport failures are recorded and re-raised for the same
     # retry. We keep our own tracked session and the GitHub response→exception mapping below.
     installation_id = egress_identity.installation_id if egress_identity is not None else None
+    # Wait for budget before asking for it, so a long walk drips instead of draining its share and
+    # being shed. Only the App path has a budget to pace against; the PAT path has no installation
+    # and skips the gate too. On the rare page that is still shed, the retry backoff above applies
+    # as well, which is the conservative order: the budget really is spent at that point.
+    if installation_id is not None:
+        _pace_before_request(installation_id, logger)
+
     response = github_request(
         "GET",
         page_url,
@@ -869,6 +964,15 @@ def _fetch_page(
 
     if _is_repository_too_large_for_code_frequency(response):
         raise GithubRepositoryTooLargeError()
+
+    # GitHub answers 422 on /repos/{owner}/{repo}/topics for some repositories rather than an empty
+    # {"names": []} body. Topics are optional repository metadata, so one repository's 422 there
+    # must not fail its whole schema the way a generic 422 does — sync zero rows, the same benign
+    # skip as a switched-off feature. A genuinely broken connection still fails loudly on the
+    # repository's other tables (401/403/404), so skipping topics here cannot hide it.
+    if response.status_code == 422 and _is_topics_endpoint(page_url):
+        logger.info(f"Github: topics not available for this repository, syncing zero rows: url={page_url}")
+        raise GithubResourceUnavailableError(_github_error_message(response))
 
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
@@ -1027,6 +1131,7 @@ def _fan_out_get_rows(
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
+    max_parents: int | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -1129,6 +1234,8 @@ def _fan_out_get_rows(
     # workflow_runs).
     parent_mapper = _get_item_mapper(parent_config.name)
 
+    fanned_out_parents = 0
+
     for raw_parents, page_url in _iter_pages(
         parent_url,
         headers,
@@ -1155,6 +1262,18 @@ def _fan_out_get_rows(
                 and _is_older_than_cutoff(parent.get(parent_recency_field), parent_recency_cutoff)
             ):
                 continue
+            if max_parents is not None and fanned_out_parents >= max_parents:
+                FAN_OUT_PARENT_CAP_HITS.labels(endpoint=endpoint).inc()
+                logger.warning(
+                    "Github: fan-out parent cap reached; older parents in the window skipped",
+                    endpoint=endpoint,
+                    repository=repository,
+                    max_parents=max_parents,
+                )
+                # The walk is newest-first, so no later page holds a parent worth fanning out.
+                stop_after_this_page = True
+                break
+            fanned_out_parents += 1
             inject = (
                 _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
                 if child_config.fan_out_include_parent_fields
@@ -1189,6 +1308,7 @@ def get_rows(
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
+    max_parents: int | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -1203,6 +1323,7 @@ def get_rows(
             egress_identity=egress_identity,
             api_version=api_version,
             parent_cutoff_override=parent_cutoff_override,
+            max_parents=max_parents,
         )
         return
 
@@ -1400,6 +1521,7 @@ def github_source(
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    reconcile_since: datetime | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -1457,9 +1579,11 @@ def github_source(
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
-            # Webhook-capable endpoints all key on a single column; the dedupe transformer
-            # collapses one pk column, so pass the first (only) key. Fan-out children with
-            # composite keys have no version_keys, so this branch never runs for them.
+            # The dedupe transformer collapses on one pk column, so pass the first key. That is
+            # sound only while every endpoint declaring version_keys keys on a single column:
+            # commit_statuses is webhook-capable with a composite ["commit_sha", "id"] key, and
+            # giving it version_keys would collapse a commit's statuses to one row. Guarded by
+            # test_no_composite_key_endpoint_declares_version_keys.
             transformer = (
                 _make_webhook_dedupe_transformer(
                     _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
@@ -1475,8 +1599,8 @@ def github_source(
             # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
             # bounded fan-out over recent parents so those rows still arrive from the list API.
             # should_use_incremental_field is forced on so the fan-out applies the parent recency
-            # skip against the real child watermark; the window override below, not the watermark,
-            # bounds the parent walk either way.
+            # skip. A webhook schema configures no incremental field, so the previous successful
+            # sync's start (reconcile_since) stands in as the watermark.
             return _chain_webhook_items_with_reconciliation(
                 webhook_items,
                 lambda: get_rows(
@@ -1486,11 +1610,15 @@ def github_source(
                     logger=logger,
                     resumable_source_manager=resumable_source_manager,
                     should_use_incremental_field=True,
-                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    db_incremental_field_last_value=db_incremental_field_last_value
+                    or (reconcile_since - _RECONCILE_SKEW_ALLOWANCE if reconcile_since else None),
                     incremental_field=incremental_field,
                     egress_identity=egress_identity,
                     api_version=api_version,
                     parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
+                    # Stays on with a watermark so the first run after a long gap stays bounded. A parent
+                    # past the cap loses its inactive transition until GitHub updates it again.
+                    max_parents=endpoint_config.max_fan_out_parents,
                 ),
             )
 
@@ -1539,6 +1667,7 @@ def create_repo_webhook(
     webhook_url: str,
     events: list[str],
     secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookCreationResult:
     """Create a repo webhook via POST /repos/{repo}/hooks.
@@ -1559,8 +1688,22 @@ def create_repo_webhook(
     }
 
     try:
-        response = make_tracked_session().post(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=headers, json=payload, timeout=30
+        response = github_request(
+            "POST",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks",
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json=payload,
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while creating the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {e}")
@@ -1614,7 +1757,9 @@ def ensure_repo_webhook(
 
     hook = _match_hook_by_url(hooks or [], webhook_url)
     if hook is None:
-        return create_repo_webhook(token, repo, webhook_url, events, secret=secret, api_version=api_version)
+        return create_repo_webhook(
+            token, repo, webhook_url, events, secret=secret, egress_identity=egress_identity, api_version=api_version
+        )
 
     merged_events = sorted(set(hook.get("events") or []) | set(events))
     try:
@@ -1681,7 +1826,7 @@ def _list_repo_hooks(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=30,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
     except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
@@ -1745,8 +1890,21 @@ def delete_repo_webhook(
 
     headers = _get_headers(token, api_version=api_version)
     try:
-        response = make_tracked_session().delete(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
+        response = github_request(
+            "DELETE",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}",
+            source="warehouse",
+            headers=headers,
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookDeletionResult(
+            success=False,
+            error="GitHub rate limit reached while deleting the repository webhook; please retry shortly.",
         )
     except requests.exceptions.RequestException as e:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {e}")

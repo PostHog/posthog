@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -154,11 +155,14 @@ export function captureSupportWidgetLoadFailed({
 }
 
 // Returns true when the message exceeds the cap the widget endpoint enforces, so callers can bail
-// before the network. Callers report it: the customer pressed send and has no ticket.
+// before the network. Callers report it: the customer pressed send and has no ticket. The toast
+// offers the email fallback like the other send-failure paths, because a customer stuck at the cap
+// otherwise has no way to find the support address.
 export function warnIfMessageTooLong(message: string): boolean {
     if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
         lemonToast.error(
-            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`,
+            { button: EMAIL_SUPPORT_BUTTON }
         )
         return true
     }
@@ -487,6 +491,10 @@ export const supportLogic = kea<supportLogicType>([
     }),
     listeners(({ actions, props, values }) => ({
         updateUrlParams: async () => {
+            if (!values.sidePanelAvailable) {
+                return
+            }
+
             // Only include non-text fields in the URL parameters
             // This prevents focus loss when typing in text fields
             const panelOptions = [values.sendSupportRequest.kind ?? '', values.isEmailFormOpen ?? 'false'].join(':')
@@ -646,6 +654,22 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
+            if (!values.sidePanelAvailable) {
+                const hashParams = { ...router.values.hashParams }
+                let changed = false
+                if (String(hashParams['panel'] ?? '').split(':')[0] === SidePanelTab.Support) {
+                    delete hashParams['panel']
+                    changed = true
+                }
+                if ('supportModal' in hashParams) {
+                    delete hashParams['supportModal']
+                    changed = true
+                }
+                if (changed) {
+                    router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
+                }
+            }
+
             // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },

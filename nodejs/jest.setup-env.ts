@@ -6,12 +6,16 @@ import { brotliDecompressSync } from 'zlib'
 // from an environment where NODE_ENV or DEBUG is already set (IDE test runners,
 // debuggers, flox exports DEBUG=1), `determineNodeEnv()` resolves to dev and
 // every config default (DATABASE_URL, PERSONS_DATABASE_URL, CLICKHOUSE_DATABASE,
-// CYCLOTRON_DATABASE_URL, ...) points at the real dev databases — which
+// CYCLOTRON_NODE_DATABASE_URL, ...) points at the real dev databases — which
 // destructive test helpers would then wipe. Force the test environment so the
 // defaults always resolve to their test_* counterparts. Explicitly exported
 // *_DATABASE_URL variables still win; tests/helpers/database-guard.ts catches
 // those when they point at a non-test database.
 process.env.NODE_ENV = 'test'
+
+// Docker development environments export CLICKHOUSE_DATABASE=posthog. Tests that
+// reset ClickHouse must never inherit it, even when it was explicitly exported.
+process.env.CLICKHOUSE_DATABASE = 'posthog_test'
 
 // Tests must never read the live GeoLite2 database from share/ — it is re-downloaded
 // unpinned from mmdbcdn.posthog.net and its data changes under us (see the recurring
@@ -19,7 +23,7 @@ process.env.NODE_ENV = 'test'
 // database instead, so lookups are deterministic. Use IPs from the test ranges
 // (e.g. 89.160.20.129 → Linköping, 216.160.83.56 → Milton) in tests.
 const fixturePath = join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')
-const mmdbPath = join(__dirname, '.tmp', 'GeoLite2-City-Test.mmdb')
+const mmdbPath = join(__dirname, '.tmp', `GeoLite2-City-Test-${process.env.JEST_WORKER_ID ?? 'main'}.mmdb`)
 
 mkdirSync(join(__dirname, '.tmp'), { recursive: true })
 writeFileSync(mmdbPath, brotliDecompressSync(readFileSync(fixturePath)))

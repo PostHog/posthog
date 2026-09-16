@@ -14,18 +14,43 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     ``current_source_version`` is the editable head (publish advances it,
     revert moves it back) and ``published_build`` is the live artifact pointer —
     it only advances when a build completes for a version that is still the head.
+
+    ``kind`` splits the model into three shapes sharing this lifecycle:
+
+    - ``freeform`` — a standalone app; its source project compiles to one artifact.
+    - ``component`` — a reusable widget other canvases place on a grid. Same
+      source/build pipeline as freeform, plus a config schema and grid size
+      snapshotted onto each version. Visibility rides the channel like any
+      canvas: a component in a personal channel is private, in a team channel
+      it is the team's.
+    - ``grid`` — a composition of components. Its "source" is a layout document
+      (placements referencing component canvases), so publishing a grid
+      validates and versions the layout without queuing a build.
     """
+
+    KIND_FREEFORM = "freeform"
+    KIND_GRID = "grid"
+    KIND_COMPONENT = "component"
+    KINDS = [KIND_FREEFORM, KIND_GRID, KIND_COMPONENT]
+
+    SOURCE_POLICY_STANDARD = "standard"
+    SOURCE_POLICY_NOTEBOOK_WIDGET = "notebook_widget"
+    SOURCE_POLICIES = [SOURCE_POLICY_STANDARD, SOURCE_POLICY_NOTEBOOK_WIDGET]
 
     # db_constraint=False: a real FK constraint to the hot posthog_team table
     # takes a parent lock during migration; scoping is enforced app-side.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Channels are the tasks product's model; every canvas is filed into one.
-    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="canvases")
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="+")
 
     name = models.CharField(max_length=400)
+    kind = models.CharField(max_length=16, default=KIND_FREEFORM)
+    source_policy = models.CharField(max_length=32, default=SOURCE_POLICY_STANDARD, db_default=SOURCE_POLICY_STANDARD)
+    # Short prose describing what the canvas is/does. For components this is
+    # the store-search text agents match against, so it should say what the
+    # widget shows and what its config controls.
+    description = models.TextField(blank=True, default="")
     template_id = models.CharField(max_length=64, default="freeform")
-    # Author-written markdown handed to generation tasks as background context.
-    context = models.TextField(blank=True, default="")
     # The task currently generating/editing this canvas. A plain UUID rather
     # than a FK: Task lives in the tasks app and a schema-level FK would chain
     # the two products' migrations together for a soft pointer.
@@ -45,7 +70,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     legacy_code = models.TextField(null=True, blank=True)
 
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -53,7 +78,16 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_canvas"
-        indexes = [models.Index(fields=["channel", "-created_at"], name="canvas_channel_recency")]
+        indexes = [
+            models.Index(fields=["channel", "-created_at"], name="canvas_channel_recency"),
+            # The component store lists/searches by team + kind; freeform rows
+            # (the overwhelming majority) stay out of the index.
+            models.Index(
+                fields=["team", "kind"],
+                condition=~Q(kind="freeform"),
+                name="canvas_kind_store",
+            ),
+        ]
 
 
 class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
@@ -65,7 +99,7 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     an existing version.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="source_versions")
     parent_version = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
@@ -86,13 +120,19 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     # without reading object storage. Null for versions that predate it.
     capabilities = models.JSONField(null=True, blank=True)
 
+    # For component-kind canvases: the version's placement contract (config
+    # schema, grid size), denormalized from the stored source so the store and
+    # layout validation can read it without hitting object storage. Null for
+    # freeform/grid versions and component versions that predate it.
+    component_meta = models.JSONField(null=True, blank=True)
+
     # True while the version is a staged draft: stored and built like any other
     # version, but never the canvas head, so its build can't go live. Promoting
     # clears the flag; after that the version is indistinguishable from a publish.
     draft = models.BooleanField(default=False)
 
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -116,7 +156,7 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
     STATUS_FAILED = "failed"
     ACTIVE_STATUSES = [STATUS_QUEUED, STATUS_BUILDING]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="builds")
     source_version = models.ForeignKey(CanvasSourceVersion, on_delete=models.CASCADE, related_name="builds")
 
@@ -162,6 +202,33 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class CanvasHomePreference(TeamScopedRootMixin, UUIDModel):
+    """One user's home-canvas selection within a team.
+
+    Home is a pointer to an ordinary canvas (normally a grid canvas in the
+    user's personal channel), not a flag on the canvas itself — a canvas-side
+    marker was tried before (``is_home``) and retired because it entangled
+    canvas lifecycle with surface lifecycle. The FK cascade only clears the
+    pointer on a hard delete of the team or channel; the canvas delete endpoint
+    is a soft delete (``deleted=True``), so a pointer at a soft-deleted canvas
+    survives. The home reader must treat a pointer whose canvas is deleted as no
+    home set — filter ``canvas__deleted=False`` — and re-provision on next open.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="+")
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_canvas_home_preference"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="canvas_home_one_per_user_team"),
+        ]
+
+
 class CanvasState(TeamScopedRootMixin, UUIDModel):
     """One key of a canvas's runtime key-value store (the ``ph.state`` verb).
 
@@ -175,11 +242,13 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
     SCOPE_SHARED = "shared"
     SCOPES = [SCOPE_USER, SCOPE_SHARED]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")
     scope = models.CharField(max_length=8)
     # The owning viewer for user-scoped rows; always null for shared rows.
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     key = models.CharField(max_length=200)
     value = models.JSONField()
     created_at = models.DateTimeField(default=timezone.now)

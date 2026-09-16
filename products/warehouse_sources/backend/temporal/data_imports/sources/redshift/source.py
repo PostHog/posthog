@@ -3,23 +3,25 @@ from typing import TYPE_CHECKING, Optional, cast
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR
+
+from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_redshift_schemas
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+    HostNotAllowedError,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -39,6 +41,17 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 _REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
+
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance (the sibling SQL sources already do the same).
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are "
+    "correct, the bastion host is running and reachable, and that PostHog's IP addresses are "
+    "allowed through its firewall."
+)
 
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -69,7 +82,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.REDSHIFT,
+            name=ExternalDataSourceType.REDSHIFT,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["aws redshift", "amazon redshift", "sql"],
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
@@ -93,6 +106,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host. `localhost` and private "
+                            "IPs (10.x, 172.16-31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -140,6 +159,14 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
         )
 
+    def get_retryable_errors(self) -> set[str]:
+        # The bounded lookup in front of every connect raises these when the resolver stalls or
+        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
+        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             **self.default_non_retryable_errors(),
@@ -158,6 +185,13 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "server does not support SSL": None,
             "does not exist": None,
             "QueryTimeoutException": None,
+            # `QueryTimeoutException` above only matches once Temporal's `ApplicationError` wraps
+            # the failure with the class name (workflow layer) — the activity-level check matches
+            # `str(e)` on the raw exception, which is just the message with no class name. Match
+            # the stable prefix too (not the incremental field name, which varies per table) so a
+            # table missing the SORTKEY stops retrying at the activity layer instead of burning a
+            # full retry budget on a 10-minute query that will time out identically every time.
+            "10 min timeout statement reached": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,
@@ -201,6 +235,10 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
 
         try:
             self.get_schemas(config, team_id, api_version=api_version)
+        except (HostNotAllowedError, TemporaryHostResolutionError) as e:
+            # The host policy refused the host, or its lookup never answered. Both carry their own
+            # user-facing wording and neither is a PostHog defect, so they are not captured.
+            return False, str(e)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in RedshiftErrors.items():
@@ -210,9 +248,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:

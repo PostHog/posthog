@@ -5,12 +5,11 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):

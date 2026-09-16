@@ -21,3 +21,4 @@ class AppdynamicsSourceConfig(config.Config):
     account_name: str
     auth_method: AppdynamicsAuthMethodConfig
     metric_paths: str | None = None
+    event_types: str | None = None

@@ -11,9 +11,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
-from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
@@ -293,6 +294,16 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert body["error"] == "invalid_grant"
         assert "revoked" in body["error_description"]
         assert OAuthAccessToken.objects.count() == tokens_before
+
+    def test_refresh_rejected_when_user_deactivated(self):
+        first = self._request_bearer_token().json()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._refresh(first["refresh_token"])
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
 
     def test_refresh_allowed_when_token_postdates_session_revoke(self):
         self._stamp_session_revoke(timezone.now() - timedelta(hours=1))

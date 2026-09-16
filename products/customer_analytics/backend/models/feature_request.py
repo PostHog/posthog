@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
@@ -24,7 +25,7 @@ class FeatureRequestHistorySource(models.TextChoices):
 
 
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=200)
     display_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -45,9 +46,9 @@ class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequest(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     title = models.CharField(max_length=400)
-    description = models.TextField()
+    description = models.TextField(blank=True, default="")
     status = models.CharField(
         max_length=32,
         choices=FeatureRequestStatus.choices,
@@ -80,7 +81,7 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -108,7 +109,7 @@ class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -119,7 +120,18 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="feature_request_links",
     )
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    unlinked_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -130,8 +142,46 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    account_link = models.ForeignKey(
+        FeatureRequestAccountLink,
+        on_delete=models.CASCADE,
+        related_name="evidence",
+    )
+    summary = models.TextField(blank=True, default="")
+    customer_quote = models.TextField(blank=True, default="")
+    source = models.CharField(max_length=200)
+    source_url = models.URLField(max_length=2000, blank=True, default="")
+    requested_on = models.DateField(null=True, blank=True)
+    image_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = [models.F("requested_on").desc(nulls_last=True), "-created_at", "-id"]
+
+
 class FeatureRequestProductAreaLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,

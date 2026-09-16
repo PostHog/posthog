@@ -2,7 +2,6 @@ import uuid
 import datetime as dt
 
 import pytest
-import unittest.mock
 
 import pytest_asyncio
 import temporalio.worker
@@ -167,11 +166,9 @@ class TestGetDagStructureActivity:
 
         assert len(dag.executable_nodes) == 3
 
-    @pytest.mark.parametrize("enforced", [True, False])
-    async def test_reports_suspended_nodes_only_when_enforced(
-        self, activity_environment, ateam, dag_nodes, adag, enforced
+    async def test_reports_a_suspended_node_under_the_engine_that_marked_it(
+        self, activity_environment, ateam, dag_nodes, adag
     ):
-        from posthog.temporal.data_modeling.activities import get_dag_structure as gds
         from posthog.temporal.data_modeling.activities.utils import mark_node_suspended
 
         suspended_node = dag_nodes[1]
@@ -179,11 +176,11 @@ class TestGetDagStructureActivity:
         await database_sync_to_async(suspended_node.save)()
 
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
-        with unittest.mock.patch.object(gds, "is_suspension_enforced", return_value=enforced):
-            dag = await activity_environment.run(get_dag_structure_activity, inputs)
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
 
-        assert dag.suspended_nodes["clickhouse"] == ([str(suspended_node.id)] if enforced else [])
+        assert dag.suspended_nodes["clickhouse"] == [str(suspended_node.id)]
         assert dag.suspended_nodes["duckgres"] == []
+        assert dag.suspended_nodes["managed_warehouse"] == []
 
     @pytest.mark.usefixtures("dag_edges")  # avoids type checking unused arg
     async def test_excludes_source_table_edges(self, activity_environment, ateam, adag):
@@ -501,6 +498,8 @@ class TestExecuteDAGWorkflow:
 
 _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
+_mock_workflow_should_block_on_quality: set[str] = set()
+_mock_workflow_should_self_audit: set[str] = set()
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
 _notified_dag_failures: list[NotifyDAGMaterializationFailuresInputs] = []
 
@@ -523,11 +522,14 @@ class MockMaterializeViewWorkflow:
         _mock_workflow_calls.append(inputs.node_id)
         if inputs.node_id in _mock_workflow_should_fail:
             raise temporalio.exceptions.ApplicationError(f"Node {inputs.node_id} failed")
+        blocked = inputs.node_id in _mock_workflow_should_block_on_quality
         return MaterializeViewWorkflowResult(
             job_id="test-job",
             node_id=inputs.node_id,
             rows_materialized=100,
             duration_seconds=1.0,
+            quality_blocking_failures=1 if blocked else None,
+            quality_audited=blocked or inputs.node_id in _mock_workflow_should_self_audit,
         )
 
 
@@ -695,15 +697,19 @@ class TestExecuteDAGWorkflowWithMocks:
     async def test_serving_engine_determines_suspension(self):
         dag_id = "test-dag"
         node_ch_id = str(uuid.uuid4())
-        node_duck_id = str(uuid.uuid4())
+        node_managed_warehouse_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
         async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
             return DAGPlan(
-                nodes=[node_ch_id, node_duck_id],
-                executable_nodes=[node_ch_id, node_duck_id],
+                nodes=[node_ch_id, node_managed_warehouse_id],
+                executable_nodes=[node_ch_id, node_managed_warehouse_id],
                 edges=[],
-                suspended_nodes={"clickhouse": [node_ch_id], "duckgres": [node_duck_id]},
+                suspended_nodes={
+                    "clickhouse": [node_ch_id],
+                    "duckgres": [],
+                    "managed_warehouse": [node_managed_warehouse_id],
+                },
             )
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -721,14 +727,14 @@ class TestExecuteDAGWorkflowWithMocks:
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
                     ExecuteDAGWorkflow.run,
-                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, duckgres_only=True),
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, managed_warehouse_only=True),
                     id=f"test-serving-engine-{uuid.uuid4()}",
                     task_queue="test-queue",
                     execution_timeout=dt.timedelta(seconds=30),
                 )
 
         assert node_ch_id in _mock_workflow_calls
-        assert node_duck_id not in _mock_workflow_calls
+        assert node_managed_warehouse_id not in _mock_workflow_calls
         assert result.successful_nodes == 1
         assert result.skipped_nodes == 1
 

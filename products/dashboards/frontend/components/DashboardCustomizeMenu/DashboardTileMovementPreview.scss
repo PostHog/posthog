@@ -1,0 +1,154 @@
+.dashboard-tile-movement-preview {
+    &__move-up,
+    &__move-up-double,
+    &__move-right,
+    &__move-into-row,
+    &__move-down,
+    &__resize-right {
+        transform-box: fill-box;
+        transform-origin: center;
+    }
+
+    &__move-up {
+        animation: DashboardTileMovementPreview__moveUp 2.5s ease-in-out infinite;
+    }
+
+    &__move-up-double {
+        animation: DashboardTileMovementPreview__moveUpDouble 2.5s ease-in-out infinite;
+    }
+
+    &__move-right {
+        animation: DashboardTileMovementPreview__moveRight 2.5s ease-in-out infinite;
+    }
+
+    &__move-into-row {
+        animation: DashboardTileMovementPreview__moveIntoRow 2.5s ease-in-out infinite;
+    }
+
+    &__move-down {
+        animation: DashboardTileMovementPreview__moveDown 2.5s ease-in-out infinite;
+    }
+
+    &__resize-right {
+        transform-origin: left center;
+        animation: DashboardTileMovementPreview__resizeRight 2.5s ease-in-out infinite;
+    }
+}
+
+@keyframes DashboardTileMovementPreview__moveUp {
+    0%,
+    16.67%,
+    50%,
+    100% {
+        transform: translateY(-16px);
+    }
+
+    30% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes DashboardTileMovementPreview__moveUpDouble {
+    0%,
+    16.67%,
+    50%,
+    100% {
+        transform: translateY(-32px);
+    }
+
+    30% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes DashboardTileMovementPreview__moveRight {
+    0%,
+    16.67%,
+    50%,
+    100% {
+        transform: translateX(15.5px);
+    }
+
+    30% {
+        transform: translateX(0);
+    }
+}
+
+@keyframes DashboardTileMovementPreview__moveIntoRow {
+    0%,
+    16.67%,
+    66.67%,
+    100% {
+        transform: translateY(-16px);
+    }
+
+    30%,
+    56.67% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes DashboardTileMovementPreview__moveDown {
+    0%,
+    16.67%,
+    58.33%,
+    100% {
+        transform: translateY(16px);
+    }
+
+    30%,
+    43.33% {
+        transform: translateY(0);
+    }
+}
+
+@keyframes DashboardTileMovementPreview__resizeRight {
+    0%,
+    16.67%,
+    58.33%,
+    100% {
+        transform: scaleX(2.24);
+    }
+
+    30%,
+    56.67% {
+        transform: scaleX(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-tile-movement-preview {
+        &__move-up {
+            transform: translateY(-16px);
+        }
+
+        &__move-up-double {
+            transform: translateY(-32px);
+        }
+
+        &__move-right {
+            transform: translateX(15.5px);
+        }
+
+        &__move-into-row {
+            transform: translateY(-16px);
+        }
+
+        &__move-down {
+            transform: translateY(16px);
+        }
+
+        &__resize-right {
+            transform: scaleX(2.24);
+        }
+
+        &__move-up,
+        &__move-up-double,
+        &__move-right,
+        &__move-into-row,
+        &__move-down,
+        &__resize-right {
+            animation: none;
+        }
+    }
+}

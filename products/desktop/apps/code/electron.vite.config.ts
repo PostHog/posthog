@@ -11,6 +11,7 @@ import { loadEnv } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { buildExternals } from "./runtime-dependencies";
 import {
+  createCustomCloudDefine,
   createForceDevModeDefine,
   createPosthogPlugin,
   mainAliases,
@@ -117,6 +118,7 @@ export default defineConfig(({ mode }) => {
         "process.env.CONTEXT_MILL_ZIP_URL":
           JSON.stringify(CONTEXT_MILL_ZIP_URL),
         ...createForceDevModeDefine(),
+        ...createCustomCloudDefine(isDev),
       },
       resolve: {
         alias: mainAliases,
@@ -232,6 +234,7 @@ export default defineConfig(({ mode }) => {
       envDir: path.resolve(__dirname, "../.."),
       define: {
         ...createForceDevModeDefine(),
+        ...createCustomCloudDefine(isDev),
         __APP_VERSION__: JSON.stringify(pkg.version),
       },
       resolve: {
@@ -245,7 +248,14 @@ export default defineConfig(({ mode }) => {
         outDir: path.join(__dirname, ".vite/renderer/main_window"),
         sourcemap: true,
         rollupOptions: {
-          input: path.resolve(__dirname, "index.html"),
+          input: {
+            main_window: path.resolve(__dirname, "index.html"),
+            quick_ask: path.resolve(__dirname, "quick-ask.html"),
+            quick_ask_annotate: path.resolve(
+              __dirname,
+              "quick-ask-annotate.html",
+            ),
+          },
         },
       },
     },

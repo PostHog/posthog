@@ -299,11 +299,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
-                addMetric({
-                    metric_kind: 'billing',
-                    metric_name: 'billable_invocation',
-                    count: 1,
-                })
+                // Queued before queueInvocations serializes the invocation, because
+                // queueLifecycleRow stamps `state.firstScheduledAt` and only a stamp set before
+                // serialization reaches cyclotron.
+                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(
+                    hogFlowInvocation,
+                    'running'
+                )
 
                 await this.hogflowQueue.queueInvocations([hogFlowInvocation])
             } else {
@@ -319,6 +321,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             return functionResult
         } catch (error) {
             logger.error('Error triggering hog flow', { error })
+            // The 'running' row is queued before the invocation reaches cyclotron, so a throw after
+            // that point leaves a row for a run that does not exist and would never terminate.
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocationId])
             addMetric({
                 metric_kind: 'failure',
                 metric_name: 'trigger_failed',

@@ -6,6 +6,7 @@ from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSe
 
 __all__ = [
     "INELIGIBLE_SESSION_ERROR_TYPE",
+    "SCANNER_ADMISSION_BUSY_ERROR_TYPE",
     "SCANNER_FAILURE_ERROR_TYPE",
     "ConsentWithdrawnError",
     "FailureKind",
@@ -18,6 +19,8 @@ __all__ = [
 # workflow can dispatch on them without parsing exception messages.
 INELIGIBLE_SESSION_ERROR_TYPE = "IneligibleSession"
 SCANNER_FAILURE_ERROR_TYPE = "ScannerFailure"
+# Always retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
+SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
 
 
 class _KindedApplicationError(ApplicationError):

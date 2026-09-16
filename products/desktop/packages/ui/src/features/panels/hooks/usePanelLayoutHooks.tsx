@@ -1,8 +1,7 @@
 import {
   ChartLineUp,
   ChatCenteredText,
-  FileText,
-  Scroll,
+  PackageIcon,
   Terminal,
 } from "@phosphor-icons/react";
 import { resolveTabAbsolutePath } from "@posthog/core/panels/resolveTabPath";
@@ -10,7 +9,12 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelGroupHandle } from "react-resizable-panels";
 import { FileIcon } from "../../../primitives/FileIcon";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "../../../utils/objectKinds";
 import { ActionTabIcon } from "../../actions/ActionTabIcon";
+import { INJECTED_BLOCK_PRESENTATION } from "../../sessions/components/session-update/injectedBlocks";
 import { useCwd } from "../../sidebar/useCwd";
 import { TabContentRenderer } from "../../task-detail/components/TabContentRenderer";
 import type { SplitDirection } from "../panelLayoutStore";
@@ -113,14 +117,22 @@ export function useTabInjection(
             icon = <ChatCenteredText size={14} />;
           } else if (tab.data.type === "action") {
             icon = <ActionTabIcon actionId={tab.data.actionId} />;
-          } else if (tab.data.type === "context") {
-            icon = <FileText size={14} />;
-          } else if (tab.data.type === "canvas-instructions") {
-            icon = <Scroll size={14} />;
+          } else if (tab.data.type === "injected-block") {
+            const BlockIcon =
+              INJECTED_BLOCK_PRESENTATION[tab.data.block.kind].icon;
+            icon = <BlockIcon size={14} />;
           } else if (tab.data.type === "autoresearch") {
             icon = <ChartLineUp size={14} />;
+          } else if (tab.data.type === "posthog-object") {
+            const ObjectIcon = getObjectKind(tab.data.objectKind).icon;
+            icon = <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />;
           } else if (tab.data.type === "artifact") {
-            icon = <FileIcon filename={tab.label} size={14} />;
+            if (tab.data.objectKind) {
+              const ObjectIcon = getObjectKind(tab.data.objectKind).icon;
+              icon = <ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />;
+            } else {
+              icon = <PackageIcon size={14} />;
+            }
           }
         }
 

@@ -14,6 +14,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     CanonicalSkill,
     CanonicalSkillFile,
     CanonicalSkillParseError,
+    ScoutRole,
     SyncResult,
     _compute_canonical_hash,
     _compute_row_hash,
@@ -52,6 +53,7 @@ def _make_canonical(
     allowed_tools: tuple[str, ...] = (),
     files: tuple[CanonicalSkillFile, ...] = (),
     config_tags: tuple[str, ...] = (),
+    role: ScoutRole = "specialist",
 ) -> CanonicalSkill:
     """Build a CanonicalSkill for a unit test without going through disk + frontmatter."""
     return CanonicalSkill(
@@ -62,6 +64,7 @@ def _make_canonical(
         files=files,
         source_path=Path("/tmp/fake"),
         config_tags=config_tags,
+        role=role,
     )
 
 
@@ -312,6 +315,106 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match="Only a signals-scout-\\* skill may declare 'scout-tags'"):
             discover_canonical_skills(tmp_path)
 
+    @pytest.mark.parametrize(
+        "display_name_yaml,expected",
+        [
+            ("scout-display-name: MCP tool calls", "MCP tool calls"),
+            ("scout-display-name: '  APM  '", "APM"),
+            ("", ""),
+        ],
+    )
+    def test_parses_scout_display_name(self, tmp_path: Path, display_name_yaml: str, expected: str) -> None:
+        # The label is how a canonical scout avoids reading as "Mcp tool calls", so a dropped key
+        # silently hands every surface the sentence-cased slug again.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{display_name_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].display_name == expected
+
+    @pytest.mark.parametrize(
+        "dir_name,display_name_yaml,expected_error",
+        [
+            ("signals-scout-bar", "scout-display-name: ''", "must be a non-empty string"),
+            ("signals-scout-bar", "scout-display-name:", "must be a non-empty string"),
+            ("signals-scout-bar", f"scout-display-name: {'a' * 201}", "character limit"),
+            ("authoring-scouts", "scout-display-name: Authoring", "Only a signals-scout-\\* skill may declare"),
+        ],
+    )
+    def test_rejects_malformed_scout_display_name(
+        self, tmp_path: Path, dir_name: str, display_name_yaml: str, expected_error: str
+    ) -> None:
+        name = dir_name if dir_name == "authoring-scouts" else "signals-scout-bar"
+        _write_canonical_skill(
+            tmp_path,
+            dir_name=dir_name,
+            frontmatter=f"---\nname: {name}\ndescription: bar skill\n{display_name_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
+    def test_parses_scout_role(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                scout-role: operational
+                ---
+            """,
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].role == "operational"
+
+    def test_defaults_to_the_specialist_role(self, tmp_path: Path) -> None:
+        # The default has to be the posture that keeps every control on.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                ---
+            """,
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].role == "specialist"
+
+    @pytest.mark.parametrize("scout_role_yaml", ["scout-role: infrastructure", "scout-role:", "scout-role:\n  - ops"])
+    def test_rejects_unknown_scout_role(self, tmp_path: Path, scout_role_yaml: str) -> None:
+        # Falling back to `specialist` would silence the scout the role exists to protect.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{scout_role_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="'scout-role' must be one of"):
+            discover_canonical_skills(tmp_path)
+
+    def test_rejects_scout_role_on_companion_skill(self, tmp_path: Path) -> None:
+        # A companion skill never gets a config, so there is no posture for a role to shape.
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="authoring-scouts",
+            frontmatter="""
+                ---
+                name: authoring-scouts
+                description: companion authoring guide
+                scout-role: operational
+                ---
+            """,
+            body="# Authoring\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="Only a signals-scout-\\* skill may declare 'scout-role'"):
+            discover_canonical_skills(tmp_path)
+
     def test_parses_bundled_files_under_allowed_subdirs(self, tmp_path: Path) -> None:
         # `_ALLOWED_BUNDLE_SUBDIRS` is kept in lockstep with `hogli build:skills` —
         # `references/` and `scripts/` only. `assets/` and any other subdir are intentionally
@@ -401,6 +504,10 @@ class TestDiscoverCanonicalSkills:
             # Companion (non-scout) skill, seeded so store-only agents can read the
             # authoring guide via llma-skill-get.
             "authoring-scouts",
+            # Companion owned by another product, resolved by file path. Moving or renaming
+            # that directory drops it from every team's store, and a scout told to read it
+            # would report it missing instead of failing.
+            "exploring-replay-vision-observations",
         }
         assert expected.issubset(names), f"missing canonical skills: {expected - names}"
 
@@ -516,6 +623,13 @@ class TestComputeCanonicalHash:
         # seeded row permanently diverged from its stored hash and freeze content updates.
         a = _make_canonical("signals-scout-foo", body="x")
         b = _make_canonical("signals-scout-foo", body="x", config_tags=("ai-observability",))
+        assert _compute_canonical_hash(a) == _compute_canonical_hash(b)
+
+    def test_scout_role_does_not_change_hash(self) -> None:
+        # Like tags, the role shapes the config rather than the skill row, so folding it in would
+        # leave every seeded row permanently diverged and freeze content updates.
+        a = _make_canonical("signals-scout-foo", body="x")
+        b = _make_canonical("signals-scout-foo", body="x", role="operational")
         assert _compute_canonical_hash(a) == _compute_canonical_hash(b)
 
     def test_canonical_and_row_hashes_agree_when_content_matches(self) -> None:
@@ -985,6 +1099,17 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert loaded.version == 1
         assert "Signals scout" in loaded.body
 
+    def test_real_fleet_operational_scout_seeds_enabled_and_exempt(self) -> None:
+        # No mocking, so a dropped frontmatter key fails here and not by a pause weeks later.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+
+        operational = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-inbox-validation")
+        assert operational.enabled is True
+        assert operational.auto_pause_exempt is True
+        specialist = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
+        assert specialist.auto_pause_exempt is False
+
     def test_real_fleet_scout_tags_land_on_the_seeded_config(self) -> None:
         # The whole path a product surface depends on: `scout-tags` in the in-repo SKILL.md →
         # the tag column the AI observability tab filters its scout list on. No mocking, so
@@ -996,3 +1121,28 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert tagged.tag_list == ["ai-observability"]
         untagged = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
         assert untagged.tag_list == []
+
+    def test_real_fleet_display_names_land_on_the_seeded_config(self) -> None:
+        # The acronyms are the whole point of the frontmatter key: a slug sentence-cased at render
+        # time reads as "Apm" and "Mcp tool calls", which is what this stops.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+
+        named = SignalScoutConfig.all_teams.filter(team=self.team).values_list("skill_name", "display_name")
+        assert dict(named)["signals-scout-apm"] == "APM"
+        assert dict(named)["signals-scout-mcp-tool-calls"] == "MCP tool calls"
+        assert all(display_name for _, display_name in named)
+
+    def test_reconcile_names_a_row_seeded_before_the_label_existed_but_never_a_rename(self) -> None:
+        # Every canonical config predates the frontmatter key, so the backfill is the only way they
+        # acquire a label — and it runs on every tick, so it must lose to a person's rename forever.
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+        configs = SignalScoutConfig.all_teams.filter(team=self.team)
+        configs.filter(skill_name="signals-scout-apm").update(display_name="")
+        configs.filter(skill_name="signals-scout-mcp-tool-calls").update(display_name="Our MCP watch")
+
+        register_missing_configs(self.team.id)
+
+        assert configs.get(skill_name="signals-scout-apm").display_name == "APM"
+        assert configs.get(skill_name="signals-scout-mcp-tool-calls").display_name == "Our MCP watch"

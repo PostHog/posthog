@@ -1,6 +1,7 @@
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -42,6 +43,11 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
+
+
 class EvaluationQuerySet(models.QuerySet):
     def using_provider_keys(self) -> "EvaluationQuerySet":
         return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
@@ -77,7 +83,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     objects = EvaluationQuerySet.as_manager()
 
     # Core fields
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     directory = models.ForeignKey(
@@ -94,7 +100,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
@@ -129,7 +135,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __init__(self, *args, **kwargs) -> None:

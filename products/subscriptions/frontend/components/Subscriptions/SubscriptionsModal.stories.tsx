@@ -270,7 +270,16 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const SubscriptionsNew: Story = {
-    args: { subscriptionId: 'new', formScenario: 'default' },
+    args: { isCreating: true, formScenario: 'default' },
+}
+
+export const SubscriptionWizardNew: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.SUBSCRIPTION_CREATION_WIZARD]: 'test',
+        },
+    },
+    args: { isCreating: true, formScenario: 'default' },
 }
 
 // Tabbed overview, dashboard context: This dashboard / Insights / AI prompt reports tabs.
@@ -281,16 +290,17 @@ export const SubscriptionsTabbed: Story = {
         },
     },
     args: {
+        subscriptionId: null,
         dashboard: DASHBOARD,
     },
 }
 
 export const DashboardWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
-    args: { dashboard: DASHBOARD },
+    args: { subscriptionId: null, dashboard: DASHBOARD },
 }
 
 export const InsightWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
-    args: { insightShortId: 'ins11' as InsightShortId },
+    args: { subscriptionId: null, insightShortId: 'ins11' as InsightShortId },
 }

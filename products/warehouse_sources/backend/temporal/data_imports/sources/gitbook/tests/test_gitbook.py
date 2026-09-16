@@ -45,7 +45,7 @@ def _response(
     else:
         body = {"items": items or []}
         if next_page is not None:
-            body["next"] = {"page": next_page}  # ty: ignore[invalid-assignment]
+            body["next"] = {"page": next_page}
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()

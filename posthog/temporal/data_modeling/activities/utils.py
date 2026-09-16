@@ -7,8 +7,6 @@ from django.db import transaction
 
 from structlog.contextvars import bind_contextvars
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
@@ -39,7 +37,6 @@ __all__ = [
     "get_previous_jobs",
     "is_externally_aborted",
     "is_node_suspended",
-    "is_suspension_enforced",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
     "starts_a_failure_streak",
@@ -55,7 +52,8 @@ LOGGER = get_logger(__name__)
 # Consecutive failed jobs (per engine) before a node is suspended from future DAG runs.
 CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
-SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
+# Shared with quality_block_materialization so the counter below can recognize its job rows.
+QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
 
 
 def get_previous_jobs(
@@ -97,27 +95,16 @@ EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
     "Cannot connect to host",
     "Connection refused",
+    # our own egress proxy was unreachable, so nothing left the cluster - the trailing colon keeps a
+    # customer column of the same name out of the match, as with the two below
+    "ProxyConnectionError: ",
     # the trailing colon is load-bearing: it keeps a customer column of the same name out of the match
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
     ABANDONED_ERROR,
+    # the query ran and produced rows; only the publish was refused
+    QUALITY_BLOCKED_ERROR_PREFIX,
 )
-
-
-def is_suspension_enforced(team_id: int) -> bool:
-    try:
-        team = Team.objects.only("organization_id").get(id=team_id)
-        return feature_enabled_or_false(
-            SUSPENSION_ENFORCEMENT_FLAG,
-            str(team_id),
-            groups={"organization": str(team.organization_id), "project": str(team_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        LOGGER.warning("Failed to evaluate suspension enforcement flag; treating as disabled", team_id=team_id)
-        return False
 
 
 def is_externally_aborted(error: str) -> bool:
@@ -227,9 +214,9 @@ def maybe_suspend_node_for_engine(
         )
         mark_node_suspended(node, engine=engine, reason=reason, job_id=job_id, fingerprint=fingerprint)
         node.save()
-    # Without enforcement the node keeps materializing every tick, so telling the customer it stopped
-    # would be false.
-    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value and is_suspension_enforced(team_id):
+    # Only ClickHouse serves queries, so a marker on a shadow engine stopped the comparison run,
+    # not the model the customer reads.
+    if str(engine) == DataModelingJobEngine.CLICKHOUSE.value:
         job = DataModelingJob.objects.get(id=job_id)
         job.error = (
             f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "

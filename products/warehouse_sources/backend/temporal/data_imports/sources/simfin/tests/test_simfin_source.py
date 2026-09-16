@@ -5,11 +5,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source import SimFinSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.simfin.source"
 
@@ -22,9 +20,6 @@ def _make_config(api_key: str = "key", tickers: str = "AAPL, MSFT") -> Any:
 
 
 class TestSimFinSource:
-    def test_source_type(self) -> None:
-        assert SimFinSource().source_type == ExternalDataSourceType.SIMFIN
-
     def test_source_config_has_api_key_and_tickers_fields(self) -> None:
         config = SimFinSource().get_source_config
         assert [f.name for f in config.fields] == ["api_key", "tickers"]

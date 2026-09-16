@@ -1,10 +1,9 @@
-// The shared ref format between the producer, this consumer, and training joins; pseudo_team is the
-// non-reversible HMAC team pseudonym from ml-mirror/pseudonymize.ts (keeps raw team ids out of the
-// ML bucket). The hash half is keyed (per-team HMAC, derived alongside the pseudonym) so the
-// unencrypted bucket carries no unkeyed content digest — a plain sha256 would let a bucket reader
-// confirm whether specific known bytes appeared in a session, and correlate identical images across
-// teams. The consumer trusts the producer's ref (it is the only writer) and never recomputes the
-// hash; the Rust producer implementation is pinned to this one by the shared image-hash.json fixture.
+// The inline-image ref format shared by the producer, this consumer, and training joins.
+// The hash uses a per-team HMAC, so the unencrypted bucket carries no unkeyed content digest.
+// A plain sha256 would let a bucket reader confirm whether known bytes appeared in a session
+// and correlate identical images across teams. The consumer trusts the producer (the only writer)
+// and never recomputes the hash. The shared image-hash.json fixture pins the Rust construction.
+// Legacy refs retain their team pseudonym so queued images still join to their replay blocks.
 import { createHmac } from 'node:crypto'
 
 const PREFIX = 'image'
@@ -17,26 +16,60 @@ const PREFIX = 'image'
  * silent mis-join rather than an error.
  */
 const URL_PREFIX = 'imageurl'
-const REF_RE = /^(image|imageurl):([0-9a-f]{32}):([A-Za-z0-9_-]{22})$/
+const CONTENT_REF_RE = /^image:([1-9][0-9]{0,15}|[0-9a-f]{32}):([A-Za-z0-9_-]{22})$/
+const GLOBAL_URL_REF_RE = /^imageurl:([A-Za-z0-9_-]{22})$/
+const LEGACY_URL_REF_RE = /^imageurl:([0-9a-f]{32}):([A-Za-z0-9_-]{22})$/
 
 export function hashImageBytes(contentKey: string | Buffer, bytes: Buffer): string {
     return createHmac('sha256', contentKey).update(bytes).digest('base64url').slice(0, 22)
 }
 
-export function imageRef(pseudoTeam: string, hash: string): string {
-    return `${PREFIX}:${pseudoTeam}:${hash}`
+export function imageRef(teamId: string, hash: string): string {
+    return `${PREFIX}:${teamId}:${hash}`
 }
 
-export function urlRef(pseudoTeam: string, hash: string): string {
-    return `${URL_PREFIX}:${pseudoTeam}:${hash}`
+export function urlRef(hash: string): string {
+    return `${URL_PREFIX}:${hash}`
 }
 
 export function isImageRef(s: string): boolean {
-    return REF_RE.test(s)
+    return parseImageRef(s) !== null
+}
+
+export function isRawTeamId(value: unknown): boolean {
+    return typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value) && Number.isSafeInteger(Number(value))
 }
 
 /** Parses either kind of ref. `source` says which promise the hash carries. */
-export function parseImageRef(s: string): { pseudoTeam: string; hash: string; source: 'bytes' | 'url' } | null {
-    const m = REF_RE.exec(s)
-    return m ? { pseudoTeam: m[2], hash: m[3], source: m[1] === PREFIX ? 'bytes' : 'url' } : null
+export function parseImageRef(s: string): {
+    teamId?: string
+    pseudoTeam?: string
+    hash: string
+    source: 'bytes' | 'url'
+    version?: 2
+    sessionMonth?: string
+} | null {
+    const scoped = /^(image|imageurl):v2:([1-9][0-9]{0,15}):([0-9]{4}-(?:0[1-9]|1[0-2])):([A-Za-z0-9_-]{22})$/.exec(s)
+    if (scoped && isRawTeamId(scoped[2])) {
+        return {
+            teamId: scoped[2],
+            sessionMonth: scoped[3],
+            hash: scoped[4],
+            source: scoped[1] === 'image' ? 'bytes' : 'url',
+            version: 2,
+        }
+    }
+    const content = CONTENT_REF_RE.exec(s)
+    if (content) {
+        if (isRawTeamId(content[1])) {
+            return { teamId: content[1], hash: content[2], source: 'bytes' }
+        }
+        return content[1].length === 32 ? { pseudoTeam: content[1], hash: content[2], source: 'bytes' } : null
+    }
+    const globalUrl = GLOBAL_URL_REF_RE.exec(s)
+    if (globalUrl) {
+        return { hash: globalUrl[1], source: 'url' }
+    }
+    const legacyUrl = LEGACY_URL_REF_RE.exec(s)
+    return legacyUrl ? { pseudoTeam: legacyUrl[1], hash: legacyUrl[2], source: 'url' } : null
 }

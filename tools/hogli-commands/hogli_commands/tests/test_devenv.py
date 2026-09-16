@@ -916,6 +916,14 @@ class TestInfoProcess:
 class TestMprocsGeneratorRegression:
     """Regression tests for generator behavior with the real intent map."""
 
+    def test_desktop_and_task_worker_share_local_skill_default(self) -> None:
+        registry = create_mprocs_registry()
+        resolved = IntentResolver(load_intent_map(), registry).resolve(["desktop"])
+        config = MprocsGenerator(registry).generate(resolved)
+        for name in ["desktop", "temporal-worker"]:
+            assert 'export POSTHOG_DESKTOP_SKILLS="${POSTHOG_DESKTOP_SKILLS:-local}"' in config.procs[name]["shell"]
+        assert "POSTHOG_DESKTOP_SKILLS" not in config.procs["backend"]["shell"]
+
     def test_product_analytics_keeps_native_core_services(self) -> None:
         intent_map = load_intent_map()
         registry = create_mprocs_registry()
@@ -925,6 +933,7 @@ class TestMprocsGeneratorRegression:
 
         assert "capture" in resolved.units
         assert "capture" in config.procs
+        assert "usage-ingestion" in config.procs
         assert "feature-flags" in config.procs
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs

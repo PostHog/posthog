@@ -1,15 +1,21 @@
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import LlmsTxtFetchBurstRateThrottle, LlmsTxtFetchSustainedRateThrottle
 
+from products.web_analytics.backend.llms_txt import LlmsTxtFetchError, fetch_llms_txt
 from products.web_analytics.backend.recap import build_team_recap
 from products.web_analytics.backend.serializers import (
+    LlmsTxtFetchRequestSerializer,
+    LlmsTxtFetchResponseSerializer,
     WebAnalyticsRecapResponseSerializer,
     WeeklyDigestResponseSerializer,
 )
@@ -27,8 +33,33 @@ class _DigestQuerySerializer(serializers.Serializer):
 
 class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
-    scope_object_read_actions = ["weekly_digest", "recap"]
+    scope_object_read_actions = ["weekly_digest", "recap", "llms_txt"]
     serializer_class = WeeklyDigestResponseSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "llms_txt":
+            # One outbound fetch of a caller-supplied file per call, blocking a web worker while it runs.
+            return [LlmsTxtFetchBurstRateThrottle(), LlmsTxtFetchSustainedRateThrottle()]
+        return super().get_throttles()
+
+    @validated_request(
+        request_serializer=LlmsTxtFetchRequestSerializer,
+        operation_id="web_analytics_fetch_llms_txt",
+        summary="Load an llms.txt file",
+        description="Loads an llms.txt file from a public URL for coverage analysis without saving it.",
+        responses={
+            200: OpenApiResponse(response=LlmsTxtFetchResponseSerializer),
+            400: OpenApiResponse(description="The URL is invalid, inaccessible, or does not return an llms.txt file."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="llms_txt")
+    def llms_txt(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        try:
+            fetched_file = fetch_llms_txt(request.validated_data["url"])
+        except LlmsTxtFetchError as error:
+            raise exceptions.ValidationError({"url": str(error)}) from error
+        return Response(LlmsTxtFetchResponseSerializer(instance=fetched_file).data)
 
     @extend_schema(
         operation_id="web_analytics_weekly_digest",

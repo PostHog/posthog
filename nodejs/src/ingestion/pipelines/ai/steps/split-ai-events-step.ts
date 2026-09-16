@@ -1,8 +1,8 @@
 import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { EventToEmit } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { AI_EVENT_TYPES } from '~/ingestion/pipelines/ai/ai-event-types'
 import { LARGE_AI_PROPERTIES } from '~/ingestion/pipelines/ai/large-ai-properties'
 import { ProcessedEvent } from '~/types'
 

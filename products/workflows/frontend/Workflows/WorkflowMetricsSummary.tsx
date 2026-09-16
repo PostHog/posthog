@@ -8,7 +8,7 @@ import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
@@ -25,6 +25,9 @@ import {
 
 const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
+
+const ISSUE_RATES_TOOLTIP =
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus prevented).'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -121,23 +124,30 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Issues',
                 key: 'issues',
+                tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
+                    // A prevented bounce is skipped before the provider sees it, so it is not part of
+                    // `sent` and its rate reads against everything the step attempted to send.
+                    const attempted = row.sent + row.bouncePrevented
                     const issues = [
                         {
                             label: 'bounced',
                             value: row.bounced,
+                            total: row.sent,
                             type: 'danger' as const,
                             metric: 'email_bounced' as EmailMetric,
                         },
                         {
-                            label: 'blocked',
-                            value: row.blocked,
+                            label: 'marked as spam',
+                            value: row.markedAsSpam,
+                            total: row.sent,
                             type: 'danger' as const,
                             metric: 'email_blocked' as EmailMetric,
                         },
                         {
                             label: 'bounce prevented',
                             value: row.bouncePrevented,
+                            total: attempted,
                             type: 'warning' as const,
                             metric: 'email_bounce_prevented' as EmailMetric,
                         },
@@ -155,6 +165,7 @@ export function WorkflowMetricsSummary({
                                     forceClickable={!!onMetricClick}
                                 >
                                     {issue.value.toLocaleString()} {issue.label}
+                                    {issue.total > 0 ? ` (${percentage(issue.value / issue.total, 1)})` : ''}
                                 </LemonTag>
                             ))}
                         </div>
@@ -294,9 +305,12 @@ export function WorkflowMetricsSummary({
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
                             const pushSeries = getSingleTrendSeries('push_sent', previous)
-                            const labels = emailSeries?.labels ?? pushSeries?.labels ?? []
+                            const source = emailSeries ?? pushSeries
+                            if (!source) {
+                                return null
+                            }
                             return {
-                                labels,
+                                ...source,
                                 series: [
                                     { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
                                     { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },

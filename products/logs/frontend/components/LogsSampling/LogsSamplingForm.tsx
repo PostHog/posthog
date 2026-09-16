@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { LogsFilterVolumeSparkline } from 'products/logs/frontend/components/LogsFilterPreview/LogsFilterVolumeSparkline'
-import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsExclusionRuleRuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { DropRuleFilterEditor } from './DropRuleFilterEditor'
 import { RateLimitUnit, logsSamplingFormLogic, rateLimitAmountToKbPerSecond } from './logsSamplingFormLogic'
@@ -18,16 +18,16 @@ const RATE_LIMIT_UNIT_OPTIONS: { value: RateLimitUnit; label: string }[] = [
     { value: 'GB/s', label: 'GB/s' },
 ]
 
-const ACTION_OPTIONS: { value: RuleTypeEnumApi; label: string }[] = [
-    { value: RuleTypeEnumApi.PathDrop, label: 'Drop' },
-    { value: RuleTypeEnumApi.RateLimit, label: 'Rate limit' },
+const ACTION_OPTIONS: { value: LogsExclusionRuleRuleTypeEnumApi; label: string }[] = [
+    { value: LogsExclusionRuleRuleTypeEnumApi.PathDrop, label: 'Drop' },
+    { value: LogsExclusionRuleRuleTypeEnumApi.RateLimit, label: 'Rate limit' },
 ]
 
 export function LogsSamplingForm(): JSX.Element {
     const { samplingForm, samplingFormErrors } = useValues(logsSamplingFormLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic)
 
-    const isRateLimit = samplingForm.rule_type === RuleTypeEnumApi.RateLimit
+    const isRateLimit = samplingForm.rule_type === LogsExclusionRuleRuleTypeEnumApi.RateLimit
     const hasFilters = samplingForm.filter_group.values.length > 0
 
     const matchDescription = isRateLimit
@@ -109,7 +109,7 @@ export function LogsSamplingForm(): JSX.Element {
                 <LogsFilterVolumeSparkline
                     filterGroup={samplingForm.filter_group}
                     metric={isRateLimit ? 'bytes' : 'count'}
-                    buildReferenceLines={({ bucketSeconds }) => {
+                    buildGoalLines={({ bucketSeconds }) => {
                         const threshold = rateLimitThresholdPerBucket(bucketSeconds)
                         if (threshold == null) {
                             return undefined
@@ -117,11 +117,11 @@ export function LogsSamplingForm(): JSX.Element {
                         return [
                             {
                                 value: threshold,
-                                color: 'danger',
+                                color: 'var(--danger)',
                                 label: `Rate limit (${samplingForm.rate_limit_amount.trim()} ${
                                     samplingForm.rate_limit_unit
                                 })`,
-                                labelPosition: 'end',
+                                displayLabel: true,
                             },
                         ]
                     }}

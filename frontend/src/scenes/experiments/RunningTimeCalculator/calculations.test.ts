@@ -14,6 +14,7 @@ import {
     calculateDaysElapsed,
     calculateExposureRate,
     getCalculatorMetricType,
+    hasRequiredBaselineStats,
 } from './calculations'
 
 // The sample-size / variance math is verified in the backend
@@ -90,6 +91,26 @@ describe('running time calculations', () => {
                 numerator_denominator_sum_product: 2600000,
                 step_counts: [1000, 100],
             })
+        })
+    })
+
+    describe('hasRequiredBaselineStats', () => {
+        const baseline = (denominatorSum: number | undefined): CachedNewExperimentQueryResponse['baseline'] => ({
+            key: 'control',
+            number_of_samples: 10000,
+            sum: 500000,
+            sum_squares: 30000000,
+            denominator_sum: denominatorSum,
+        })
+
+        it.each(['ratio', 'retention'] as const)('requires a positive denominator_sum for %s', (metricType) => {
+            expect(hasRequiredBaselineStats(metricType, baseline(50000))).toBe(true)
+            expect(hasRequiredBaselineStats(metricType, baseline(0))).toBe(false)
+            expect(hasRequiredBaselineStats(metricType, baseline(undefined))).toBe(false)
+        })
+
+        it.each(['funnel', 'mean_count', 'mean_sum_or_avg'] as const)('never blocks %s', (metricType) => {
+            expect(hasRequiredBaselineStats(metricType, baseline(undefined))).toBe(true)
         })
     })
 

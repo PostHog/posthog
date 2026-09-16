@@ -1,15 +1,15 @@
 from typing import cast
 
-from posthog.schema import (
+import structlog
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -31,6 +31,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hu
     HubspotResumeConfig,
     hubspot_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import (
+    SCOPE_GATED_OBJECTS,
+    missing_scope_error,
+    missing_scope_for_endpoint,
+    missing_scope_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
@@ -40,6 +46,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_METADATA_ENDPOINTS as HUBSPOT_METADATA_ENDPOINT_CONFIGS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 
 @config.config
@@ -70,7 +78,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HUBSPOT,
+            name=ExternalDataSourceType.HUBSPOT,
             category=DataWarehouseSourceCategory.CRM,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
@@ -107,14 +115,31 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # An object behind an optional scope the connection never got can't sync until the user
+        # reconnects, so name the fix instead of the generic "no permission" message below. Listed
+        # first so it wins over that message for a 403 we could attribute to a specific scope.
+        missing_scope_errors: dict[str, str | None] = {
+            missing_scope_message(endpoint, scope): (
+                f"Your HubSpot connection cannot read {endpoint}. Reconnect your HubSpot account to grant the "
+                f"{scope} permission, or turn off the {endpoint} table. Not every HubSpot plan includes it."
+            )
+            for endpoint, scope in SCOPE_GATED_OBJECTS.items()
+        }
+
         return {
+            **missing_scope_errors,
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
-            # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
-            # (token revoked, or the connected app is missing a scope like `crm.objects.companies.read`).
-            # `fetch_data` already refreshes the access token once on a 401; if the retried request is
-            # still rejected, the credentials genuinely lack access and retrying can't recover. Match the
-            # stable host, not the per-object URL path (companies/deals/contacts/...), which varies.
+            # A 401 means the OAuth grant can't read the requested object (token revoked, or the
+            # connected app lost a scope like `crm.objects.companies.read`). Every fetch loop
+            # (fetch_data._get, fetch_page, v4 associations, search) refreshes the access token on a
+            # 401 and re-raises HubspotRetryableError, so tenacity retries with a fresh token. Five
+            # straight 401s after a good refresh means the grant is dead, not a transient blip, so
+            # retrying can't recover. Match the shared message fragment all four loops emit, not the
+            # per-loop prefix or the volatile URL.
+            "401 - refreshed token, retrying": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # HubSpot's CRM API may also surface 401 through raise_for_status() in other fetch paths.
+            # Match the stable host prefix, not the per-object URL path, which varies by endpoint.
             "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             # Raised by source_for_pipeline when the source config carries no refresh token at all
@@ -200,6 +225,53 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
         return schemas
 
+    def get_endpoint_permissions(
+        self,
+        config: HubspotSourceConfig | HubspotSourceOldConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        missing = self._missing_scopes(config, team_id)
+        reasons: dict[str, str | None] = {}
+        for endpoint in endpoints:
+            scope = missing.get(endpoint)
+            reasons[endpoint] = (
+                f"Reconnect your HubSpot account to grant the {scope} permission. Not every HubSpot plan includes it."
+                if scope is not None
+                else None
+            )
+        return reasons
+
+    def _missing_scopes(self, config: HubspotSourceConfig | HubspotSourceOldConfig, team_id: int) -> dict[str, str]:
+        """Optional scopes this connection lacks, keyed by the endpoint that needs one.
+
+        Discovery still lists these endpoints. A table that the picker never shows leaves the user
+        with nothing to reconnect for, so the gap is reported next to the table instead.
+        """
+        if not SCOPE_GATED_OBJECTS or not isinstance(config, HubspotSourceConfig):
+            return {}
+
+        try:
+            integration = self.get_oauth_integration(config.hubspot_integration_id, team_id)
+        except ValueError as e:
+            # A missing or deleted integration is permanent, but the scope check stays best-effort
+            # because the sync path already surfaces it with an actionable message.
+            logger.warning(f"Hubspot scope check skipped, integration lookup failed: {e}", team_id=team_id)
+            return {}
+        except Exception:
+            # A transient lookup failure must not mark a readable table as unreadable, so the check
+            # fails open. Log it so a no-op check is distinguishable from complete scopes.
+            logger.exception("Hubspot scope check skipped, integration lookup failed", team_id=team_id)
+            return {}
+
+        missing = {}
+        for endpoint in SCOPE_GATED_OBJECTS:
+            scope = missing_scope_for_endpoint(endpoint, integration.config)
+            if scope is not None:
+                missing[endpoint] = scope
+        return missing
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[HubspotResumeConfig]:
         return ResumableSourceManager[HubspotResumeConfig](inputs, HubspotResumeConfig)
 
@@ -214,6 +286,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
 
             if not integration.access_token or not integration.refresh_token:
                 raise ValueError(f"Hubspot refresh or access token not found for job {inputs.job_id}")
+
+            # Fail before the first request when the connection was never granted this table's
+            # scope: HubSpot would 403 on property discovery anyway, and the message it produces
+            # doesn't tell the user that reconnecting is what fixes it.
+            missing_scope = missing_scope_for_endpoint(inputs.schema_name, integration.config)
+            if missing_scope is not None:
+                raise missing_scope_error(inputs.schema_name, missing_scope)
 
             hubspot_access_code = integration.access_token
             refresh_token = integration.refresh_token

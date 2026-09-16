@@ -1,214 +1,127 @@
-import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
-import { getColorVar } from 'lib/colors'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { percentage } from 'lib/utils/numbers'
-import { tryDecodeURIComponent } from 'lib/utils/url'
+import { useChartTheme } from 'lib/charts/hooks'
+import { seriesColor } from 'lib/charts/utils/theme'
+import { urls } from 'scenes/urls'
 
-import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import { DataTableNode, InsightVizNode, ProductKey } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
+import { OnboardingStepKey } from '~/types'
+
+import { SearchAndAiLoading } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiLoading'
+import { SearchAndAiQuery } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiQuery'
+import { SearchAndAiTable } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiTable'
+import { SearchAndAiTrendHeader } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiTrendHeader'
 
 import { TileId } from './common'
 import { PagePerformanceBreakdownModal } from './PagePerformanceBreakdownModal'
+import { PagePerformanceCard } from './PagePerformanceCard'
+import { PagePerformanceCardHeader } from './PagePerformanceCardHeader'
+import { PagePerformanceEmptyState } from './PagePerformanceEmptyState'
 import {
-    OVERVIEW_CARD_LABELS,
-    PagePerformanceMetric,
+    PagePerformanceCrawlerState,
+    PagePerformanceTabState,
     createPagePerformanceInsightProps,
     pagePerformanceLogic,
 } from './pagePerformanceLogic'
+import { PagePerformanceMetricCard } from './PagePerformanceMetricCard'
 import { WebQuery, webAnalyticsDataTableQueryContext } from './tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-const asTuple = (value: unknown): [number, number] | null => {
-    if (Array.isArray(value) && value.length >= 2) {
-        return [Number(value[0] ?? 0), Number(value[1] ?? 0)]
-    }
-    return null
-}
+const CRAWLER_CAVEAT =
+    "AI crawlers don't run JavaScript, so the browser SDK never sees them. Forward your server access logs to count them."
 
-const formatCount = (value: unknown): string =>
-    typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
-
-type TrendIndicator = {
-    Icon: typeof IconTrending | typeof IconTrendingDown | typeof IconTrendingFlat
-    color: string
-    className: string
-}
-
-const trendIndicator = (pctChange: number | null): TrendIndicator | null => {
-    if (pctChange === null) {
-        return null
-    }
-    if (pctChange === 0) {
-        return { Icon: IconTrendingFlat, color: getColorVar('muted'), className: 'text-secondary' }
-    }
-    if (pctChange > 0) {
-        return { Icon: IconTrending, color: getColorVar('success'), className: 'text-success' }
-    }
-    return { Icon: IconTrendingDown, color: getColorVar('danger'), className: 'text-danger' }
-}
-
-const DeltaValue = ({ value }: { value: unknown }): JSX.Element => {
-    const { compareFilter } = useValues(pagePerformanceLogic)
-    const tuple = asTuple(value)
-    if (!tuple) {
-        return <span>{formatCount(value)}</span>
-    }
-    const [current, previous] = tuple
-    const compareOn = compareFilter.compare !== false
-    const pctChange = !compareOn || previous === 0 ? null : current === previous ? 0 : current / previous - 1
-    const trend = trendIndicator(pctChange)
-    const tooltip =
-        pctChange !== null && pctChange !== 0
-            ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(Math.abs(pctChange), 0)} vs previous period`
-            : undefined
-    return (
-        <Tooltip title={tooltip}>
-            <span className="whitespace-nowrap">
-                {formatCount(current)}
-                {trend && (
-                    <span className={clsx('ml-1 inline-flex items-center text-xs', trend.className)}>
-                        <trend.Icon color={trend.color} />
-                        {pctChange !== null && pctChange !== 0 ? percentage(Math.abs(pctChange), 0) : ''}
-                    </span>
-                )}
-            </span>
-        </Tooltip>
-    )
-}
-
-const ValueWithSubtitle = ({ value, subtitle }: { value: string; subtitle: string }): JSX.Element => (
-    <div className="flex flex-col items-end leading-tight">
-        <span className="whitespace-nowrap">{value}</span>
-        <span className="text-secondary text-xs whitespace-nowrap">{subtitle}</span>
-    </div>
-)
-
-const BreakdownLink = ({
-    metric,
-    record,
+const SectionHeading = ({
     children,
+    description,
 }: {
-    metric: PagePerformanceMetric
-    record: unknown
     children: React.ReactNode
-}): JSX.Element => {
-    const { openBreakdown } = useActions(pagePerformanceLogic)
-    const page = Array.isArray(record) ? String(record[0] ?? '') : ''
-    return (
-        <LemonButton
-            type="tertiary"
-            size="small"
-            noPadding
-            className="underline decoration-dotted underline-offset-2 hover:decoration-solid"
-            onClick={() => openBreakdown({ page, metric })}
-        >
-            {children}
-        </LemonButton>
-    )
-}
-
-const PageCell: QueryContextColumnComponent = ({ value }) => {
-    if (typeof value !== 'string') {
-        return <span className="text-secondary italic">(none)</span>
-    }
-    const decoded = tryDecodeURIComponent(value)
-    return (
-        <Tooltip title={decoded}>
-            <span className="font-medium">{decoded}</span>
-        </Tooltip>
-    )
-}
-
-const VisitorsCell: QueryContextColumnComponent = ({ value }) => <DeltaValue value={value} />
-
-const GoogleSearchCell: QueryContextColumnComponent = ({ value, record }) => {
-    const tuple = asTuple(value)
-    const google = tuple?.[0] ?? 0
-    const visitors = tuple?.[1] ?? 0
-    const share = visitors > 0 ? percentage(google / visitors, 0) : '-'
-    return (
-        <BreakdownLink metric="google_search" record={record}>
-            <ValueWithSubtitle value={formatCount(google)} subtitle={`${share} of visitors`} />
-        </BreakdownLink>
-    )
-}
-
-const LlmReferralsCell: QueryContextColumnComponent = ({ value, record }) => (
-    <BreakdownLink metric="llm_referrals" record={record}>
-        <DeltaValue value={value} />
-    </BreakdownLink>
-)
-
-const AgentCrawlsCell: QueryContextColumnComponent = ({ value, record }) => {
-    const tuple = asTuple(value)
-    const crawls = tuple?.[0] ?? 0
-    const agents = tuple?.[1] ?? 0
-    return (
-        <BreakdownLink metric="agent_crawls" record={record}>
-            <ValueWithSubtitle
-                value={formatCount(crawls)}
-                subtitle={`${agents} ${agents === 1 ? 'agent' : 'agents'}`}
-            />
-        </BreakdownLink>
-    )
-}
-
-const ConversionsCell: QueryContextColumnComponent = ({ value }) => {
-    const { conversionGoal } = useValues(pagePerformanceLogic)
-    if (!conversionGoal) {
-        return <span className="text-secondary">-</span>
-    }
-    const tuple = asTuple(value)
-    const conversions = tuple?.[0] ?? 0
-    const visitors = tuple?.[1] ?? 0
-    const cvr = visitors > 0 ? percentage(conversions / visitors, 1) : '-'
-    return <ValueWithSubtitle value={formatCount(conversions)} subtitle={`${cvr} CVR`} />
-}
-
-const AvgTimeCell: QueryContextColumnComponent = ({ value }) => (
-    <span className="whitespace-nowrap">{value ? humanFriendlyDuration(Number(value)) : '-'}</span>
-)
-
-const sortableTitle = (label: string, column: string): QueryContextColumnTitleComponent =>
-    function SortableTitle() {
-        const { orderBy } = useValues(pagePerformanceLogic)
-        const { setOrderBy } = useActions(pagePerformanceLogic)
-        const active = orderBy.column === column
-        const ascending = active && orderBy.direction === 'ASC'
-        return (
-            <LemonButton
-                type="tertiary"
-                size="small"
-                noPadding
-                className="group cursor-pointer inline-flex items-center"
-                onClick={() => setOrderBy(column, active && orderBy.direction === 'DESC' ? 'ASC' : 'DESC')}
-                aria-label={`Sort by ${label} ${active && orderBy.direction === 'DESC' ? 'ascending' : 'descending'}`}
-            >
-                {label}
-                <IconTrending
-                    className={clsx('ml-1 opacity-0 group-hover:opacity-100', {
-                        'text-primary opacity-100': active,
-                        'rotate-180': ascending,
-                    })}
-                />
-            </LemonButton>
-        )
-    }
-
-const cardHeading = (title: string): JSX.Element => (
-    <div className="flex items-baseline gap-2 px-3 pt-3">
-        <h3 className="font-semibold m-0">{title}</h3>
+    description?: string
+}): JSX.Element => (
+    <div className="mb-4">
+        <h2 className="mb-0 text-xl font-semibold text-primary">{children}</h2>
+        {description ? <p className="m-0 text-sm text-secondary">{description}</p> : null}
     </div>
 )
+
+const SERVER_LOGS_DOCS = 'https://posthog.com/docs/web-analytics/sending-http-logs'
+
+const CHANNEL_TYPE_DOCS = 'https://posthog.com/docs/data/channel-type'
+
+const TabEmptyState = ({ state }: { state: PagePerformanceTabState }): JSX.Element =>
+    state === 'no-events' ? (
+        <PagePerformanceEmptyState
+            title="Nothing to measure yet"
+            action={
+                <LemonButton
+                    type="primary"
+                    to={urls.onboarding({
+                        productKey: ProductKey.WEB_ANALYTICS,
+                        stepKey: OnboardingStepKey.INSTALL,
+                    })}
+                    data-attr="page-performance-onboarding"
+                >
+                    Open installation guide
+                </LemonButton>
+            }
+        >
+            <p className="m-0">
+                Install PostHog on your site to see how search engines, AI assistants, and AI crawlers reach your pages.
+            </p>
+        </PagePerformanceEmptyState>
+    ) : (
+        <PagePerformanceEmptyState title="No pageviews in this date range">
+            <p className="m-0">Pick a wider range to see how search and AI bring people to your pages.</p>
+        </PagePerformanceEmptyState>
+    )
+
+const AiTrafficEmptyState = (): JSX.Element => (
+    <PagePerformanceEmptyState
+        title="No AI referrals in this range"
+        action={
+            <Link to={CHANNEL_TYPE_DOCS} target="_blank">
+                How PostHog works out where a visit came from
+            </Link>
+        }
+    >
+        <p className="m-0">Nobody arrived from an AI assistant that PostHog could attribute.</p>
+        <p className="m-0">
+            This is a lower bound. Some assistants strip the referrer, and those visits land in Direct instead.
+        </p>
+    </PagePerformanceEmptyState>
+)
+
+const CrawlersEmptyState = ({ state }: { state: PagePerformanceCrawlerState }): JSX.Element =>
+    state === 'needs-server-logs' ? (
+        <PagePerformanceEmptyState
+            title="PostHog can't see your AI crawlers yet"
+            action={
+                <LemonButton
+                    type="primary"
+                    to={SERVER_LOGS_DOCS}
+                    targetBlank
+                    data-attr="page-performance-server-logs-docs"
+                >
+                    Read the setup guide
+                </LemonButton>
+            }
+        >
+            <p className="m-0">
+                Crawlers like GPTBot and ClaudeBot never run JavaScript, so the browser SDK never sees them. Forward
+                your server or CDN access logs as <code>$http_log</code> events to count them here.
+            </p>
+            <p className="m-0">Already sending them? Try a wider date range.</p>
+        </PagePerformanceEmptyState>
+    ) : (
+        <PagePerformanceEmptyState title="No AI crawlers in this range">
+            <p className="m-0">
+                Your server logs are reaching PostHog, but no AI crawler read these pages. Try a wider date range.
+            </p>
+        </PagePerformanceEmptyState>
+    )
 
 const AiTableCard = ({
     title,
@@ -224,13 +137,53 @@ const AiTableCard = ({
             ...webAnalyticsDataTableQueryContext,
             insightProps: createPagePerformanceInsightProps(tileId, 'table'),
             showLoadNextButton: true,
+            tableLayout: 'fixed',
+            suppressSlowQuerySuggestions: true,
         }),
         [tileId]
     )
     return (
-        <div className="border rounded bg-surface-primary flex flex-col flex-1">
-            {cardHeading(title)}
-            <Query uniqueKey={`page-performance-${tileId}`} query={query} readOnly context={context} />
+        <PagePerformanceCard className="flex-1 min-w-0">
+            <SearchAndAiQuery
+                uniqueKey={`page-performance-${tileId}`}
+                query={query}
+                insightProps={context.insightProps!}
+                context={context}
+                header={<PagePerformanceCardHeader title={title} />}
+            />
+        </PagePerformanceCard>
+    )
+}
+
+const AiTrendCard = ({
+    title,
+    query,
+    tileId,
+    uniqueKey,
+}: {
+    title: string
+    query: InsightVizNode
+    tileId: TileId
+    uniqueKey: string
+}): JSX.Element => {
+    const logic = useMountedLogic(webAnalyticsLogic)
+    return (
+        <div className="@min-[48rem]/search-ai:col-span-2 min-h-88 min-w-0 flex flex-col">
+            <SearchAndAiQuery
+                uniqueKey={uniqueKey}
+                query={query}
+                insightProps={createPagePerformanceInsightProps(tileId)}
+                renderQuery={(insightProps) => (
+                    <WebQuery
+                        attachTo={logic}
+                        uniqueKey={uniqueKey}
+                        query={query}
+                        insightProps={insightProps}
+                        tileId={tileId}
+                        headerSlot={<SearchAndAiTrendHeader title={title} />}
+                    />
+                )}
+            />
         </div>
     )
 }
@@ -238,149 +191,171 @@ const AiTableCard = ({
 export const PagePerformance = (): JSX.Element => {
     useMountedLogic(pagePerformanceLogic)
     const {
-        pageTableQuery,
         pageCandidates,
         candidatesError,
         candidatesLoading,
-        overviewCards,
+        overviewTotals,
+        overviewMetrics,
         overviewError,
         overviewLoading,
-        footerText,
         aiSectionQueries,
+        dataState,
     } = useValues(pagePerformanceLogic)
     const { loadOverview, loadCandidates } = useActions(pagePerformanceLogic)
+    const theme = useChartTheme()
 
-    const context = useMemo(
-        (): QueryContext => ({
-            insightProps: createPagePerformanceInsightProps(TileId.PAGE_PERFORMANCE_TABLE, 'table'),
-            columns: {
-                breakdown_value: { title: 'Page', render: PageCell, width: '28%' },
-                visitors: { renderTitle: sortableTitle('Visitors', 'visitors'), render: VisitorsCell, align: 'right' },
-                google_search: {
-                    renderTitle: sortableTitle('Google search', 'google_search'),
-                    render: GoogleSearchCell,
-                    align: 'right',
-                },
-                llm_referrals: {
-                    renderTitle: sortableTitle('LLM referrals', 'llm_referrals'),
-                    render: LlmReferralsCell,
-                    align: 'right',
-                },
-                agent_crawls: {
-                    renderTitle: sortableTitle('Agent crawls', 'agent_crawls'),
-                    render: AgentCrawlsCell,
-                    align: 'right',
-                },
-                conversions: {
-                    renderTitle: sortableTitle('Conversions', 'conversions'),
-                    render: ConversionsCell,
-                    align: 'right',
-                },
-                avg_time: {
-                    renderTitle: sortableTitle('Avg. time', 'avg_time'),
-                    render: AvgTimeCell,
-                    align: 'right',
-                },
-            },
-        }),
-        []
+    const feedbackBanner = (
+        <LemonBanner
+            type="info"
+            dismissKey="web-analytics-search-and-ai-feedback-banner"
+            action={{ children: 'Send feedback', id: 'web-analytics-search-and-ai-feedback-button' }}
+        >
+            We'd love to hear what you think about search and AI.
+        </LemonBanner>
     )
 
+    const overviewErrorBanner = overviewError && (
+        <LemonBanner
+            type="error"
+            action={{ children: 'Try again', onClick: () => loadOverview(), loading: overviewLoading }}
+        >
+            {overviewTotals
+                ? 'Could not update the summary metrics. Showing the previous results. Try again to refresh.'
+                : 'Could not load the summary metrics. Try again to reload.'}
+        </LemonBanner>
+    )
+
+    if (dataState.tab === 'no-events' || dataState.tab === 'no-traffic-in-range') {
+        return (
+            <div className="SearchAndAiDashboard @container/search-ai flex flex-col gap-5 min-w-0">
+                {feedbackBanner}
+                {overviewErrorBanner}
+                <SearchAndAiLoading loading={overviewLoading}>
+                    <TabEmptyState state={dataState.tab} />
+                </SearchAndAiLoading>
+            </div>
+        )
+    }
+
     return (
-        <>
-            <LemonBanner type="info" dismissKey="page-performance-alpha-info" className="mb-4">
-                One leaderboard for how each page earns visits from Google, AI assistants, and the agents crawling your
-                site. AI referrals are a lower bound: some assistants strip the referrer, so those visits land in
-                Direct.
-            </LemonBanner>
-            {overviewError ? (
-                <LemonBanner type="error" className="mb-4" action={{ children: 'Try again', onClick: loadOverview }}>
-                    Could not load the summary metrics. Try again to reload.
-                </LemonBanner>
-            ) : (
-                <OverviewGrid
-                    items={overviewCards}
-                    loading={overviewLoading && overviewCards.length === 0}
-                    numSkeletons={4}
-                    labelFromKey={(key) => OVERVIEW_CARD_LABELS[key] ?? key}
-                />
-            )}
-            <div className="border rounded bg-surface-primary flex flex-col mt-4">
-                <div className="flex items-baseline justify-between gap-2 px-3 pt-3">
-                    <h3 className="font-semibold m-0">Pages ranked by visitors</h3>
-                </div>
-                {candidatesError ? (
-                    <LemonBanner
-                        type="error"
-                        className="m-3"
-                        action={{ children: 'Try again', onClick: loadCandidates }}
-                    >
-                        Could not load page performance. Try again to reload the leaderboard.
-                    </LemonBanner>
-                ) : candidatesLoading && pageCandidates === null ? (
-                    <div className="flex items-center justify-center py-12">
-                        <Spinner className="text-2xl" />
-                    </div>
-                ) : (
-                    <Query
-                        uniqueKey="page-performance-table"
-                        query={pageTableQuery}
-                        readOnly
-                        context={context}
-                        dataAttr="page-performance-table"
-                    />
+        <div className="SearchAndAiDashboard @container/search-ai flex flex-col gap-5 min-w-0">
+            {feedbackBanner}
+            <section>
+                <SectionHeading>Key metrics</SectionHeading>
+                {overviewErrorBanner}
+                {(!overviewError || overviewTotals) && (
+                    <SearchAndAiLoading loading={overviewLoading && !!overviewTotals}>
+                        <div className="@container">
+                            <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
+                                {overviewMetrics.map(({ key, ...metric }, index) => (
+                                    <PagePerformanceMetricCard
+                                        key={key}
+                                        {...metric}
+                                        data-attr={`page-performance-metric-${key}`}
+                                        color={seriesColor(theme, index)}
+                                        theme={theme}
+                                        loading={!overviewTotals && !overviewError}
+                                        caveat={
+                                            key === 'agent_crawls' && dataState.crawlers === 'needs-server-logs'
+                                                ? CRAWLER_CAVEAT
+                                                : undefined
+                                        }
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    </SearchAndAiLoading>
                 )}
-                <div className="text-secondary text-xs px-3 pb-3">{footerText}</div>
-            </div>
-            <div className="mt-4">
-                <h2 className="text-lg font-semibold mb-4">Traffic from AI</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2 min-h-[350px] flex flex-col">
-                        <WebQuery
-                            attachTo={webAnalyticsLogic}
-                            uniqueKey="page-performance-ai-referrals-trend"
+            </section>
+            <section>
+                <SectionHeading description="How each page earns its traffic, from search engines through to AI crawlers.">
+                    Pages
+                </SectionHeading>
+                <PagePerformanceCard>
+                    {candidatesError && (
+                        <LemonBanner
+                            type="error"
+                            className="m-3"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadCandidates(),
+                                loading: candidatesLoading,
+                            }}
+                        >
+                            {pageCandidates
+                                ? 'Could not update the page list. Showing the previous results. Try again to refresh.'
+                                : 'Could not load the page list. Try again to reload.'}
+                        </LemonBanner>
+                    )}
+
+                    {pageCandidates === null ? (
+                        !candidatesError && <SearchAndAiLoading loading label="Loading pages" className="min-h-64" />
+                    ) : (
+                        <SearchAndAiTable />
+                    )}
+                </PagePerformanceCard>
+            </section>
+            <section>
+                <SectionHeading description="People who landed on your site from an AI assistant such as ChatGPT, Claude, or Perplexity.">
+                    Traffic from AI
+                </SectionHeading>
+
+                {dataState.aiTraffic === 'empty' ? (
+                    <SearchAndAiLoading loading={overviewLoading}>
+                        <AiTrafficEmptyState />
+                    </SearchAndAiLoading>
+                ) : (
+                    <div className="grid grid-cols-1 @min-[48rem]/search-ai:grid-cols-2 gap-4">
+                        <AiTrendCard
+                            title="Referrals over time"
                             query={aiSectionQueries.referralTrend}
-                            insightProps={createPagePerformanceInsightProps(TileId.AI_REFERRALS_TREND)}
-                            showIntervalSelect
                             tileId={TileId.AI_REFERRALS_TREND}
-                            headerSlot={cardHeading('Referrals over time')}
+                            uniqueKey="page-performance-ai-referrals-trend"
+                        />
+                        <AiTableCard
+                            title="By engine"
+                            query={aiSectionQueries.byEngine}
+                            tileId={TileId.AI_REFERRALS_BY_ENGINE}
+                        />
+                        <AiTableCard
+                            title="Landing pages from AI"
+                            query={aiSectionQueries.landingPages}
+                            tileId={TileId.AI_LANDING_PAGES}
                         />
                     </div>
-                    <AiTableCard
-                        title="By engine"
-                        query={aiSectionQueries.byEngine}
-                        tileId={TileId.AI_REFERRALS_BY_ENGINE}
-                    />
-                    <AiTableCard
-                        title="Landing pages from AI"
-                        query={aiSectionQueries.landingPages}
-                        tileId={TileId.AI_LANDING_PAGES}
-                    />
-                </div>
-            </div>
-            <div className="mt-4">
-                <h2 className="text-lg font-semibold mb-4">AI crawlers</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2 min-h-[350px] flex flex-col">
-                        <WebQuery
-                            attachTo={webAnalyticsLogic}
-                            uniqueKey="page-performance-ai-crawler-trend"
+                )}
+            </section>
+            <section>
+                <SectionHeading description="Bots that read your pages to train a model or to answer someone's question about you.">
+                    AI crawlers
+                </SectionHeading>
+
+                {dataState.crawlers === 'empty' || dataState.crawlers === 'needs-server-logs' ? (
+                    <SearchAndAiLoading loading={overviewLoading}>
+                        <CrawlersEmptyState state={dataState.crawlers} />
+                    </SearchAndAiLoading>
+                ) : (
+                    <div className="grid grid-cols-1 @min-[48rem]/search-ai:grid-cols-2 gap-4">
+                        <AiTrendCard
+                            title="Crawler activity over time"
                             query={aiSectionQueries.crawlerTrend}
-                            insightProps={createPagePerformanceInsightProps(TileId.AI_CRAWLERS_TREND)}
-                            showIntervalSelect
                             tileId={TileId.AI_CRAWLERS_TREND}
-                            headerSlot={cardHeading('Crawler activity over time')}
+                            uniqueKey="page-performance-ai-crawler-trend"
+                        />
+                        <AiTableCard
+                            title="By crawler"
+                            query={aiSectionQueries.byCrawler}
+                            tileId={TileId.AI_CRAWLERS}
+                        />
+                        <AiTableCard
+                            title="Pages they read"
+                            query={aiSectionQueries.crawledPages}
+                            tileId={TileId.AI_CRAWLED_PAGES}
                         />
                     </div>
-                    <AiTableCard title="By crawler" query={aiSectionQueries.byCrawler} tileId={TileId.AI_CRAWLERS} />
-                    <AiTableCard
-                        title="Pages they read"
-                        query={aiSectionQueries.crawledPages}
-                        tileId={TileId.AI_CRAWLED_PAGES}
-                    />
-                </div>
-            </div>
+                )}
+            </section>
             <PagePerformanceBreakdownModal />
-        </>
+        </div>
     )
 }

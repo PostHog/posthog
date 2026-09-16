@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -67,7 +65,7 @@ class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DATADOG,
+            name=ExternalDataSourceType.DATADOG,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Datadog",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -125,6 +123,7 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
         return {
             "401 Client Error": "Invalid Datadog API key. Generate a valid key and reconnect.",
             "403 Client Error": "Your Datadog application key is missing the required read scopes for this data. Grant the scopes and reconnect.",
+            "410 Client Error: Gone": "The requested Datadog data has fallen outside your account's retention window, or its pagination cursor expired. Retry the sync to start a fresh query.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

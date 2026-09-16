@@ -29,7 +29,7 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, get_group_by_key, list_groups, raw_create_group_ch, save_group
@@ -45,15 +45,18 @@ from posthog.models.group_type_mapping import (
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (
+    build_markdown_notebook_content,
+    convert_notebook_content_to_markdown,
     create_bullet_list,
-    create_empty_paragraph,
     create_heading_with_text,
+    create_paragraph_with_content,
+    create_paragraph_with_text,
     create_text_content,
 )
 
@@ -765,17 +768,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         except Group.DoesNotExist:
             raise NotFound()
 
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Group",
             team_id=self.team_id,
             item_ids=[group.pk],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @extend_schema(
         parameters=[
@@ -871,15 +873,19 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         )
 
     def _create_notebook_for_group(self, group: Group):
-        group_name = group.group_properties.get("name", "")
+        # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
+        # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
+        # live component. Collapse the name to one line, which is what a title is anyway.
+        group_name = " ".join(str(group.group_properties.get("name") or "").split())
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
-        notebook_content = [
+        template_nodes = [
             create_heading_with_text(text=notebook_title, level=1),
-            create_text_content(
-                text="This is a place for you and your team to write collaborative notes about this group"
+            create_paragraph_with_text(
+                "This is a place for you and your team to write collaborative notes about this group"
             ),
-            create_empty_paragraph(),
-            create_text_content(text="Here's a template to get you started", is_italic=True),
+            create_paragraph_with_content(
+                [create_text_content(text="Here's a template to get you started", is_italic=True)]
+            ),
             create_heading_with_text(text="Quick context", level=2),
             create_bullet_list(items=["Industry: ", "Key contacts: ", "Tech stack: "]),
             create_heading_with_text(text="Usage patterns", level=2),
@@ -887,6 +893,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
+        # The shared converter escapes inline markdown syntax, so the group name renders as text.
+        notebook_content = build_markdown_notebook_content(
+            convert_notebook_content_to_markdown({"type": "doc", "content": template_nodes})
+        )
         notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
 
 

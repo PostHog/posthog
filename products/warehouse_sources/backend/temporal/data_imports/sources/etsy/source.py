@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -50,14 +48,14 @@ class EtsySource(ResumableSource[EtsySourceConfig, EtsyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ETSY,
+            name=ExternalDataSourceType.ETSY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Etsy",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["etsy", "receipts", "orders", "marketplace"],
             caption="""Sync your Etsy shop's orders, listings, reviews and payment ledger into the PostHog Data warehouse.
 
-Register a personal app in the [Etsy developer portal](https://www.etsy.com/developers/your-apps) to get a keystring, then run Etsy's OAuth flow to grant your shop and keep the refresh token it returns. The token needs the `transactions_r`, `listings_r` and `shops_r` scopes — add `billing_r` if you want the payment ledger. Leave the shop ID blank and we'll use the shop the token belongs to.""",
+Register a personal app in the [Etsy developer portal](https://www.etsy.com/developers/your-apps) to get a keystring and its shared secret, then run Etsy's OAuth flow to grant your shop and keep the refresh token it returns. The token needs the `transactions_r`, `listings_r` and `shops_r` scopes — add `billing_r` if you want the payment ledger. Leave the shop ID blank and we'll use the shop the token belongs to.""",
             iconPath="/static/services/etsy.png",
             docsUrl="https://posthog.com/docs/cdp/sources/etsy",
             fields=cast(
@@ -69,6 +67,14 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="Your app's keystring",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="shared_secret",
+                        label="Shared secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="Your app's shared secret",
                         secret=True,
                     ),
                     SourceFieldInputConfig(
@@ -103,10 +109,19 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
             # Etsy answers a revoked or expired refresh token with a 400 from the token endpoint.
             # Refresh tokens last 90 days, so this is the expected end-of-life failure.
             "400 Client Error: Bad Request for url: https://api.etsy.com/v3/public/oauth/token": "Your Etsy refresh token is expired or revoked. Etsy refresh tokens last 90 days — reauthorize the app and paste the new token.",
-            "401 Client Error: Unauthorized for url: https://api.etsy.com": "Etsy rejected your credentials. Check the API keystring and refresh token, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.etsy.com": "Etsy rejected your credentials. Check the API keystring, shared secret and refresh token, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.etsy.com": "Your Etsy token is missing a scope this table needs (transactions_r, listings_r, shops_r or billing_r). Reauthorize with the scopes you want to sync.",
             "This Etsy account has no shop": "The connected Etsy account does not own a shop. Enter the shop ID you want to sync, or reconnect with the seller account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # EtsyClient reads over the tracked session, whose `DEFAULT_RETRY` adapter already retries
+        # a 429 or 5xx three times. A response that still reaches us here is an exhausted upstream
+        # blip — transient, not a PostHog bug — and Temporal retries the whole activity, so the
+        # sync self-recovers. `raise_for_status` derives these prefixes from the status code alone,
+        # not the vendor's reason text, so they're stable to match on (see mailchimp/impact sources
+        # for the same pattern).
+        return {"429 Client Error", "Server Error"}
 
     def get_schemas(
         self,
@@ -126,7 +141,7 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_etsy_credentials(config.api_key, config.refresh_token, config.shop_id)
+        return validate_etsy_credentials(config.api_key, config.shared_secret, config.refresh_token, config.shop_id)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[EtsyResumeConfig]:
         return ResumableSourceManager[EtsyResumeConfig](inputs, EtsyResumeConfig)
@@ -139,6 +154,7 @@ Register a personal app in the [Etsy developer portal](https://www.etsy.com/deve
     ) -> SourceResponse:
         return etsy_source(
             api_key=config.api_key,
+            shared_secret=config.shared_secret,
             refresh_token=config.refresh_token,
             shop_id=config.shop_id,
             endpoint=inputs.schema_name,

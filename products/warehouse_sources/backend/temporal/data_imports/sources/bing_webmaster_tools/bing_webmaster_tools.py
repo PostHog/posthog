@@ -2,6 +2,7 @@ import re
 import datetime as dt
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -127,6 +128,25 @@ def _site_key(url: str) -> str:
     return url.strip().rstrip("/").lower()
 
 
+def suggest_verified_site(filter_url: str, verified: list[str]) -> str | None:
+    """The verified site a bare-hostname filter entry most likely meant, else None.
+
+    Bing lists every site with a scheme (e.g. ``https://example.com/``), so an entry that omits the
+    scheme (``example.com``) matches nothing on the scheme-sensitive site key even when that host is
+    verified. When the entry is a bare hostname, point at the verified site sharing that host so the
+    "not verified" error can name the exact value to paste instead of dead-ending."""
+    stripped = filter_url.strip()
+    if not stripped or "://" in stripped:
+        return None
+    host = stripped.strip("/").lower()
+    if not host:
+        return None
+    for url in verified:
+        if urlparse(url).netloc.lower() == host:
+            return url
+    return None
+
+
 def parse_site_urls(raw: str | None) -> list[str]:
     """Parse the optional site filter field: one URL per line, blanks skipped, duplicates dropped."""
     if not raw:
@@ -166,8 +186,16 @@ def select_site_urls(sites: list[dict[str, Any]], site_url_filters: list[str]) -
         else:
             selected.append(matched)
     if missing:
+        suggestions = {
+            entry: match for entry in missing if (match := suggest_verified_site(entry, verified)) is not None
+        }
+        hint = ""
+        if suggestions:
+            pairs = "; ".join(f"'{entered}' is verified as '{match}'" for entered, match in suggestions.items())
+            hint = f"Bing lists sites with their full URL, so {pairs}. "
         raise ValueError(
             f"These site URLs are not verified sites on the connected account: {', '.join(missing)}. "
+            f"{hint}"
             "Enter each site exactly as Bing Webmaster Tools lists it, or clear the field to sync "
             "every verified site."
         )

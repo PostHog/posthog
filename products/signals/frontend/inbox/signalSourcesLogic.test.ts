@@ -129,6 +129,36 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.dataSourceSetupSource).toBe(setup)
     })
 
+    it('carries the card guidance onto an error tracking signal type turned on later', async () => {
+        // Error tracking is one guidance box over three rows. A row created after the guidance was
+        // written would otherwise start empty, so that one trigger would report everything while the
+        // card still reads as steered.
+        const steeredRow = (sourceType: SignalSourceType): any => ({
+            ...githubIssuesConfig,
+            id: `config-${sourceType}`,
+            source_product: SignalSourceProduct.ErrorTracking,
+            source_type: sourceType,
+            config: { steering: 'Ignore errors from localhost.' },
+        })
+        const create = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig as any)
+        logic.actions.loadSourceConfigsSuccess([
+            steeredRow(SignalSourceType.IssueCreated),
+            steeredRow(SignalSourceType.IssueReopened),
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking)
+        }).toDispatchActions(['loadSourceConfigs'])
+
+        expect(create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source_type: SignalSourceType.IssueSpiking,
+                config: { steering: 'Ignore errors from localhost.' },
+            })
+        )
+        create.mockRestore()
+    })
+
     it('keeps an enabled source enabled when its config loads during the source lookup', async () => {
         let resolveSources!: (sources: Awaited<ReturnType<typeof api.externalDataSources.list>>) => void
         const sourcesPromise = new Promise<Awaited<ReturnType<typeof api.externalDataSources.list>>>((resolve) => {

@@ -3,7 +3,7 @@
     "description": "Create serializer — accepts bundled files and owners as write-only input on POST.",
     "properties": {
         "allowed_tools": {
-            "description": "List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
+            "description": "Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.",
             "items": {
                 "type": "string"
             },
@@ -19,8 +19,8 @@
             "type": "string"
         },
         "description": {
-            "description": "What this skill does and when to use it. Max 4096 characters.",
-            "maxLength": 4096,
+            "description": "What this skill does and when to use it. Max 1024 characters.",
+            "maxLength": 1024,
             "type": "string"
         },
         "files": {

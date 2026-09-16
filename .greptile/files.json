@@ -1,0 +1,8 @@
+{
+    "files": [
+        {
+            "path": "AGENTS.md",
+            "description": "Repository conventions: architecture guidelines, code style, commit and PR rules"
+        }
+    ]
+}

@@ -10,6 +10,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
 )
+from products.tasks.backend.temporal.process_task.utils import is_bot_authorship_fallback
 
 logger = get_logger(__name__)
 
@@ -23,6 +24,8 @@ SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -69,6 +72,9 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_CANCELLED: (
         "Reply in this thread when you want to resume, and include any new direction I should follow."
     ),
+    SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
+        "Wait for this run's spend limit to reset before replying in the thread."
+    ),
 }
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
@@ -100,7 +106,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         footer = load_run_footer(task_run.id)
         handler = SlackThreadHandler(context, footer)
         # The buttons lead where the footer's links do, so they answer to the same reader.
-        task_url = footer.task_url if handler.viewer_can_open_code_links() else None
+        task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
@@ -209,9 +215,27 @@ def _post_pr_opened_notification_once(
         mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
         reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
 
-    handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
+    handler.post_pr_opened(
+        pr_url,
+        task_url,
+        reply_target_slack_user_id=reply_target_slack_user_id,
+        bot_authored=_is_bot_authored_fallback(task_run),
+    )
 
     task_run.task.mark_slack_pr_notified(pr_url)
+
+
+def _is_bot_authored_fallback(task_run: Any) -> bool:
+    """Whether this pull request went out under the bot's name for want of a personal GitHub.
+
+    Failure to answer must not cost the reader the card, so an unexpected error here means
+    no hint rather than no announcement.
+    """
+    try:
+        return is_bot_authorship_fallback(task_run.task, str(task_run.id), task_run.state)
+    except Exception:
+        logger.warning("post_slack_update_bot_authorship_check_failed", run_id=str(task_run.id))
+        return False
 
 
 def _is_terminal_notified(task_run: Any, status: str, error: str | None = None) -> bool:
@@ -243,6 +267,8 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
 
 def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
+    if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
+        return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):

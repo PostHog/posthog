@@ -28,16 +28,16 @@ use simd_json::prelude::Writable;
 
 use crate::allow_lists::AllowLists;
 use crate::collect::{CollectedImage, ImageCollection};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSourceCount};
 use crate::event::{
-    route_data, route_event, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION, SOURCE_INPUT,
-    SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
+    route_data, route_event, JSON_LD_EVENT_TAG, SOURCE_ADOPTED_STYLESHEET, SOURCE_CANVAS_MUTATION,
+    SOURCE_INPUT, SOURCE_MUTATION, SOURCE_STYLESHEET_RULE, SOURCE_STYLE_DECLARATION, TYPE_CUSTOM,
     TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL, TYPE_META, TYPE_PLUGIN,
 };
 use crate::images::ImagePolicy;
 use crate::json::{
-    as_f64, as_object, as_small_uint, as_str, parse_untrusted, parse_untrusted_with_buffers,
-    reject_if_too_deep,
+    as_array, as_f64, as_object, as_small_uint, as_str, parse_untrusted,
+    parse_untrusted_with_buffers, reject_if_too_deep,
 };
 use crate::scan::{self, Span};
 use crate::timings::PhaseTimings;
@@ -111,20 +111,32 @@ pub const FLAG_ACTIVE: u8 = 1;
 pub const FLAG_CLICK: u8 = 2;
 pub const FLAG_KEYPRESS: u8 = 4;
 pub const FLAG_MOUSE_ACTIVITY: u8 = 8;
+pub const FLAG_FULL_SNAPSHOT: u8 = 16;
 
 // `DateTime.fromMillis` validity bound (JS Date range: ±8.64e15 ms).
 const MAX_JS_DATE_MS: f64 = 8.64e15;
 
 /// Per-emitted-line metadata, in line order.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct EventMeta {
     /// The event's `timestamp` (epoch ms; can be fractional).
     pub ts: f64,
-    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY.
+    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY / FLAG_FULL_SNAPSHOT.
     pub flags: u8,
     /// Post-scrub `hrefFrom(event)` (`data.href` or `data.payload.href`, trimmed, non-empty).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_ld: Option<JsonLdMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonLdMeta {
+    pub root_types: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_snapshot_timestamp: Option<f64>,
 }
 
 /// One collected original image: `offset..offset+len` in [`AnonymizedMessage::image_bytes`].
@@ -165,6 +177,7 @@ pub struct SnapshotMeta {
     pub console_log_count: u32,
     pub console_warn_count: u32,
     pub console_error_count: u32,
+    pub json_ld_event_count: u32,
     pub events: Vec<EventMeta>,
     /// Collected original images (hash-sorted); non-empty only on the image-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -172,6 +185,9 @@ pub struct SnapshotMeta {
     /// Collected remote image URLs (hash-sorted); non-empty only on the URL-collection lane.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<UrlEntry>,
+    /// Collected ref occurrences by bounded replay location, property, and inline or URL lane.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub image_sources: Vec<ImageSourceCount>,
     /// Counts by reason for the URLs the collector refused. Every decline is otherwise invisible,
     /// and the phase that measures this lane would report a smaller URL set than the traffic holds
     /// with nothing to say why.
@@ -291,9 +307,9 @@ pub fn anonymize_kafka_payload_timed(
 
 /// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
 ///
-/// A remote image's `src` becomes a ref, and its original URL comes back in `meta.urls`. The
-/// caller passes those to the fetch lane. `None` leaves a remote image on the media placeholder,
-/// which is what every other entry point here does.
+/// A remote image keeps its placeholder while a namespaced sibling attribute carries its ref. Its
+/// original URL comes back in `meta.urls`, which the caller passes to the fetch lane. `None` omits
+/// the sibling ref and leaves the placeholder unchanged.
 pub fn anonymize_kafka_payload_collecting(
     allow: &AllowLists,
     payload: &mut [u8],
@@ -547,6 +563,7 @@ fn anonymize_snapshot_data_inner(
             domain: u.domain,
         })
         .collect();
+    msg.meta.image_sources = ctx.take_image_source_counts();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
     msg.meta.images = entries;
     msg.image_bytes = image_bytes;
@@ -882,6 +899,7 @@ struct Sink {
     line_starts: Vec<usize>,
     events: Vec<EventMeta>,
     console: [u32; 3], // info, warn, error
+    json_ld_events: u32,
     /// simd-json scratch reused across the per-event parses.
     buffers: simd_json::Buffers,
     /// Whether an in-place parse has consumed a span yet — the tree fallback is only sound while
@@ -901,6 +919,7 @@ impl Sink {
             line_starts: Vec::new(),
             events: Vec::new(),
             console: [0; 3],
+            json_ld_events: 0,
             buffers: simd_json::Buffers::default(),
             mutated: false,
             scratch_budget: SCRATCH_BUDGET,
@@ -980,10 +999,12 @@ fn finish(
             console_log_count: sink.console[0],
             console_warn_count: sink.console[1],
             console_error_count: sink.console[2],
+            json_ld_event_count: sink.json_ld_events,
             events: sink.events,
             // The collector lives on the Ctx, not the Sink; the entry point packs it in.
             images: Vec::new(),
             urls: Vec::new(),
+            image_sources: Vec::new(),
             url_declines: Vec::new(),
         },
         image_bytes: Vec::new(),
@@ -1246,6 +1267,7 @@ fn process_event_at(
                     ts,
                     flags: flags_of(ty, source, interaction),
                     href: scanned_href(inner, &es),
+                    json_ld: None,
                 });
                 return Ok(end);
             }
@@ -1334,6 +1356,7 @@ fn pass_through(
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: None,
     });
 }
 
@@ -1366,6 +1389,9 @@ fn scanned_href(inner: &[u8], d: &EventScan) -> Option<String> {
 }
 
 fn flags_of(ty: Option<u8>, source: Option<u8>, interaction: Option<u8>) -> u8 {
+    if ty == Some(TYPE_FULL_SNAPSHOT) {
+        return FLAG_FULL_SNAPSHOT;
+    }
     if ty != Some(TYPE_INCREMENTAL) {
         return 0;
     }
@@ -1413,7 +1439,30 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
         ts,
         flags: flags_of(ty, source, interaction),
         href,
+        json_ld: if ty == Some(TYPE_CUSTOM)
+            && dobj.and_then(|d| d.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+        {
+            let mut root_types = Vec::new();
+            if let Some(payload) = dobj.and_then(|d| d.get("payload")) {
+                collect_root_types(payload, &mut root_types);
+            }
+            Some(JsonLdMeta {
+                root_types,
+                full_snapshot_timestamp: dobj
+                    .and_then(|d| d.get("fullSnapshotTimestamp"))
+                    .and_then(as_f64)
+                    .filter(|ts| ts.is_finite() && *ts > 0.0 && *ts <= MAX_JS_DATE_MS),
+            })
+        } else {
+            None
+        },
     });
+
+    if ty == Some(TYPE_CUSTOM)
+        && dobj.and_then(|data| data.get("tag")).and_then(as_str) == Some(JSON_LD_EVENT_TAG)
+    {
+        sink.json_ld_events += 1;
+    }
 
     // rrweb/console@1 counts by level (mirrors `session-console-log-recorder.ts` safeLevel).
     if ty == Some(TYPE_PLUGIN) {
@@ -1430,6 +1479,37 @@ fn push_meta_from_data(ty: Option<u8>, ts: f64, data: Option<&Value<'_>>, sink: 
                     _ => sink.console[0] += 1,
                 }
             }
+        }
+    }
+}
+
+fn collect_root_types(value: &Value<'_>, types: &mut Vec<String>) {
+    if types.len() >= 64 {
+        return;
+    }
+    if let Some(items) = as_array(value) {
+        for item in items {
+            collect_root_types(item, types);
+        }
+    } else if let Some(object) = as_object(value) {
+        if let Some(type_value) = object.get("@type") {
+            let mut add_type = |value: &Value<'_>| {
+                if let Some(name) = as_str(value) {
+                    if types.len() < 64 && !types.iter().any(|t| t == name) {
+                        types.push(name.to_owned());
+                    }
+                }
+            };
+            if let Some(items) = as_array(type_value) {
+                for item in items {
+                    add_type(item);
+                }
+            } else {
+                add_type(type_value);
+            }
+        }
+        if let Some(graph) = object.get("@graph") {
+            collect_root_types(graph, types);
         }
     }
 }

@@ -27,7 +27,6 @@ packages:
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'
-    - rust/cyclotron-node
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
 
@@ -103,9 +102,10 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    '@connectrpc/connect-node@2.1.1': patches/@connectrpc__connect-node@2.1.1.patch
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
-    chartjs-plugin-crosshair@2.0.0: patches/chartjs-plugin-crosshair@2.0.0.patch
+    html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
@@ -135,6 +135,7 @@ onlyBuiltDependencies:
 catalog:
     # Kea ecosystem - state management
     kea: ^4.0.0-pre.6
+    kea-disposables: ^1.0.0
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
@@ -145,9 +146,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.9.1
-    '@posthog/react': ^1.9.0
-    posthog-js: ^1.417.1
+    '@posthog/brand': 0.11.0
+    '@posthog/react': ^1.10.6
+    posthog-js: ^1.433.6
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -175,7 +176,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.6.0
+    '@base-ui/react': 1.8.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3

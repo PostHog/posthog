@@ -102,12 +102,14 @@ export function createMockQuery(
     supportedAgents: vi.fn().mockResolvedValue([]),
     stopTask: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
+    updateSettings: vi.fn().mockResolvedValue(undefined),
     getContextUsage: vi.fn().mockResolvedValue({}),
     usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: vi
       .fn()
       .mockResolvedValue({}),
     reloadPlugins: vi.fn().mockResolvedValue(undefined),
     reloadSkills: vi.fn().mockResolvedValue(undefined),
+    reloadOutputStyles: vi.fn().mockResolvedValue({}),
     setMcpPermissionModeOverride: vi.fn().mockResolvedValue({}),
     reinitialize: vi.fn().mockResolvedValue({}),
     seedReadState: vi.fn().mockResolvedValue(undefined),
@@ -199,81 +201,5 @@ export function createSuccessResult(
     uuid: crypto.randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
     session_id: "test-session",
     ...overrides,
-  };
-}
-
-export function createErrorResult(
-  overrides: Partial<SDKResultError> = {},
-): SDKResultError {
-  return {
-    type: "result",
-    subtype: "error_during_execution",
-    is_error: true,
-    errors: ["Test error"],
-    duration_ms: 100,
-    duration_api_ms: 50,
-    num_turns: 1,
-    stop_reason: null,
-    total_cost_usd: 0.01,
-    usage: {
-      input_tokens: 100,
-      output_tokens: 50,
-      output_tokens_details: { thinking_tokens: 0 },
-      cache_read_input_tokens: 0,
-      cache_creation_input_tokens: 0,
-      cache_creation: {
-        ephemeral_1h_input_tokens: 0,
-        ephemeral_5m_input_tokens: 0,
-      },
-      server_tool_use: { web_search_requests: 0, web_fetch_requests: 0 },
-      service_tier: "standard",
-      inference_geo: "us",
-      iterations: [],
-      speed: "standard",
-    },
-    modelUsage: {},
-    permission_denials: [],
-    uuid: crypto.randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
-    session_id: "test-session",
-    ...overrides,
-  };
-}
-
-export function createInitMessage(sessionId = "test-session"): SDKMessage {
-  return {
-    type: "system",
-    subtype: "init",
-    agents: [],
-    apiKeySource: "user",
-    betas: [],
-    claude_code_version: "1.0.0",
-    cwd: "/tmp",
-    tools: [],
-    mcp_servers: [],
-    model: "claude-sonnet-4-6",
-    permissionMode: "default",
-    slash_commands: [],
-    output_style: "default",
-    skills: [],
-    plugins: [],
-    uuid: crypto.randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
-    session_id: sessionId,
-  };
-}
-
-export interface MockQueryRef {
-  current: MockQuery | null;
-}
-
-export function createClaudeSdkMock(mockQueryRef: MockQueryRef) {
-  return {
-    query: vi.fn(() => {
-      const mq = createMockQuery();
-      mockQueryRef.current = mq;
-      setTimeout(() => {
-        mq._mockHelpers.sendMessage(createInitMessage());
-      }, 10);
-      return mq;
-    }),
   };
 }

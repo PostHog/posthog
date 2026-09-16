@@ -1,16 +1,24 @@
+import hmac
+import time
+import hashlib
+import threading
 from datetime import UTC, datetime
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+from cachetools import TTLCache
 from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
 
 from posthog.api.capture import capture_internal
 from posthog.api.utils import get_token
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -48,10 +56,47 @@ PUSH_SUBSCRIPTION_DISCARD_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
-VALID_PLATFORMS = ("android", "ios")
+# Discarding a registration is this endpoint's normal case: a device registers on app open whether or
+# not its project has a push integration, and most don't. The counter above carries that volume. The
+# log line exists to name the project behind it, and that is the same team and app_id every time, so
+# emitting it per request restates one fact indefinitely. One line per team per window keeps the
+# identification and drops the repetition.
+_DISCARD_LOG_WINDOW_SECONDS = 60
+
+# That same path runs _find_integrations, a JSONB filter, on every request. Cache the team's
+# configured app_ids so a registration for an app_id the team has never configured — the common case
+# — answers from cache instead. Keyed on the team alone: the value is a small bounded list, whereas
+# keying on the request's app_id would let one public project token mint unbounded entries.
+#
+# Staleness costs at most one window: a team that configures push keeps discarding for up to a minute,
+# and the device re-posts on its next launch anyway.
+_CONFIGURED_APP_IDS_CACHE_SECONDS = 60
+
+# A token that resolves to no team costs a Redis miss and then a Postgres query on every request,
+# and the lookup has no negative cache of its own. A misconfigured mobile client repeats the same
+# unknown token on every app open, so that query runs at the client's retry rate indefinitely.
+#
+# This cache is in-process and size-bounded, not in Redis. The token is request-controlled and this
+# endpoint is public, so a Redis key per submitted value would let anyone grow the shared cache and
+# evict unrelated entries. A TTLCache holds at most _INVALID_TOKEN_CACHE_SIZE entries per worker and
+# evicts its own oldest, so the memory cost is fixed no matter what callers send.
+#
+# The TTL is short on purpose. A token can become valid, for example when a project is recreated,
+# and this bounds how long such a token keeps being rejected after that.
+_INVALID_TOKEN_CACHE_SECONDS = 60
+_INVALID_TOKEN_CACHE_SIZE = 2048
+_invalid_token_cache: TTLCache = TTLCache(maxsize=_INVALID_TOKEN_CACHE_SIZE, ttl=_INVALID_TOKEN_CACHE_SECONDS)
+# cachetools is not thread-safe and Granian serves requests on threads within a worker.
+_invalid_token_lock = threading.Lock()
+_PUSH_INTEGRATION_KINDS = ("firebase", "apns")
+
+# SDKs send a `platform` field. It is ignored: the property is keyed on app_id and the provider is
+# resolved from app_id alone. Rejecting on it cost a registration per device, because a rejected
+# device re-posts on every app open and never registers.
+
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
-# platform, app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
+# app_id, api_key) — well under 1 KiB. Cap the raw request body far above that but far below
 # Django's global limit, so a compressed body can't inflate into a memory-exhaustion payload when
 # load_data_from_request decompresses it.
 MAX_BODY_BYTES = 16 * 1024
@@ -66,6 +111,55 @@ _encrypted_fields = EncryptedFieldMixin()
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
 # `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+def _is_known_invalid_token(api_key: str) -> bool:
+    """True when this worker resolved this token to no team recently. Stores a fingerprint rather
+    than the token itself, so the raw value is never held."""
+    with _invalid_token_lock:
+        return _api_key_fingerprint(api_key) in _invalid_token_cache
+
+
+def _remember_invalid_token(api_key: str) -> None:
+    with _invalid_token_lock:
+        _invalid_token_cache[_api_key_fingerprint(api_key)] = True
+
+
+def _is_first_discard_in_window(team_id: int) -> bool:
+    """Keyed on the team and the window only. app_id is request-controlled and can fill most of the
+    16 KiB body, and the project token that reaches this endpoint ships inside every copy of the app,
+    so keying on it would let anyone mint unbounded cache entries. Keyed on the window so a missed
+    expiry can never wedge the log shut, and fails open: losing the cache must not lose the only line
+    that names the project."""
+    window = int(time.time()) // _DISCARD_LOG_WINDOW_SECONDS
+    try:
+        return cache.add(f"push_subscriptions:discarded:{team_id}:{window}", 1, _DISCARD_LOG_WINDOW_SECONDS)
+    except Exception:
+        return True
+
+
+def _configurable_app_ids(team_id: int) -> list[str] | None:
+    """The app_ids this team has a push integration for, or None when the cache is unavailable.
+    None means "don't know", so the caller falls through to the real lookup rather than discarding a
+    registration a team is entitled to."""
+    key = f"push_subscriptions:app_ids:{team_id}"
+    try:
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        app_ids = [
+            app_id
+            for integration in Integration.objects.filter(team_id=team_id, kind__in=_PUSH_INTEGRATION_KINDS).only(
+                "kind", "config"
+            )
+            if isinstance(
+                app_id := integration.config.get("project_id" if integration.kind == "firebase" else "bundle_id"), str
+            )
+        ]
+        cache.set(key, app_ids, _CONFIGURED_APP_IDS_CACHE_SECONDS)
+        return app_ids
+    except Exception:
+        return None
 
 
 # Resolve integrations from the app_id alone, not the device platform. An app_id is either a
@@ -91,6 +185,35 @@ def _strictest_verification_mode(integrations: list[Integration]) -> str:
 # The error body goes back to the client only, and Django's own request log records just
 # "Bad Request: /api/push_subscriptions/", so without this counter and log line the rejection
 # reason is unrecoverable from production telemetry.
+@frozen
+class _SdkIdentity:
+    # name and version are both optional strings, so a dataclass with named fields keeps them from
+    # being read or swapped positionally.
+    name: str | None = None
+    version: str | None = None
+
+
+def _parse_user_agent_sdk(request: Request) -> _SdkIdentity:
+    # PostHog SDKs identify as "posthog-<name>/<version>" (for example posthog-android/3.59.0). Parse
+    # it so a rejection can be attributed to the SDK or wrapper from this log alone, without joining
+    # access logs. Bound each part and ignore any non-PostHog user agent so the field stays a fixed
+    # shape and an arbitrary user agent cannot bloat the log line.
+    user_agent = request.META.get("HTTP_USER_AGENT") or ""
+    if not user_agent.startswith("posthog-"):
+        return _SdkIdentity()
+    name, _, version = user_agent.partition("/")
+    if not version:
+        return _SdkIdentity()
+    return _SdkIdentity(name=name[:64], version=version.split()[0][:32])
+
+
+def _api_key_fingerprint(api_key: str) -> str:
+    # A stable, non-reversible fingerprint of the submitted token, so many invalid-token rejections
+    # can be grouped to one source without logging the raw credential. Keyed with the server secret
+    # so a fingerprint cannot be precomputed for a guessed token.
+    return hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
+
+
 def _rejection_response(
     request: Request,
     message: str,
@@ -101,6 +224,7 @@ def _rejection_response(
     team_id: int | None = None,
     app_id: str | None = None,
     detail: str | None = None,
+    api_key_fingerprint: str | None = None,
     exc_info: bool = False,
 ) -> HttpResponse:
     # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
@@ -111,14 +235,20 @@ def _rejection_response(
     PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=method_label).inc()
     # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
     # so a 500 is diagnosable from this single labeled event rather than just the counter.
+    sdk = _parse_user_agent_sdk(request)
     logger.warning(
         "push_subscription_rejected",
         code=code,
         status_code=status_code,
         method=request.method,
         team_id=team_id,
-        app_id=app_id,
+        # app_id is client-supplied, so bound it to keep a hostile value from bloating the log line.
+        # A non-string (a large array or object) is dropped rather than serialized whole.
+        app_id=app_id[:128] if isinstance(app_id, str) else None,
         detail=detail,
+        sdk_name=sdk.name,
+        sdk_version=sdk.version,
+        api_key_fingerprint=api_key_fingerprint,
         exc_info=exc_info,
     )
     return cors_response(
@@ -191,19 +321,34 @@ def push_subscriptions(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
-    team = Team.objects.get_team_from_cache_or_token(api_key)
-    if not team:
+    if _is_known_invalid_token(api_key):
         return _rejection_response(
             request,
             "Invalid project token.",
             error_type="authentication_error",
             code="invalid_api_key",
             status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
+        )
+
+    team = Team.objects.get_team_from_cache_or_token(api_key)
+    if not team:
+        _remember_invalid_token(api_key)
+        # Fingerprint the rejected token so a cohort of these can be traced to one bad app
+        # configuration, which is the usual cause of a burst of invalid-token rejections.
+        return _rejection_response(
+            request,
+            "Invalid project token.",
+            error_type="authentication_error",
+            code="invalid_api_key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            api_key_fingerprint=_api_key_fingerprint(api_key),
+            app_id=data.get("app_id"),
         )
 
     distinct_id = data.get("distinct_id")
     device_token = data.get("device_token")
-    platform = data.get("platform")
     app_id = data.get("app_id")
 
     missing_fields = [
@@ -211,7 +356,6 @@ def push_subscriptions(request: Request):
         for field_name, value in [
             ("distinct_id", distinct_id),
             ("device_token", device_token),
-            ("platform", platform),
             ("app_id", app_id),
         ]
         if not value or not isinstance(value, str)
@@ -235,21 +379,14 @@ def push_subscriptions(request: Request):
 
     assert isinstance(distinct_id, str)
     assert isinstance(device_token, str)
-    assert isinstance(platform, str)
     assert isinstance(app_id, str)
 
-    if platform not in VALID_PLATFORMS:
-        return _rejection_response(
-            request,
-            f"Invalid platform. Must be one of: {', '.join(VALID_PLATFORMS)}.",
-            error_type="validation_error",
-            code="invalid_platform",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
-        )
-
-    integrations = _find_integrations(team.id, app_id)
+    # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
+    # normal case. A cache miss or outage returns None and falls through to the real query.
+    known_app_ids = _configurable_app_ids(team.id)
+    integrations = (
+        [] if known_app_ids is not None and app_id not in known_app_ids else _find_integrations(team.id, app_id)
+    )
     # A missing integration is an account state, not a request error: SDKs auto-register on every
     # app open, so for most teams this is the endpoint's normal case, and a 4xx here turns the
     # whole fleet into an error firehose. Acknowledge registration with a 200 and skip the store,
@@ -258,13 +395,13 @@ def push_subscriptions(request: Request):
     # DELETE falls through: logout must clear any subscription stored while an integration existed.
     if not integrations and request.method == "POST":
         PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration").inc()
-        logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
+        if _is_first_discard_in_window(team.id):
+            logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
         return cors_response(
             request,
             JsonResponse(
                 {
                     "distinct_id": distinct_id,
-                    "platform": platform,
                     "stored": False,
                     "push_enabled": False,
                 },
@@ -342,7 +479,6 @@ def push_subscriptions(request: Request):
         JsonResponse(
             {
                 "distinct_id": distinct_id,
-                "platform": platform,
             },
             status=status.HTTP_200_OK,
         ),

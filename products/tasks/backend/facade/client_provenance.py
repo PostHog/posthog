@@ -1,6 +1,10 @@
 from rest_framework.request import Request
 
-from posthog.oauth_provenance import is_interactive_desktop_grant
+from posthog.oauth_provenance import (
+    is_interactive_desktop_grant,
+    is_sandbox_oauth_request as is_sandbox_oauth_request,
+    is_sandbox_origin_request as is_sandbox_origin_request,
+)
 
 from products.tasks.backend.models import TaskClientProvenance
 

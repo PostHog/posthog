@@ -24,6 +24,27 @@ def _credential(secret: str, *, credential_id: str) -> ServiceCredential:
     )
 
 
+class TestMakeDuckgresConninfoWithStoredLogin:
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=False)
+    @mock.patch("products.managed_warehouse.backend.client.get_duckgres_config_for_org")
+    def test_uses_the_current_stored_server_login(self, config, _dev) -> None:
+        config.return_value = {
+            "DUCKGRES_HOST": "managed.example.com",
+            "DUCKGRES_PORT": "5432",
+            "DUCKGRES_DATABASE": "ducklake",
+            "DUCKGRES_USERNAME": "stored-login",
+            "DUCKGRES_PASSWORD": "stored-password",
+        }
+
+        conninfo = make_duckgres_conninfo(7, organization_id="org-1")
+
+        config.assert_called_once_with("org-1")
+        assert "host=managed.example.com" in conninfo
+        assert "dbname=ducklake" in conninfo
+        assert "user=stored-login" in conninfo
+        assert "password=stored-password" in conninfo
+
+
 class TestMakeDuckgresConninfoWithServiceCredential:
     """client.make_duckgres_conninfo with a service_credential dials the
     server-issued credential pair (svc_<id> + plaintext) and the CP-issued

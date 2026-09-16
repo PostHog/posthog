@@ -130,6 +130,21 @@ impl PersonHogService for MockPersonHogService {
         Err(Status::unimplemented("not exercised by this mock"))
     }
 
+    async fn fence_persons(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::FencePersonsRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonsResponse>, Status> {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
+    async fn release_fences(
+        &self,
+        _req: Request<personhog_proto::personhog::types::v1::ReleaseFencesRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFencesResponse>, Status>
+    {
+        Err(Status::unimplemented("not exercised by this mock"))
+    }
+
     async fn fold_person_document(
         &self,
         _req: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
@@ -337,10 +352,11 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
-    async fn delete_personless_distinct_ids_batch_for_team(
+
+    async fn delete_tombstoned_persons(
         &self,
-        _: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        _: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
     async fn get_group_type_mapping_by_dashboard_id(
@@ -921,6 +937,7 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         &config,
         cache.clone(),
         &db,
+        None,
         round1,
         &test_lifecycle_handle(),
     )
@@ -951,6 +968,7 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         &config,
         cache.clone(),
         &db,
+        None,
         round2,
         &test_lifecycle_handle(),
     )

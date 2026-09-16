@@ -10,26 +10,30 @@ too, bounding how many namespaces the loosened filter gate lets a team mint.
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode
+from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
@@ -61,6 +65,96 @@ OOM_PIN_TTL_SECONDS = 14 * 24 * 60 * 60
 
 def _oom_pin_key(team_id: int) -> str:
     return f"{TEAM_OOM_PIN_REDIS_PREFIX}{team_id}"
+
+
+# Above-floor team set, refreshed by the hourly demand warmer from a
+# marks-only fleet event count. Reads consult it fail-open: an unpublished or
+# expired set (sentinel absent, or Redis down) keeps current behavior, so the
+# floor can only narrow precompute when the warmer is actively maintaining it.
+VOLUME_FLOOR_TEAMS_KEY = "{web_precompute_volume_floor}:teams"
+VOLUME_FLOOR_READY_KEY = "{web_precompute_volume_floor}:ready"
+VOLUME_FLOOR_TTL_SECONDS = 48 * 3600
+
+
+# One dashboard load passes the gate once per family, so cache the verdict
+# in-process for a short window. 60s is far below the hourly publish cadence,
+# and the dict is bounded per process by web analytics' active-team working set.
+_VOLUME_FLOOR_LOCAL_CACHE: dict[int, tuple[float, bool]] = {}
+_VOLUME_FLOOR_LOCAL_CACHE_SECONDS = 60.0
+_VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES = 50_000
+
+
+def is_team_above_volume_floor(team_id: int) -> bool:
+    if settings.WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS <= 0:
+        return True
+    # Explicit env enrollment beats the volume heuristic: those teams were
+    # opted in deliberately (dogfooding, support escalations) regardless of size.
+    if team_id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    cached = _VOLUME_FLOOR_LOCAL_CACHE.get(team_id)
+    if cached is not None and time.monotonic() - cached[0] < _VOLUME_FLOOR_LOCAL_CACHE_SECONDS:
+        return cached[1]
+    try:
+        client = redis.get_client()
+        # Membership first: above-floor teams (the vast majority of gate
+        # traffic) resolve in one round trip. On a miss, the floor only
+        # enforces when BOTH keys exist: the sentinel alone is not trusted, so
+        # a lost or expired teams set (eviction, TTL drift) fails open instead
+        # of silently disabling precompute fleet-wide. Intentionally-empty
+        # publishes keep the set alive via a placeholder member.
+        # Accepted transient: a reader racing the very first publish can miss
+        # membership then see both keys, reading below-floor for up to the
+        # local cache window — it degrades to the live path, never breaks.
+        if client.sismember(VOLUME_FLOOR_TEAMS_KEY, str(team_id)):
+            result = True
+        else:
+            result = not (client.exists(VOLUME_FLOOR_READY_KEY) and client.exists(VOLUME_FLOOR_TEAMS_KEY))
+    except Exception:
+        logger.exception("web_precompute_volume_floor_check_failed", team_id=team_id)
+        result = True
+    if len(_VOLUME_FLOOR_LOCAL_CACHE) >= _VOLUME_FLOOR_LOCAL_CACHE_MAX_ENTRIES:
+        _VOLUME_FLOOR_LOCAL_CACHE.clear()
+    _VOLUME_FLOOR_LOCAL_CACHE[team_id] = (time.monotonic(), result)
+    return result
+
+
+def publish_volume_floor_teams(above_floor: list[int], above_exit_floor: Optional[list[int]] = None) -> None:
+    """Atomically replace the above-floor set. RENAME keeps readers off a
+    half-written set; the TTLs make a dead warmer fail open within 48h.
+
+    `above_exit_floor` enables hysteresis: teams in it that are already
+    members stay members even when they fell under the entry floor, so a team
+    oscillating around the threshold does not flap in and out hourly (each
+    exit discards warm buckets that re-entry rebuilds from scratch).
+    """
+    client = redis.get_client()
+    members: set[str] = {str(t) for t in above_floor}
+    if above_exit_floor:
+        try:
+            current = {m.decode() if isinstance(m, bytes) else str(m) for m in client.smembers(VOLUME_FLOOR_TEAMS_KEY)}
+        except Exception:
+            # Degrading to no hysteresis evicts every between-floors member
+            # this pass; they re-enter next pass if they recover. Loud so a
+            # persistent Redis problem does not silently churn buckets.
+            logger.exception("web_precompute_volume_floor_hysteresis_read_failed")
+            current = set()
+        members |= {str(t) for t in above_exit_floor if str(t) in current}
+    member_list = sorted(members)
+    if not member_list:
+        # An empty publish is a valid verdict (no team above the floor). A
+        # placeholder member keeps the set alive: RENAME from a never-written
+        # staging key would raise mid-transaction, and the gate reads a
+        # MISSING set as "lost, fail open" rather than "empty, enforce".
+        member_list = ["__none__"]
+    tmp_key = f"{VOLUME_FLOOR_TEAMS_KEY}:staging"
+    pipe = client.pipeline()
+    pipe.delete(tmp_key)
+    for chunk_start in range(0, len(member_list), 5000):
+        pipe.sadd(tmp_key, *member_list[chunk_start : chunk_start + 5000])
+    pipe.rename(tmp_key, VOLUME_FLOOR_TEAMS_KEY)
+    pipe.expire(VOLUME_FLOOR_TEAMS_KEY, VOLUME_FLOOR_TTL_SECONDS)
+    pipe.set(VOLUME_FLOOR_READY_KEY, "1", ex=VOLUME_FLOOR_TTL_SECONDS)
+    pipe.execute()
 
 
 def is_team_oom_pinned(team_id: int) -> bool:
@@ -352,9 +446,20 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     """
     runner = kwargs.pop("runner", None)
     family = kwargs.pop("family", None)
+    modifiers = create_default_modifiers_for_team(team, kwargs.get("modifiers"))
+    if runner is not None:
+        # Pin the runner's decision so a flag refresh cannot change INSERT semantics after hashing.
+        modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
+    kwargs["modifiers"] = modifiers
+    if modifiers.cookielessTrafficIsRegular:
+        kwargs["cache_key_context"] = {
+            **(kwargs.get("cache_key_context") or {}),
+            "traffic_classification": "cookieless-missing-ua-v1",
+        }
     background = is_background_warming_request()
+    forced = is_forced_refresh_request()
     if "stale_while_revalidate_seconds" not in kwargs:
-        if is_forced_refresh_request():
+        if forced:
             # An explicit user-initiated force refresh must never be handed a
             # complete-but-stale row — that is exactly the state the user is trying
             # to clear (the reported bug: repeated Reload clicks kept serving the
@@ -402,6 +507,30 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        if forced and not background:
+            # A within-TTL current-day bucket can still be hours behind (the
+            # today band is 4h), which on an hourly graph reads as missing
+            # recent data. Disabling the grace above cannot help there because
+            # the bucket is not stale, just coarse. Treat the windows covering
+            # the current team-local day as expired for this read only: the
+            # ensure reports a miss, the read falls through to the live query,
+            # and the SWR enqueue rebuilds the bucket in the background.
+            # Jobs split on UTC day boundaries, so the cutoff is the UTC-day
+            # floor of team-local midnight; a cutoff at local midnight itself
+            # sits after the window start for teams behind UTC and would never
+            # match today's window. Background builds are excluded because the
+            # same schedule sets the insert TTL, and the revalidation task runs
+            # under the forced execution mode, so it would persist the rebuilt
+            # bucket with a 1-second expiry that every ambient read then
+            # misses. `rules` are first-match by descending cutoff, so
+            # prepending wins over the normal today band.
+            today_start_local = (
+                django_timezone.now()
+                .astimezone(ZoneInfo(team.timezone))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+            )
+            forced_cutoff = floor_utc_day(today_start_local.astimezone(UTC))
+            schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if not result.ready and not background and runner is not None and family is not None:
@@ -513,6 +642,11 @@ class PerQueryOptedOut(LazyPrecomputeIneligible):
 
 class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
+
+
+class BelowVolumeFloor(LazyPrecomputeIneligible):
+    """The team's 7-day event volume is under the precompute floor — its live
+    path is sub-second and always fresh, so the query stays live."""
 
 
 class ConversionGoalUnsupported(LazyPrecomputeIneligible):
@@ -646,6 +780,13 @@ def check_common_eligibility(
     if use_web_analytics_precompute is False:
         raise PerQueryOptedOut()
 
+    # After the free local checks (this one costs a Redis round trip on local
+    # cache miss). Deliberately checked for background warming too: the floor
+    # exists to stop building buckets for teams whose live path already
+    # serves them better.
+    if not is_team_above_volume_floor(team.pk):
+        raise BelowVolumeFloor()
+
     if not is_integer_timezone(team.timezone):
         raise NonIntegerTimezone()
 
@@ -690,14 +831,41 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
     """Emit the same `*_rejected` / `*_eligible` info log shape used by every
     lazy path so a single Loki query can attribute all fall-throughs."""
     if error is not None:
+        reason = type(error).__name__
+        set_lazy_precompute_ineligible_reason(reason)
         logger.info(
             f"{log_prefix}_rejected",
             team_id=team_id,
-            reason=type(error).__name__,
+            reason=reason,
             detail=str(error) or None,
         )
     else:
+        set_lazy_precompute_ineligible_reason(None)
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
+
+
+def set_lazy_precompute_ineligible_reason(reason: Optional[str]) -> None:
+    """Record why a gate refused this read, or clear the tag when a gate admits the query.
+
+    A stats-table read consults several gates in turn, so a rejection from an earlier gate must not
+    survive onto a query that a later gate admits.
+    """
+    if reason is None:
+        clear_tag("web_analytics_precompute_ineligible_reason")
+    else:
+        tag_queries(web_analytics_precompute_ineligible_reason=reason)
+
+
+def lazy_precompute_ineligible_reason(strategy: WebAnalyticsPreComputeStrategy) -> Optional[str]:
+    """Give the reason a gate refused this read, but only for a response the live path served.
+
+    The gates run before the runner selects a strategy. A read the lazy gate rejects can still be
+    served from the pre-aggregated tables, so the tag must not ride out next to a strategy that is
+    not `LIVE`.
+    """
+    if strategy != WebAnalyticsPreComputeStrategy.LIVE:
+        return None
+    return get_query_tag_value("web_analytics_precompute_ineligible_reason")
 
 
 def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:

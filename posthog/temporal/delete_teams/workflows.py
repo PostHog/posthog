@@ -6,6 +6,7 @@ import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
+    check_project_pending_deletion_activity,
     delete_batch_exports_activity,
     delete_cohort_members_activity,
     delete_data_modeling_schedules_activity,
@@ -13,7 +14,6 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
-    delete_personless_distinct_ids_activity,
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
@@ -62,7 +62,6 @@ EMAIL_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 # Bulky Postgres phases, run in dependency-safe order (each its own retryable activity).
 BULKY_POSTGRES_ACTIVITIES = (
     delete_misc_small_tables_activity,
-    delete_personless_distinct_ids_activity,
     delete_cohort_members_activity,
     delete_groups_activity,
     delete_team_persons_activity,
@@ -188,6 +187,19 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteProjectDataWorkflowInputs) -> None:
+        # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a
+        # changed command sequence.
+        if inputs.project_id is not None and temporalio.workflow.patched("check-project-pending-deletion"):
+            project_is_pending_deletion = await temporalio.workflow.execute_activity(
+                check_project_pending_deletion_activity,
+                ProjectRecordInputs(project_id=inputs.project_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+            if not project_is_pending_deletion:
+                return
+
         if inputs.team_ids:
             await _delete_teams_data_child(
                 DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),

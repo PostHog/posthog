@@ -1,5 +1,7 @@
 from typing import get_args
 
+from django.utils import timezone
+
 from posthog.models.activity_logging.activity_log import ActivityScope, field_exclusions
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.test.activity_log_utils import ActivityLogTestHelper
@@ -19,7 +21,9 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.assertIn("last_synced_at", external_data_schema_exclusions)
         self.assertIn("status", external_data_schema_exclusions)
         self.assertIn("table", external_data_schema_exclusions)
-        self.assertEqual(len(external_data_schema_exclusions), 5)
+        self.assertIn("destination_links", external_data_schema_exclusions)
+        self.assertIn("auto_disabled_at", external_data_schema_exclusions)
+        self.assertEqual(len(external_data_schema_exclusions), 7)
 
     def test_external_data_schema_scope_in_activity_log_types(self):
         self.assertIn("ExternalDataSchema", get_args(ActivityScope))
@@ -80,6 +84,26 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(deleted_change)
         assert deleted_change is not None
         self.assertEqual(deleted_change["after"], True)
+
+    def test_enabling_an_auto_disabled_schema_logs_only_the_enabled_change(self):
+        external_data_source = self.create_external_data_source()
+
+        source_obj = ExternalDataSource.objects.get(id=external_data_source["id"])
+        schema = source_obj.schemas.first()
+        assert schema is not None
+
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=timezone.now())
+        self.clear_activity_logs()
+
+        disabled_schema = ExternalDataSchema.objects.get(pk=schema.pk)
+        disabled_schema.should_sync = True
+        disabled_schema.save()
+
+        activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
+        self.assertEqual(len(activity_logs), 1)
+
+        changes = activity_logs[0].detail.get("changes", [])
+        self.assertEqual([change["field"] for change in changes], ["enabled"])
 
     def test_external_data_schema_relationship_logging(self):
         external_data_source = self.create_external_data_source()

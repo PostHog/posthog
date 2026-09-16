@@ -28,10 +28,13 @@ _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QU
 DISABLED_REASON_OWNER_DEACTIVATED = "owner_deactivated"
 DISABLED_REASON_OWNER_REMOVED = "owner_removed_from_org"
 DISABLED_REASON_GITHUB_DISCONNECTED = "github_integration_disconnected"
+DISABLED_REASON_ADMIN_PAUSED = "admin_paused"
 
+DEFAULT_PAUSE_MESSAGE = "This loop has been paused."
 _PAUSE_MESSAGES = {
     DISABLED_REASON_OWNER_DEACTIVATED: "This loop's owner was deactivated, so it has been paused.",
     DISABLED_REASON_OWNER_REMOVED: "This loop's owner was removed from the organization, so it has been paused.",
+    DISABLED_REASON_ADMIN_PAUSED: "PostHog paused this loop. Contact support if you need it running again.",
 }
 
 
@@ -44,7 +47,7 @@ def pause_loops_for_deactivated_user(user_id: int) -> None:
     loops = list(Loop.objects.unscoped().filter(created_by_id=user_id, enabled=True, deleted=False))
     for loop in loops:
         try:
-            _pause_loop_and_cancel_runs(loop, DISABLED_REASON_OWNER_DEACTIVATED)
+            pause_loop(loop, DISABLED_REASON_OWNER_DEACTIVATED)
         except Exception:
             logger.exception("loop_lifecycle.owner_deactivation_pause_failed", extra={"loop_id": str(loop.id)})
 
@@ -73,7 +76,7 @@ def pause_loops_for_removed_member(user_id: int, organization_id: str) -> None:
     )
     for loop in loops:
         try:
-            _pause_loop_and_cancel_runs(loop, DISABLED_REASON_OWNER_REMOVED)
+            pause_loop(loop, DISABLED_REASON_OWNER_REMOVED)
         except Exception:
             logger.exception("loop_lifecycle.member_removal_pause_failed", extra={"loop_id": str(loop.id)})
 
@@ -106,12 +109,30 @@ def _cancel_loop_runs_authored_by(user_id: int, *, organization_id: str | None =
         signal_loop_run_cancelled(run.workflow_id)
 
 
-def _pause_loop_and_cancel_runs(loop: Loop, reason: str) -> None:
+def pause_loop(
+    loop: Loop, reason: str, *, message: str | None = None, cancel_runs: bool = True, notify: bool = True
+) -> int:
+    """Pause one loop and record why. Returns how many in-flight runs were cancelled."""
     loop.enabled = False
     loop.disabled_reason = reason
     loop.save(update_fields=["enabled", "disabled_reason", "updated_at"])
     pause_loop_schedules(loop)
 
+    cancelled = _cancel_loop_runs(loop) if cancel_runs else 0
+
+    if notify:
+        dispatch_loop_event(
+            loop,
+            "needs_attention",
+            {
+                "reason": reason,
+                "body": message or _PAUSE_MESSAGES.get(reason, DEFAULT_PAUSE_MESSAGE),
+            },
+        )
+    return cancelled
+
+
+def _cancel_loop_runs(loop: Loop) -> int:
     now = django_timezone.now()
     # Matches both the FK (`Task.loop`) and the pre-FK run-state snapshot (`TaskRun.state["loop_id"]`),
     # same transitional lookup as `facade/loops.py::list_loop_runs`.
@@ -122,24 +143,17 @@ def _pause_loop_and_cancel_runs(loop: Loop, reason: str) -> None:
             status__in=_NON_TERMINAL_TASK_RUN_STATUSES,
         )
     )
-    if runs:
-        TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
-            status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
-        )
-        # Cancelling the DB row isn't enough: signal each workflow so the live sandbox actually winds
-        # down instead of running to completion under the deactivated owner's freshly minted
-        # credentials. That's the entire point of the security response (see module docstring).
-        for run in runs:
-            signal_loop_run_cancelled(run.workflow_id)
-
-    dispatch_loop_event(
-        loop,
-        "needs_attention",
-        {
-            "reason": reason,
-            "body": _PAUSE_MESSAGES.get(reason, "This loop has been paused."),
-        },
+    if not runs:
+        return 0
+    TaskRun.objects.filter(id__in=[run.id for run in runs]).update(
+        status=TaskRun.Status.CANCELLED, completed_at=now, updated_at=now
     )
+    # Cancelling the DB row isn't enough: signal each workflow so the live sandbox actually winds
+    # down instead of running to completion under the deactivated owner's freshly minted
+    # credentials. That's the entire point of the security response (see module docstring).
+    for run in runs:
+        signal_loop_run_cancelled(run.workflow_id)
+    return len(runs)
 
 
 def pause_loops_referencing_integrations(integrations: list[Integration], installation_id: str) -> None:
@@ -205,6 +219,7 @@ def pause_loops_referencing_integrations(integrations: list[Integration], instal
 
 
 __all__ = [
+    "pause_loop",
     "pause_loops_for_deactivated_user",
     "pause_loops_for_removed_member",
     "pause_loops_referencing_integrations",

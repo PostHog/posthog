@@ -10,6 +10,21 @@ describe('hogflow schema', () => {
         filters: {},
     }
 
+    describe('batch account filters', () => {
+        it('preserves assignment status', () => {
+            const parsed = HogFlowActionSchema.parse({
+                ...commonActionFields,
+                type: 'trigger',
+                config: {
+                    type: 'batch',
+                    filters: { audience_type: 'accounts', properties: [], assignment_status: 'assigned' },
+                },
+            })
+
+            expect((parsed.config as any).filters.assignment_status).toBe('assigned')
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },
@@ -87,6 +102,18 @@ describe('hogflow schema', () => {
                 conversion: { window_minutes: 60, filters: {}, bytecode: [] },
             })
             expect(parsed.conversion?.events).toBeUndefined()
+        })
+
+        it('accepts a conversion goal carrying only the duration-string window', () => {
+            // A workflow migrated onto `window` has no `window_minutes` key at all. Requiring one
+            // fails the whole flow to parse, which stops it running rather than just mis-reading the
+            // window.
+            const parsed = HogFlowSchema.parse({
+                ...baseHogFlow,
+                conversion: { window: '60d', filters: {}, bytecode: [] },
+            })
+            expect(parsed.conversion?.window).toBe('60d')
+            expect(parsed.conversion?.window_minutes).toBeUndefined()
         })
     })
 })

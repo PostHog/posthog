@@ -77,7 +77,7 @@ export function DistributionModal(): JSX.Element {
                         onClick={handleSave}
                         type="primary"
                         loading={experimentLoading}
-                        disabled={!areVariantRolloutsValid}
+                        disabledReason={!areVariantRolloutsValid ? 'Percentage splits must sum to 100' : undefined}
                     >
                         Save
                     </LemonButton>

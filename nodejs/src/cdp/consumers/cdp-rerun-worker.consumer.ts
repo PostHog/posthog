@@ -128,6 +128,9 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         await this.jobQueues.hog_flow.stopProducer()
         await this.clickhouseClient?.close()
         await this.invocationResultsService.flush()
+        // This consumer overrides stop() without calling super.stop(), so close the conversion-watcher
+        // pool here too rather than relying on the base teardown.
+        await this.invocationResultsService.stop()
     }
 
     override isHealthy(): HealthCheckResult {

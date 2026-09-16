@@ -12,7 +12,7 @@ description: >
 
 Full background — the four mechanisms (lazy router, model registration, receiver wiring, boot GC window), the regression guards, how to add code without regressing them, how to measure, and the detailed trap write-ups: **[docs/internal/django-startup-time.md](../../../docs/internal/django-startup-time.md)**. That doc is the single source of detail; this skill is the trigger and the checklist.
 
-The guards live in `posthog/test/test_startup_import_budget.py`. **When one fails, defer the import — don't remove an entry to dodge it.** Conversely, when you deliberately defer a significant heavy lib off setup, **add it to `FORBIDDEN_AT_SETUP`** (after confirming it's absent from a bare `django.setup()`). New imports nobody has named yet are caught by `test_no_new_heavy_imports_at_setup`: any package not in `posthog/test/setup_import_baseline.txt` costing ≥100ms at setup fails the build — defer it; baseline only what every process genuinely needs at setup.
+The guards live in `posthog/test/repo_invariants/test_startup_import_budget.py`. **When one fails, defer the import — don't remove an entry to dodge it.** Conversely, when you deliberately defer a significant heavy lib off setup, **add it to `FORBIDDEN_AT_SETUP`** (after confirming it's absent from a bare `django.setup()`). New imports nobody has named yet are caught by `test_no_new_heavy_imports_at_setup`: any package not in `posthog/test/repo_invariants/setup_import_baseline.txt` costing ≥100ms at setup fails the build — defer it; baseline only what every process genuinely needs at setup.
 
 ## Defaults when adding backend code
 

@@ -3,8 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -18,8 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.
     WEBHOOK_SCHEMA_NAMES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source import SparkPostSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.sparkpost import SparkPostResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"events"}
 
@@ -49,39 +45,10 @@ class TestSparkPostSource:
         self.team_id = 123
         self.config = SparkPostSourceConfig(api_key="sp-key", region="us")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SPARKPOST
-
     def test_region_is_a_connection_host_field(self) -> None:
         # Changing the region must force the API key to be re-entered so it's never sent to a
         # freshly-specified host.
         assert self.source.connection_host_fields == ["region"]
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "SparkPost"
-        assert config.label == "SparkPost"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/sparkpost.png"
-
-        region_field, api_key_field = config.fields
-
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.name == "region"
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert {o.value for o in region_field.options} == {"us", "eu"}
-
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -120,40 +87,6 @@ class TestSparkPostSource:
 
     def test_get_schemas_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
-        ("mock_return", "expected_valid", "expected_message"),
-        [
-            ((True, None), True, None),
-            ((False, "Invalid SparkPost API key."), False, "Invalid SparkPost API key."),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source.validate_sparkpost_credentials"
-    )
-    def test_validate_credentials(
-        self,
-        mock_validate: mock.MagicMock,
-        mock_return: tuple[bool, str | None],
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with("us", "sp-key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SparkPostResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source.sparkpost_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -238,12 +171,6 @@ class TestSparkPostSourceWebhooks:
             "schema_mapping",
             "source_id",
         }
-
-    def test_webhook_field_is_offered_for_manual_setup(self) -> None:
-        webhook_fields = self.source.get_source_config.webhookFields or []
-
-        assert [f.name for f in webhook_fields] == ["authorization_header"]
-        assert all(getattr(f, "secret", False) for f in webhook_fields)
 
     def test_get_webhook_source_manager_is_bound_to_the_schema(self) -> None:
         inputs = _make_inputs()

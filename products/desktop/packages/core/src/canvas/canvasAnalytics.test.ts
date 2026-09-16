@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCanvasPromptProps,
   buildContextSaveProps,
+  buildTaskSpaceContextProps,
   dashboardIdFromThread,
 } from "./canvasAnalytics";
 
@@ -84,4 +85,34 @@ describe("buildContextSaveProps", () => {
       });
     },
   );
+});
+
+describe("buildTaskSpaceContextProps", () => {
+  it.each([
+    {
+      input: {},
+      expected: { space_context_mode: "none" },
+    },
+    {
+      input: { channelId: "c1", channelContext: "  " },
+      expected: { channel_id: "c1", space_context_mode: "none" },
+    },
+    {
+      input: { channelId: "c1", channelContext: "Shared context" },
+      expected: { channel_id: "c1", space_context_mode: "legacy_inline" },
+    },
+    {
+      input: {
+        channelId: "feed-1",
+        channelContextId: "space-1",
+        channelContextPath: "projects/2/spaces/growth.md",
+      },
+      expected: {
+        channel_id: "space-1",
+        space_context_mode: "context_wiki_reference",
+      },
+    },
+  ])("returns $expected.space_context_mode", ({ input, expected }) => {
+    expect(buildTaskSpaceContextProps(input)).toEqual(expected);
+  });
 });

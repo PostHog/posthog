@@ -1,17 +1,17 @@
 //! Collect original image bytes for the out-of-band scrub lane.
 //!
 //! With collection enabled (an [`ImageCollection`] on the anonymize call), each inlined image is
-//! replaced by a stable content reference — `image:<pseudoTeam>:<hash>` — instead of the native
+//! replaced by a stable content reference, `image:<teamId>:<hash>`, instead of the native
 //! blur, and the original bytes ride back to the caller on the message. The caller produces them
 //! to the `session_replay_image_scrub` Kafka topic keyed by the ref; the scrub consumer trusts the
 //! ref (this producer is the only writer), blurs the bytes out of process, and writes them to the
-//! ML bucket indexed by `(pseudo_team, hash)` — so the ref embedded in the mirrored lines is the
+//! ML bucket indexed by `(team_id, hash)`, so the ref embedded in the mirrored lines is the
 //! join key.
 //!
 //! The hash is a *keyed* HMAC, not a plain digest: the ML bucket is unencrypted, and a plain
 //! content hash would let any bucket reader confirm whether specific known bytes appeared in a
 //! session (and correlate identical images across teams). The per-team key is derived by the
-//! caller from the same KMS-held secret as the team pseudonym, so neither leaves the ingester.
+//! caller from the KMS-held pseudonymization secret, which never leaves the ingester.
 //! `image-hash.json` pins the construction against Node `createHmac` reference vectors.
 
 use std::collections::HashSet;
@@ -30,8 +30,8 @@ pub fn hash_image_bytes(content_key: &[u8], bytes: &[u8]) -> String {
     b64
 }
 
-pub fn image_ref(pseudo_team: &str, hash: &str) -> String {
-    format!("image:{pseudo_team}:{hash}")
+pub fn image_ref(team_id: &str, hash: &str) -> String {
+    format!("image:{team_id}:{hash}")
 }
 
 /// The prefix of a ref whose hash comes from a URL rather than from bytes.
@@ -43,8 +43,8 @@ pub fn image_ref(pseudo_team: &str, hash: &str) -> String {
 /// mis-join rather than an error.
 pub const URL_REF_PREFIX: &str = "imageurl";
 
-pub fn url_ref(pseudo_team: &str, hash: &str) -> String {
-    format!("{URL_REF_PREFIX}:{pseudo_team}:{hash}")
+pub fn url_ref(hash: &str) -> String {
+    format!("{URL_REF_PREFIX}:{hash}")
 }
 
 /// True for strings shaped like a content ref. The `image:` prefix cannot collide with a data URI,
@@ -57,27 +57,62 @@ pub fn is_image_ref(s: &str) -> bool {
     s.starts_with("image:")
 }
 
-/// True only for a fully well-formed ref: `image:` + 32 lowercase hex (the team pseudonym) + `:`
-/// + 22 base64url chars (the truncated HMAC).
+/// True only for a fully well-formed content ref or URL ref.
 ///
 /// The loose prefix check would let a captured page set a media attribute to `image:<anything>` and
-/// have it copied verbatim into anonymized output. This bounds what can survive to a fixed-width
-/// opaque token with no room for readable content.
+/// have it copied verbatim into anonymized output. Limit preserved refs to a numeric team ID
+/// or legacy pseudonym and a fixed-width hash.
 pub fn is_image_ref_strict(s: &str) -> bool {
-    let Some(rest) = s
-        .strip_prefix("image:")
-        .or_else(|| s.strip_prefix("imageurl:"))
-    else {
-        return false;
-    };
-    let Some((team, hash)) = rest.split_once(':') else {
-        return false;
-    };
+    if let Some(rest) = s
+        .strip_prefix("image:v2:")
+        .or_else(|| s.strip_prefix("imageurl:v2:"))
+    {
+        let parts: Vec<&str> = rest.split(':').collect();
+        return parts.len() == 3
+            && is_raw_team_id(parts[0])
+            && parts[1].len() == 7
+            && parts[1].as_bytes()[..4].iter().all(u8::is_ascii_digit)
+            && parts[1].as_bytes()[4] == b'-'
+            && matches!(
+                &parts[1][5..],
+                "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+            )
+            && is_ref_hash(parts[2]);
+    }
+    if let Some(rest) = s.strip_prefix("image:") {
+        let Some((team, hash)) = rest.split_once(':') else {
+            return false;
+        };
+        return (is_raw_team_id(team) || is_legacy_team_pseudonym(team)) && is_ref_hash(hash);
+    }
+    if let Some(rest) = s.strip_prefix("imageurl:") {
+        return is_ref_hash(rest)
+            || rest
+                .split_once(':')
+                .is_some_and(|(team, hash)| is_legacy_team_pseudonym(team) && is_ref_hash(hash));
+    }
+    false
+}
+
+fn is_legacy_team_pseudonym(team: &str) -> bool {
     team.len() == 32
         && team
             .bytes()
             .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() && b <= b'f')
-        && hash.len() == 22
+}
+
+fn is_raw_team_id(team: &str) -> bool {
+    !team.starts_with('0')
+        && !team.is_empty()
+        && team.len() <= 16
+        && team.bytes().all(|b| b.is_ascii_digit())
+        && team
+            .parse::<u64>()
+            .is_ok_and(|id| id <= 9_007_199_254_740_991)
+}
+
+fn is_ref_hash(hash: &str) -> bool {
+    hash.len() == 22
         && hash
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
@@ -103,10 +138,8 @@ pub const MAX_TOTAL_BYTES_PER_MESSAGE: usize = 32 * 1024 * 1024;
 /// Enables collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct ImageCollection {
-    /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller — the secret
-    /// never crosses into this crate. Embedded verbatim in every emitted ref.
-    pub pseudo_team: String,
-    /// Per-team key for the content HMAC, derived by the caller alongside the pseudonym. Its ASCII
+    pub team_id: String,
+    /// Per-team key for the content HMAC, derived by the caller. Its ASCII
     /// bytes key [`hash_image_bytes`].
     pub content_key: String,
 }
@@ -119,7 +152,7 @@ pub struct CollectedImage {
 /// Accumulates the images of one message. Byte-level dedup on the hash: the same image arriving
 /// under different URIs (or after the per-URI memo misses) is collected once but still gets its ref.
 pub struct ImageCollector {
-    pseudo_team: String,
+    team_id: String,
     content_key: String,
     images: Vec<CollectedImage>,
     seen: HashSet<String>,
@@ -129,7 +162,7 @@ pub struct ImageCollector {
 impl ImageCollector {
     pub fn new(collection: ImageCollection) -> Self {
         Self {
-            pseudo_team: collection.pseudo_team,
+            team_id: collection.team_id,
             content_key: collection.content_key,
             images: Vec::new(),
             seen: HashSet::new(),
@@ -145,7 +178,7 @@ impl ImageCollector {
         }
         let hash = hash_image_bytes(self.content_key.as_bytes(), &bytes);
         if self.seen.contains(&hash) {
-            return Some(image_ref(&self.pseudo_team, &hash));
+            return Some(image_ref(&self.team_id, &hash));
         }
         if self.images.len() >= MAX_IMAGES_PER_MESSAGE
             || self.total_bytes + bytes.len() > MAX_TOTAL_BYTES_PER_MESSAGE
@@ -158,7 +191,7 @@ impl ImageCollector {
             hash: hash.clone(),
             bytes,
         });
-        Some(image_ref(&self.pseudo_team, &hash))
+        Some(image_ref(&self.team_id, &hash))
     }
 
     /// Drain, sorted by hash — a deterministic order that cannot depend on which scrub engine
@@ -179,7 +212,6 @@ const COLLECTED_MIME_ALLOWLIST: &[&str] = &[
     "image/jpeg",
     "image/gif",
     "image/webp",
-    "image/bmp",
     "image/avif",
 ];
 
@@ -203,7 +235,10 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if !meta.starts_with("image/") || !meta.contains("base64") {
         return None;
     }
-    if meta.starts_with("image/svg") {
+    let mime_type = meta
+        .split_once(';')
+        .map_or(meta.as_str(), |(mime_type, _)| mime_type);
+    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") {
         return None;
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
@@ -212,9 +247,13 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if payload.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
         return None;
     }
-    base64::engine::general_purpose::STANDARD
+    let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
-        .ok()
+        .ok()?;
+    if bytes.starts_with(b"BM") {
+        return None;
+    }
+    Some(bytes)
 }
 
 #[cfg(test)]
@@ -225,7 +264,7 @@ mod tests {
 
     fn collector() -> ImageCollector {
         ImageCollector::new(ImageCollection {
-            pseudo_team: "a".repeat(32),
+            team_id: "a".repeat(32),
             content_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
@@ -244,13 +283,27 @@ mod tests {
 
     #[test]
     fn ref_matches_consumer_shape() {
-        // The consumer's REF_RE: image:<32 hex>:<22 base64url>.
-        let r = image_ref(&"ab".repeat(16), &hash_image_bytes(TEST_KEY, b"x"));
-        assert!(is_image_ref(&r));
-        let parts: Vec<&str> = r.splitn(3, ':').collect();
-        assert_eq!(parts[0], "image");
-        assert_eq!(parts[1].len(), 32);
-        assert_eq!(parts[2].len(), 22);
+        let hash = hash_image_bytes(TEST_KEY, b"x");
+        for prefix in ["image:v2", "imageurl:v2"] {
+            assert!(is_image_ref_strict(&format!("{prefix}:42:2026-09:{hash}")));
+            for invalid in [
+                "42:2026-13",
+                "42:2026-00",
+                "42:202-09",
+                "42:2026-9",
+                "0:2026-09",
+                "42:2026_09",
+                "42",
+            ] {
+                assert!(!is_image_ref_strict(&format!("{prefix}:{invalid}:{hash}")));
+            }
+        }
+        for team in ["42", "9007199254740991", "0123456789abcdef0123456789abcdef"] {
+            assert!(is_image_ref_strict(&image_ref(team, &hash)));
+        }
+        for team in ["0", "01", "-1", "9007199254740992", "1e3", "secret"] {
+            assert!(!is_image_ref_strict(&image_ref(team, &hash)));
+        }
     }
 
     #[test]
@@ -293,6 +346,10 @@ mod tests {
     #[test]
     fn collectable_rejects_svg_non_base64_and_non_image() {
         assert!(collectable_data_uri_bytes("data:image/svg+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-ms-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/png;base64,Qk0=").is_none());
         assert!(collectable_data_uri_bytes("data:image/svg+xml;utf8,<svg/>").is_none());
         assert!(collectable_data_uri_bytes("data:text/plain;base64,aGk=").is_none());
         assert!(collectable_data_uri_bytes("data:image/png;utf8,notbase64").is_none());

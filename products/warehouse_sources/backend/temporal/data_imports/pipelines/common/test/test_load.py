@@ -1,4 +1,6 @@
 import uuid
+from datetime import UTC, datetime
+from typing import Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,15 +16,22 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
+    notify_revenue_analytics_that_sync_has_completed,
     run_post_load_operations,
     update_job_row_count,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+_JOB_CREATED_AT = datetime(2026, 8, 19, 11, 0, tzinfo=UTC)
+_A_LINKED_TABLE_ID = uuid.uuid4()
 
 
 def _make_schema(
@@ -180,6 +189,125 @@ class TestRunPostLoadDeltaMaintenance:
         prepare_s3.assert_awaited_once()
 
 
+class TestZeroRowSkip:
+    @parameterized.expand(
+        [
+            ("steady_state_zero_rows_skips", 0, "incremental", True, {}, True, True),
+            ("synced_rows_run_full_path", 5, "incremental", True, {}, True, False),
+            # An unlinked schema has nothing queryable, and a skip here strands it forever.
+            ("unlinked_schema_runs_full_path", 0, "incremental", True, {}, True, False, None),
+            ("caller_without_opt_in_runs_full_path", 0, "incremental", True, {}, False, False),
+            ("incomplete_initial_sync_runs_full_path", 0, "incremental", False, {}, True, False),
+            ("cdc_schema_runs_full_path", 0, "cdc", True, {}, True, False),
+            (
+                "repartition_pending_runs_full_path",
+                0,
+                "incremental",
+                True,
+                {"repartition_pending": {"m": 1}},
+                True,
+                False,
+            ),
+            ("repartition_swap_runs_full_path", 0, "incremental", True, {"repartition_swap": {"c": "x"}}, True, False),
+            (
+                "revive_marker_runs_full_path",
+                0,
+                "incremental",
+                True,
+                {"delta_revive_required": {"r": "h"}},
+                True,
+                False,
+            ),
+            (
+                "repartition_completed_this_job_runs_full_path",
+                0,
+                "incremental",
+                True,
+                {"last_repartition_at": "2026-08-19T12:00:00+00:00"},
+                True,
+                False,
+            ),
+            (
+                "repartition_completed_before_this_job_skips",
+                0,
+                "incremental",
+                True,
+                {"last_repartition_at": "2026-08-19T10:00:00+00:00"},
+                True,
+                True,
+            ),
+            (
+                "unparseable_repartition_stamp_runs_full_path",
+                0,
+                "incremental",
+                True,
+                {"last_repartition_at": "not-a-date"},
+                True,
+                False,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_zero_row_runs_skip_maintenance_and_publish(
+        self,
+        _name: str,
+        row_count: int,
+        sync_type: str,
+        initial_sync_complete: bool,
+        sync_type_config: dict,
+        allow_zero_row_skip: bool,
+        expect_skip: bool,
+        table_id: Optional[uuid.UUID] = _A_LINKED_TABLE_ID,
+    ):
+        schema = ExternalDataSchema(
+            id=uuid.uuid4(),
+            name="Customer",
+            sync_type=sync_type,
+            initial_sync_complete=initial_sync_complete,
+            sync_type_config=sync_type_config,
+            table_id=table_id,
+        )
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.team_id = 1
+        job.created_at = _JOB_CREATED_AT
+
+        maintenance = AsyncMock()
+        publish = AsyncMock(return_value="folder")
+        bookkeeping = AsyncMock()
+        post_load_step = AsyncMock()
+        with (
+            patch(f"{_LOAD_MODULE}._run_delta_maintenance", maintenance),
+            patch(f"{_LOAD_MODULE}._publish_queryable_files", publish),
+            patch(f"{_LOAD_MODULE}._finalize_sync_bookkeeping", bookkeeping),
+            patch(f"{_LOAD_MODULE}._register_table", AsyncMock()),
+            patch(f"{_LOAD_MODULE}._run_cdc_post_load", AsyncMock()),
+            patch(f"{_LOAD_MODULE}.POST_LOAD_STEPS", (post_load_step,)),
+        ):
+            result = await run_post_load_operations(
+                job=job,
+                schema=schema,
+                source=MagicMock(),
+                delta_table_ref=_make_helper(),
+                row_count=row_count,
+                table_schema_dict={},
+                resource_name="customer",
+                logger=MagicMock(),
+                allow_zero_row_skip=allow_zero_row_skip,
+            )
+
+        bookkeeping.assert_awaited_once()
+        post_load_step.assert_awaited_once()
+        if expect_skip:
+            maintenance.assert_not_awaited()
+            publish.assert_not_awaited()
+            assert result is None
+        else:
+            maintenance.assert_awaited_once()
+            publish.assert_awaited_once()
+            assert result == "folder"
+
+
 class TestCdcCompanionSeeding:
     @parameterized.expand(
         [
@@ -216,6 +344,40 @@ class TestCdcCompanionSeeding:
             await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
         assert seed.await_count == (1 if expect_seed else 0)
+
+
+class TestZeroRowRunFinalizesBookkeeping:
+    @pytest.mark.asyncio
+    async def test_no_delta_table_still_sets_initial_sync_complete(self) -> None:
+        # A clean run that wrote zero rows creates no delta table. Post-load used to bail before the
+        # bookkeeping, so initial_sync_complete never advanced and the schema stayed "completed but
+        # not initial-synced" forever. It must be finalized even with no table to register.
+        schema = _make_schema(is_cdc=False, initial_sync_complete=False)
+        job = MagicMock()
+        job.id = uuid.uuid4()
+        job.team_id = schema.team_id
+        logger = MagicMock(debug=MagicMock(), adebug=AsyncMock())
+        helper = MagicMock(get_delta_table=AsyncMock(return_value=None))
+
+        set_complete = AsyncMock()
+        with (
+            patch(f"{_LOAD_MODULE}.set_initial_sync_complete", set_complete),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()) as synced,
+        ):
+            result = await run_post_load_operations(
+                job=job,
+                schema=schema,
+                source=MagicMock(),
+                delta_table_ref=helper,
+                row_count=0,
+                table_schema_dict={},
+                resource_name="subscription_reports",
+                logger=logger,
+            )
+
+        assert result is None
+        set_complete.assert_awaited_once()
+        synced.assert_awaited_once()
 
 
 class TestGetIncrementalFieldValue:
@@ -287,3 +449,39 @@ class TestUpdateJobRowCount:
         assert update.call_count == 2
         close.assert_called_once()
         sleep.assert_called_once_with(2)
+
+
+class TestNotifyRevenueAnalyticsThatSyncHasCompleted:
+    @pytest.mark.asyncio
+    async def test_retries_transient_operational_error_then_notifies(self):
+        # Opening a fresh pooled Postgres connection from the Temporal worker's thread pool can
+        # hit a momentary DNS resolution blip; retrying it is safe and avoids silently skipping
+        # the "revenue analytics ready" notification over a transient failure.
+        attempts = MagicMock(side_effect=[OperationalError("Name or service not known"), True])
+
+        class _RevenueAnalyticsConfig:
+            @property
+            def enabled(self):
+                return attempts()
+
+        source = MagicMock(
+            source_type=ExternalDataSourceType.STRIPE, revenue_analytics_config=_RevenueAnalyticsConfig()
+        )
+        schema = MagicMock()
+        schema.name = STRIPE_CHARGE_RESOURCE_NAME
+        schema.team.revenue_analytics_config.notified_first_sync = False
+        schema.team.all_users_with_access.return_value = []
+        logger = MagicMock(aexception=AsyncMock())
+
+        with (
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await notify_revenue_analytics_that_sync_has_completed(schema, source, logger)
+
+        assert attempts.call_count == 2
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)
+        assert schema.team.revenue_analytics_config.notified_first_sync is True
+        schema.team.revenue_analytics_config.save.assert_called_once()
+        logger.aexception.assert_not_called()

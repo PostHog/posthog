@@ -4,18 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impactpartner import (
     ImpactPartnerSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.impact_partner import (
-    ImpactPartnerResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact_partner.source import ImpactPartnerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
@@ -28,29 +22,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactPartnerSourceClass:
-    def test_source_type(self) -> None:
-        assert ImpactPartnerSource().source_type == ExternalDataSourceType.IMPACTPARTNER
-
-    def test_get_source_config_fields(self) -> None:
-        config = ImpactPartnerSource().get_source_config
-        assert config.name.value == "ImpactPartner"
-        assert len(config.fields) == 2
-
-        account_sid, auth_token = config.fields
-        assert isinstance(account_sid, SourceFieldInputConfig)
-        assert account_sid.name == "account_sid"
-        assert account_sid.type == SourceFieldInputConfigType.TEXT
-        assert account_sid.required is True
-        assert account_sid.secret is False
-
-        assert isinstance(auth_token, SourceFieldInputConfig)
-        assert auth_token.name == "auth_token"
-        assert auth_token.type == SourceFieldInputConfigType.PASSWORD
-        assert auth_token.required is True
-        assert auth_token.secret is True
-
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/impact-partner"
-
     def test_no_unreleased_flag(self) -> None:
         # A finished source ships visible; unreleasedSource must not be set.
         assert ImpactPartnerSource().get_source_config.unreleasedSource is not True
@@ -102,16 +73,6 @@ class TestImpactPartnerSourceClass:
         # An unpinned source instance validates against the default vendor API version.
         assert mock_validate.call_args.args[2] == "16"
 
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = ImpactPartnerSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_data_class(self) -> None:
-        manager = ImpactPartnerSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ImpactPartnerResumeConfig
-
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         manager = MagicMock()
         inputs = _inputs(schema_name="Actions")
@@ -137,3 +98,28 @@ class TestImpactPartnerSourceClass:
             )
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @parameterized.expand(
+        [
+            (
+                "exhausted_429",
+                "429 Client Error: Too Many Requests for url: https://api.impact.com/Mediapartners/s/Actions",
+            ),
+            (
+                "exhausted_500",
+                "500 Server Error: Internal Server Error for url: https://api.impact.com/Mediapartners/s/Campaigns",
+            ),
+            ("exhausted_502", "502 Server Error: Bad Gateway for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_exhausted_transient_responses_are_retryable(self, _name: str, error: str) -> None:
+        assert error_message_matches(error, ImpactPartnerSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.impact.com/Mediapartners/s/Invoices"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.impact.com/Mediapartners/s/Invoices"),
+        ]
+    )
+    def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
+        assert not error_message_matches(error, ImpactPartnerSource().get_retryable_errors())

@@ -18,10 +18,12 @@ from typing import Any, Optional, Protocol
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from structlog.types import FilteringBoundLogger
-from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.exceptions import ConnectionClosed, InvalidMessage, InvalidStatus
 from websockets.headers import build_authorization_basic
 from websockets.sync.client import connect as websocket_connect
 from websockets.uri import Proxy, get_proxy, parse_proxy, parse_uri
+
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer import devalue
@@ -183,6 +185,13 @@ class FramerClient:
             if status in (401, 403):
                 raise FramerAPIError("Framer rejected the API key", code="UNAUTHORIZED") from e
             raise FramerAPIError(f"Connection rejected with HTTP {status}", code="INTERNAL", retryable=True) from e
+        except InvalidMessage as e:
+            # The server accepted the TCP/TLS connection but closed it before sending a
+            # parseable HTTP response (e.g. an EOF while reading the status line) — a
+            # headless-pool hiccup on Framer's side, not a credential or config problem.
+            raise FramerAPIError(
+                f"Connection closed during handshake: {e}", code="CONNECTION_CLOSED", retryable=True
+            ) from e
 
         deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
         while True:
@@ -300,9 +309,28 @@ def validate_credentials(project: str, api_key: str, protocol_version: str) -> t
                 False,
                 "Framer rejected the API key for this project. Generate an API key in the project's Site Settings → General and try again.",
             )
-        return False, str(e)
+        if e.code == "INVALID_REQUEST":
+            return (
+                False,
+                "The Framer project URL or ID is invalid. Paste your project URL (https://framer.com/projects/...) or the project ID.",
+            )
+        # Any other Framer error carries a raw "Framer API error <CODE>" string that means nothing
+        # to the user. Keep the detail for error tracking and surface a clean message instead. A
+        # retryable code is a transient channel condition (timeout, busy headless pool, dropped
+        # connection), so tell the user to retry rather than to change a value that is already right.
+        capture_exception(e)
+        if e.retryable:
+            return (
+                False,
+                "PostHog couldn't reach Framer to check your project. This is usually temporary, so wait a moment and try again.",
+            )
+        return (
+            False,
+            "Couldn't validate your Framer project. Check the project URL and API key, then try again.",
+        )
     except Exception as e:
-        return False, f"Could not connect to Framer: {e}"
+        capture_exception(e)
+        return False, "Couldn't connect to Framer. Check the project URL and API key, then try again."
 
 
 def _without_class_marker(node: dict[str, Any]) -> dict[str, Any]:

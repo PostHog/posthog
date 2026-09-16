@@ -1,5 +1,6 @@
+from datetime import datetime
 from functools import cache
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.conf import settings
 
@@ -13,6 +14,9 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.persons_db import persons_db_url
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 
 @cache
@@ -107,10 +111,23 @@ class PostgresTable(FunctionCallTable):
     # different space than this table's ids, so its rows can't be narrowed to a grant and
     # resource-level access is required to query it at all.
     resource_level_access_only: bool = False
+    # Column the entitlement-derived retention floor filters on, for tables whose rows are only
+    # readable back as far as the organization's plan allows. The floor is pushed into the federated
+    # read next to the team guard (see ClickHousePrinter._print_table_ref), so it prunes in Postgres
+    # rather than after the rows have been copied out. None means the table has no retention window.
+    retention_field: Optional[str] = None
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        """Oldest `retention_field` value this team may read, or None when unrestricted.
+
+        Each table owns its own window, so two tables that declare `retention_field` can never end
+        up sharing one. Tables with no window inherit this default and are never floored.
+        """
+        return None
 
     @property
     def primary_key(self) -> Optional[str]:

@@ -9,6 +9,7 @@ import abc
 import dataclasses
 from typing import Any, Optional
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.enrichment.fields import EnrichmentFields
@@ -17,16 +18,19 @@ from products.growth.backend.enrichment.transform import transform_harmonic_comp
 from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
 
 
-@dataclasses.dataclass
+@frozen
 class ProviderLookup:
     """One provider lookup: the transformed fields plus the raw response kept for the archive.
 
     `fields` is None on a not-found. `raw_payload` is the provider's verbatim response for the
-    company, or None when the provider returns nothing at all for a miss.
+    company, or None when the provider returns nothing at all for a miss. `enrichment_urn` is
+    the provider's tracking id for this lookup (Harmonic's enrichmentUrn), archived alongside
+    the payload so a later poll can check whether enrichment has since completed.
     """
 
     fields: Optional[EnrichmentFields]
     raw_payload: Optional[dict[str, Any]]
+    enrichment_urn: Optional[str] = None
 
 
 class EnrichmentProvider(abc.ABC):
@@ -41,6 +45,19 @@ class EnrichmentProvider(abc.ABC):
         Raises on operational failure (network, provider outage) so the caller can retry
         and alert, rather than conflating an outage with a genuine not-found.
         """
+
+    async def enrichment_status_for(self, urn: str) -> Optional[str]:
+        """Poll the provider for the status of a previously archived tracking URN.
+
+        No-op by default; a provider without async enrichment tracking has nothing to poll.
+        """
+        return (await self.enrichment_statuses_for([urn])).get(urn)
+
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        """A URN the provider has nothing to report for is absent from the result rather than mapped to None,
+        so callers can use plain membership checks.
+        """
+        return {}
 
 
 def _parent_company_urn(company: dict[str, Any]) -> Optional[str]:
@@ -63,12 +80,24 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
     name = "harmonic"
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
-        async with AsyncHarmonicClient() as client:
-            company = await client.enrich_company_by_domain_strict(domain)
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
+            lookup = await client.enrich_company_by_domain_strict(domain)
+            company = lookup.company
             fields = transform_harmonic_company(company)
             if fields is not None and company is not None:
                 fields = await self._with_parent_company(client, company, fields)
-        return ProviderLookup(fields=fields, raw_payload=company)
+        return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
+
+    async def enrichment_statuses_for(self, urns: list[str]) -> dict[str, str]:
+        if not urns:
+            return {}
+        async with AsyncHarmonicClient(source="growth_enrichment_provider") as client:
+            statuses = await client.get_enrichment_status(urns)
+        return {
+            urn: entry["status"]
+            for urn, entry in statuses.items()
+            if isinstance(entry, dict) and isinstance(entry.get("status"), str)
+        }
 
     async def _with_parent_company(
         self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields

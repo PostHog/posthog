@@ -65,6 +65,7 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DucklingTables,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
     ServiceCredentialConnect,
@@ -179,14 +180,14 @@ class TestResolveTableNames:
     def test_passes_through_resolved_names(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_alpha", "persons_alpha"),
+            return_value=DucklingTables(events_table="events_alpha", persons_table="persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_a-b; DROP", "persons"),
+            return_value=DucklingTables(events_table="events_a-b; DROP", persons_table="persons"),
         ):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)
@@ -1360,6 +1361,43 @@ class TestConnectionDropped:
         # transport-phrase markers (here "transport:") still catch it.
         msg = "flight execute: rpc error: code = Internal desc = transport: error while reading: EOF"
         assert _connection_dropped(psycopg.InternalError(msg)) is True
+
+    @parameterized.expand(
+        [
+            # duckgres reaps a client session that idled past duckgres.idle_timeout
+            # (the backfill holds its connection across the ClickHouse->S3 export).
+            # It sends a FATAL 57P05 before closing; older builds just dropped the
+            # socket, which landed in the transport-marker branch instead. The two
+            # halves of that classification are guarded independently below, so
+            # neither can regress while the other keeps these cases green.
+            #
+            # The real observed shape: sqlstate AND message both present.
+            (
+                "idle_session_timeout",
+                psycopg.errors.IdleSessionTimeout(
+                    "terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"
+                ),
+            ),
+            # Message alone, no sqlstate — psycopg surfacing the text without a
+            # parsed ErrorResponse. Guards the _CONNECTION_DROPPED_MARKERS entry.
+            (
+                "idle_timeout_message_without_sqlstate",
+                psycopg.OperationalError("terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"),
+            ),
+            # Sqlstate alone. PostgreSQL's own idle_session_timeout wording is
+            # hyphenated ("idle-session timeout") and so does NOT match the
+            # duckgres-shaped marker — which is exactly why this guards the
+            # _CONNECTION_DROPPED_SQLSTATES entry on its own.
+            (
+                "idle_session_timeout_sqlstate_without_marker",
+                psycopg.errors.IdleSessionTimeout("terminating connection due to idle-session timeout"),
+            ),
+        ]
+    )
+    def test_idle_session_reap_is_dropped(self, _label, exc):
+        # Safest possible replay: the session was idle, so no statement was in
+        # flight and a retry cannot double-apply.
+        assert _connection_dropped(exc) is True
 
     @parameterized.expand(
         [

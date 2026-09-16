@@ -1,0 +1,52 @@
+rules:
+    - id: onboarding-no-step-title-matching
+      message: |
+          Selecting an onboarding step by its display title. The title is
+          user-facing copy, so a copy edit in one product silently changes
+          another: `filter` drops nothing and `map` replaces nothing, and there
+          is no error, no type error, and no failing test.
+
+          Compose from the named step groups the product-analytics file exports
+          instead:
+
+            import { getReactInstallSteps } from '../product-analytics/react'
+
+            export const getReactSteps = (ctx) => [
+                ...getReactInstallSteps(ctx),
+                { title: 'Send events', badge: 'recommended', content: ... },
+            ]
+
+          If the group you need does not exist yet, split it out of the
+          product-analytics file the same way `getReactInstallSteps` and
+          `getReactEventStep` are split. Renaming or deleting an export is then
+          a compile error rather than a silent behavior change.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - '/docs/onboarding/**'
+      patterns:
+          # The comparison itself is matched structurally, so operand order and
+          # strict vs loose equality are all covered.
+          - pattern-either:
+                - pattern: $TITLE == $LITERAL
+                - pattern: $TITLE != $LITERAL
+                - pattern: $TITLE === $LITERAL
+                - pattern: $TITLE !== $LITERAL
+                - pattern: $LITERAL == $TITLE
+                - pattern: $LITERAL != $TITLE
+                - pattern: $LITERAL === $TITLE
+                - pattern: $LITERAL !== $TITLE
+          # Anchored, because a nested pattern would also match `step.title` inside
+          # an expression like `step.title.length`, which is not title matching.
+          - metavariable-regex:
+                metavariable: $TITLE
+                regex: ^([A-Za-z_$][\w$]*\.title|[A-Za-z_$][\w$]*\[[\x27"]title[\x27"]\]|title)$
+          # A string or template literal on the other side.
+          - metavariable-regex:
+                metavariable: $LITERAL
+                regex: ^[\x27"`]
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

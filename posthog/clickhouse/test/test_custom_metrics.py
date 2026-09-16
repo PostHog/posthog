@@ -6,6 +6,8 @@ from posthog.test.base import reset_clickhouse_database
 from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 
+pytestmark = pytest.mark.django_db
+
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:

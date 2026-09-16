@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -6,7 +8,7 @@ import { Team } from '~/types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { CdpOutput } from '../cdp-services'
-import { BatchResolverState } from '../services/hogflows/batch-resolver.types'
+import { BatchResolverState, serializeResolverState } from '../services/hogflows/batch-resolver.types'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -48,6 +50,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             // Account broadcasts convert long after the send, so the run has to carry the version
             // that sent or the conversion is credited to whatever is published by then.
             expect(state.flowVersion).toBe(4)
+            expect(state.customerTaskIdempotencyVersion).toBe(1)
             expect(state.variables).toEqual({ greeting: 'hi' })
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
@@ -121,7 +124,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
         beforeEach(() => {
             queueAppMetrics = jest.fn()
-            bulkCreateAndCheckIn = jest.fn().mockResolvedValue(undefined)
+            bulkCreateAndCheckIn = jest.fn().mockResolvedValue({ newJobIds: [] })
             release = jest.fn().mockResolvedValue(undefined)
             // Masking itself is covered by hog-masker.service.test.ts; stubbing the partition
             // here is what lets each case fix which runs are masked and assert how the consumer
@@ -189,7 +192,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
-        it('stamps the enqueue time into the state that gets persisted', async () => {
+        it('persists the enqueue time and customer task key version for new person runs', async () => {
             // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
             // cyclotron if that runs before the state is serialized. Out of order, the terminal
             // row written when the run wakes records the wake time and wins the argMax collapse.
@@ -198,7 +201,11 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(job.state.toString()).toContain('firstScheduledAt')
+                expect(parseJSON(job.state.toString()).state).toMatchObject({
+                    firstScheduledAt: expect.any(String),
+                    actionStepCount: 0,
+                    customerTaskIdempotencyVersion: 1,
+                })
             }
         })
 
@@ -229,6 +236,145 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(producedRows()).toHaveLength(0)
             expect(release).toHaveBeenCalledTimes(1)
             expect(triggeredMetrics()).toHaveLength(0)
+        })
+
+        it('terminates the resolver instead of scheduling another page when the check-in is refused by a cancel', async () => {
+            // The engine refuses the page when a cancel flag landed mid-build: nothing
+            // committed, so the queued running rows and mask claims must be undone (these
+            // children will never run) and the resolver must terminate, not retry.
+            bulkCreateAndCheckIn.mockResolvedValue({ newJobIds: [], cancelRequested: true })
+            const cancel = jest.fn().mockResolvedValue(undefined)
+            const reschedule = jest.fn()
+            Object.assign(consumer, {
+                hogFunctionMonitoringService: {
+                    queueAppMetrics,
+                    queueLogs: jest.fn(),
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+            })
+
+            await (consumer as any).processOnePage({ bulkCreateAndCheckIn, reschedule, cancel }, state)
+            await rowsService.flush()
+
+            expect(producedRows()).toHaveLength(0)
+            expect(release).toHaveBeenCalledTimes(1)
+            expect(triggeredMetrics()).toHaveLength(0)
+            expect(cancel).toHaveBeenCalledTimes(1)
+            expect(reschedule).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('cancel-flagged resolver jobs', () => {
+        it('terminates on dequeue without fetching a page, even when the state is unparseable', async () => {
+            const getBlastRadiusPersons = jest.fn()
+            const queueLogs = jest.fn()
+            const flush = jest.fn().mockResolvedValue(undefined)
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogFunctionMonitoringService: { queueLogs, flush },
+            })
+            const cancel = jest.fn().mockResolvedValue(undefined)
+            const job = {
+                id: 'job-1',
+                teamId: team.id,
+                functionId: hogFlow.id,
+                parentRunId: 'batch-job-1',
+                cancelRequestedAt: DateTime.now(),
+                // Unparseable on purpose: the cancel must not depend on state surviving
+                // schema drift across deploys.
+                state: Buffer.from('not json'),
+                cancel,
+            }
+
+            await (consumer as any).processResolverJob(job)
+
+            expect(cancel).toHaveBeenCalledTimes(1)
+            expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+            // The stop is visible on the batch run's log stream, keyed by parent run id.
+            expect(queueLogs).toHaveBeenCalledTimes(1)
+            const [logs] = queueLogs.mock.calls[0]
+            expect(logs[0].log_source_id).toEqual('batch-job-1')
+            expect(flush).toHaveBeenCalled()
+        })
+    })
+
+    describe('resolver job lock heartbeats', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([false, true])('clears the heartbeat timer (heartbeat fails: %s)', async (heartbeatFails) => {
+            jest.useFakeTimers()
+            const state: BatchResolverState = {
+                batchJobId: 'batch-job-hb',
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                cursor: null,
+                filters: { properties: [] },
+                maxAudienceSize: 100,
+                totalEnqueued: 0,
+                pagesProcessed: 0,
+                attempts: 0,
+                variables: {},
+                startedAt: '2026-08-11T00:00:00.000Z',
+            }
+            // Long enough for two heartbeat ticks, inside the 30s default fetch budget.
+            const getBlastRadiusPersons = jest.fn().mockImplementation(async () => {
+                await new Promise<void>((resolve) => {
+                    setTimeout(() => resolve(), 25_000)
+                })
+                return { users_affected: [], cursor: null, has_more: false }
+            })
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com' },
+                deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
+                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogMasker: {
+                    filterByMasking: jest.fn((invocations) => ({
+                        masked: [],
+                        notMasked: invocations,
+                        release: jest.fn().mockResolvedValue(undefined),
+                    })),
+                },
+                hogFunctionMonitoringService: {
+                    queueAppMetrics: jest.fn(),
+                    queueLogs: jest.fn(),
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                invocationResultsService: {
+                    invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
+                },
+            })
+            const heartbeat = heartbeatFails
+                ? jest.fn().mockRejectedValue(new Error('Heartbeat unavailable'))
+                : jest.fn().mockResolvedValue(undefined)
+            const job = {
+                id: 'job-heartbeat',
+                teamId: team.id,
+                functionId: hogFlow.id,
+                parentRunId: 'batch-job-hb',
+                cancelRequestedAt: null,
+                state: serializeResolverState(state),
+                heartbeat,
+                bulkCreateAndCheckIn: jest.fn().mockResolvedValue({ newJobIds: [] }),
+                reschedule: jest.fn().mockResolvedValue(undefined),
+                ack: jest.fn().mockResolvedValue(undefined),
+                fail: jest.fn().mockResolvedValue(undefined),
+            }
+
+            const processPromise = (consumer as any).processResolverJob(job)
+            await jest.advanceTimersByTimeAsync(25_000)
+            await processPromise
+
+            expect(heartbeat).toHaveBeenCalledTimes(2)
+            expect(getBlastRadiusPersons).toHaveBeenCalledTimes(1)
+            expect(job.bulkCreateAndCheckIn).toHaveBeenCalledTimes(1)
+            expect(jest.getTimerCount()).toBe(0)
+            await jest.advanceTimersByTimeAsync(20_000)
+            expect(heartbeat).toHaveBeenCalledTimes(2)
         })
     })
 })

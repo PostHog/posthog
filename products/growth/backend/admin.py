@@ -17,8 +17,14 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
+from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
-from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    IcpScoringConfig,
+    ProductPushCampaign,
+)
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
 
@@ -442,3 +448,47 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
         if not change and request.user.is_authenticated:
             obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+
+@admin.register(IcpScoringConfig)
+class IcpScoringConfigAdmin(admin.ModelAdmin):
+    """Versioned curated-list rows for V0.5 ICP scoring. Rows are created by the
+    sync_icp_scoring_lists command from the RevOps sheet exports; the admin exists to
+    inspect rows and move the active flag (activate here after a non---activate sync).
+    A list change is always a new row, so behavior-defining fields lock on save."""
+
+    list_display = ("version", "is_active", "tag_rows", "investor_rows", "created_by", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("version",)
+    ordering = ("-created_at",)
+    show_full_result_count = False
+
+    @admin.display(description="Tag rows")
+    def tag_rows(self, obj: IcpScoringConfig) -> int:
+        return len(obj.tags) if isinstance(obj.tags, list) else 0
+
+    @admin.display(description="Investors")
+    def investor_rows(self, obj: IcpScoringConfig) -> int:
+        return len(obj.quality_investors) if isinstance(obj.quality_investors, list) else 0
+
+    def get_readonly_fields(self, request: HttpRequest, obj: IcpScoringConfig | None = None) -> tuple[str, ...]:
+        readonly: tuple[str, ...] = ("id", "created_by", "created_at")
+        if obj is not None:
+            readonly = (*readonly, "version", "tags", "quality_investors")
+        return readonly
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: IcpScoringConfig | None = None) -> bool:
+        return False
+
+    def save_model(self, request: HttpRequest, obj: IcpScoringConfig, form: forms.ModelForm, change: bool) -> None:
+        if not change and request.user.is_authenticated:
+            obj.created_by = request.user
+        if obj.is_active:
+            # Activation moves the flag: the one-active partial unique constraint would
+            # otherwise reject the save with an IntegrityError.
+            IcpScoringConfig.objects.filter(is_active=True).exclude(pk=obj.pk).update(is_active=False)
+        super().save_model(request, obj, form, change)
+        clear_lists_cache()

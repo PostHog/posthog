@@ -1,5 +1,11 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { ObservationSeekbarMark, observationClipboardText, observationSeekbarMarks } from './observation'
+import {
+    ObservationSeekbarMark,
+    dockObservations,
+    observationClipboardText,
+    observationSeekbarMarks,
+    scannerLabel,
+} from './observation'
 
 const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
 const longSentence = 'x'.repeat(200)
@@ -130,6 +136,31 @@ describe('observation utils', () => {
                 ],
             },
             {
+                // A one-off summarize is the scan most likely to cite a timestamp, and its scanner has
+                // no name. Passing the raw name through leaves the tooltip line blank, because a
+                // summarizer has no headline to fall back on either.
+                name: 'a quick summary labels its mark rather than leaving it blank',
+                observations: [
+                    {
+                        ...makeObservation('summarizer', {
+                            summary: 'Rage clicked pay',
+                            summary_segments: [
+                                { kind: 'text', value: 'Rage clicked pay' },
+                                { kind: 'chip', timestamp_ms: 42_000 },
+                            ],
+                        }),
+                        scanner_origin: 'inline',
+                        scanner_snapshot: { scanner_type: 'summarizer', name: '' },
+                    } as unknown as ReplayObservationApi,
+                ],
+                expected: [
+                    {
+                        timestampMs: 42_000,
+                        entries: [{ scannerName: 'Quick summary', headline: null, snippet: 'Rage clicked pay' }],
+                    },
+                ],
+            },
+            {
                 name: 'output without citations yields no marks',
                 observations: [makeObservation('monitor', { verdict: 'yes', reasoning: 'Error toast shown.' })],
                 expected: [],
@@ -148,6 +179,53 @@ describe('observation utils', () => {
             },
         ])('$name', ({ observations, expected }) => {
             expect(observationSeekbarMarks(observations)).toEqual(expected)
+        })
+    })
+
+    describe('dockObservations', () => {
+        const obs = (
+            id: string,
+            scannerType: string,
+            status: ReplayObservationApi['status']
+        ): ReplayObservationApi => ({ ...makeObservation(scannerType, null, status), id })
+
+        // The dock is the only vision surface under the player, and a scan that settled without a
+        // result is exactly what a person needs it for: nothing else there says why none arrived.
+        // Succeeded scanner runs stay in the sidebar, so the dock does not restate what it already has.
+        it.each<[string, ReplayObservationApi[], string[]]>([
+            ['a summary is shown', [obs('s1', 'summarizer', 'succeeded')], ['s1']],
+            ['a failed summary is shown once, not twice', [obs('s1', 'summarizer', 'failed')], ['s1']],
+            ['a failed scanner is shown', [obs('m1', 'monitor', 'failed')], ['m1']],
+            ['an ineligible scanner is shown', [obs('m1', 'monitor', 'ineligible')], ['m1']],
+            ['a succeeded scanner stays in the sidebar', [obs('m1', 'monitor', 'succeeded')], []],
+            ['a running scanner stays in the sidebar', [obs('m1', 'monitor', 'running')], []],
+            [
+                'summaries come before scans that left no result',
+                [obs('m1', 'monitor', 'failed'), obs('s1', 'summarizer', 'succeeded')],
+                ['s1', 'm1'],
+            ],
+        ])('%s', (_, observations, expectedIds) => {
+            expect(dockObservations(observations).map((o) => o.id)).toEqual(expectedIds)
+        })
+    })
+
+    describe('scannerLabel', () => {
+        // A one-off scan's scanner is unnamed, so falling back to the snapshot name renders a blank
+        // label in the player dock, the sidebar, and search, which are the surfaces that flow is made of.
+        // The name it gets instead has to be the dock's own word for the thing the person clicked.
+        const scanned = (scannerOrigin: string, scannerType: string, scannerName: string): ReplayObservationApi =>
+            ({
+                ...makeObservation(scannerType, null, 'succeeded', scannerName),
+                scanner_origin: scannerOrigin,
+            }) as unknown as ReplayObservationApi
+
+        it.each<[string, string, string, string, string]>([
+            ['a saved scanner uses its name', 'configured', 'monitor', 'Ghost bugs', 'Ghost bugs'],
+            ['the dock summarize button answers to its own label', 'inline', 'summarizer', '', 'Quick summary'],
+            ['a one-off scan that is not a summary stays generic', 'inline', 'monitor', '', 'One-off scan'],
+            ['an unnamed saved scanner still reads as a scanner', 'configured', 'monitor', '', 'Scanner'],
+        ])('%s', (_, scannerOrigin, scannerType, scannerName, expected) => {
+            expect(scannerLabel(scanned(scannerOrigin, scannerType, scannerName))).toBe(expected)
         })
     })
 })

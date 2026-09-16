@@ -1,23 +1,42 @@
+import datetime as dt
+import dataclasses
 from typing import Any, cast
 
 import pytest
+import time_machine
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 import httpx
 from google.genai.errors import APIError
 from pydantic import BaseModel
+from temporalio.testing import ActivityEnvironment
 
+from posthog.dataclasses import frozen
+
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _MissionOutcome,
+    _remaining_verify_budget_seconds,
+    _run_mission,
     _run_mission_attempts,
     _run_pass,
     _run_steps,
     _step_config,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.scanners.base import MissionStep
+from products.replay_vision.backend.temporal.events_tool import events_tool
+from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
+from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
+from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
+_IDENTITY_CLOCK = VideoClock(spans=())
 _VIDEO: Any = "VIDEO"
 
 
@@ -64,19 +83,73 @@ def _fc(name: str, args: dict[str, Any]) -> Any:
     return type("FC", (), {"name": name, "args": args})()
 
 
-async def _run(client: _FakeClient, steps: list[MissionStep], dispatch: Any = lambda c: {}, cache_name=None):
+async def _run(
+    client: _FakeClient,
+    steps: list[MissionStep],
+    dispatch: Any = lambda c: {},
+    cache_name=None,
+    model: str = "models/gemini-3-flash-preview",
+):
     return await _run_steps(
         client=client,
-        model="models/gemini-3-flash-preview",
+        model=model,
         steps=steps,
         video_part=_VIDEO,
         preamble_text="PRE",
         cache_name=cache_name,
         dispatch=dispatch,
+        tools=[events_tool()],
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_scanner_generations_include_team_attribution() -> None:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.genai.AsyncClient"
+        ) as client_cls,
+        patch("products.replay_vision.backend.temporal.activities.call_scanner_provider.GoogleGenAIClient"),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission_attempts",
+            new=AsyncMock(return_value={}),
+        ),
+        patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider.build_events_index",
+            return_value={},
+        ),
+    ):
+        await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+        )
+
+    assert client_cls.call_args.kwargs["posthog_properties"] == {
+        "ai_product": "replay_vision",
+        "feature": "scanner",
+        "scanner_type": "monitor",
+        "team_id": 42,
+    }
 
 
 @pytest.mark.asyncio
@@ -122,17 +195,21 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer() -> None:
+@pytest.mark.parametrize(
+    "model,budget",
+    [("models/gemini-3-flash-preview", 6), ("models/gemini-3.8-flash", 3)],
+)
+async def test_tool_budget_exhaustion_forces_a_final_tool_free_answer(model: str, budget: int) -> None:
     # The model keeps calling the tool until the budget is gone; instead of hard-failing, the step forces one final
     # turn with tools removed and the model answers from what it has already seen.
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
-    # initial generate + 6 tool iterations = 7 function-call responses, then the forced tool-free answer.
-    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(7)]
+    # initial generate + `budget` tool iterations = budget + 1 function-call responses, then the forced answer.
+    responses = [_Resp(function_call=_fc("get_events_around", {"rec_t": 5})) for _ in range(budget + 1)]
     responses.append(_Resp(text='{"verdict":"yes"}'))
     client = _FakeClient(responses)
-    out = await _run(client, steps, dispatch=lambda fc: {"events": []})
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, model=model)
     assert out["core"].verdict == "yes"
-    assert len(client.models.calls) == 8  # 7 tool turns + 1 forced answer
+    assert len(client.models.calls) == budget + 2  # tool turns + 1 forced answer
     assert client.models.calls[0]["config"].tools is not None  # tool offered during the loop
     assert client.models.calls[-1]["config"].tools is None  # tools removed on the forced turn
 
@@ -196,25 +273,97 @@ async def test_non_required_step_failure_is_skipped_not_raised() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "duration_seconds,end_times,expected_end",
+    [
+        (10.9, [10], 10),
+        (10.0, [10], 10),
+        (0.9, [0], 0),
+        (10.9, [11, 11], None),
+        (10.9, [11, 10], 10),
+        (None, [0, 0], None),
+        (0.0, [0, 0], None),
+        (-1.0, [0, 0], None),
+        (float("nan"), [0, 0], None),
+        (float("inf"), [0, 0], None),
+        (None, [None], None),
+    ],
+)
+async def test_signal_timestamps_use_recording_duration(
+    duration_seconds: float | None, end_times: list[int | None], expected_end: int | None
+) -> None:
+    scanner = MonitorScanner(prompt="Did the dialog block input?", emits_signals=True)
+    snapshot = ScannerSnapshot(
+        name="monitor",
+        scanner_type=ScannerType.MONITOR,
+        scanner_version=1,
+        model="gemini-3-flash-preview",
+        provider="gemini",
+        emits_signals=True,
+        scanner_config={"prompt": scanner.prompt},
+    )
+    signal = SignalFinding(
+        problem_type="bug",
+        start_time=0,
+        end_time=0,
+        url="https://example.com/editor",
+        description="A blank dialog covers the editor and prevents input.",
+        confidence=0.9,
+    )
+    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    client = _FakeClient(
+        [_Resp(text=core.model_dump_json())]
+        + [
+            _Resp(
+                text=SignalsResponse(
+                    signals=[] if end_time is None else [signal.model_copy(update={"end_time": end_time})]
+                ).model_dump_json()
+            )
+            for end_time in end_times
+        ]
+    )
+    module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+    with (
+        patch(f"{module}.genai.AsyncClient", return_value=client),
+        patch(f"{module}.GoogleGenAIClient"),
+        patch(f"{module}.build_events_index", return_value={}),
+        patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
+    ):
+        outcome = await _run_mission(
+            scanner=scanner,
+            snapshot=snapshot,
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=1,
+            llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
+            trace_id="trace-1",
+        )
+    assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
+    assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
+    assert len(client.models.calls) == 1 + len(end_times)
+
+
+@pytest.mark.asyncio
 async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_clean() -> None:
-    # facets (non-required) fails both attempts; signals must still run against a clean convo, with the failed
-    # facets exchange rolled back rather than left as two consecutive user turns.
+    # extras (non-required) fails both attempts; signals must still run against a clean convo, with the failed
+    # extras exchange rolled back rather than left as two consecutive user turns.
     steps = [
         MissionStep(name="summary", instruction="sum", response_model=_Core),
-        MissionStep(name="facets", instruction="fac", response_model=_Side, required=False),
+        MissionStep(name="extras", instruction="fac", response_model=_Side, required=False),
         MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
     ]
     client = _FakeClient(
         [
             _Resp(text='{"verdict":"yes"}'),  # summary ok
             _Resp(text="bad"),
-            _Resp(text="still bad"),  # facets exhausts both attempts
+            _Resp(text="still bad"),  # extras exhausts both attempts
             _Resp(text='{"note":"ok"}'),  # signals ok
         ]
     )
     out = await _run(client, steps)
-    assert "summary" in out and "signals" in out and "facets" not in out
-    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed facets turn rolled back.
+    assert "summary" in out and "signals" in out and "extras" not in out
+    # signals sees [video, preamble, summary instr, summary answer, signals instr] = 5; the failed extras turn rolled back.
     assert len(client.models.calls[-1]["contents"]) == 5
 
 
@@ -345,16 +494,257 @@ class TestRunPass:
         assert calls == ["cache-1", None]
 
 
+_MODULE = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+
+
+def _verification_counts() -> dict[tuple[str, str], float]:
+    return {
+        (sample.labels["mode"], sample.labels["outcome"]): sample.value
+        for family in REPLAY_VISION_VERIFICATION_OUTCOMES.collect()
+        for sample in family.samples
+        if sample.name == "replay_vision_verification_outcomes_total"
+    }
+
+
+@frozen
+class _ScanRun:
+    outcome: _MissionOutcome
+    # Runner calls in order, then the cache deletion.
+    calls: list[Any]
+    # Verification counter increments during the scan, keyed by (mode, outcome).
+    counted: dict[tuple[str, str], float]
+
+
+class TestVerifyPositives:
+    class _Cache:
+        name = "caches/abc"
+
+    @staticmethod
+    def _answer(verdict: str) -> MonitorLlmResponse:
+        return MonitorLlmResponse(reasoning=f"because {verdict}", verdict=cast(Any, verdict), confidence=0.8)
+
+    async def _scan(
+        self,
+        *,
+        mode: str,
+        answers: list[str | Exception],
+        allow_inconclusive: bool = False,
+        cached: bool = True,
+        emits_signals: bool = False,
+        budget_seconds: float | None = None,
+    ) -> _ScanRun:
+        # `answers[0]` is the first pass; the rest are the verify draws in order.
+        scanner = MonitorScanner(
+            prompt="did it happen", allow_inconclusive=allow_inconclusive, emits_signals=emits_signals
+        )
+        snapshot = ScannerSnapshot(
+            name="m",
+            scanner_type=ScannerType.MONITOR,
+            scanner_version=1,
+            model="gemini-3-flash-preview",
+            provider="gemini",
+            emits_signals=emits_signals,
+            scanner_config={"prompt": "did it happen"},
+            verify_positives=mode,
+        )
+        pending = iter(answers)
+        calls: list[Any] = []
+        unchecked_steps: list[str] = []
+
+        async def fake_run_steps(*, steps: list[MissionStep], cache_name: str | None, **_: Any) -> dict[str, BaseModel]:
+            calls.append({"steps": [step.name for step in steps], "cache_name": cache_name})
+            # Collect rather than assert: the verify draw runs inside an `except Exception` that turns any
+            # error into `draw_failed`, so an assertion raised here would pass the test instead of failing it.
+            unchecked_steps.extend(
+                step.name
+                for step in steps
+                if step.name != "signals" and not (step.required and step.validate is not None)
+            )
+            answer = next(pending)
+            if isinstance(answer, Exception):
+                raise answer
+            return {step.name: self._answer(answer) for step in steps if step.name != "signals"}
+
+        async def fake_delete(*_: Any) -> None:
+            calls.append("delete_cache")
+
+        before = _verification_counts()
+        with (
+            patch(f"{_MODULE}.genai.AsyncClient"),
+            patch(f"{_MODULE}.GoogleGenAIClient"),
+            patch(f"{_MODULE}.build_events_index", return_value={}),
+            patch(
+                f"{_MODULE}._maybe_create_video_cache", new=AsyncMock(return_value=self._Cache() if cached else None)
+            ),
+            patch(f"{_MODULE}._delete_video_cache", new=fake_delete),
+            patch(f"{_MODULE}._run_steps", new=fake_run_steps),
+            patch(f"{_MODULE}._remaining_verify_budget_seconds", return_value=budget_seconds),
+        ):
+            outcome = await _run_mission(
+                scanner=scanner,
+                snapshot=snapshot,
+                video_part=_VIDEO,
+                video_clock=_IDENTITY_CLOCK,
+                preamble_text="PRE",
+                team_id=1,
+                llm_inputs=MagicMock(),
+                trace_id="trace-1",
+            )
+        # A verify draw must keep the core step's semantic check, or an `inconclusive` the scanner forbids
+        # would count as a vote.
+        assert unchecked_steps == []
+        counted = {
+            key: value - before.get(key, 0.0)
+            for key, value in _verification_counts().items()
+            if value != before.get(key, 0.0)
+        }
+        return _ScanRun(outcome=outcome, calls=calls, counted=counted)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "mode,answers",
+        [
+            ("off", ["yes"]),
+            ("Enforce", ["yes"]),
+            ("enforce", ["no"]),
+            ("enforce", ["inconclusive"]),
+        ],
+    )
+    async def test_only_a_positive_under_a_live_mode_is_verified(
+        self, mode: str, answers: list[str | Exception]
+    ) -> None:
+        run = await self._scan(mode=mode, answers=answers, allow_inconclusive=True)
+        assert len(run.calls) == 2  # the first pass and the cache deletion
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == answers[0]
+        assert run.outcome.verification is None
+        assert run.counted == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "mode,draws,allow_inconclusive,resolved,served,outcome_label",
+        [
+            ("shadow", ["yes", "yes"], False, "yes", "yes", "agreed"),
+            ("enforce", ["yes", "yes"], False, "yes", "yes", "agreed"),
+            ("enforce", ["yes", "no"], False, "no", "no", "flipped"),
+            ("shadow", ["yes", "no"], False, "no", "yes", "flipped"),
+            ("enforce", ["yes", "inconclusive"], True, "inconclusive", "inconclusive", "flipped"),
+        ],
+    )
+    async def test_a_yes_stands_only_when_the_second_draw_agrees(
+        self,
+        mode: str,
+        draws: list[str],
+        allow_inconclusive: bool,
+        resolved: str,
+        served: str,
+        outcome_label: str,
+    ) -> None:
+        run = await self._scan(mode=mode, answers=list(draws), allow_inconclusive=allow_inconclusive)
+        finalized = cast(MonitorOutput, run.outcome.finalized)
+        # `enforce` serves the whole settled draw, reasoning included, not just its verdict.
+        assert (finalized.verdict, finalized.reasoning) == (served, f"because {served}")
+        assert run.outcome.verification == VerificationRecord(
+            mode=mode, draws=cast(Any, draws), resolved_verdict=cast(Any, resolved), served_verdict=cast(Any, served)
+        )
+        # One first pass, one verify draw, the cache deletion. A dissent never triggers a third draw.
+        assert len(run.calls) == 3
+        assert run.counted == {(mode, outcome_label): 1.0}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            ScannerFailureError("rejected", kind=FailureKind.VALIDATION_FAILED),
+            APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
+            # `asyncio.wait_for` raises this when a draw runs past the activity budget.
+            TimeoutError(),
+        ],
+    )
+    async def test_a_failed_draw_keeps_the_first_verdict_and_never_raises(self, failure: Exception) -> None:
+        run = await self._scan(mode="enforce", answers=["yes", failure])
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
+        assert run.outcome.verification == VerificationRecord(
+            mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="draw_failed"
+        )
+        assert len(run.calls) == 3
+        assert run.counted == {("enforce", "draw_failed"): 1.0}
+
+    @pytest.mark.asyncio
+    async def test_without_a_cache_the_first_pass_stands(self) -> None:
+        # A re-draw without the cache would re-send the whole video; that spend is not worth one extra vote.
+        run = await self._scan(mode="enforce", answers=["yes"], cached=False)
+        assert len(run.calls) == 1
+        assert run.outcome.verification == VerificationRecord(
+            mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_cache"
+        )
+        assert run.counted == {("enforce", "no_cache"): 1.0}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("budget_seconds,draws_taken", [(0.0, 0), (-5.0, 0), (30.0, 1)])
+    async def test_a_draw_never_starts_past_the_activity_budget(self, budget_seconds: float, draws_taken: int) -> None:
+        # The activity timeout would fail the whole scan, first verdict included, so a draw with no time left is skipped.
+        run = await self._scan(mode="enforce", answers=["yes", "yes"], budget_seconds=budget_seconds)
+        assert len(run.calls) == 2 + draws_taken
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
+        if draws_taken == 0:
+            assert run.outcome.verification == VerificationRecord(
+                mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_budget"
+            )
+            assert run.counted == {("enforce", "no_budget"): 1.0}
+        else:
+            assert run.counted == {("enforce", "agreed"): 1.0}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "start_to_close,elapsed,expected",
+        [
+            (dt.timedelta(minutes=20), dt.timedelta(minutes=5), 14 * 60.0),
+            (dt.timedelta(minutes=20), dt.timedelta(minutes=19, seconds=30), -30.0),
+            (None, dt.timedelta(minutes=5), None),
+        ],
+    )
+    async def test_remaining_budget_reads_the_activity_timeout(
+        self, start_to_close: dt.timedelta | None, elapsed: dt.timedelta, expected: float | None
+    ) -> None:
+        now = timezone.now()
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, start_to_close_timeout=start_to_close, started_time=now - elapsed)
+
+        async def read_budget() -> float | None:
+            return _remaining_verify_budget_seconds()
+
+        with time_machine.travel(now, tick=False):
+            assert await env.run(read_budget) == expected
+
+    def test_remaining_budget_is_unbounded_outside_an_activity(self) -> None:
+        assert _remaining_verify_budget_seconds() is None
+
+    @pytest.mark.asyncio
+    async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
+        run = await self._scan(mode="enforce", answers=["yes", "no"], emits_signals=True)
+        assert run.calls == [
+            {"steps": ["core", "signals"], "cache_name": "caches/abc"},
+            {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
+            "delete_cache",
+        ]
+
+
 class TestStepConfig:
     def test_inline_path_carries_tools_and_no_cache(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None)
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core), cache_name=None, tools=[events_tool()]
+        )
         assert config.tools is not None
         assert config.cached_content is None
         assert config.response_json_schema is not None
         assert config.thinking_config is not None and config.thinking_config.include_thoughts is True
 
     def test_cached_path_references_the_cache_and_omits_tools(self) -> None:
-        config = _step_config(MissionStep(name="core", instruction="c", response_model=_Core), cache_name="caches/abc")
+        config = _step_config(
+            MissionStep(name="core", instruction="c", response_model=_Core),
+            cache_name="caches/abc",
+            tools=[events_tool()],
+        )
         # Tools live in the cache; re-declaring them in the config alongside cached_content is rejected by Gemini.
         assert config.tools is None
         assert config.cached_content == "caches/abc"
@@ -383,5 +773,7 @@ async def test_video_cache_creation_is_best_effort() -> None:
         aio = type("Aio", (), {"caches": _BoomCaches()})()
 
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
-    result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
+    result = await _maybe_create_video_cache(
+        cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
+    )
     assert result is None

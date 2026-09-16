@@ -11,6 +11,7 @@ from ..activities.finalize_check_suite import (
     mark_check_suite_empty_activity,
     mark_check_suite_failed_activity,
 )
+from ..activities.notify_failing_checks import notify_failing_checks_activity
 from ..activities.prepare_check_suite import prepare_check_suite_activity
 from ..activities.run_check_batch import run_check_batch_activity
 from ..contracts import (
@@ -18,6 +19,7 @@ from ..contracts import (
     CheckSuiteResult,
     FinalizeCheckSuiteInputs,
     MarkSuiteFailedInputs,
+    NotifyFailingChecksInputs,
     PreparedSuite,
     RunCheckBatchInputs,
     RunCheckSuiteInputs,
@@ -56,8 +58,8 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
 
-            outcomes = await self._run_batches(inputs.team_id, prepared)
-            return await workflow.execute_activity(
+            outcomes = await self._run_batches(inputs, prepared)
+            result: CheckSuiteResult = await workflow.execute_activity(
                 finalize_check_suite_activity,
                 FinalizeCheckSuiteInputs(team_id=inputs.team_id, suite_run_id=prepared.suite_run_id, outcomes=outcomes),
                 start_to_close_timeout=dt.timedelta(minutes=2),
@@ -73,14 +75,41 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
                 )
             raise
 
-    async def _run_batches(self, team_id: int, prepared: PreparedSuite) -> list[BatchOutcome]:
+        await self._notify_failing_checks(inputs.team_id, result)
+        return result
+
+    async def _notify_failing_checks(self, team_id: int, result: CheckSuiteResult) -> None:
+        """Runs after the suite is finished, so a slow or broken fan-out cannot hold it in running."""
+        if result.checks_failed <= 0:
+            return
+        try:
+            await workflow.execute_activity(
+                notify_failing_checks_activity,
+                NotifyFailingChecksInputs(team_id=team_id, suite_run_id=result.suite_run_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            workflow.logger.exception("Could not notify the checks a suite moved into failing")
+
+    async def _run_batches(self, inputs: RunCheckSuiteInputs, prepared: PreparedSuite) -> list[BatchOutcome]:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
+        staged_saved_query_id = (
+            inputs.saved_query_ids[0] if inputs.staged_queryable_folder and len(inputs.saved_query_ids) == 1 else None
+        )
 
         async def _run(check_ids: list[str]) -> BatchOutcome:
             async with semaphore:
                 return await workflow.execute_activity(
                     run_check_batch_activity,
-                    RunCheckBatchInputs(team_id=team_id, suite_run_id=prepared.suite_run_id, check_ids=check_ids),
+                    RunCheckBatchInputs(
+                        team_id=inputs.team_id,
+                        suite_run_id=prepared.suite_run_id,
+                        check_ids=check_ids,
+                        staged_queryable_folder=inputs.staged_queryable_folder if staged_saved_query_id else None,
+                        staged_saved_query_id=staged_saved_query_id,
+                    ),
                     start_to_close_timeout=dt.timedelta(minutes=30),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=2),

@@ -29,8 +29,12 @@ from posthog.models import Team
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
     execute_candidate_query,
 )
+
+# Both fetch candidates with the in-query blocklists off, so both owe the caller this question.
+CandidateQuery = ScannerCandidateQuery | WindowedCandidateQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -50,8 +54,11 @@ _MAX_IDS_PER_QUERY = 1_000
 def excluded_session_ids(
     *,
     team: Team,
-    candidate_query: ScannerCandidateQuery,
+    candidate_query: CandidateQuery,
     candidates: list[CandidateSession],
+    # Tags these reads in `system.query_log`. Required, because the sweep and a backfill both exclude
+    # against the same scanner id, and the read meter throttles each path on what it is charged.
+    query_type: str,
     scanner_id: str | None = None,
     seconds_remaining: float | None = None,
 ) -> set[str]:
@@ -78,7 +85,7 @@ def excluded_session_ids(
             rows = execute_candidate_query(
                 exclusion,
                 team=team,
-                query_type="ReplayVisionExcludedSessionsQuery",
+                query_type=query_type,
                 max_execution_time_seconds=max(1, int(deadline - time.monotonic())),
                 # Metered against the scanner's read budget like its candidate query.
                 scanner_id=scanner_id,

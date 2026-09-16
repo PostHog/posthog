@@ -11,6 +11,7 @@ import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductTab } from './common'
+import { webAnalyticsDateMapping } from './constants'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -43,7 +44,12 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
             <div className="WebAnalyticsModal deprecated-space-y-4">
                 <div className="flex flex-row flex-wrap gap-2">
                     {productTab !== ProductTab.MARKETING && <WebPropertyFilters />}
-                    <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <DateFilter
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={setDates}
+                        dateOptions={webAnalyticsDateMapping}
+                    />
                     <div className="ml-auto">
                         <WebAnalyticsExport query={modal.query} insightProps={modal.insightProps} />
                     </div>

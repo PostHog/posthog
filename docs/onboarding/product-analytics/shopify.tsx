@@ -4,7 +4,7 @@ import { StepDefinition } from '../steps'
 import { DEFAULT_SNIPPET_METHODS, snippetFunctions } from './_snippets/js-snippet-builder'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getShopifyInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -47,18 +47,27 @@ export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
-        {
-            title: 'Verify installation',
-            badge: 'recommended',
-            content: (
-                <Markdown>
-                    PostHog will now capture pageviews, clicks, and other events on your Shopify store. See the [Shopify
-                    integration docs](https://posthog.com/docs/libraries/shopify) for tracking checkout events and
-                    revenue.
-                </Markdown>
-            ),
-        },
     ]
 }
+
+export const getShopifyEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { Markdown } = ctx
+
+    return {
+        title: 'Verify installation',
+        badge: 'recommended',
+        content: (
+            <Markdown>
+                PostHog will now capture pageviews, clicks, and other events on your Shopify store. See the [Shopify
+                integration docs](https://posthog.com/docs/libraries/shopify) for tracking checkout events and revenue.
+            </Markdown>
+        ),
+    }
+}
+
+export const getShopifySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getShopifyInstallSteps(ctx),
+    getShopifyEventStep(ctx),
+]
 
 export const ShopifyInstallation = createInstallation(getShopifySteps)

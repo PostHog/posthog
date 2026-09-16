@@ -18,7 +18,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -26,7 +26,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataJob,
@@ -37,7 +36,9 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -46,7 +47,7 @@ import { sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
-    availableSources?: Record<string, SourceConfig>
+    availableSources?: Record<string, SourceConfigResponseApi>
 }
 
 export interface CdcStatus {
@@ -85,6 +86,25 @@ function nextJobsPollDelay(softFailureCount: number): number {
 // Read-only/derived fields to keep out of bulk-update payloads. A denylist (not an allowlist of
 // writable fields) so new editable fields are sent automatically — a stale allowlist silently
 // dropped edits like sync_frequency.
+// Incremental is missing here on purpose: it merges on a primary key, which differs per table and
+// so cannot come from one batch choice.
+export type BulkSyncMethod = 'full_refresh' | 'append'
+
+// CDC and webhook tables are held back because moving them off their sync method drops changes
+// that only a full resync recovers.
+export function bulkSyncMethodDisabledReason(
+    schemas: readonly ExternalDataSourceSchema[],
+    syncType: BulkSyncMethod
+): string | undefined {
+    if (schemas.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')) {
+        return 'Deselect the CDC and webhook tables first'
+    }
+    if (syncType === 'append' && schemas.some((schema) => !schema.incremental_field)) {
+        return 'Append needs an incremental field, which some selected tables have not got'
+    }
+    return undefined
+}
+
 const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'id',
     'name',
@@ -96,6 +116,7 @@ const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'description',
     'available_columns',
     'incremental',
+    'incremental_sync_blocked',
     'should_sync_default',
 ])
 
@@ -315,8 +336,35 @@ export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): Ext
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
 }
 
+const SYNC_LOOKBACK_FIELD = 'sync_lookback_days'
+
+// Mirrors the backend's Meta Ads normalization (`meta_ads.py`): a missing, blank, or sub-1 value
+// falls back to the default window, and any value is capped at the max the source will request.
+const DEFAULT_SYNC_LOOKBACK_DAYS = 90
+const META_ADS_MAX_HISTORY_DAYS = 3 * 365
+
+// The effective lookback the backend would use for `value`. Comparing raw form values instead
+// would offer a destructive resync when narrowing a blank (effective-90) window, and skip the
+// resync prompt when widening from an absent value.
+export function effectiveLookbackDays(value: unknown): number {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 1) {
+        return DEFAULT_SYNC_LOOKBACK_DAYS
+    }
+    return Math.min(parsed, META_ADS_MAX_HISTORY_DAYS)
+}
+
+// A raised history window (e.g. Meta Ads `sync_lookback_days`) only pulls in older data on a full
+// resync. An enabled incremental table that already imported keeps its start date until then, so
+// these are the tables a raise would otherwise silently skip.
+export function schemasNeedingLookbackResync(source: ExternalDataSource | null): ExternalDataSourceSchema[] {
+    return source?.schemas.filter((schema) => schema.should_sync && schema.incremental) ?? []
+}
+
 // Bulk-enable payloads: already-enabled schemas are skipped; schemas without a sync method ask
 // the backend to discover and fill in default sync settings as part of the same update.
+// Blocked tables are enabled along with the rest on purpose. An operator who fixed the key or the
+// duplicates at the source for many tables at once has to be able to turn them back on in one go.
 export function buildBulkEnablePayloads(
     schemas: ExternalDataSourceSchema[]
 ): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
@@ -348,7 +396,7 @@ function reportBulkResult(verb: string, total: number, failed: number, skipped: 
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sourceSettingsLogicValues {
-    availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
+    availableSources: Record<string, SourceConfigResponseApi> | null // availableSourcesLogic
     bulkEnableLoading: boolean
     canLoadMoreJobs: boolean
     cdcStatus: CdcStatus | null
@@ -388,7 +436,7 @@ export interface sourceSettingsLogicValues {
     sourceConfigTouched: boolean
     sourceConfigTouches: Record<string, boolean>
     sourceConfigValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
-    sourceFieldConfig: SourceConfig | null
+    sourceFieldConfig: SourceConfigResponseApi | null
     sourceId: string
     sourceLoading: boolean
     statusFilter: string | null
@@ -417,6 +465,13 @@ export interface sourceSettingsLogicActions {
     ) => {
         frequency: DataWarehouseSyncInterval
         schemas: ExternalDataSourceSchema[]
+    }
+    bulkSetSyncMethod: (
+        schemas: ExternalDataSourceSchema[],
+        syncType: BulkSyncMethod
+    ) => {
+        schemas: ExternalDataSourceSchema[]
+        syncType: BulkSyncMethod
     }
     bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
@@ -626,8 +681,8 @@ export interface sourceSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sourceFieldConfig: (
             source: ExternalDataSource | null,
-            availableSources: Record<string, SourceConfig> | null
-        ) => SourceConfig | null
+            availableSources: Record<string, SourceConfigResponseApi> | null
+        ) => SourceConfigResponseApi | null
         inProgressRowsBySchema: (jobs: ExternalDataJob[]) => Record<string, number>
         filteredSchemas: (
             source: ExternalDataSource | null,
@@ -679,6 +734,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
             schemas,
             frequency,
+        }),
+        bulkSetSyncMethod: (schemas: ExternalDataSourceSchema[], syncType: BulkSyncMethod) => ({
+            schemas,
+            syncType,
         }),
         bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
@@ -905,7 +964,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     selectors({
         sourceFieldConfig: [
             (s) => [s.source, s.availableSources],
-            (source: ExternalDataSource | null, availableSources: Record<string, SourceConfig> | null) => {
+            (source: ExternalDataSource | null, availableSources: Record<string, SourceConfigResponseApi> | null) => {
                 if (!source || !availableSources) {
                     return null
                 }
@@ -1055,6 +1114,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     ...sanitizedPayload,
                 }
 
+                // Read before the update, while `values.source` still holds the old config, so we can
+                // offer a resync when the user widens the history window (otherwise it's silently ignored).
+                const previousLookbackDays = effectiveLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
+                const nextLookbackDays = effectiveLookbackDays(sanitizedPayload[SYNC_LOOKBACK_FIELD])
+                const schemasToResync = schemasNeedingLookbackResync(values.source)
+
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig
                 if (sourceFieldConfig?.fields) {
@@ -1102,6 +1167,19 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')
+
+                    if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
+                        LemonDialog.open({
+                            title: 'Import the older data?',
+                            description: `A wider history window applies to tables you already synced only after a full resync. Resync ${pluralize(schemasToResync.length, 'table', 'tables')} now to import the older data?`,
+                            primaryButton: {
+                                children: 'Resync now',
+                                onClick: () => actions.bulkResync(schemasToResync),
+                            },
+                            secondaryButton: { children: 'Not now' },
+                        })
+                    }
+
                     tryShowMCPHint('data_warehouse_sources.update', {
                         derivedPrompt: values.source?.source_type
                             ? `Update the configuration on my ${values.source.source_type} source`
@@ -1545,6 +1623,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 })
                 const base = `Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`
                 lemonToast.success(clamped > 0 ? `${base} (${clamped} kept at their 5 min minimum)` : base)
+            },
+            bulkSetSyncMethod: ({ schemas, syncType }) => {
+                // Reuse the debounced single-schema update — these coalesce into one bulk PATCH.
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, sync_type: syncType }))
+                lemonToast.success(
+                    `Set ${pluralize(schemas.length, 'schema', 'schemas')} to ${SyncTypeLabelMap[syncType]}`
+                )
             },
             bulkSyncNow: async ({ schemas }) => {
                 // Only schemas that are enabled with a sync method can sync.

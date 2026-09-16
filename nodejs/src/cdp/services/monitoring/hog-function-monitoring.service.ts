@@ -72,6 +72,12 @@ export class HogFunctionMonitoringService {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
+    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
+    // Kafka outputs, which the server disconnects separately on shutdown.
+    async stop(): Promise<void> {
+        return Promise.resolve()
+    }
+
     async flush() {
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
@@ -185,7 +191,9 @@ export class HogFunctionMonitoringService {
                 )
             }
 
-            if (result.finished || result.error) {
+            // A canceled run is neither a success nor a failure: it carries its own
+            // 'canceled' metric on result.metrics, so the derived terminal metric is skipped.
+            if ((result.finished || result.error) && !result.canceled) {
                 // Process each timing entry individually instead of totaling them
                 const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
                 for (const timing of timings) {

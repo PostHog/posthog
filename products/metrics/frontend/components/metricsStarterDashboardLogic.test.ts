@@ -6,13 +6,13 @@ import { insightsApi } from 'scenes/insights/utils/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsAttributeValuesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 
 import { metricOptionKey, metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsAttributeValuesRetrieve: jest.fn(),
 }))
 jest.mock('scenes/insights/utils/api', () => ({
@@ -22,7 +22,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), warning: jest.fn(), error: jest.fn() },
 }))
 
-const mockNames = metricsValuesRetrieve as jest.MockedFunction<typeof metricsValuesRetrieve>
+const mockNames = metricsNamesRetrieve as jest.MockedFunction<typeof metricsNamesRetrieve>
 const mockValues = metricsAttributeValuesRetrieve as jest.MockedFunction<typeof metricsAttributeValuesRetrieve>
 const mockInsightCreate = insightsApi.create as jest.MockedFunction<typeof insightsApi.create>
 

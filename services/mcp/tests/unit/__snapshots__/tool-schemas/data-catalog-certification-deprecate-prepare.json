@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

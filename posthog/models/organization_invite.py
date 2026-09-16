@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models, transaction
+from django.db.models.functions import Upper
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -19,7 +20,7 @@ from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -34,7 +35,7 @@ _DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
 
 
 def validate_private_project_access(value):
-    from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
+    from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
 
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
@@ -92,6 +93,12 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             "Downstream logic routes the delegate through full onboarding on accept."
         ),
     )
+
+    class Meta:
+        indexes = [
+            # Serves `target_email__iexact`, which Django compiles to `UPPER(target_email::text)`.
+            models.Index(Upper("target_email"), name="orginvite_upper_email_idx"),
+        ]
 
     def validate(
         self,

@@ -2,6 +2,7 @@
 # module is reachable from warehouse_sources models at django.setup().
 from __future__ import annotations
 
+import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
@@ -42,7 +43,7 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
@@ -61,10 +62,17 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    verified_primary_keys: Optional[list[str]] = None
+    """The key this run proved unique across the whole table, persisted so later runs only have to
+    prove the rows they bring in."""
     webhook_only: bool = False
     """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
     rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
     webhook ingestion instead."""
+    cdc_write_mode: Optional[str] = None
+    """Set by a source serving change events, naming the lane the loader writes
+    (`incremental_merge`). Drives the loader's CDC enrichment and position resolution, and marks the
+    run incremental — a change stream must never write as a full_refresh overwrite."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None
@@ -79,7 +87,9 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-@dataclasses.dataclass
+# Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
+# reads it and that migration is its own change to make and verify.
+@dataclasses.dataclass(frozen=False)
 class SourceInputs:
     """Contextual info required by a source to actually run"""
 
@@ -95,8 +105,21 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
+    # before it are overlap the table already holds rather than new ground.
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None
+    # Resolved from the schema for a source that declares a `history_lookback`; `None` means
+    # unbounded. See `sources/common/history_window.py`.
+    history_start: Optional[datetime.datetime] = None
+    # Start of the previous successful sync (the job's created_at), so a safe lower bound for "seen".
+    last_synced_at: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
+    # The schema's stored primary key and the key a full probe last proved unique. A source that
+    # merges on an unenforced key needs both: the first is the key it will merge on, the second
+    # says whether that key still has to be proven against the whole table.
+    primary_keys: Optional[list[str]] = None
+    verified_primary_keys: Optional[list[str]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
     s3_folder_name: Optional[str] = None
@@ -107,3 +130,9 @@ class SourceInputs:
     # (flag on + parents verified synced). Evaluated once by the run-time gate in
     # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
     fanout_warehouse_reuse: bool = False
+    # True when extraction batches should be bounded by accumulated bytes rather than by the
+    # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
+    byte_bounded_extraction: bool = False
+    # Temporal's attempt number for this activity, starting at 1. A source can read a retry
+    # differently from a first run, because the first run has already shown what fails.
+    activity_attempt: int = 1

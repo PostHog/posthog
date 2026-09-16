@@ -61,6 +61,13 @@ vi.mock("./TaskArtifacts", () => ({
     createElement("TaskArtifacts", props),
 }));
 
+vi.mock("./InlineArtifactCard", () => ({
+  InlineUploadedArtifactCard: (props: Record<string, unknown>) =>
+    createElement("InlineUploadedArtifactCard", props),
+  InlineCreatedPrCard: (props: Record<string, unknown>) =>
+    createElement("InlineCreatedPrCard", props),
+}));
+
 function renderTaskSessionView(
   props: Parameters<typeof TaskSessionView>[0],
 ): ReturnType<typeof create> {

@@ -12,6 +12,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'PostHog toolbar launches PostHog right in your app or website.',
             iconType: 'toolbar',
+            docsHref: 'https://posthog.com/docs/toolbar',
         },
     },
     urls: {

@@ -4,6 +4,8 @@ Tests for message_formatter.py - message input/output formatting logic.
 Tests cover multiple LLM provider formats, tool calls, truncation, and edge cases.
 """
 
+import pytest
+
 from parameterized import parameterized
 
 from ..constants import MISSING_REASONING_NOTE, MISSING_TOOL_OUTPUT_NOTE, MISSING_TOOLS_NOTE
@@ -15,6 +17,7 @@ from ..message_formatter import (
     format_single_tool_call,
     format_tool_calls,
     safe_extract_text,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -293,7 +296,7 @@ class TestFormatToolCalls:
             {"function": {"name": "func1", "arguments": '{"arg": "val"}'}},
             {"function": {"name": "func2", "arguments": ""}},  # Empty string, not "{}"
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -305,7 +308,7 @@ class TestFormatToolCalls:
             {"name": "func1", "args": {"arg": "val"}},
             {"name": "func2", "args": None},
         ]
-        lines = format_tool_calls(tool_calls)  # type: ignore[arg-type]
+        lines = format_tool_calls(tool_calls)
         result = "\n".join(lines)
         assert "Tool calls: 2" in result
         assert "func1(" in result
@@ -316,6 +319,14 @@ class TestFormatToolCalls:
         lines = format_tool_calls([])
         # Empty list still shows "Tool calls: 0"
         assert len(lines) > 0 or lines == []
+
+    def test_tolerates_string_and_malformed_entries(self):
+        """A string entry, or a non-dict `function`, must not raise `'str' has no attribute 'get'`."""
+        tool_calls = ["raw string call", {"function": "not a dict"}, {"name": "func", "args": {"a": 1}}]
+        lines = format_tool_calls(tool_calls)
+        result = "\n".join(lines)
+        assert "raw string call" in result
+        assert "func(a=1)" in result
 
 
 class TestFormatInputMessages:
@@ -366,6 +377,19 @@ class TestFormatInputMessages:
         # Should have truncation marker
         truncation_marker_found = any("TRUNCATED" in line for line in lines)
         assert truncation_marker_found
+
+    @parameterized.expand(
+        [
+            ("dict", {"name": "user"}),
+            ("list", ["user"]),
+        ]
+    )
+    def test_non_string_role_still_renders_the_message(self, _name, role):
+        messages = [{"role": role, "content": "Hello"}]
+
+        result = "\n".join(format_input_messages(messages))
+
+        assert "Hello" in result
 
 
 class TestFormatOutputMessages:
@@ -690,3 +714,31 @@ class TestResponsesApiItems:
         result = "\n".join(format_input_messages(messages))
         assert "Run the scout" in result
         assert "[INPUT_TEXT]" not in result
+
+
+class TestSanitizeSurrogates:
+    """Test repair of unpaired UTF-16 surrogates."""
+
+    def test_leaves_clean_text_untouched(self):
+        """Should return the same string when there is nothing to repair."""
+        text = "plain text with a valid emoji \U0001f600 and accents \u00e9"
+        assert sanitize_surrogates(text) is text
+
+    def test_replaces_lone_surrogate(self):
+        """Should replace half an emoji with the replacement character."""
+        assert sanitize_surrogates("hi \ud83c world") == "hi \ufffd world"
+
+    def test_result_encodes_as_utf8(self):
+        """Should produce text the summarization and Redis writes can encode."""
+        text = "L001: output \ud83c"
+        with pytest.raises(UnicodeEncodeError):
+            text.encode("utf-8")
+        assert sanitize_surrogates(text).encode("utf-8")
+
+    def test_recombines_a_split_pair(self):
+        """Should rebuild an emoji left as two separate surrogate code points."""
+        assert sanitize_surrogates("hi \ud83d\ude00") == "hi \U0001f600"
+
+    def test_keeps_the_rest_of_the_text(self):
+        """Should only touch the broken character."""
+        assert sanitize_surrogates("before \ud83c after \U0001f600") == "before \ufffd after \U0001f600"

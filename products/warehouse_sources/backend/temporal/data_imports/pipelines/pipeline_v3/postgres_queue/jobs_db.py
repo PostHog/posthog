@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -91,7 +91,7 @@ def pending_batch_select_columns(status_alias: str) -> str:
         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
         b.cumulative_row_count, b.resource_name, b.is_resume,
-        b.is_first_ever_sync, b.metadata,
+        b.is_first_ever_sync, b.metadata, b.destination_ids,
         COALESCE({status_alias}.attempt, 0) AS latest_attempt,
         b.created_at
     """
@@ -387,6 +387,22 @@ def _stranded_candidate_runs_sql() -> str:
     The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
     it the planner flattens the subquery back into that same hash anti-join.
     It changes no semantics; the plan-shape test pins the probe.
+
+    Loader progress anywhere in a (team_id, schema_id) group spares every run
+    in it. The loader serializes a group and claims its batches oldest-first,
+    so a run queued behind a long sibling makes no progress of its own until
+    the sibling drains, however many hours that takes. An active-state
+    transition in the group inside the stale window means the group is being
+    drained and its other runs are waiting their turn, not abandoned. Only
+    'executing', 'succeeded' and 'waiting_retry' count, as in
+    ``supersede_other_runs``: a 'failed' write is the reconcile sweep's own
+    output, and heartbeats refresh the status log but not ``state_changed_at``,
+    so a wedged-but-heartbeating loader cannot shield a group forever (its live
+    lease already protects it while it heartbeats). The group lease cannot
+    stand in for this check: the loader releases it between claim windows, so
+    a busy group is lease-less for an instant many times an hour. The probe
+    runs once per group rather than once per run, because a genuinely stale
+    group answers only after reading every batch it holds.
     """
     return f"""
         WITH stranded_runs AS (
@@ -396,6 +412,17 @@ def _stranded_candidate_runs_sql() -> str:
               AND b.created_at <= now() - make_interval(secs => %(stale)s)
               AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
             GROUP BY b.run_uuid, b.team_id, b.schema_id
+        ),
+        progressing_groups AS (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT team_id, schema_id FROM stranded_runs) g
+            WHERE EXISTS (
+                SELECT 1 FROM {BATCH_TABLE} bp
+                WHERE bp.team_id = g.team_id AND bp.schema_id = g.schema_id
+                  AND bp.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND bp.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                  AND bp.state_changed_at > now() - make_interval(secs => %(stale)s)
+            )
         )
         SELECT r.run_uuid, r.team_id, r.schema_id
         FROM stranded_runs r
@@ -410,6 +437,10 @@ def _stranded_candidate_runs_sql() -> str:
                 AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND bf.latest_state = 'failed'
               OFFSET 0
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM progressing_groups p
+              WHERE p.team_id = r.team_id AND p.schema_id = r.schema_id
           )
         -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
         -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
@@ -473,6 +504,8 @@ class PendingBatch:
     is_first_ever_sync: bool
     metadata: dict[str, Any]
     latest_attempt: int
+    # Snapshotted on the batch when the run started. Empty means the PostHog warehouse only.
+    destination_ids: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     # Observed denormalized state clock at read time; None for sinks that don't surface it.
     state_changed_at: datetime | None = None
@@ -510,6 +543,7 @@ class PendingBatch:
             "partition_mode": self.metadata.get("partition_mode"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
+            "destination_ids": self.destination_ids or [],
         }
 
 
@@ -763,7 +797,7 @@ class BatchQueue:
                         b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
                         b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
                         b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
+                        b.is_first_ever_sync, b.metadata, b.destination_ids,
                         b.latest_attempt,
                         b.created_at
                     FROM {BATCH_TABLE} b
@@ -1262,7 +1296,9 @@ class BatchQueue:
         without this the batches strand until the retention prune (days later).
 
         Staleness is *loader progress only*: the newest status write across the run, or — when the
-        loader never claimed anything — the oldest batch's age. Batch inserts (producer activity)
+        loader never claimed anything — the oldest batch's age. Progress on any sibling run of the same
+        (team_id, schema_id) group also spares the run: the loader drains a group one run at a time, so
+        a run queued behind a long sibling is waiting, not abandoned. Batch inserts (producer activity)
         deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
         streaming into a dead loader still reads as stale. A live group lease means a pod is actively
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
@@ -1338,6 +1374,30 @@ class BatchQueue:
         if row is None or row[0] is None:
             return None
         return float(row[0])
+
+    @staticmethod
+    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
+        """How many batches are state-eligible for claiming right now (queue depth).
+
+        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        the claim's per-run, schema-busy, and lease gates are deliberately not
+        applied (they need per-row probes; this must stay one cheap partial-index
+        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
+        config, and this probe stays parameter-free), so the count reads slightly
+        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
+        query can see.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT count(*)
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                  AND b.latest_state IN ('pending', 'waiting_retry')
+                """
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(

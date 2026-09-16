@@ -1,10 +1,11 @@
 import { SquaresFourIcon } from "@phosphor-icons/react";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 
 interface CommandCenterItemProps {
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   activeCount?: number;
   depth?: number;
 }

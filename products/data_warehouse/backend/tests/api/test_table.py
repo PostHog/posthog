@@ -5,17 +5,43 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.test import APIRequestFactory
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
+from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer, resolve_created_via
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
+
+
+class TestResolveCreatedVia(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_transport_markers", {}, "api"),
+            ("mcp_server", {"user-agent": "posthog/mcp-server 1.0.0"}, "mcp"),
+            ("mcp_client_header", {"x-posthog-client": "mcp"}, "mcp"),
+            ("cli_wraps_mcp", {"user-agent": "posthog-cli"}, "mcp"),
+            ("wizard", {"user-agent": "posthog/wizard 1.0.0"}, "wizard"),
+            (
+                "wizard_running_self_driving",
+                {"user-agent": "posthog/wizard 1.0.0 (program: self-driving)"},
+                "self_driving",
+            ),
+            ("posthog_code", {"user-agent": "posthog/code 1.0.0"}, "self_driving"),
+            ("desktop_app", {"user-agent": "posthog/desktop.hog.dev 1.0.0"}, "self_driving"),
+            ("mobile_app", {"user-agent": "posthog/mobile.hog.dev 1.0.0"}, "self_driving"),
+            # Terraform has no attribution value of its own, so it counts as a plain API caller
+            # rather than silently borrowing an agent surface.
+            ("terraform", {"user-agent": "posthog/terraform-provider 1.0.0"}, "api"),
+        ]
+    )
+    def test_attributes_request_to_its_transport(self, _: str, headers: dict[str, str], expected: str):
+        assert resolve_created_via(APIRequestFactory().post("/", headers=headers)) == expected
 
 
 class TestTable(APIBaseTest):
@@ -26,8 +52,9 @@ class TestTable(APIBaseTest):
             ("localhost", "https://localhost/path/*.csv", "Local/Loopback host not allowed"),
             ("literal_ipv4_loopback", "https://127.0.0.1/path/*.csv", "Local/Loopback host not allowed"),
             ("literal_ipv4_linklocal", "https://169.254.169.254/path/*.csv", "Local/metadata host"),
-            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "Disallowed target IP"),
-            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "Disallowed target IP"),
+            # Both are IP literals, so the address is parsed and judged without a DNS lookup.
+            ("literal_ipv6_mapped_loopback", "https://[::ffff:127.0.0.1]/path/*.csv", "Private IP address not allowed"),
+            ("literal_ipv6_6to4_loopback", "https://[2002:7f00:1::]/path/*.csv", "Private IP address not allowed"),
         ]
     )
     def test_create_columns_blocks_unsafe_url_patterns(self, _: str, url_pattern: str, expected_error: str):
@@ -63,12 +90,12 @@ class TestTable(APIBaseTest):
                 "Disallowed target IP",
             ),
             (
-                # The hostname string itself starts with "169.254." (a link-local prefix), so this
-                # is blocked by the literal-prefix check before resolve_host_ips is ever called.
+                # The hostname is a name rather than an address, so it is judged by what it
+                # resolves to, like every other wildcard-DNS name in this list.
                 "sslip_io_linklocal",
                 "https://169.254.169.254.sslip.io/latest/meta-data/",
                 {ipaddress.ip_address("169.254.169.254")},
-                "Private IP address not allowed",
+                "Disallowed target IP",
             ),
             (
                 "custom_dns_rebinding",
@@ -145,7 +172,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -186,7 +213,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=False,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns_invalid_schema(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -379,7 +406,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_table_name_duplicate(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -501,6 +528,19 @@ class TestTable(APIBaseTest):
 
         assert SimpleTableSerializer().get_hogql_name(table) == "self_managed_table"
 
+    def test_table_without_a_schema_reports_no_external_schema(self):
+        DataWarehouseTable.objects.create(
+            name="unsynced_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_tables/")
+
+        assert response.status_code == 200
+        table = next(row for row in response.json()["results"] if row["name"] == "unsynced_table")
+        # An id-less object here reads as "this table has a schema" to every consumer, and anything
+        # that then binds by `external_schema.id` gets nothing.
+        assert table["external_schema"] is None
+
     def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -581,24 +621,55 @@ class TestTable(APIBaseTest):
         assert skipped["hogql_name"] == "googleanalytics.devices"
         assert skipped["columns"] == []
 
-    def test_list_tables_external_schema_null_for_table_without_schema(self):
-        # A materialized view's backing table (or a self-managed table) has no ExternalDataSchema row.
-        # DRF's Serializer(None).data returns the fields' initial values rather than an empty dict, so
-        # naively checking truthiness previously let a schema-less table serialize with a fake
-        # external_schema object that has no id — the picker then offered it as bindable when it isn't.
-        DataWarehouseTable.objects.create(
-            name="materialized_view_backing_table",
-            format="Parquet",
-            team=self.team,
-            team_id=self.team.pk,
-            url_pattern="https://example.com/backing.parquet",
-            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+    @parameterized.expand(
+        [
+            ("session_authenticated_ui", {}, "web"),
+            ("mcp_client_header", {"x-posthog-client": "mcp"}, "mcp"),
+            ("wizard_user_agent", {"user-agent": "posthog/wizard 1.0.0"}, "wizard"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+        return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_records_the_surface_the_request_came_from(
+        self, _: str, headers: dict[str, str], expected_created_via: str, patch_get_client, patch_get_columns
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+            },
+            headers=headers,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/")
+        assert response.status_code == 201
+        assert response.json()["created_via"] == expected_created_via
+        assert DataWarehouseTable.objects.get(id=response.json()["id"]).created_via == expected_created_via
 
-        assert response.status_code == 200
-        assert response.json()["results"][0]["external_schema"] is None
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+        return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_ignores_a_client_supplied_created_via(self, patch_get_client, patch_get_columns):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+                "created_via": "wizard",
+            },
+        )
+
+        assert response.status_code == 201
+        assert DataWarehouseTable.objects.get(id=response.json()["id"]).created_via == "web"
 
     def test_list_tables_external_schema_present_for_synced_table(self):
         source = ExternalDataSource.objects.create(
@@ -659,7 +730,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_existing_name(self):
         table = DataWarehouseTable.objects.create(
@@ -675,7 +746,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_same_name(self):
         table = DataWarehouseTable.objects.create(

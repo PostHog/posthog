@@ -10,7 +10,6 @@ import type { SparklineEvent } from './types'
 export const EVENT_LABEL_BAR_GAP = 10
 export const EVENT_LABEL_HEIGHT = 20
 const EVENT_LABEL_MIN_GAP = 2
-const ANCHOR_RADIUS = 6
 const DEFAULT_EVENT_COLOR = 'black'
 
 export type EventMarkersProps = {
@@ -28,7 +27,7 @@ export const EventMarkers = memo(function EventMarkers({
     dates,
     onHover,
 }: EventMarkersProps): JSX.Element | null {
-    const { scales, dimensions, labels, theme } = useChartLayout()
+    const { scales, dimensions, labels } = useChartLayout()
     const labelRefs = useRef<(HTMLDivElement | null)[]>([])
     const [halfWidths, setHalfWidths] = useState<number[] | null>(null)
 
@@ -55,30 +54,42 @@ export const EventMarkers = memo(function EventMarkers({
         }
     }, [onHover])
 
+    // An event outside the charted range has no bar to point at, so it gets no pill either. A
+    // clamped pill at the plot edge reads as if the event happened at that bucket. The range is
+    // compared in time, not pixels, so the check does not depend on the band scale's outer padding.
+    const placed = useMemo(() => {
+        if (!positionAt) {
+            return []
+        }
+        const start = dates[0].getTime()
+        const end = dates[dates.length - 1].getTime() + (dates[1].getTime() - dates[0].getTime())
+        return events.flatMap((event) => {
+            const time = event.date.getTime()
+            return time >= start && time <= end ? [{ event, anchor: positionAt(time) }] : []
+        })
+    }, [events, dates, positionAt])
+    const visibleEvents = useMemo(() => placed.map((item) => item.event), [placed])
+    const anchors = useMemo(() => placed.map((item) => item.anchor), [placed])
+
     useEffect(() => {
-        if (hoveredId.current != null && !events.some((event) => event.id === hoveredId.current)) {
+        if (hoveredId.current != null && !visibleEvents.some((event) => event.id === hoveredId.current)) {
             clearStrandedHover()
         }
-    }, [events, clearStrandedHover])
+    }, [visibleEvents, clearStrandedHover])
 
     useEffect(() => clearStrandedHover, [clearStrandedHover])
 
-    const anchors = useMemo(
-        () => (positionAt ? events.map((event) => positionAt(event.date.getTime())) : []),
-        [events, positionAt]
-    )
-
     // Pill widths aren't known until laid out.
     const measurePills = useCallback(() => {
-        const measured = labelRefs.current.slice(0, events.length).map((node) => (node?.offsetWidth ?? 0) / 2)
+        const measured = labelRefs.current.slice(0, visibleEvents.length).map((node) => (node?.offsetWidth ?? 0) / 2)
         setHalfWidths((previous) =>
             previous && previous.length === measured.length && previous.every((w, i) => w === measured[i])
                 ? previous
                 : measured
         )
-    }, [events.length])
+    }, [visibleEvents.length])
 
-    const pillTexts = useMemo(() => events.map((event) => event.payload).join('\u0000'), [events])
+    const pillTexts = useMemo(() => visibleEvents.map((event) => event.payload).join('\u0000'), [visibleEvents])
     useLayoutEffect(() => {
         measurePills()
     }, [measurePills, pillTexts, plotWidth])
@@ -104,7 +115,7 @@ export const EventMarkers = memo(function EventMarkers({
         return spreadLabels(items, EVENT_LABEL_MIN_GAP, plotLeft, plotRight)
     }, [anchors, halfWidths, plotLeft, plotRight])
 
-    if (!positionAt || events.length === 0) {
+    if (visibleEvents.length === 0) {
         return null
     }
 
@@ -113,13 +124,8 @@ export const EventMarkers = memo(function EventMarkers({
     return (
         <>
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-                {events.map((event, index) => {
+                {visibleEvents.map((event, index) => {
                     const anchorX = anchors[index]
-                    // Off-range events keep a clamped pill but drop the connector, which would
-                    // otherwise point at nothing.
-                    if (anchorX < plotLeft || anchorX > plotRight) {
-                        return null
-                    }
                     const color = event.color || DEFAULT_EVENT_COLOR
                     return (
                         <g key={event.id}>
@@ -132,19 +138,12 @@ export const EventMarkers = memo(function EventMarkers({
                                 strokeWidth={2}
                             />
                             {/* The dot is a knockout against the chart surface, not literally white. */}
-                            <circle
-                                cx={anchorX}
-                                cy={plotBottom}
-                                r={ANCHOR_RADIUS}
-                                fill={theme.backgroundColor ?? 'white'}
-                                stroke={color}
-                                strokeWidth={2}
-                            />
+                            <circle cx={anchorX} cy={plotBottom} r={3} fill={color} />
                         </g>
                     )
                 })}
             </svg>
-            {events.map((event, index) => (
+            {visibleEvents.map((event, index) => (
                 <div
                     key={event.id}
                     ref={(node) => {

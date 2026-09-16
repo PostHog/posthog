@@ -10,7 +10,12 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import MetricQuality, PRLifecycleEventKind, PRState
+from products.engineering_analytics.backend.facade.contracts import (
+    CIStatusRollup,
+    MetricQuality,
+    PRLifecycleEventKind,
+    PRState,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -171,10 +176,11 @@ class TestPullRequestEndpointMapping(BaseTest):
             None,
             None,
             ["bug", "p1"],
-            3,
+            4,
             2,
             1,
             0,
+            1,
             ["E2E CI"],
             5,
             2,
@@ -198,7 +204,13 @@ class TestPullRequestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert item.ready_to_merge_seconds is None
-        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending, item.ci.inconclusive) == (
+            4,
+            2,
+            1,
+            0,
+            1,
+        )
         assert item.ci.failing_workflows == ["E2E CI"]
         assert (item.pushes, item.rerun_cycles) == (5, 2)
         assert item.estimated_cost_usd is None
@@ -225,6 +237,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             None,
             None,
             ["bug"],
+            0,
             0,
             0,
             0,
@@ -322,54 +335,47 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
-        assert item.estimated_cost_usd is not None and item.estimated_cost_usd > 0
-        assert item.billable_minutes is not None and item.billable_minutes > 0
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
+        assert item.estimated_cost_usd == pytest.approx(0.016)
+        assert item.billable_minutes == pytest.approx(2.0)
 
     def test_ready_to_merge_semantics(self) -> None:
         # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
         # open-to-merge fallback. PR 22: created pre-window -> NULL. PR 23: re-drafted -> NULL.
         # PR 24: same-second flip, the event id breaks the tie -> the higher-id ready wins.
         # PR 25: merged past the window end (events not synced yet) -> NULL, never a wrong number.
-        # One clock base for every row: _ago re-reads the clock per call, so the seconds-exact
-        # dateDiff assertions below would drift by 1 whenever table-creation I/O straddles a
-        # second boundary between the PR seed and the events seed.
-        base = timezone.now()
-
-        def ago(days: int) -> str:
-            return (base - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
             [
-                _pr_row(20, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha20"),
-                _pr_row(21, "alice", "closed", 0, ago(5), merged_at=ago(1), head_sha="sha21"),
-                _pr_row(22, "alice", "closed", 0, ago(40), merged_at=ago(1), head_sha="sha22"),
-                _pr_row(23, "alice", "open", 1, ago(6), head_sha="sha23"),
-                _pr_row(24, "alice", "closed", 0, ago(10), merged_at=ago(1), head_sha="sha24"),
-                _pr_row(25, "alice", "closed", 0, ago(5), merged_at=ago(0), head_sha="sha25"),
+                _pr_row(20, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha20"),
+                _pr_row(21, "alice", "closed", 0, _ago(5), merged_at=_ago(1), head_sha="sha21"),
+                _pr_row(22, "alice", "closed", 0, _ago(40), merged_at=_ago(1), head_sha="sha22"),
+                _pr_row(23, "alice", "open", 1, _ago(6), head_sha="sha23"),
+                _pr_row(24, "alice", "closed", 0, _ago(10), merged_at=_ago(1), head_sha="sha24"),
+                _pr_row(25, "alice", "closed", 0, _ago(5), merged_at=_ago(0), head_sha="sha25"),
             ],
         )
         self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
-            [_run_row(9500, "CI", "sha20", "completed", "success", ago(1), ago(1), pr_number=20)],
+            [_run_row(9500, "CI", "sha20", "completed", "success", _ago(1), _ago(1), pr_number=20)],
         )
         self._create_table(
             "github_issue_events",
             ISSUE_EVENTS_COLUMNS,
             [
                 # The window must come from the WHOLE table, not the filtered transitions view.
-                _issue_event_row(5000, "labeled", 20, ago(20)),
-                _issue_event_row(5001, "ready_for_review", 20, ago(9)),
-                _issue_event_row(5002, "convert_to_draft", 20, ago(8)),
-                _issue_event_row(5003, "ready_for_review", 20, ago(2)),
-                _issue_event_row(5004, "ready_for_review", 23, ago(4)),
-                _issue_event_row(5005, "convert_to_draft", 23, ago(3)),
-                _issue_event_row(5006, "convert_to_draft", 24, ago(2)),
-                _issue_event_row(5007, "ready_for_review", 24, ago(2)),
+                _issue_event_row(5000, "labeled", 20, _ago(20)),
+                _issue_event_row(5001, "ready_for_review", 20, _ago(9)),
+                _issue_event_row(5002, "convert_to_draft", 20, _ago(8)),
+                _issue_event_row(5003, "ready_for_review", 20, _ago(2)),
+                _issue_event_row(5004, "ready_for_review", 23, _ago(4)),
+                _issue_event_row(5005, "convert_to_draft", 23, _ago(3)),
+                _issue_event_row(5006, "convert_to_draft", 24, _ago(2)),
+                _issue_event_row(5007, "ready_for_review", 24, _ago(2)),
                 # PR 21's merge event: proves the window covers its merge, arming the fallback.
-                _issue_event_row(5008, "merged", 21, ago(1)),
+                _issue_event_row(5008, "merged", 21, _ago(1)),
             ],
         )
         by_number = {item.number: item for item in api.list_pull_requests(team=self.team).items}
@@ -512,11 +518,43 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
                 _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
                 _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
                 _run_row(9302, "CI", "shaC", "completed", "success", _ago(1), _ago(1), pr_number=71),
+                # The queue's gate attempt is credited to PR 70 through its branch and flagged, so the
+                # detail page can keep it as CI without counting its rebase SHA as a push.
+                _run_row(
+                    9303,
+                    "CI",
+                    "shaQ",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-70/7c1c3f4e-2d0a-4b7e-9e1f-0a5b6c7d8e9f",
+                    actor="trunk-io[bot]",
+                ),
             ],
         )
         runs = api.list_pr_runs(team=self.team, pr_number=70, repo="PostHog/posthog")
-        assert {r.id for r in runs} == {9300, 9301}  # only PR 70's runs
-        assert {r.head_sha for r in runs} == {"shaA", "shaB"}  # across two commits
+        assert {r.id: r.is_merge_queue for r in runs} == {9300: False, 9301: False, 9303: True}
+        assert {r.head_sha for r in runs} == {"shaA", "shaB", "shaQ"}  # across every commit
+
+    def test_pull_request_list_rollup_partitions_runs_without_a_verdict(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(80, "alice", "open", 0, _ago(1), head_sha="sha80")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9400, "CI", "sha80", "completed", "cancelled", _ago(1), _ago(1), pr_number=80),
+                _run_row(9401, "Lint", "sha80", "completed", "skipped", _ago(1), _ago(1), pr_number=80),
+                _run_row(9402, "Deploy", "sha80", "completed", None, _ago(1), _ago(1), pr_number=80),
+            ],
+        )
+        [item] = api.list_pull_requests(team=self.team).items
+        assert item.ci == CIStatusRollup(runs=3, passing=0, failing=0, pending=0, inconclusive=3)
 
     def test_pr_cost_aggregates_billable_jobs_across_runs(self) -> None:
         # PR cost sums the jobs of all the PR's runs (across commits), counting only billable Linux
@@ -619,7 +657,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
 class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
     """LLM token spend attributed to a PR by git branch, over a real warehouse PR row plus
-    $ai_generation events. Skips when object storage is unreachable."""
+    $ai_generation events."""
 
     def _generation(
         self,
@@ -852,8 +890,7 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
 class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
     """The recently-merged discovery seam over real warehouse tables: only PRs merged at or after
-    `since` in the scoped repo surface, each with its branch-tip head SHA. Skips when object storage
-    is unreachable."""
+    `since` in the scoped repo surface, each with its branch-tip head SHA."""
 
     def test_returns_merged_prs_since_cutoff_scoped_to_repo(self) -> None:
         self._create_table(

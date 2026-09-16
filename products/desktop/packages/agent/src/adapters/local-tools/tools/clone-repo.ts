@@ -13,6 +13,7 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const GITHUB_BASE_URL = "https://github.com/";
+const CLOUD_CLONE_ROOT = "/tmp/workspace/repos";
 
 /**
  * Scoping the auth header to github.com is what keeps the token from being
@@ -65,6 +66,77 @@ function gitEnv(token: string | undefined): Record<string, string> {
  * cloning into.
  */
 const inFlight = new Map<string, Promise<LocalToolResult>>();
+
+export function cloneRoot(cwd: string): string {
+  return process.env.IS_SANDBOX === "1"
+    ? CLOUD_CLONE_ROOT
+    : path.join(cwd, "repos");
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+class ClonePathEscapeError extends Error {}
+
+async function rejectSymlink(
+  targetPath: string,
+  allowMissing = false,
+): Promise<void> {
+  try {
+    const stats = await fsPromises.lstat(targetPath);
+    if (stats.isSymbolicLink()) {
+      throw new ClonePathEscapeError();
+    }
+  } catch (error) {
+    if (allowMissing && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function cloneTargetPath(
+  root: string,
+  owner: string,
+  repo: string,
+): Promise<string> {
+  await fsPromises.mkdir(root, { recursive: true });
+  await rejectSymlink(root);
+  const resolvedRoot = await fsPromises.realpath(root);
+  if (process.env.IS_SANDBOX === "1" && resolvedRoot !== CLOUD_CLONE_ROOT) {
+    throw new ClonePathEscapeError();
+  }
+
+  const ownerPath = path.join(root, owner);
+  await fsPromises.mkdir(ownerPath, { recursive: true });
+  await rejectSymlink(ownerPath);
+  const resolvedOwner = await fsPromises.realpath(ownerPath);
+  if (!isWithin(resolvedRoot, resolvedOwner)) {
+    throw new ClonePathEscapeError();
+  }
+
+  const targetPath = path.join(ownerPath, repo);
+  await rejectSymlink(targetPath, true);
+  try {
+    const resolvedTarget = await fsPromises.realpath(targetPath);
+    if (!isWithin(resolvedRoot, resolvedTarget)) {
+      throw new ClonePathEscapeError();
+    }
+    return targetPath;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return targetPath;
+    }
+    throw error;
+  }
+}
 
 function withCloneLock(
   targetPath: string,
@@ -123,7 +195,23 @@ export const cloneRepoTool = defineLocalTool({
     }
     const slug = `${parsed.owner}/${parsed.repo}`;
     const repoName = parsed.repo;
-    const targetPath = path.join(ctx.cwd, "repos", slug);
+    let targetPath: string;
+    try {
+      targetPath = await cloneTargetPath(
+        cloneRoot(ctx.cwd),
+        parsed.owner,
+        parsed.repo,
+      );
+    } catch (error) {
+      if (error instanceof ClonePathEscapeError) {
+        return fail("clone_repo: repository path escapes the clone root.");
+      }
+      return fail(
+        `clone_repo couldn't prepare the repository path: ${redact(
+          error instanceof Error ? error.message : String(error),
+        )}`,
+      );
+    }
     const cloneUrl = `${GITHUB_BASE_URL}${slug}.git`;
 
     const git = (gitArgs: string[], cwd?: string): Promise<GitExecResult> =>

@@ -29,11 +29,8 @@ import * as Zod from 'zod'
 
 import * as PosthogIcons from '@posthog/icons'
 
-import * as Chart from 'lib/Chart'
-
 export const __chunkAnchors = {
     BaseUiReact,
-    Chart,
     DndKitCore,
     HighlightJsCore,
     Kea,

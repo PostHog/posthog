@@ -10,7 +10,7 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
 from posthog.tasks.alerts.detector import (
@@ -39,7 +39,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def extract_detector_series(
@@ -244,7 +244,7 @@ def simulate_detector_on_insight(
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         query = insight.query
 
     kind = get_from_dict_or_attr(query, "kind")

@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
@@ -150,6 +153,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
     "returned response code 429",
+    # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
+    # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
+    # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
+    # being briefly unreachable, not a customer config problem, so a fresh attempt recovers.
+    # Matching the full inner exception keeps this distinct from `Tunnel connection failed:
+    # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
+    # proxy-auth response and must stay non-retryable.
+    "Cannot connect to proxy.', TimeoutError('timed out')",
 )
 
 
@@ -1198,9 +1209,12 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source isn't actionable on our side, so don't add error-tracking
-        # noise for it — genuine errors are still captured.
-        if not _is_transient_http_response(str(e)):
+        # the source, or a blip reaching our own egress proxy, isn't actionable
+        # on our side, so don't add error-tracking noise for it. clickhouse-connect
+        # wraps the proxy failure in the ClickHouseError caught here, so it never
+        # reaches the shared classification in `_handle_import_error`.
+        message = str(e)
+        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None

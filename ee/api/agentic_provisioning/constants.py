@@ -17,6 +17,9 @@ DEEP_LINK_MAX_PATH_LENGTH = 2000
 # building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
 DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 
+# Pinned: the verify-email scene matches this exact value to pick the copy it shows.
+VERIFY_EMAIL_REASON = "partner_deep_link"
+
 CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
@@ -33,22 +36,8 @@ CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS = 3600
 # should still be able to spend a full budget on each.
 CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX = 120
 
-PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
-PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
-PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
-    "account_requests": 10,
-    "token_exchanges": 20,
-    "resource_creates": 20,
-    "github_grants": 10,
-    "wizard_runs": 20,
-}
-PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
-    "account_requests": "account_request",
-    "token_exchanges": "token_exchange",
-    "resource_creates": "resource_created",
-    "github_grants": "github_grant",
-    "wizard_runs": "wizard_run",
-}
+# Per-partner endpoint budgets live in ee/api/agentic_provisioning/ratelimits.py,
+# declared on each handler with @rate_limited.
 
 # Per-user wizard-run budget matching the session endpoint's limits (2/hour, 5/day), which
 # can't run here — the partner path has no session user on the request. Unlike the session
@@ -60,12 +49,6 @@ WIZARD_RUN_USER_RATE_LIMITS: list[tuple[str, int, int]] = [
     ("burst", 2, 3600),
     ("day", 5, 86400),
 ]
-
-# Repo-picker polling budget per grant (the website polls while the visitor installs the
-# GitHub App in another tab). Keyed per grant, so one stuck visitor can't starve others.
-GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX = "provisioning_github_grant_poll:"
-GITHUB_GRANT_POLL_RATE_LIMIT_MAX = 120
-GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 # Per-IP ceiling on cross-region forwarding. The region proxy decides to forward before
 # DRF authenticates or throttles anything, and each forwarded request occupies a worker

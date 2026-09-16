@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import json
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
@@ -18,13 +19,13 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
@@ -43,7 +44,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -55,6 +56,7 @@ from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
@@ -102,6 +104,7 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
+from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -116,10 +119,6 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 
 logger = structlog.get_logger(__name__)
 
-# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
-# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
-EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
-
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
 
@@ -129,9 +128,34 @@ class CleanupRepositoryTarget(TypedDict):
     candidates: list[str]
 
 
+class CleanupRequestSummary(TypedDict):
+    """What _maybe_open_cleanup_pr decided, for the analytics on the end/ship path."""
+
+    attempted: bool
+    repository_source: CleanupRepositorySource | None
+    skip_reason: Literal["no_conclusion", "no_repository", "error"] | None
+    confident: bool | None
+
+
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+
+
+def _parse_tag_names(value: Any) -> list[str]:
+    """Parse a tags query param that arrives as a list or a JSON-encoded string.
+
+    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
+    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
+    """
+    try:
+        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [tag for tag in tags if isinstance(tag, str)]
+
 
 DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
@@ -651,6 +675,20 @@ class ExperimentService:
                 "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
             )
 
+        # Reject unknown top-level keys: they used to be silently saved, and the strict
+        # read-side parse then broke every results/exposure query for the experiment.
+        unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
+        if unknown_keys:
+            hint = (
+                " Property filters on the exposure event belong at exposure_criteria.exposure_config.properties."
+                if "properties" in unknown_keys
+                else ""
+            )
+            raise ValidationError(
+                f"exposure_criteria contains unknown key(s): {', '.join(sorted(unknown_keys))}.{hint} "
+                f"Allowed keys: {', '.join(sorted(ExperimentExposureCriteria.model_fields))}."
+            )
+
         if "filterTestAccounts" in exposure_criteria:
             filter_test_accounts = exposure_criteria["filterTestAccounts"]
             if not isinstance(filter_test_accounts, bool):
@@ -865,6 +903,8 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
+        "conclusion",
+        "-conclusion",
     }
 
     @classmethod
@@ -1165,19 +1205,16 @@ class ExperimentService:
         if not event_names:
             return
 
-        from products.event_definitions.backend.models.event_definition import EventDefinition
-
         project_id = self.team.project_id
-        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # `COALESCE(project_id, team_id)` falls back to `team_id` (not self.team.id)
         # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
         # *primary* team, and primary_team.id == project.id by convention. This
         # mirrors the picker SQL in posthog/api/event_definition.py so sibling
         # teams can validate against legacy primary-team events the picker shows.
         existing = set(
-            EventDefinition.objects.filter(
-                Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
-                name__in=event_names,
-            ).values_list("name", flat=True)
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id, name__in=event_names)
+            .values_list("name", flat=True)
         )
         unknown = event_names - existing
         if unknown:
@@ -1512,6 +1549,9 @@ class ExperimentService:
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
         if existing_flag:
+            # Not in _validate_existing_flag: launch calls that too, on a flag this experiment
+            # already owns.
+            assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
             return existing_flag, variants
@@ -2176,6 +2216,19 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
+        # The flag flip logs under the FeatureFlag scope only; without this entry the
+        # experiment's History tab shows nothing for the pause.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="paused",
+            detail=Detail(name=experiment.name),
+        )
+
         self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
@@ -2201,6 +2254,17 @@ class ExperimentService:
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="resumed",
+            detail=Detail(name=experiment.name),
+        )
 
         self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 
@@ -2682,44 +2746,40 @@ class ExperimentService:
 
         return experiment
 
-    def _cleanup_pr_flag_enabled(self) -> bool:
-        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
-        # customer team by passing it as the "project" group and targeting that group's id on the flag.
-        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
-        return bool(
-            posthoganalytics.feature_enabled(
-                EXPERIMENT_CLEANUP_PR_FLAG,
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                group_properties={"project": {"id": str(self.team.id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _maybe_open_cleanup_pr(
         self,
         experiment: Experiment,
         open_cleanup_pr: bool,
         requested_repository: str | None = None,
         set_repository_as_team_default: bool = False,
-    ) -> None:
-        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
-        experiment's feature-flag code, via the Tasks engine.
+    ) -> CleanupRequestSummary:
+        """When opted in (the checkbox), open a draft PR that removes the experiment's feature-flag
+        code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
         break ending an experiment.
         """
+        summary: CleanupRequestSummary = {
+            "attempted": False,
+            "repository_source": None,
+            "skip_reason": None,
+            "confident": None,
+        }
         try:
             conclusion = experiment.conclusion or ""
-            if not open_cleanup_pr or not conclusion or not self._cleanup_pr_flag_enabled():
-                return
+            if not open_cleanup_pr:
+                return summary
+            if not conclusion:
+                summary["skip_reason"] = "no_conclusion"
+                return summary
 
             flag_key = experiment.get_feature_flag_key()
             target = self.get_cleanup_repository_target(experiment, requested_repository=requested_repository)
+            summary["repository_source"] = target["source"]
             repository = target["repository"]
             if repository is None:
                 # No safe target — skipping beats opening a PR against the wrong repo.
+                summary["skip_reason"] = "no_repository"
                 logger.info(
                     "experiment_cleanup_pr_skipped_no_repository",
                     experiment_id=experiment.id,
@@ -2727,7 +2787,7 @@ class ExperimentService:
                     flag_key=flag_key,
                     requested_repository=requested_repository,
                 )
-                return
+                return summary
 
             picked_repository = requested_repository if target["source"] == "explicit" else None
             if picked_repository:
@@ -2773,6 +2833,8 @@ class ExperimentService:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
             transaction.on_commit(_open)
+            summary["attempted"] = True
+            summary["confident"] = plan.confident
             logger.info(
                 "experiment_cleanup_pr_requested",
                 experiment_id=experiment.id,
@@ -2783,7 +2845,9 @@ class ExperimentService:
                 confident=plan.confident,
             )
         except Exception:
+            summary["skip_reason"] = "error"
             logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
+        return summary
 
     def get_cleanup_repository_target(
         self, experiment: Experiment, requested_repository: str | None = None
@@ -2849,12 +2913,28 @@ class ExperimentService:
     ) -> None:
         # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
         # analytics below so it behaves the same regardless of call context.
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
+        cleanup = self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
 
         if request is None:
             return
 
+        if cleanup["attempted"]:
+            self._report_lifecycle_event(
+                experiment,
+                "experiment cleanup pr requested",
+                request=request,
+                extra_metadata={
+                    "conclusion": experiment.conclusion,
+                    "repository_source": cleanup["repository_source"],
+                    "confident": cleanup["confident"],
+                },
+            )
+
         completed_metadata = experiment.get_analytics_metadata()
+        completed_metadata["open_cleanup_pr"] = open_cleanup_pr
+        completed_metadata["cleanup_task_attempted"] = cleanup["attempted"]
+        completed_metadata["cleanup_repository_source"] = cleanup["repository_source"]
+        completed_metadata["cleanup_skip_reason"] = cleanup["skip_reason"]
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = self._parameters_with_variant_detail(experiment)
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
@@ -3123,6 +3203,22 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
             shipped_fields.append("conclusion_comment")
         self._bump_version_and_save(experiment, update_fields=shipped_fields)
+
+        # The flag rewrite logs under the FeatureFlag scope and the experiment save logs only
+        # end_date/conclusion, so without this entry the History tab never names the shipped variant.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="variant_shipped",
+            detail=Detail(
+                name=experiment.name,
+                changes=[Change(type="Experiment", action="created", field="shipped_variant", after=variant_key)],
+            ),
+        )
 
         self._report_experiment_variant_shipped(
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
@@ -4097,7 +4193,8 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        cloned_exposure_criteria = source_experiment.exposure_criteria
+        self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
@@ -4146,7 +4243,7 @@ class ExperimentService:
             metrics_secondary=cloned_metrics_secondary,
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
-            exposure_criteria=source_experiment.exposure_criteria,
+            exposure_criteria=cloned_exposure_criteria,
             saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=cloned_primary_ordering,
             secondary_metrics_ordered_uuids=cloned_secondary_ordering,
@@ -4421,6 +4518,24 @@ class ExperimentService:
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
+            tags = _parse_tag_names(query_params.get("tags"))
+            if tags:
+                # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
+                # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
+                experiments_with_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=tags
+                ).values("pk")
+                queryset = queryset.filter(pk__in=experiments_with_tags)
+
+            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            if excluded_tags:
+                # Exclude by ID subquery so an experiment carrying both an excluded and a
+                # non-excluded tag is still reliably filtered out.
+                experiments_with_excluded_tags = Experiment.objects.filter(
+                    team__project_id=self.team.project_id, tagged_items__tag__name__in=excluded_tags
+                ).values("pk")
+                queryset = queryset.exclude(pk__in=experiments_with_excluded_tags)
+
         search = query_params.get("search")
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
@@ -4465,6 +4580,20 @@ class ExperimentService:
                         output_field=CharField(),
                     )
                 ).order_by(f"{prefix}created_by_display")
+            elif order_value in ["conclusion", "-conclusion"]:
+                # Match the frontend column's rank order: won → lost → inconclusive →
+                # stopped_early → invalid, experiments without a conclusion last.
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.annotate(
+                    conclusion_sort_key=Case(
+                        When(conclusion="won", then=Value(1)),
+                        When(conclusion="lost", then=Value(2)),
+                        When(conclusion="inconclusive", then=Value(3)),
+                        When(conclusion="stopped_early", then=Value(4)),
+                        When(conclusion="invalid", then=Value(5)),
+                        default=Value(6),
+                    )
+                ).order_by(f"{prefix}conclusion_sort_key")
             else:
                 queryset = queryset.order_by(order_value)
         else:

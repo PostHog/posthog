@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getAndroidInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -67,21 +67,27 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'kotlin',
-                                file: 'Kotlin',
-                                code: dedent`
+    ]
+}
+
+export const getAndroidEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    to test your integration:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'kotlin',
+                            file: 'Kotlin',
+                            code: dedent`
                                     import com.posthog.PostHog
 
                                     PostHog.capture(
@@ -91,13 +97,17 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         )
                                     )
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getAndroidInstallSteps(ctx),
+    getAndroidEventStep(ctx),
+]
 
 export const AndroidInstallation = createInstallation(getAndroidSteps)

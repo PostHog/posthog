@@ -10,7 +10,6 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -31,6 +30,7 @@ import {
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import {
     AlertConfig,
@@ -66,6 +66,7 @@ export type AlertFormType = Pick<
     | 'config'
     | 'skip_weekend'
     | 'schedule_restriction'
+    | 'schedule_start_time'
     | 'detector_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
@@ -274,6 +275,7 @@ export interface alertFormLogicValues {
     alertFormTouched: boolean
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<AlertFormType, ValidationErrorType>
+    clearSnoozeLoading: boolean
     funnelAlertPreview: FunnelAlertPreview | null
     hogqlAlertPreview: HogQLAlertPreview | null
     hogqlConfigPrefill: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null
@@ -344,6 +346,9 @@ export interface alertFormLogicActions {
     }
     setAlertFormValues: (values: DeepPartial<AlertFormType>) => {
         values: DeepPartial<AlertFormType>
+    }
+    setClearSnoozeLoading: (loading: boolean) => {
+        loading: boolean
     }
     setSimulationDateFrom: (dateFrom: string) => {
         dateFrom: string
@@ -473,6 +478,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
         setAlertFormSubmitAttempted: true,
+        setClearSnoozeLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers({
@@ -487,6 +493,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             {
                 setAlertFormSubmitAttempted: () => true,
                 submitAlertFormSuccess: () => false,
+            },
+        ],
+        clearSnoozeLoading: [
+            false,
+            {
+                setClearSnoozeLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -545,6 +557,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           calculation_interval: calculationInterval,
                           skip_weekend: false,
                           schedule_restriction: null,
+                          schedule_start_time: null,
                           detector_config: props.defaultToAnomalyDetection
                               ? getDefaultAnomalyDetectorConfig(calculationInterval)
                               : null,
@@ -656,6 +669,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ui_version: 'redesigned',
                     })
                 }
+
+                posthog.capture('alert wizard completed', {
+                    action: isNewAlert ? 'created' : 'updated',
+                    alert_type: 'insight',
+                })
 
                 // The alert is already persisted — any error from the local side-effects below is a
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
@@ -878,14 +896,25 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: null,
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                actions.setClearSnoozeLoading(true)
+                try {
+                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
+                        snoozed_until: null,
+                    })
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                } catch (error) {
+                    lemonToast.error("We couldn't unsnooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'clear alert snooze',
+                        alertId: values.alertForm.id,
+                    })
+                } finally {
+                    actions.setClearSnoozeLoading(false)
                 }
             },
             submitAlertForm: () => {

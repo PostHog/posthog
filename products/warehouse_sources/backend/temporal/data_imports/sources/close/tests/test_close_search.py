@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 import pytest
 from unittest.mock import MagicMock
 
-from requests import RequestException, Response
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close import search as close_search
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import (
@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.close.sear
     CloseCursorExpiredError,
     CloseSearchError,
     build_search_body,
-    fetch_custom_field_selectors,
     iter_search_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -38,24 +37,15 @@ def _row(row_id: str, date_created: str) -> dict[str, Any]:
 class FakeSession:
     """Stands in for the tracked HTTP session, recording the search bodies it was sent."""
 
-    def __init__(self, pages: list[Response], get_pages: Optional[list[Any]] = None) -> None:
+    def __init__(self, pages: list[Response]) -> None:
         self._pages = list(pages)
-        self._get_pages = list(get_pages or [])
         self.bodies: list[dict[str, Any]] = []
-        self.get_params: list[dict[str, Any]] = []
 
     def post(self, url: str, json: dict[str, Any], timeout: int) -> Response:  # noqa: A002
         self.bodies.append(json)
         if not self._pages:
             raise AssertionError(f"unexpected extra search request: {json}")
         return self._pages.pop(0)
-
-    def get(self, url: str, params: dict[str, Any], timeout: int) -> Response:
-        self.get_params.append(params)
-        page = self._get_pages.pop(0)
-        if isinstance(page, Exception):
-            raise page
-        return page
 
 
 def _anchor_of(body: dict[str, Any]) -> Optional[str]:
@@ -276,32 +266,6 @@ class TestIterSearchRows:
             _walk(close)
 
 
-class TestFetchCustomFieldSelectors:
-    def test_selectors_are_built_from_every_page(self) -> None:
-        session = FakeSession(
-            [],
-            get_pages=[
-                _response({"data": [{"id": "cf_a"}], "has_more": True}),
-                _response({"data": [{"id": "cf_b"}], "has_more": False}),
-            ],
-        )
-
-        selectors = fetch_custom_field_selectors(cast(Any, session), BASE_URL, "contact", MagicMock())
-
-        assert selectors == ["custom.cf_a", "custom.cf_b"]
-
-    @pytest.mark.parametrize(
-        "failure",
-        [RequestException("403 Forbidden"), ValueError("not json")],
-        ids=["no_access", "bad_payload"],
-    )
-    def test_failure_falls_back_to_standard_fields(self, failure: Exception) -> None:
-        # A key without custom-field access should still sync the standard columns.
-        session = FakeSession([], get_pages=[failure])
-
-        assert fetch_custom_field_selectors(cast(Any, session), BASE_URL, "contact", MagicMock()) == []
-
-
 class TestSearchSourceWiring:
     @pytest.mark.parametrize("endpoint", ["Leads", "Contacts"])
     def test_capped_endpoints_read_through_advanced_filtering(self, endpoint: str, monkeypatch: Any) -> None:
@@ -309,7 +273,7 @@ class TestSearchSourceWiring:
         # truncate again at Close's `_skip` cap.
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
-        session = FakeSession([_response({"data": []})], get_pages=[_response({"data": []})])
+        session = FakeSession([_response({"data": []})])
         monkeypatch.setattr(
             "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
             lambda _api_key: session,
@@ -327,6 +291,29 @@ class TestSearchSourceWiring:
         list(cast(Any, response.items()))
 
         assert session.bodies[0]["query"]["queries"][0]["object_type"] == endpoint.rstrip("s").lower()
+
+    def test_custom_fields_are_requested_with_a_single_selector(self, monkeypatch: Any) -> None:
+        # Enumerating one selector per custom field grew `_fields` until Close rejected it with
+        # 400 "List is too long."; the `custom` selector returns them all in one bounded entry.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        session = FakeSession([_response({"data": []})])
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
+            lambda _api_key: session,
+        )
+
+        response = close_search_source(
+            api_key="test-key",
+            endpoint="Leads",
+            resumable_source_manager=manager,
+            logger=MagicMock(),
+        )
+        list(cast(Any, response.items()))
+
+        requested = session.bodies[0]["_fields"]["lead"]
+        assert "custom" in requested
+        assert not any(f.startswith("custom.") for f in requested)
 
     @pytest.mark.parametrize(
         ("incremental", "field", "last_value", "expected_cursor_field", "expected_anchor"),
@@ -349,7 +336,7 @@ class TestSearchSourceWiring:
     ) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
-        session = FakeSession([_response({"data": []})], get_pages=[_response({"data": []})])
+        session = FakeSession([_response({"data": []})])
         monkeypatch.setattr(
             "products.warehouse_sources.backend.temporal.data_imports.sources.close.close._make_search_session",
             lambda _api_key: session,

@@ -62,8 +62,10 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
     """Re-project a user's OAuth credentials after a user/membership/RBAC change.
     Project secret keys have no user, so they're unaffected and not touched here."""
-    for token in OAuthAccessToken.objects.select_related("user", "application").filter(
-        scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", user_id=user_id, application_id__isnull=False
+    for token in (
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .select_related("user", "application")
+        .filter(user_id=user_id)
     ):
         project_gateway_credential(token)
 
@@ -86,10 +88,10 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
     organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
     if organization_id is None:
         return
-    for token in OAuthAccessToken.objects.select_related("user", "application").filter(
-        application__organization_id=organization_id,
-        scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
-        application_id__isnull=False,
+    for token in (
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .select_related("user", "application")
+        .filter(application__organization_id=organization_id)
     ):
         project_gateway_credential(token)
 

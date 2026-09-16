@@ -9,7 +9,7 @@ from products.exports.backend.temporal.subscriptions.snapshot_activities import 
     SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED,
     _load_insight_images,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 pytestmark = pytest.mark.django_db
 

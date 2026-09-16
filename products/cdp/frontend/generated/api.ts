@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     HogFunctionApi,
     HogFunctionInvocationApi,
+    HogFunctionMaskedSecretApi,
     HogFunctionPublishRequestApi,
     HogFunctionPublishResponseApi,
     HogFunctionRevisionApi,
@@ -388,7 +389,8 @@ export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => 
  * transformations during ingestion, `site_*` transpiled to client-side
  * JS). A re-enqueued invocation of one of those would never drain and
  * wedges the partition, so a rerun of a non-rerunnable type is rejected
- * with a 400 here.
+ * with a 400 here. A disabled function is rejected the same way: the
+ * worker skips its invocations, so the rerun could never execute.
  *
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_function:write`.
@@ -494,6 +496,26 @@ export const getHogFunctionsIconsRetrieveUrl = (projectId: string) => {
 
 export const hogFunctionsIconsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFunctionsIconsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsMaskedSecretsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_functions/masked_secrets/`
+}
+
+/**
+ * Hog functions storing the secret mask in place of a real credential.
+ *
+ * Such a function authenticates against nothing and fails every send. The original value
+ * cannot be restored from our side, so each listed input has to be entered again.
+ */
+export const hogFunctionsMaskedSecretsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HogFunctionMaskedSecretApi[]> => {
+    return apiMutator<HogFunctionMaskedSecretApi[]>(getHogFunctionsMaskedSecretsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

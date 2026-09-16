@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     AuthorizedUrlListType,
+    NEW_URL,
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
@@ -117,6 +118,72 @@ describe('the authorized urls list logic', () => {
                 proposedUrlHasErrors: true,
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
             })
+        })
+
+        // The form opens prefilled with `https://`, so a pasted full URL doubles the protocol
+        test.each([
+            ['https://www.example.com', 'https://www.example.com'],
+            ['http://localhost:3000', 'http://localhost:3000'],
+        ])('keeps a single protocol when "%s" is pasted over the prefilled one', async (pasted, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.newUrl()
+                logic.actions.setProposedUrlValue('url', `${NEW_URL}${pasted}`)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                proposedUrl: { url: expected },
+                proposedUrlHasErrors: false,
+            })
+        })
+
+        it('repairs a saved URL that already has two protocols when it is edited', async () => {
+            // An earlier test leaves `api.update` mocked with a promise it never resolves
+            const update = jest.spyOn(api, 'update').mockResolvedValue({})
+
+            await expectLogic(logic, () => {
+                logic.actions.setAuthorizedUrls(['https://https://www.example.com'])
+                logic.actions.setEditUrlIndex(0)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitProposedUrl()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
+                app_urls: ['https://www.example.com'],
+            })
+        })
+
+        it('allows an unchanged URL when editing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAuthorizedUrls(['https://example.com'])
+                logic.actions.setEditUrlIndex(0)
+            }).toMatchValues({
+                proposedUrl: { url: 'https://example.com' },
+                proposedUrlHasErrors: false,
+            })
+        })
+    })
+
+    describe('loading suggestions', () => {
+        // Regression coverage: suggestions are advisory, so a failed query must leave the list empty
+        // and succeed the loader rather than escape as an unhandled kea-loaders error into error tracking.
+        it('returns no suggestions when the query fails', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': [
+                        500,
+                        { type: 'server_error', detail: 'error from the API' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSuggestions()
+            })
+                .toDispatchActions(['loadSuggestions', 'loadSuggestionsSuccess'])
+                .toNotHaveDispatchedActions(['loadSuggestionsFailure'])
+                .toMatchValues({ suggestions: [] })
         })
     })
 
@@ -255,6 +322,10 @@ describe('the authorized urls list logic', () => {
                 {
                     proposedUrl: 'capacitor://localhost',
                     validityMessage: undefined,
+                },
+                {
+                    proposedUrl: 'https://https://www.example.com',
+                    validityMessage: "Please enter a valid domain (URLs with a path aren't allowed)",
                 },
             ]
 

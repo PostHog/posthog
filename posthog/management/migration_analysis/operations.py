@@ -170,10 +170,15 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance=f"""Multi-phase column drop:
-1. Remove field from Django model (keeps column in DB)
-2. Wait at least one full deployment cycle
-3. Optionally drop column with RemoveField
+            guidance=f"""Django names every model field in every SELECT it writes, so this drops the column in the same deploy that stops the code asking for it. Pods still on the old release fail every query against the table.
+
+Consider leaving the column in place. An unused column costs little and keeps its data.
+
+To retire the field, take it out of the ORM first and leave the column:
+- `deprecate_field(...)` from `posthog.migration_helpers` keeps the field on the model and writes no migration. Not for a foreign key: with no migration there is nowhere to drop the constraint
+- `untrack_field(...)` from `posthog.migration_helpers` replaces this RemoveField with a state-only migration. A foreign key needs this one, with `DropForeignKey(...)` beside it
+
+To drop the column for real, use `untrack_field(...)` here, then `RunSQL ... DROP COLUMN IF EXISTS` in a following migration. This analyzer validates that shape on its own.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
@@ -418,6 +423,25 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
         )
 
 
+class ExtensionAnalyzer(OperationAnalyzer):
+    """Analyzer for `CREATE EXTENSION` operations. CREATE EXTENSION takes an
+    `AccessExclusiveLock` only on `pg_extension` itself (not on user tables),
+    is idempotent with `IF NOT EXISTS`, and Django's wrappers emit that form.
+    Safe under live workloads."""
+
+    default_score = 0
+
+    def analyze(self, op) -> OperationRisk:
+        op_type = op.__class__.__name__
+        ext_name = getattr(op, "name", None) or op_type.replace("Extension", "").lower()
+        return OperationRisk(
+            type=op_type,
+            score=0,
+            reason=f"Postgres extension creation is safe ({ext_name})",
+            details={"extension": ext_name},
+        )
+
+
 class AddConstraintAnalyzer(OperationAnalyzer):
     operation_type = "AddConstraint"
     default_score = 3
@@ -474,6 +498,17 @@ class RunSQLAnalyzer(OperationAnalyzer):
         sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
         sql = sql_without_comments.upper()
 
+        # CREATE EXTENSION takes a lock only on pg_extension, not on user tables.
+        # Django's typed wrappers (TrigramExtension etc.) emit IF NOT EXISTS, so
+        # safe under live load.
+        if re.search(r"\bCREATE\s+EXTENSION\b", sql):
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="CREATE EXTENSION is safe (locks pg_extension only, not user tables)",
+                details={"sql": sql},
+            )
+
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
         if "CONCURRENTLY" in sql:
@@ -484,7 +519,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
                         score=1,
                         reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
                         details={"sql": sql},
-                        guidance="Also prefix with `SET lock_timeout = 0;` so the deploy lock_timeout can't cancel the build and leave an invalid index that defeats IF NOT EXISTS on retry.",
+                        guidance="Prefer `SafeAddIndexConcurrently` (or the raw-SQL `CreateIndexConcurrently`) from posthog.migration_helpers. IF NOT EXISTS matches by name, not validity, so this raw form skips past an `indisvalid = false` leftover from an interrupted build and never rebuilds it; the helpers detect and rebuild it. If you keep the raw form, also prefix with `SET lock_timeout = 0; SET statement_timeout = 0;` so neither the deploy lock_timeout nor a configured statement_timeout can cancel the build in the first place.",
                     )
                 return OperationRisk(
                     type=self.operation_type,
@@ -678,14 +713,16 @@ Safe pattern requires:
                             score=2,
                             reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
                             details={"sql": sql, "table": table_name},
-                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+                            guidance=f"""⚠️ **Staged, but hand-written:** Found prior SeparateDatabaseAndState that removed model from state, so the staging is valid. Drop the table with `SafeDropTable` from posthog.migration_helpers instead of this raw DROP.
+
+A raw `DROP TABLE` takes ACCESS EXCLUSIVE on the dropped table and on every table its foreign keys reference, one relation at a time. That order crosses the order of a live multi-table read, and the deadlock detector kills the read rather than the migration. A short `lock_timeout` does not change which session Postgres picks. `SafeDropTable` takes all of the locks up front under a budget derived from `deadlock_timeout`, so the migration loses the race instead.
 
 Remaining checklist:
 - Ensure all code references removed (API, models, imports)
 - Waited at least one full deployment cycle since state removal
 - No other models reference this table via foreign keys
 
-[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#drop-table-lock-order)""",
                         )
 
                 # Not properly staged or can't validate
@@ -720,7 +757,7 @@ Safe pattern requires:
                 reason="RunSQL with DROP is dangerous",
                 details={"sql": sql},
             )
-        elif "UPDATE" in sql or "DELETE" in sql:
+        elif re.search(r"\b(?:UPDATE|DELETE)\b", sql):
             # Check for developer override for small tables
             if override:
                 return OperationRisk(
@@ -948,6 +985,35 @@ class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "SafeRemoveIndexConcurrently"
 
 
+class DropForeignKeyAnalyzer(OperationAnalyzer):
+    """The constraint drop that rides along with a state-only removal of a column or table.
+
+    Dropping a foreign key is a catalog change. It holds ACCESS EXCLUSIVE on the referenced
+    parent for microseconds and scans nothing, so it scores with `ADD CONSTRAINT ... NOT
+    VALID` rather than with the operations that rewrite a table.
+    """
+
+    operation_type = "DropForeignKey"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT on a foreign key is a catalog change (brief lock on the parent, no table scan)",
+            details={
+                "table": getattr(op, "table", None),
+                "column": getattr(op, "column", None),
+                "to_table": getattr(op, "to_table", None),
+            },
+            guidance=f"""Required beside a state-only removal of the column or table this foreign key sits on. Django stops cascading into a relation it cannot see, and the deferred constraint then fails the parent delete at COMMIT.
+
+Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
 class AddConstraintNotValidAnalyzer(OperationAnalyzer):
     """Phase 1 of the NOT VALID pattern - mirrors the score the RunSQL analyzer
     gives a hand-written `ADD CONSTRAINT ... NOT VALID` (safe: brief lock, no
@@ -1013,4 +1079,47 @@ class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
             score=0,
             reason=f"Wrapper operation - see nested operations for risk: {', '.join(db_op_types)}",
             details={"database_operations": ", ".join(db_op_types)},
+        )
+
+
+class SafeDropTableAnalyzer(OperationAnalyzer):
+    """The drop-table helper that takes its locks up front (posthog/migration_helpers/safe_drop_table.py).
+
+    Scores with the staged `DROP TABLE IF EXISTS` the RunSQL analyzer already recognizes,
+    because it is the same drop. What it adds is lock ordering, so a live read is never
+    the deadlock victim, not a weaker guarantee about the rows.
+    """
+
+    operation_type = "SafeDropTable"
+
+    def analyze(self, op, migration=None, loader=None) -> OperationRisk:
+        tables = [table.lower() for table in op.tables]
+        staged = (
+            migration
+            and loader
+            and all(check_drop_properly_staged("table", table, migration, loader) for table in tables)
+        )
+        if staged:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="SafeDropTable - properly staged (prior state removal found)",
+                details={"tables": tables},
+                guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed each model from state.
+
+Remaining checklist is the one for any staged drop: all code references removed, one full deployment cycle waited since the state removal, and no other table referencing these.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=5,
+            reason="SafeDropTable - no prior state removal found",
+            details={"tables": tables},
+            guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+SafeDropTable handles the lock order, not the staging. The model still has to leave Django state a full deployment cycle earlier, with a DropForeignKey for each key into a hot parent.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
         )

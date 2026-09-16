@@ -3,8 +3,8 @@
  * Point the desktop app's analytics + feature-flag client at your LOCAL PostHog
  * (localhost:8010) for dev. Code reads feature flags through posthog-js, which
  * is configured by the `VITE_POSTHOG_*` vars in `.env` — by default these point
- * at PostHog's internal analytics instance, so flags you sync locally (e.g.
- * `manage.py sync_feature_flags` → `agent-platform`) never resolve in dev. This
+ * at PostHog's internal analytics instance, so flags you sync locally never
+ * resolve in dev. This
  * rewrites those vars to your local instance so synced flags take effect.
  *
  * Note: this is the analytics/flags client only — separate from the data API

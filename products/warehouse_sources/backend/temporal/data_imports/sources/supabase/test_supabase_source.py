@@ -1,14 +1,15 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 def _field(name: str) -> SourceFieldInputConfig:
@@ -114,6 +115,31 @@ def test_project_url_host_is_rejected_before_connecting(host):
 @pytest.mark.parametrize(
     "host",
     [
+        "postgres.abcdefghijklmnop",
+        "POSTGRES.ABCDEFGHIJKLMNOP",
+        "  postgres.abcdefghijklmnop  ",
+        "postgres://postgres.abcdefghijklmnop",
+    ],
+)
+def test_pooler_username_as_host_is_rejected_before_connecting(host):
+    # The pooler username (`postgres.<project-ref>`) reads like a host name, so it lands in the
+    # host field; it can never resolve, so short-circuit to guidance that names both fields
+    # instead of attempting a doomed connection that yields an opaque DNS error.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "pooler username" in error
+    assert "pooler.supabase.com" in error
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
         "db.abcdefghijklmnop.supabase.co",
         "aws-0-us-east-1.pooler.supabase.com",
         "db.example.com",
@@ -135,6 +161,10 @@ def test_successful_connection_delegates_to_postgres(host):
     [
         "aws-0-us-east-1.pooler.supabase.com",
         "my-db.internal",
+        # A resolvable host whose first label is `postgres` must not be read as the pooler
+        # username, so the username check only claims a single long trailing label.
+        "postgres.example.com",
+        "postgres.internal",
     ],
 )
 def test_non_direct_host_failure_uses_postgres_error(host):
@@ -147,6 +177,102 @@ def test_non_direct_host_failure_uses_postgres_error(host):
     assert error == "postgres error"
 
 
+def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:
+    return {"label": name, "type": field_type, "field": name, "field_type": field_type}
+
+
+def _discovered_schema(
+    name: str, source_schema: str, incremental_fields: list[IncrementalField] | None = None
+) -> SourceSchema:
+    return SourceSchema(
+        name=name,
+        supports_incremental=bool(incremental_fields),
+        supports_append=bool(incremental_fields),
+        incremental_fields=incremental_fields or [],
+        source_schema=source_schema,
+        source_table_name=name.split(".")[-1],
+    )
+
+
+def _get_schemas(discovered: list[SourceSchema]) -> list[SourceSchema]:
+    config = mock.MagicMock()
+    config.schema = None
+    with mock.patch.object(PostgresSource, "get_schemas", return_value=discovered):
+        return SupabaseSource().get_schemas(config, team_id=1)
+
+
+def test_vault_tables_are_never_sync_enabled_by_default():
+    # Supabase's vault.decrypted_secrets view decrypts Vault secrets on read; default-enabling
+    # it proposes copying a secrets vault into the warehouse. The tables must stay listed
+    # (scheduled discovery reconciles stored rows against this listing, so dropping them would
+    # disable a vault sync a user deliberately opted into) but start disabled everywhere
+    # should_sync_default applies.
+    discovered = [
+        _discovered_schema("public.orders", "public"),
+        _discovered_schema("vault.secrets", "vault"),
+        _discovered_schema("vault.decrypted_secrets", "vault"),
+    ]
+
+    schemas = _get_schemas(discovered)
+
+    default_on_by_name = {schema.name: schema.should_sync_default for schema in schemas}
+    assert default_on_by_name == {
+        "public.orders": True,
+        "vault.secrets": False,
+        "vault.decrypted_secrets": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "name,source_schema,expected_default",
+    [
+        ("realtime.messages_2020_01_01", "realtime", False),
+        # A single-schema source lists the table unqualified, so the schema and table fields
+        # are the only reliable signal.
+        ("messages_2020_01_01", "realtime", False),
+        # The partitioned parent and the rest of the schema keep their normal default.
+        ("realtime.messages", "realtime", True),
+        ("realtime.subscription", "realtime", True),
+        # A customer table that happens to share the prefix is not a Realtime partition.
+        ("public.messages_archive", "public", True),
+    ],
+)
+def test_dated_realtime_partitions_are_never_sync_enabled_by_default(name, source_schema, expected_default):
+    # Supabase drops each day's realtime.messages partition, so a partition enabled by auto-sync
+    # of newly discovered tables fails for good within days. The partitions stay listed for the
+    # same reason the vault tables do.
+    schemas = _get_schemas([_discovered_schema(name, source_schema)])
+
+    assert schemas[0].should_sync_default is expected_default
+
+
+def test_update_tracking_column_leads_the_incremental_candidates():
+    # Discovery lists candidates in column ordinal order, and several surfaces default to the
+    # first one — without ranking, a table like (priority, dateOfBirth, updated_at) gets a
+    # cursor that never advances and the incremental sync silently goes stale.
+    discovered = [
+        _discovered_schema(
+            "public.tasks",
+            "public",
+            incremental_fields=[
+                _incremental_field("priority", IncrementalFieldType.Integer),
+                _incremental_field("dateOfBirth", IncrementalFieldType.Date),
+                _incremental_field("updated_at", IncrementalFieldType.Timestamp),
+                _incremental_field("created_at", IncrementalFieldType.Timestamp),
+            ],
+        )
+    ]
+
+    schemas = _get_schemas(discovered)
+
+    assert [field["field"] for field in schemas[0].incremental_fields] == [
+        "updated_at",
+        "created_at",
+        "priority",
+        "dateOfBirth",
+    ]
+
+
 def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | None:
     # Mirrors external_data_job.update_external_data_job_model: first matching key wins.
     for pattern, friendly in source.get_non_retryable_errors().items():
@@ -156,21 +282,24 @@ def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | Non
 
 
 @pytest.mark.parametrize(
-    "raw_error,expect_message",
+    "raw_error,expect_realtime_message",
     [
-        # Retention dropped the dated realtime.messages partition — actionable message, not the
-        # inherited generic "does not exist" (which resolves to None / the raw driver string).
+        # Retention dropped the dated realtime.messages partition, so its specific realtime message
+        # must win over the inherited generic "does not exist" bucket (first matching key wins).
         ('relation "realtime.messages_2020_01_01" does not exist', True),
-        # A regular missing table must still fall through to the generic (None) mapping, so the
+        # A regular missing table must fall through to the generic missing-relation message, so the
         # realtime key stays specific and doesn't swallow every "does not exist".
         ('relation "public.orders" does not exist', False),
     ],
 )
-def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_message):
+def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_realtime_message):
     friendly = _resolve_friendly_error(SupabaseSource(), raw_error)
 
-    if expect_message:
-        assert friendly is not None
+    # Both cases are non-retryable with an actionable message now; only the realtime partition gets
+    # the realtime-specific copy.
+    assert friendly is not None
+    if expect_realtime_message:
         assert "realtime.messages" in friendly
     else:
-        assert friendly is None
+        assert "realtime.messages" not in friendly
+        assert "no longer exists" in friendly.lower()

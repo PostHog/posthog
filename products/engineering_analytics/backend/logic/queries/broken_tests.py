@@ -30,7 +30,7 @@ spread like any other — ``pr_only`` for a single merge attempt, ``flaky`` or `
 several — which buries the one failure class the queue was installed to surface.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from posthog.hogql import ast
 
@@ -44,6 +44,10 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.logic.merge_queue import looks_like_merge_queue_branch_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    UNPAGED_SCAN_LIMIT,
+    job_created_floor_constant,
+)
 from products.engineering_analytics.backend.logic.views import ci_failures
 
 # Branch names treated as trunk — the failure "hit master" and job-status filters key on these.
@@ -110,36 +114,37 @@ _FINGERPRINTS_SELECT = """
 # hour was (0 = current hour). Bounded to the fingerprints we actually kept ({fingerprints}) so a repo
 # with thousands of distinct 24h failures doesn't scan+group them all just to fill ~200 sparklines;
 # folded into a fixed array per fingerprint below.
-_HOURLY_SELECT = """
+_HOURLY_SELECT = f"""
     SELECT
         fingerprint,
         dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now())) AS hours_ago,
         count() AS c
     FROM __FAILURES_SOURCE__
-    WHERE timestamp >= {hourly_from} AND lower(repo) = lower({repository}) AND fingerprint IN {fingerprints}
+    WHERE timestamp >= {{hourly_from}} AND lower(repo) = lower({{repository}}) AND fingerprint IN {{fingerprints}}
     GROUP BY fingerprint, hours_ago
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Latest default-branch status per (workflow, job), from the curated workflow-jobs source. Keyed by
 # workflow too, not job name alone: unrelated workflows can reuse a job name like ``test`` / ``build``,
-# and collapsing them would let one workflow's green job mask another's red one. ``created_at_raw`` is
-# the raw ISO string the scan can prune on (a parsed-column predicate forces a full scan); it floors a
-# day below the precise ``created_at`` window. Recency keys on ``completed_at`` (when the run actually
+# and collapsing them would let one workflow's green job mask another's red one. The scan-pruning floor
+# rides inside the jobs builder (``created_floor=True``, a raw-string predicate a parsed-column one
+# can't replace); it floors a day below the precise ``created_at`` window. Recency keys on ``completed_at`` (when the run actually
 # finished), not ``created_at`` — a run that started before a failure but finished green after it is a
 # real recovery. ``latest_conclusion`` is that newest-finishing completed run's conclusion (red =
 # broken now); ``latest_completed_age`` is how long ago it finished, so the classifier can tell a
 # genuine recovery from a stale-green row the logs have already overtaken.
-_MASTER_JOBS_SELECT = """
+_MASTER_JOBS_SELECT = f"""
     SELECT
         workflow_name,
         name AS job_name,
         argMaxIf(conclusion, completed_at, status = 'completed') AS latest_conclusion,
         dateDiff('second', maxIf(completed_at, status = 'completed'), now()) AS latest_completed_age
     FROM __JOBS_SOURCE__
-    WHERE head_branch IN {default_branches}
-        AND created_at_raw >= {created_floor}
-        AND created_at >= {date_from}
+    WHERE head_branch IN {{default_branches}}
+        AND created_at >= {{date_from}}
     GROUP BY workflow_name, name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 
@@ -268,7 +273,7 @@ def query_broken_tests(
     # through. Keyed on (workflow_name, job_name) so a job name shared across workflows doesn't collapse.
     master_by_key: dict[tuple[str, str], tuple[str | None, int | None]] = {}
     breaking_master_jobs: set[str] = set()
-    jobs_source = curated.jobs_source()
+    jobs_source = curated.jobs_source(created_floor=True)
     if jobs_source is not None:
         master_rows = (
             curated.run(
@@ -276,7 +281,7 @@ def query_broken_tests(
                 query_type="engineering_analytics.broken_tests_master_jobs",
                 placeholders={
                     "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),
-                    "created_floor": ast.Constant(value=(date_from - timedelta(days=1)).strftime("%Y-%m-%d")),
+                    "job_created_floor": job_created_floor_constant(date_from),
                     "date_from": ast.Constant(value=date_from),
                 },
             ).results

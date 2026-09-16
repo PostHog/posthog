@@ -108,8 +108,6 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                         return []
                     }
 
-                    const teamNamesById = new Map(org.teams.map((t) => [t.id, t.name]))
-
                     const perTeamItems = await Promise.all(
                         org.teams.map(async (team): Promise<PipelineItem[]> => {
                             const items: PipelineItem[] = []
@@ -153,29 +151,31 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                             } catch (e) {
                                 console.warn(`Failed to load plugin destinations for team ${team.id}`, e)
                             }
+                            try {
+                                const initial: PaginatedBatchExportListApi = await batchExportsList(String(team.id), {
+                                    limit: 100,
+                                })
+                                const bes: BatchExportApi[] = [
+                                    ...initial.results,
+                                    ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
+                                ]
+                                for (const be of bes) {
+                                    items.push({
+                                        id: `batch_export:${be.id}`,
+                                        name: displayName(be.name),
+                                        kind: 'batch_export',
+                                        teamId: team.id,
+                                        teamName: team.name,
+                                    })
+                                }
+                            } catch (e) {
+                                console.warn(`Failed to load batch exports for team ${team.id}`, e)
+                            }
                             return items
                         })
                     )
 
-                    let batchExportItems: PipelineItem[] = []
-                    try {
-                        const initial: PaginatedBatchExportListApi = await batchExportsList(org.id, { limit: 100 })
-                        const bes: BatchExportApi[] = [
-                            ...initial.results,
-                            ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
-                        ]
-                        batchExportItems = bes.map<PipelineItem>((be) => ({
-                            id: `batch_export:${be.id}`,
-                            name: displayName(be.name),
-                            kind: 'batch_export',
-                            teamId: be.team_id,
-                            teamName: teamNamesById.get(be.team_id) ?? '',
-                        }))
-                    } catch (e) {
-                        console.warn('Failed to load batch exports', e)
-                    }
-
-                    const items = [...perTeamItems.flat(), ...batchExportItems]
+                    const items = perTeamItems.flat()
                     return items.sort(
                         (a, b) =>
                             a.teamName.localeCompare(b.teamName) ||

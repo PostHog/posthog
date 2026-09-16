@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import (
@@ -9,6 +8,7 @@ from posthog.models.event.sql import (
     EVENTS_TABLE_JSON_WS_MV_SQL,
     KAFKA_EVENTS_TABLE_JSON_WS_SQL,
 )
+from posthog.run_mode import RunMode, run_mode
 
 # Align the WarpStream events pipeline (kafka_events_json_ws + events_json_ws_mv)
 # with the MSK events pipeline (kafka_events_json + events_json_mv) on
@@ -27,10 +27,10 @@ from posthog.models.event.sql import (
 # used them.
 _SQL_DIR = Path(__file__).parent / "sql" / "0238"
 
-if settings.CLOUD_DEPLOYMENT == "US":
+if run_mode() is RunMode.CLOUD_US:
     _kafka_ddl = (_SQL_DIR / "us_kafka.sql").read_text()
     _mv_ddl = (_SQL_DIR / "us_mv.sql").read_text()
-elif settings.CLOUD_DEPLOYMENT == "EU":
+elif run_mode() is RunMode.CLOUD_EU:
     _kafka_ddl = (_SQL_DIR / "eu_kafka.sql").read_text()
     _mv_ddl = (_SQL_DIR / "eu_mv.sql").read_text()
 else:
@@ -39,7 +39,7 @@ else:
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         # Order matters: drop the MV first so it stops consuming from the
         # kafka engine, then drop the kafka engine, then recreate both.

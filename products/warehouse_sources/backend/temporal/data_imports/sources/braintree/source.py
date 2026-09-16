@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,11 +9,11 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
+    BRAINTREE_VERSION_2026_08_13,
     BraintreeResumeConfig,
     braintree_source,
     validate_credentials as validate_braintree_credentials,
@@ -43,8 +42,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = (BRAINTREE_VERSION_2019_01_01, BRAINTREE_VERSION_2026_07_14, BRAINTREE_VERSION_2026_08_04)
-    default_version = BRAINTREE_VERSION_2026_08_04
+    supported_versions = (
+        BRAINTREE_VERSION_2019_01_01,
+        BRAINTREE_VERSION_2026_07_14,
+        BRAINTREE_VERSION_2026_08_04,
+        BRAINTREE_VERSION_2026_08_13,
+    )
+    default_version = BRAINTREE_VERSION_2026_08_13
     api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property
@@ -68,7 +72,7 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BRAINTREE,
+            name=ExternalDataSourceType.BRAINTREE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Braintree",
             caption="""Enter your Braintree API keys to pull your payments data into the PostHog Data warehouse.

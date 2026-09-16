@@ -10,7 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
-import { SignalReport } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
+import { reportPullRequests, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { openRefundReportDialog } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
@@ -21,9 +22,9 @@ const REFUND_DISABLED_REASONS: Record<string, string> = {
 }
 
 /**
- * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportArchive`.
+ * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportDismiss`.
  * Opens the refund dialog and posts to the refund endpoint; the backend freezes the billing path,
- * archives the report, and (when needed) kicks off the billing credit. Offered only when the flag
+ * dismisses the report, and (when needed) kicks off the billing credit. Offered only when the flag
  * is on and the report has a billable PR that hasn't been refunded — the server enforces the same
  * rules, so `canRefund` is purely a display gate.
  */
@@ -35,7 +36,7 @@ export function useReportRefund({
     report: SignalReport
     /** Which surface the refund was triggered from, for the `refund` analytics. */
     surface?: InboxReportActionSurface
-    /** Fired once the refund API call succeeds (the report is archived server-side by then). */
+    /** Fired once the refund API call succeeds (the report is dismissed server-side by then). */
     onRefunded?: () => void
 }): {
     canRefund: boolean
@@ -51,7 +52,7 @@ export function useReportRefund({
     // without a PR was never billed either. One refund per report, ever.
     const canRefund =
         !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] &&
-        !!report.implementation_pr_url &&
+        reportPullRequests(report).length > 0 &&
         !report.refund &&
         !report.billing_exempt_reason
 
@@ -67,6 +68,10 @@ export function useReportRefund({
         event.stopPropagation()
         openRefundReportDialog({
             reportTitle: report.title,
+            // A merged PR resolved the report? The refund leaves it in Resolved instead of dismissing
+            // it (the `resolved_via_merged_pr` branch in the refund endpoint), so the copy must not
+            // promise a dismissal.
+            staysResolved: report.status === SignalReportStatus.RESOLVED && hasMergedReportPullRequest(report),
             onConfirm: async ({ reason, note }) => {
                 if (isRefunding || currentTeamId == null) {
                     return

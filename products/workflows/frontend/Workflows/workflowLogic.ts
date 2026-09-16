@@ -25,6 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
+import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
@@ -50,13 +51,16 @@ import {
     type HogFlowSchedule,
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
+import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
+import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
 
 export interface WorkflowLogicProps {
     id?: string
     templateId?: string
     editTemplateId?: string
+    triggerPrefill?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -112,6 +116,11 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
+// Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
+// row, and an internal event are all things no PostHog person is attached to. Keep in sync with
+// the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -165,9 +174,28 @@ const WORKFLOW_CONTENT_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'abort_action',
     'variables',
 ] as const
+
+// The fields the editor writes through the form. Edits that land while a save is in flight are
+// re-applied from these after the response rebaselines the form, so the round-trip can't drop them.
+const WORKFLOW_EDITABLE_FIELDS = [...WORKFLOW_CONTENT_FIELDS, 'name', 'description'] as const
+
+function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = {}
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        result[field] = workflow[field]
+    }
+    return result as Partial<HogFlow>
+}
+
+/** What a save was dispatched with, kept per save because a later save moves the shared state. */
+interface SaveContext {
+    initiatedByAutoSave: boolean
+    pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+}
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
@@ -186,8 +214,13 @@ export interface workflowLogicValues {
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
+    discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
+    emailSendingPauseRequiresSupport: boolean
+    emailSendingPaused: boolean
+    emailSendingPausedByStaff: boolean
+    emailSendingPausedReason: string
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -212,6 +245,8 @@ export interface workflowLogicValues {
           }
         | false
         | null
+    publishDisabledReason: string | undefined
+    resumeEmailSendingPending: boolean
     saveAttemptedActionIds: string[] | null
     saveBaseUpdatedAt: string | null
     scheduleConfigSources: {
@@ -222,11 +257,13 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
+    showDraftActions: boolean
     showWorkflowErrors: boolean
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
     workflowChanged: boolean
+    workflowEditVersion: number
     workflowErrors: DeepPartialMap<HogFlow, ValidationErrorType>
     workflowHasActionErrors: boolean
     workflowHasErrors: boolean
@@ -258,6 +295,9 @@ export interface workflowLogicActions {
     }
     confirmPublishDraft: (confirmToken: string) => {
         confirmToken: string
+    }
+    confirmResumeEmailSending: () => {
+        value: true
     }
     discardChanges: () => {
         value: true
@@ -345,7 +385,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -480,7 +532,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -712,6 +769,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -729,11 +787,27 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
+                                          properties?: any[] | undefined
+                                          source: 'internal-events'
+                                      }
+                                      type: 'internal-event'
+                                  }
+                                | {
+                                      filters: {
                                           properties?: any[] | undefined
                                       }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -944,6 +1018,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -964,6 +1045,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -981,11 +1063,27 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
+                                properties?: any[] | undefined
+                                source: 'internal-events'
+                            }
+                            type: 'internal-event'
+                        }
+                      | {
+                            filters: {
                                 properties?: any[] | undefined
                             }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1081,7 +1179,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1139,7 +1242,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1274,7 +1389,12 @@ export interface workflowLogicActions {
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
+                                                        | 'signals_scout'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
+                                                        | 'task_skills'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1506,6 +1626,7 @@ export interface workflowLogicActions {
                                       filters: {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
+                                          assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                           audience_type?: 'accounts' | 'persons' | undefined
                                           properties: any[]
                                           tag_names?: string[] | undefined
@@ -1523,11 +1644,27 @@ export interface workflowLogicActions {
                                   }
                                 | {
                                       filters: {
+                                          events: any[]
+                                          properties?: any[] | undefined
+                                          source: 'internal-events'
+                                      }
+                                      type: 'internal-event'
+                                  }
+                                | {
+                                      filters: {
                                           properties?: any[] | undefined
                                       }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -1738,6 +1875,13 @@ export interface workflowLogicActions {
                       to: string
                       type: 'branch' | 'continue'
                   }[]
+                  email_sending_rate_limit?:
+                      | {
+                            count: number
+                            period: 'hour' | 'minute'
+                        }
+                      | null
+                      | undefined
                   exit_condition:
                       | 'exit_on_conversion'
                       | 'exit_on_trigger_not_matched'
@@ -1758,6 +1902,7 @@ export interface workflowLogicActions {
                             filters: {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
+                                assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                 audience_type?: 'accounts' | 'persons' | undefined
                                 properties: any[]
                                 tag_names?: string[] | undefined
@@ -1775,11 +1920,27 @@ export interface workflowLogicActions {
                         }
                       | {
                             filters: {
+                                events: any[]
+                                properties?: any[] | undefined
+                                source: 'internal-events'
+                            }
+                            type: 'internal-event'
+                        }
+                      | {
+                            filters: {
                                 properties?: any[] | undefined
                             }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1875,7 +2036,12 @@ export interface workflowLogicActions {
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
+                                | 'signals_scout'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
+                                | 'task_skills'
                         }[]
                       | null
                       | undefined
@@ -1902,9 +2068,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -1925,6 +2088,7 @@ export interface workflowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -1939,6 +2103,14 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      events: any[]
+                      properties?: any[] | undefined
+                      source: 'internal-events'
+                  }
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -1966,6 +2138,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2033,7 +2220,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2049,6 +2241,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2166,6 +2366,9 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    resumeEmailSending: () => {
+        value: true
+    }
     saveWorkflow: (updates: HogFlow) => HogFlow
     saveWorkflowFailure: (
         error: string,
@@ -2195,6 +2398,9 @@ export interface workflowLogicActions {
     }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
+    }
+    setResumeEmailSendingPending: (pending: boolean) => {
+        pending: boolean
     }
     setSaveBaseUpdatedAt: (updatedAt: string | null) => {
         updatedAt: string | null
@@ -2248,9 +2454,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2271,6 +2474,7 @@ export interface workflowLogicActions {
                   filters: {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
+                      assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                       audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
                       tag_names?: string[] | undefined
@@ -2285,6 +2489,14 @@ export interface workflowLogicActions {
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      events: any[]
+                      properties?: any[] | undefined
+                      source: 'internal-events'
+                  }
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -2312,6 +2524,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2379,7 +2606,12 @@ export interface workflowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
+                                          | 'task_skills'
                                   }[]
                                 | undefined
                             name: string
@@ -2395,6 +2627,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2561,6 +2801,7 @@ export interface workflowLogicActions {
         filters: {
             all_roles_unassigned?: boolean | undefined
             assigned_to_user_ids?: number[] | undefined
+            assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
             audience_type?: 'accounts' | 'persons' | undefined
             properties: any[]
             tag_names?: string[] | undefined
@@ -2630,6 +2871,7 @@ export interface workflowLogicMeta {
                                 filters: {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
+                                    assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
                                     audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
                                     tag_names?: string[] | undefined
@@ -2647,11 +2889,27 @@ export interface workflowLogicMeta {
                             }
                           | {
                                 filters: {
+                                    events: any[]
+                                    properties?: any[] | undefined
+                                    source: 'internal-events'
+                                }
+                                type: 'internal-event'
+                            }
+                          | {
+                                filters: {
                                     properties?: any[] | undefined
                                 }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -2736,6 +2994,21 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
+        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPauseRequiresSupport: (originalWorkflow: HogFlow | null) => boolean
+        showDraftActions: (originalWorkflow: HogFlow | null) => boolean
+        publishDisabledReason: (
+            hasStagedDraft: boolean,
+            hasUnsavedChanges: boolean,
+            draftActionPending: 'discard' | 'publish' | null
+        ) => string | undefined
+        discardDisabledReason: (
+            hasStagedDraft: boolean,
+            hasUnsavedChanges: boolean,
+            draftActionPending: 'discard' | 'publish' | null
+        ) => string | undefined
     }
 }
 
@@ -2750,7 +3023,8 @@ export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
     key(
-        (props) => `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`
+        (props) =>
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -2804,8 +3078,11 @@ export const workflowLogic = kea<workflowLogicType>([
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         setDeferredResourceEdited: (event: ResourceEditedEvent | null) => ({ event }),
         replayDeferredResourceEdited: true,
+        resumeEmailSending: true,
+        confirmResumeEmailSending: true,
+        setResumeEmailSendingPending: (pending: boolean) => ({ pending }),
     }),
-    loaders(({ props, values, actions }) => ({
+    loaders(({ props, values, actions, cache }) => ({
         originalWorkflow: [
             null as HogFlow | null,
             {
@@ -2836,97 +3113,155 @@ export const workflowLogic = kea<workflowLogicType>([
 
                             return newWorkflow
                         }
+                        const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                        if (triggerConfig) {
+                            const prefilled: HogFlow = {
+                                ...NEW_WORKFLOW,
+                                actions: NEW_WORKFLOW.actions.map((action) =>
+                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
+                                ),
+                            }
+                            return prefilled
+                        }
                         return { ...NEW_WORKFLOW }
                     }
 
                     return api.hogFlows.getHogFlow(props.id)
                 },
                 saveWorkflow: async (updates: HogFlow) => {
-                    updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
+                    // `isAutoSave` is one shared reducer, not a per-request value. A manual save
+                    // dispatched while an auto-save is still in flight sets it to false, so the
+                    // auto-save's own 409 would then take the manual path and raise the banner.
+                    // Read the origin at dispatch time, while it still describes this save.
+                    const initiatedByAutoSave = values.isAutoSave
+                    // Saves run one at a time, so their success and failure actions arrive in
+                    // dispatch order. Queue what each save needs alongside them, so the success
+                    // listener reads its own values rather than shared state a later save moved.
+                    // The pending schedule rides along because an earlier save's reset clears it,
+                    // which would drop a schedule change the user asked a manual save to persist.
+                    const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
+                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
+                    // Whether this save means to change the lifecycle. Only the enable and disable
+                    // control does, and it says so when it dispatches. Comparing the payload's
+                    // status against the stored one cannot tell the difference: that control does
+                    // not write its new status back to the form, so a form save queued behind it
+                    // carries the old value and reads as a transition back to it.
+                    const isStatusSave = cache.nextSaveChangesStatus === true
+                    cache.nextSaveChangesStatus = false
 
-                    if (!props.id || props.id === 'new') {
-                        const result = await api.hogFlows.createHogFlow(updates)
+                    const runSave = async (): Promise<HogFlow> => {
+                        updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
 
-                        if (props.templateId) {
-                            posthog.capture('hog_flow_created_from_template', {
-                                workflow_id: result.id,
-                                template_id: props.templateId,
-                            })
-                        }
-                        return result
-                    }
+                        if (!props.id || props.id === 'new') {
+                            const result = await api.hogFlows.createHogFlow(updates)
 
-                    // The form's clean baseline: the staged draft merged over the live row. Sanitized
-                    // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
-                    // not structuredClone: the clone only feeds the comparison, and structuredClone
-                    // can yield objects whose constructors fail fast-equals' check, making every
-                    // save look like a content change.
-                    const baseline = values.originalWorkflow
-                        ? sanitizeWorkflow(
-                              JSON.parse(JSON.stringify(withStagedDraft(values.originalWorkflow))),
-                              values.hogFunctionTemplatesById
-                          )
-                        : null
-                    const contentChanged =
-                        !baseline ||
-                        WORKFLOW_CONTENT_FIELDS.some(
-                            (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
-                        )
-                    const isStatusTransition =
-                        !!values.originalWorkflow && updates.status !== values.originalWorkflow.status
-                    // Content edits on an active workflow stage into its draft (publish promotes them).
-                    // Metadata-only saves (rename, description) must not: staging the unchanged content
-                    // would create a phantom draft identical to live.
-                    const stagingDraft =
-                        values.originalWorkflow?.status === 'active' && updates.status === 'active' && contentChanged
-                    // A status transition (enable/disable) toggles the lifecycle only. The button is
-                    // disabled while the form is dirty, so content in the payload is at best a no-op
-                    // re-send of the live row and at worst (with a staged draft merged into the form)
-                    // a silent deploy of unpublished content. Metadata-only saves on active workflows
-                    // strip content the same way, so unchanged content never routes to a draft.
-                    const payload: Partial<HogFlow> =
-                        isStatusTransition || (values.originalWorkflow?.status === 'active' && !contentChanged)
-                            ? omitWorkflowContent(updates)
-                            : updates
-                    // Draft writes race against other draft writes, not the live row, so the staleness
-                    // baseline follows the routing: the draft's own stamp once one is staged.
-                    const loadedBase = stagingDraft
-                        ? (values.originalWorkflow?.draft_updated_at ?? values.originalWorkflow?.updated_at)
-                        : values.originalWorkflow?.updated_at
-
-                    try {
-                        return await api.hogFlows.updateHogFlow(props.id, {
-                            ...payload,
-                            ...(stagingDraft ? { stage_draft: true } : {}),
-                            // A staged save's metadata still writes live; fence that write with the
-                            // live stamp so it can't overwrite a concurrent metadata edit the
-                            // draft-stamp baseline wouldn't catch.
-                            ...(stagingDraft && values.originalWorkflow?.updated_at
-                                ? { base_live_updated_at: values.originalWorkflow.updated_at }
-                                : {}),
-                            // Let the server reject the save if a newer copy exists (optimistic concurrency).
-                            // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
-                            base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
-                        })
-                    } catch (error) {
-                        if (error instanceof ApiError && error.status === 409) {
-                            if (values.isAutoSave && values.pendingSchedule === false) {
-                                // An auto-save losing the race is not a decision point: the user never
-                                // asked to overwrite anything, so reconcile to the newer copy silently.
-                                // A pending schedule change is the exception: only a manual save
-                                // persists it, and the reload would wipe it, so that gets the banner.
-                                actions.setSyncingExternalEdit(true)
-                                actions.loadWorkflow()
-                            } else {
-                                // A newer version exists (SSE event likely missed): surface the reconcile
-                                // banner, which carries the actionable Reload / Keep mine choice. No toast,
-                                // as it would just duplicate the banner (the global kea handler already
-                                // skips 409).
-                                actions.setExternallyEdited(true)
+                            if (props.templateId) {
+                                posthog.capture('hog_flow_created_from_template', {
+                                    workflow_id: result.id,
+                                    template_id: props.templateId,
+                                })
                             }
+                            return result
                         }
-                        throw error
+
+                        // The newest server copy this editor has produced. A queued save must compare
+                        // and fence against the copy the save before it wrote, and that copy reaches
+                        // this cache when its response lands, which is before kea applies the result
+                        // to `originalWorkflow`. Reading the kea value instead would compare an edit
+                        // against the state from two saves ago: an edit that returns the content to
+                        // that older state looks unchanged, so its payload carries no content and
+                        // the draft keeps what the user just removed. Cleared on load, because a
+                        // reload, publish, or discard establishes a new baseline.
+                        const latest = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+                        // The form's clean baseline: the staged draft merged over the live row. Sanitized
+                        // like `updates` so untouched steps compare equal. Cloned via JSON round-trip,
+                        // not structuredClone: the clone only feeds the comparison, and structuredClone
+                        // can yield objects whose constructors fail fast-equals' check, making every
+                        // save look like a content change.
+                        const baseline = latest
+                            ? sanitizeWorkflow(
+                                  JSON.parse(JSON.stringify(withStagedDraft(latest))),
+                                  values.hogFunctionTemplatesById
+                              )
+                            : null
+                        const contentChanged =
+                            !baseline ||
+                            WORKFLOW_CONTENT_FIELDS.some(
+                                (field) => !objectsEqual((updates as any)[field], (baseline as any)[field])
+                            )
+                        const isStatusTransition = isStatusSave && !!latest && updates.status !== latest.status
+                        // Content edits on an active workflow stage into its draft (publish promotes them).
+                        // Metadata-only saves (rename, description) must not: staging the unchanged content
+                        // would create a phantom draft identical to live.
+                        const stagingDraft =
+                            latest?.status === 'active' && updates.status === 'active' && contentChanged
+                        // A status transition (enable/disable) toggles the lifecycle only. The button is
+                        // disabled while the form is dirty, so content in the payload is at best a no-op
+                        // re-send of the live row and at worst (with a staged draft merged into the form)
+                        // a silent deploy of unpublished content. Metadata-only saves on active workflows
+                        // strip content the same way, so unchanged content never routes to a draft.
+                        const payload: Partial<HogFlow> =
+                            isStatusTransition || (latest?.status === 'active' && !contentChanged)
+                                ? omitWorkflowContent(updates)
+                                : { ...updates }
+                        if (!isStatusSave) {
+                            // A form save must not speak about the lifecycle. Otherwise one queued
+                            // behind a disable carries the pre-change status and puts the workflow
+                            // back, so a stopped workflow resumes running and sending.
+                            delete payload.status
+                        }
+                        const liveBase = latest?.updated_at
+                        // Draft writes race against other draft writes, not the live row, so the staleness
+                        // baseline follows the routing: the draft's own stamp once one is staged.
+                        const loadedBase = stagingDraft ? (latest?.draft_updated_at ?? liveBase) : liveBase
+
+                        try {
+                            const result = await api.hogFlows.updateHogFlow(props.id, {
+                                ...payload,
+                                ...(stagingDraft ? { stage_draft: true } : {}),
+                                // A staged save's metadata still writes live; fence that write with the
+                                // live stamp so it can't overwrite a concurrent metadata edit the
+                                // draft-stamp baseline wouldn't catch.
+                                ...(stagingDraft && liveBase ? { base_live_updated_at: liveBase } : {}),
+                                // Let the server reject the save if a newer copy exists (optimistic concurrency).
+                                // saveBaseUpdatedAt overrides the loaded timestamp after the user picks "Keep mine".
+                                base_updated_at: values.saveBaseUpdatedAt ?? loadedBase ?? null,
+                            })
+                            cache.lastSavedWorkflow = result
+                            return result
+                        } catch (error) {
+                            if (error instanceof ApiError && error.status === 409) {
+                                if (initiatedByAutoSave && values.pendingSchedule === false) {
+                                    // An auto-save losing the race is not a decision point: the user never
+                                    // asked to overwrite anything, so reconcile to the newer copy silently.
+                                    // A pending schedule change is the exception: only a manual save
+                                    // persists it, and the reload would wipe it, so that gets the banner.
+                                    actions.setSyncingExternalEdit(true)
+                                    actions.loadWorkflow()
+                                } else {
+                                    // A newer version exists (SSE event likely missed): surface the reconcile
+                                    // banner, which carries the actionable Reload / Keep mine choice. No toast,
+                                    // as it would just duplicate the banner (the global kea handler already
+                                    // skips 409).
+                                    actions.setExternallyEdited(true)
+                                }
+                            }
+                            throw error
+                        }
                     }
+
+                    // Saves run one at a time. Every save fences on `base_updated_at`, taken from the
+                    // newest server copy this editor knows about. A save that starts while another is
+                    // still in flight carries a baseline the server has already moved past, so it comes
+                    // back 409 and the user sees the "updated elsewhere" banner for their own edit. The
+                    // reported case is a click on "Save draft" as the auto-save debounce fires.
+                    const previous = (cache.saveChain as Promise<unknown> | undefined) ?? Promise.resolve()
+                    const current = previous.then(runSave, runSave)
+                    cache.saveChain = current.then(
+                        () => undefined,
+                        () => undefined
+                    )
+                    return current
                 },
             },
         ],
@@ -2953,7 +3288,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, cache }) => ({
         workflow: {
             defaults: NEW_WORKFLOW,
             errors: ({ name, actions, status }) => {
@@ -2974,6 +3309,10 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
 
                 actions.saveWorkflow(values)
+                // Hold the form in its submitting state until the save lands, so the save button
+                // keeps a loading state and cannot fire a second save. The loader assigns
+                // `saveChain` while it handles the action above, so this reads the current save.
+                await cache.saveChain
             },
         },
     })),
@@ -3066,6 +3405,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => enabled,
             },
         ],
+        // Bumped on every form write. A save records the version it captured, so its response can
+        // tell whether the user kept editing while the request was in flight.
+        workflowEditVersion: [
+            0,
+            {
+                setWorkflowValue: (state) => state + 1,
+                setWorkflowValues: (state) => state + 1,
+            },
+        ],
         // Gates when per-field step messages become visible: the action ids that were present at
         // the last save/enable attempt. Every step is validated the whole time (so the node badge
         // and enable-gate work), but a step only shows its messages once the user has tried to
@@ -3117,6 +3465,12 @@ export const workflowLogic = kea<workflowLogicType>([
             null as 'publish' | 'discard' | null,
             {
                 setDraftActionPending: (_, { pending }) => pending,
+            },
+        ],
+        resumeEmailSendingPending: [
+            false,
+            {
+                setResumeEmailSendingPending: (_, { pending }) => pending,
             },
         ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
@@ -3233,11 +3587,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
-                // step types make no sense without a person, so we block them at save time.
+                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
+                // Person-dependent step types make no sense without a person, so we block them at
+                // save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3286,7 +3641,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
                                 from: !emailValue?.from?.integrationId
                                     ? 'Choose an email sender, or connect a new one'
-                                    : undefined,
+                                    : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
+                                      getTemplatingError(emailValue?.from?.name, emailTemplating)),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
@@ -3425,7 +3781,8 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
         ],
 
         workflowSanitized: [
@@ -3439,8 +3796,81 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
+
+        // Read off the saved row, never the editor form: a pause is server state and the form is
+        // whatever the author has typed since.
+        emailSendingPaused: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
+        ],
+        emailSendingPausedReason: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
+        ],
+        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
+        emailSendingPausedByStaff: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
+        ],
+        // Covers staff pauses and repeat pauses (re-tripped soon after a resume): no resume button.
+        emailSendingPauseRequiresSupport: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean =>
+                originalWorkflow?.email_sending_pause_requires_support === true,
+        ],
+
+        // A staged draft outlives the edits made after it, so the draft actions stay mounted while
+        // the form is dirty. Gating them on a clean form made them appear and disappear on every
+        // auto-save cycle.
+        // Every live workflow keeps the publish slot, staged draft or not. Mounting the button only
+        // once a draft exists would move the save button on the first auto-save, which is the jump
+        // this editor is meant to stop. A live workflow can always be published into, so the button
+        // is honest when idle: it says there is nothing staged yet.
+        showDraftActions: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow: HogFlow | null): boolean =>
+                originalWorkflow?.status === 'active' && !!originalWorkflow?.id,
+        ],
+
+        publishDisabledReason: [
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (
+                hasStagedDraft: boolean,
+                hasUnsavedChanges: boolean,
+                draftActionPending: 'publish' | 'discard' | null
+            ): string | undefined => {
+                if (draftActionPending === 'discard') {
+                    return 'Discarding is in progress'
+                }
+                // Publish promotes the staged draft, so edits still sitting in the form would not
+                // go out. Auto-save clears this a few seconds after the user stops typing.
+                if (hasUnsavedChanges) {
+                    return 'Save your changes first'
+                }
+                return hasStagedDraft ? undefined : 'No changes staged to publish'
+            },
+        ],
+
+        discardDisabledReason: [
+            (s) => [s.hasStagedDraft, s.hasUnsavedChanges, s.draftActionPending],
+            (
+                hasStagedDraft: boolean,
+                hasUnsavedChanges: boolean,
+                draftActionPending: 'publish' | 'discard' | null
+            ): string | undefined => {
+                if (draftActionPending === 'publish') {
+                    return 'Publishing is in progress'
+                }
+                // Discarding reloads the workflow, which drops whatever the form still holds. The
+                // user only agreed to lose the staged draft, so block until the form is clean.
+                if (hasUnsavedChanges) {
+                    return 'Save or clear your changes first'
+                }
+                return hasStagedDraft ? undefined : 'No changes staged to discard'
+            },
+        ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -3471,13 +3901,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (event.resource_type !== 'HogFlow' || event.resource_id !== props.id) {
                 return
             }
-            // Our own save/reload is mid-flight (originalWorkflowLoading covers both, they share a
-            // loader), or a publish/discard is about to reload: the emit for our own write can beat
-            // its HTTP response back to us, and reacting to that echo against the stale baseline
-            // flashes the conflict banner at ourselves. Park the event instead of reacting; once the
-            // flight settles it replays against the fresh baseline, where our own echo compares equal
-            // (ignored) and a genuine concurrent edit is still strictly newer (reconciled).
-            if (values.originalWorkflowLoading || values.draftActionPending) {
+            // Our own save/reload is mid-flight, or a publish/discard is about to reload: the emit
+            // for our own write can beat its HTTP response back to us, and reacting to that echo
+            // against the stale baseline flashes the conflict banner at ourselves. Park the event
+            // instead of reacting; once the flight settles it replays against the fresh baseline,
+            // where our own echo compares equal (ignored) and a genuine concurrent edit is still
+            // strictly newer (reconciled).
+            // `originalWorkflowLoading` alone is not enough here. It is one boolean for the whole
+            // loader, so the first save of a queued pair clears it while the second still runs, and
+            // that second save's own echo would then read as somebody else's edit. Count the saves
+            // this editor still has outstanding instead.
+            const savesInFlight = ((cache.saveContexts as SaveContext[] | undefined) ?? []).length
+            if (values.originalWorkflowLoading || savesInFlight > 0 || values.draftActionPending) {
                 actions.setDeferredResourceEdited(event)
                 return
             }
@@ -3556,6 +3991,42 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.setDraftActionPending(null)
             }
         },
+        resumeEmailSending: () => {
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            LemonDialog.open({
+                title: 'Resume email sending?',
+                description:
+                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
+                primaryButton: {
+                    children: 'Resume sending',
+                    onClick: () => actions.confirmResumeEmailSending(),
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
+        confirmResumeEmailSending: async () => {
+            // Also guards the dialog's close-animation window, where a fast double-click on the
+            // confirm button dispatches twice.
+            if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
+                return
+            }
+            actions.setResumeEmailSendingPending(true)
+            try {
+                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
+                lemonToast.success('Email sending resumed')
+            } catch {
+                lemonToast.error('Could not resume email sending. Please try again.')
+            } finally {
+                actions.setResumeEmailSendingPending(false)
+                // Reload either way: on success to clear the banner, on failure because another
+                // editor may have resumed it already.
+                actions.loadWorkflow()
+            }
+        },
         discardDraft: () => {
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
@@ -3615,9 +4086,15 @@ export const workflowLogic = kea<workflowLogicType>([
                 lemonToast.error('Fix all errors before enabling')
                 return
             }
+            // This is the one path that means to change the lifecycle. The loader reads the flag
+            // as it handles the action below, so it describes this save and no other.
+            cache.nextSaveChangesStatus = 'status' in workflow
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
+            // This response is now the save baseline. Discarding a draft moves its stamp backwards,
+            // so a copy kept from an earlier save would fence later saves too loosely.
+            cache.lastSavedWorkflow = undefined
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
@@ -3634,7 +4111,12 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        saveWorkflow: () => {
+            cache.saveEditVersion = values.workflowEditVersion
+        },
         saveWorkflowFailure: () => {
+            // Keep the queue aligned with the saves still in flight.
+            ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -3645,12 +4127,18 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
-            const isAutoSave = values.isAutoSave
+            // What this save was dispatched with. A manual save queued behind an auto-save used to
+            // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
+            // second toast, and a second schedule write that can leave a duplicate schedule.
+            const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
+            const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
 
             if (!isAutoSave) {
                 // Save pending schedule changes (only on manual save)
                 const workflowId = originalWorkflow.id
-                const pendingSchedule = values.pendingSchedule
+                // Read the schedule this save carried. An auto-save that landed first has already
+                // reset the reducers, so the live value no longer describes what the user staged.
+                const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
                 const existingScheduleId = values.currentSchedule?.id
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 
@@ -3744,8 +4232,18 @@ export const workflowLogic = kea<workflowLogicType>([
 
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
+            const editedDuringSave =
+                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+            const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
+            if (editsDuringSave) {
+                // The response only reflects the payload that was sent. Anything typed while it was
+                // in flight (the live email editor writes on every pause) must survive the reset and
+                // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
+                actions.setWorkflowValues(editsDuringSave)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
         },
         discardChanges: () => {
@@ -3848,17 +4346,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const newWorkflow = {
-                ...workflow,
-                name: `${workflow.name} (copy)`,
-                status: 'draft' as const,
-            }
-            delete (newWorkflow as any).id
-            delete (newWorkflow as any).team_id
-            delete (newWorkflow as any).created_at
-            delete (newWorkflow as any).updated_at
-
-            const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
+            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },

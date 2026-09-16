@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 # Self-reported phases that rule a death out as a *merge* memory problem. Repartitioning only changes
 # merge memory, so a death in any of these phases must not feed the repartition trigger, whatever
 # killed the worker (an extract-phase OOM is real, but its remedy is chunking or routing, not a finer
-# partition layout). An unknown phase (no report: rollout gap, expired key, Redis down) fails open.
+# partition layout). An unknown phase (no report: rollout gap, expired key, Redis down) fails open,
+# and so does "repartition": a rewrite death held partition-sized data of this schema, which is
+# exactly the evidence the trigger runs on.
 NON_MERGE_PHASES = ("extract", "load", "finished")
 
 
@@ -57,7 +59,7 @@ class ExternalDataSchemaOOMEvent(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False on the Team FK: a real constraint takes a SHARE ROW EXCLUSIVE lock on the
     # hot posthog_team table on create. Team scoping is enforced at the app layer by TeamScopedRootMixin.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     schema = models.ForeignKey(
         "warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, related_name="oom_events"
     )

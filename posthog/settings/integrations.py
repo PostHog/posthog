@@ -40,11 +40,22 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 GOOGLE_CALENDAR_APP_CLIENT_ID = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_ID", "")
 GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SECRET", "")
 
+# Registered in the Google Cloud console with the YouTube Analytics API and the YouTube Data API
+# enabled. Empty defaults keep the app importable and the connector dormant until the client exists.
+YOUTUBE_ANALYTICS_APP_CLIENT_ID = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_ID", "")
+YOUTUBE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_SECRET", "")
+
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
+# HMAC keys, newest first, for the email and `sub` fingerprints in ee/api/google_oauth_diagnostics.py.
+# Provision a unique value per environment. When empty, those fingerprints are left out.
+GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS = get_list(get_from_env("GOOGLE_OAUTH_DIAGNOSTICS_FINGERPRINT_KEYS", ""))
 
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
+
+HELPSCOUT_APP_CLIENT_ID = get_from_env("HELPSCOUT_APP_CLIENT_ID", "")
+HELPSCOUT_APP_CLIENT_SECRET = get_from_env("HELPSCOUT_APP_CLIENT_SECRET", "")
 
 GITHUB_APP_CLIENT_ID = get_from_env("GITHUB_APP_CLIENT_ID", "")
 GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
@@ -74,6 +85,25 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+# Models the reviewer's per-run gateway token may call, comma-separated; empty leaves the token
+# unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
+# uses in a review, including its small utility model.
+STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS = get_list(get_from_env("STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS", ""))
+# The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
+# PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
+# which is installed across the whole PostHog org: a dedicated App cannot reach another repository
+# whatever the publish path asks it for. One App serves every region, so the client id and the
+# installation id below hold the same value everywhere, and only the private key is per-region.
+COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "")
+COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY", "")
+# Installation id of that App on the PostHog/community-skills repo. Empty (the default) disables
+# publishing → the endpoint returns 503 and the UI falls back to the manual-PR path.
+COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID", "")
+# Bare repo name (no owner prefix) — the owner is the App installation's account. Defaults to the
+# PostHog/community-skills repo. Publish-only: the hourly catalog sync reads its registry from the
+# repo pinned in community_skill_sync.py, so pointing this elsewhere sends pull requests to a repo the
+# sync does not read back.
+COMMUNITY_SKILLS_GITHUB_REPO = get_from_env("COMMUNITY_SKILLS_GITHUB_REPO", "community-skills")
 
 META_ADS_APP_CLIENT_ID = get_from_env("META_ADS_APP_CLIENT_ID", "")
 META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
@@ -110,12 +140,20 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
 # - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
-# - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
+# - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication the provisioning
+#   orchestrator authenticates as. Tokens on this application may mint deep-link login sessions.
+# - STRIPE_MARKETPLACE_OAUTH_CLIENT_ID: Client ID of a separate PostHog OAuthApplication for the
+#   marketplace app's own token. That token is written into the customer's Stripe Secret Store at
+#   account scope, so every member of their Stripe account can read it. It must not share an
+#   application with the orchestrator, because the provisioning namespace authorizes on application
+#   identity alone. Until this is set the two share one application and marketplace tokens can reach
+#   the provisioning endpoints.
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
+STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = get_from_env("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 
 # WorkOS Radar (bot/fraud detection for auth flows)
@@ -153,8 +191,19 @@ PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
 UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
 
+# Outbound budget for one Browserless fleet, shared by every caller pointed at it. Browserless
+# meters concurrent sessions, and a session is held for the whole page load, so these count
+# browser loads rather than API calls. Sized above normal draw: the budget is there to stop one
+# consumer exhausting the fleet, not to pace healthy traffic.
+BROWSERLESS_EGRESS_PER_MINUTE_BUDGET = get_from_env("BROWSERLESS_EGRESS_PER_MINUTE_BUDGET", 120, type_cast=int)
+BROWSERLESS_EGRESS_HOURLY_BUDGET = get_from_env("BROWSERLESS_EGRESS_HOURLY_BUDGET", 2000, type_cast=int)
+
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Enable only after verifying that the renderer and its proxies do not log cookie values.
+HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED = get_from_env(
+    "HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED", False, type_cast=str_to_bool
+)
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)

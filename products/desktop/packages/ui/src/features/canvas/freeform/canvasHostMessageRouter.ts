@@ -4,7 +4,7 @@ import type {
   CanvasToHostMessage,
   HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
-import { isSafePostHogUrl } from "@posthog/shared";
+import { isSafeGitHubPullRequestUrl, isSafePostHogUrl } from "@posthog/shared";
 
 // Canvas code can post open-external without a gesture, so opens are limited.
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
@@ -12,8 +12,37 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // a runaway loop must not be able to pile up unbounded concurrent requests,
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
+const MAX_CONCURRENT_CONNECTOR_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
+const REPLAYABLE_SHORTCUT_KEYS = new Set([
+  ",",
+  "/",
+  "[",
+  "]",
+  "{",
+  "}",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "arrowup",
+  "b",
+  "i",
+  "j",
+  "k",
+  "n",
+  "t",
+  "tab",
+]);
 
 function isBoundedPayload(payload: unknown): boolean {
   try {
@@ -23,7 +52,7 @@ function isBoundedPayload(payload: unknown): boolean {
   }
 }
 
-export interface CanvasHostCallbacks {
+interface CanvasHostCallbacks {
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
   onReady?: () => void;
@@ -33,10 +62,7 @@ export interface CanvasHostCallbacks {
   onCommentActivate?: (id: string) => void;
 }
 
-export type ExternalOpenBlockReason =
-  | "unsafe-url"
-  | "no-interaction"
-  | "throttled";
+type ExternalOpenBlockReason = "unsafe-url" | "no-interaction" | "throttled";
 
 export interface CanvasHostMessageRouterOptions {
   /** Transport back into the canvas (window.postMessage or a MessagePort). */
@@ -65,10 +91,11 @@ export function createCanvasHostMessageRouter(
 ): (message: CanvasToHostMessage) => Promise<void> {
   let lastExternalOpen = 0;
   let activeDataRequests = 0;
+  let activeConnectorRequests = 0;
 
   return async (message) => {
     switch (message.type) {
-      case "data-request":
+      case "data-request": {
         // Canvas code is untrusted, so the host is what stops a canvas from
         // firing writes just by being loaded or rendered.
         if (
@@ -88,8 +115,15 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
+        // Approval waits must not consume ordinary read/write slots.
+        // Connector calls have their own limit; agent requests are single-flight.
+        const isConnectorRequest = message.method === "connectorCall";
+        const holdsSlot =
+          message.method !== "agentRequest" && !isConnectorRequest;
         if (
-          activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
+          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
+          (isConnectorRequest &&
+            activeConnectorRequests >= MAX_CONCURRENT_CONNECTOR_REQUESTS) ||
           !isBoundedPayload(message.payload)
         ) {
           options.post({
@@ -101,18 +135,17 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        activeDataRequests += 1;
+        if (holdsSlot) activeDataRequests += 1;
+        if (isConnectorRequest) activeConnectorRequests += 1;
         try {
           const call = options
             .callbacks()
             .onDataRequest(message.method, message.payload);
-          // agentRequest settles only when a viewer approves or cancels the
-          // request in a dialog, which can take arbitrarily long. Racing it
-          // against the generic timeout would tell the canvas the request
-          // failed while the dialog is still open and a later approval could
-          // still start the run, so it opts out of the timeout.
+          // Approval dialogs can stay open longer than the I/O timeout.
+          // Do not report a failure while a later approval can still run the call.
           const result =
-            message.method === "agentRequest"
+            message.method === "agentRequest" ||
+            message.method === "connectorCall"
               ? await call
               : await Promise.race([
                   call,
@@ -139,9 +172,11 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          activeDataRequests -= 1;
+          if (holdsSlot) activeDataRequests -= 1;
+          if (isConnectorRequest) activeConnectorRequests -= 1;
         }
         break;
+      }
       case "error":
         options.callbacks().onError?.(message.message, message.stack);
         break;
@@ -149,6 +184,13 @@ export function createCanvasHostMessageRouter(
         options.callbacks().onRendered?.();
         break;
       case "navigate":
+        if (
+          (message.nav.target === "connect" ||
+            message.nav.target === "compose-task" ||
+            message.nav.target === "new-task") &&
+          !options.hasUserActivation()
+        )
+          break;
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
         break;
@@ -163,7 +205,10 @@ export function createCanvasHostMessageRouter(
         break;
       case "open-external":
         // Re-checks the schema's allowlist refine in case it ever drifts.
-        if (!isSafePostHogUrl(message.url)) {
+        if (
+          !isSafePostHogUrl(message.url) &&
+          !isSafeGitHubPullRequestUrl(message.url)
+        ) {
           options.onExternalOpenBlocked?.(message.url, "unsafe-url");
         } else if (!options.hasUserActivation()) {
           options.onExternalOpenBlocked?.(message.url, "no-interaction");
@@ -177,6 +222,22 @@ export function createCanvasHostMessageRouter(
           options.openExternal(message.url);
         }
         break;
+      case "keydown": {
+        if (!message.metaKey && !message.ctrlKey) break;
+        if (!REPLAYABLE_SHORTCUT_KEYS.has(message.key.toLowerCase())) break;
+        if (!(document.activeElement instanceof HTMLIFrameElement)) break;
+        const init = {
+          key: message.key,
+          code: message.code,
+          metaKey: message.metaKey,
+          ctrlKey: message.ctrlKey,
+          shiftKey: message.shiftKey,
+          altKey: message.altKey,
+        };
+        document.dispatchEvent(new KeyboardEvent("keydown", init));
+        document.dispatchEvent(new KeyboardEvent("keyup", init));
+        break;
+      }
       case "ready":
         options.callbacks().onReady?.();
         break;

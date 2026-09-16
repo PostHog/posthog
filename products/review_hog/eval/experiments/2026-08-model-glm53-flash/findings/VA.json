@@ -1,0 +1,212 @@
+[
+    {
+        "id": "VA1",
+        "title": "Connectivity check adds a blocking database dependency",
+        "file": "products/review_hog/backend/api/settings.py",
+        "lines": "71-82",
+        "priority": "should_fix",
+        "claim": "The serializer runs a synchronous Stamphog database query for every settings GET and PATCH. Catching the exception prevents a 500 but not the connection wait; a Stamphog outage can delay ReviewHog settings requests and occupy Django workers. PATCH responses also wait after the main database update has already committed.",
+        "validator_kept": true,
+        "validator_reason": "Factual claims hold: query runs on every GET/PATCH against the separate stamphog DB with no timeout, breaker, or cache; comments claiming a fail-fast circuit breaker are false. During a stamphog outage requests block for the full connection timeout and workers pile up. Real reliability defect; should_fix stands."
+    },
+    {
+        "id": "VA2",
+        "title": "Broker failures permanently drop initial review requests",
+        "file": "products/stamphog/backend/facade/api.py",
+        "lines": "149-155",
+        "priority": "should_fix",
+        "claim": "`queue_inbox_pr_review` publishes directly to Celery with no durable intent record. The post-save caller catches publication errors and only logs. If Redis stays unavailable beyond Celery's producer retries, the saved PR target never receives its initial review, and no later TaskRun save is guaranteed.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: one-shot best-effort publish, ~3 producer retries over about a second, then the intent is silently and permanently lost; later TaskRun saves cannot re-trigger. The webhook leg already pays for durable intent plus recovery, so the inbox leg lacks an equivalent guarantee. should_fix stands."
+    },
+    {
+        "id": "VA3",
+        "title": "Supersede active reviews when an opted-out push arrives",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "894-898",
+        "priority": "must_fix",
+        "claim": "The opt-out path dismisses recorded approvals but leaves prior QUEUED or REVIEWING runs active. A prior run can pass post_verdict's head check before the push, then post its approval after the dismissal completes; because the run is never marked SUPERSEDED, the stale approval remains standing after the head change.",
+        "validator_kept": true,
+        "validator_reason": "Race confirmed: the skip path only sweeps approvals and never supersedes non-terminal runs, unlike the sibling base-retarget path which does exactly this for the same hazard. A stale approval can stand indefinitely, letting unreviewed code merge. Validator downgraded to should_fix: narrow interleaving, self-heals on next head-changing event."
+    },
+    {
+        "id": "VA4",
+        "title": "The initial carve-out lacks the documented provenance checks",
+        "file": "products/stamphog/AGENTS.md",
+        "lines": "84-99",
+        "priority": "must_fix",
+        "claim": "The docs say every carve-out has positive task linkage, but `process_inbox_pr_review` trusts its `pr_url`, `signal_report_id`, and `task_run_id` arguments without reloading the TaskRun, comparing repositories, rejecting forks, or verifying bot identity. Project members controlling signal-report tasks could trigger a review of an unrelated PR with `self_driving_review=True`, bypassing normal gates.",
+        "validator_kept": false,
+        "validator_reason": "Exploit path does not exist: the Celery task has exactly one caller (review_hog's post_save receiver), no HTTP surface; writing output.pr_url via the TaskRun API never invokes it. Repo/fork checks happen via team-scoped config match; the carve-out stamps inbox provenance, not self_driving_review. Defensive paranoia against inputs the caller's invariants rule out."
+    },
+    {
+        "id": "VA5",
+        "title": "Only count supported repository providers",
+        "file": "products/stamphog/backend/facade/api.py",
+        "lines": "121-124",
+        "priority": "should_fix",
+        "claim": "The readiness query accepts any provider, but `process_inbox_pr_review` only accepts GitHub configurations. The provider field is free-form, so a connected-looking non-GitHub row enables the toggle although every review request becomes a no-op.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: write path accepts any provider string while the read path requires github exactly. A non-GitHub row makes the settings endpoint report connected and enables the toggle, yet every review resolves no config and logs a silent no-op. Real user-facing silent dead-end; should_fix stands."
+    },
+    {
+        "id": "VA6",
+        "title": "The initial queue trusts an unattested PR URL",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "126-138",
+        "priority": "must_fix (validator→should_fix)",
+        "claim": "The receiver sends `output.pr_url` directly to the Stamphog queue after checking only the user toggle. Any team member can control a Signals task run and PATCH its output including pr_url. The worker stamps `inbox_review` without confirming the run produced this PR, bypassing bot, draft, review mode, and author permission gates for an unrelated PR in any enabled team repository.",
+        "validator_kept": true,
+        "validator_reason": "Trust gap is real: the PR URL is taken verbatim from run output with no linkage verification, skipping the review-mode label and author-permission gates. But repo-config scoping, the GitHub fetch, and toggle check still bind; abuse requires an authenticated insider and yields review spam, not data exposure. Downgraded to should_fix."
+    },
+    {
+        "id": "VA7",
+        "title": "Validate that the queued PR belongs to the self-driving run",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1130-1181",
+        "priority": "must_fix (validator→consider)",
+        "claim": "`process_inbox_pr_review` trusts all supplied provenance: it never loads `task_run_id` or compares the task repository with the fetched PR, nor rejects a fork or non-bot PR. A qualifying task can supply any PR URL from a configured team repository, stamping `inbox_review` and enabling the engine's bot and draft bypass, potentially approving a PR the run did not create.",
+        "validator_kept": true,
+        "validator_reason": "Kernel accurate: no cross-check of pr_url/task_run_id against the originating TaskRun, and no author-type or fork check on this leg. But the path is not externally reachable — exploiting it requires compromising a trusted internal component. Genuine defense-in-depth gap worth recording; hardening, not a reachable vulnerability. Adjusted to consider."
+    },
+    {
+        "id": "VA8",
+        "title": "Recheck the reviewer opt-in inside the queued task",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1110-1112,1176-1180",
+        "priority": "must_fix",
+        "claim": "The receiver checks the toggle before queuing, but the task does not check it again. Broker delays and GitHub retries can run it after the reviewer disables the toggle or loses assignment; it still creates a self-driving run and can post an approval.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: consent is checked only at enqueue time; the task trusts the caller-supplied acting_user_id verbatim across retries and can post a GitHub approval after consent is revoked. The webhook leg already rechecks at effect time, so the fix is a single guarded call to an existing hook. Authorization bypass; must_fix kept."
+    },
+    {
+        "id": "VA9",
+        "title": "Do not use caller-written run fields as approval authorization",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "504-509",
+        "priority": "must_fix",
+        "claim": "`find_signal_implementation_run` treats a `find_task_run` match as proof the run produced the PR, but that lookup uses `TaskRun.output.pr_url`, which task controllers and sandbox agents can write, plus a caller-influenced branch fallback. A compromised agent can point a qualifying run at an unrelated bot PR; a later webhook then enables the carve-out and bypasses the bot, draft, review-mode, and permission gates.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: the authorization decision rests on agent-mutable fields (output.pr_url, state.wizard_head_branch, task.repository), the one place violating the codebase's own attested-key convention. A compromised agent-side component can silently disable the gate stack for an attacker-chosen PR. Fix: server-owned PR-to-run binding from attested writers. must_fix kept."
+    },
+    {
+        "id": "VA10",
+        "title": "Apply team scope before selecting a matching run",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "504-506",
+        "priority": "should_fix",
+        "claim": "The function applies team scope after `find_task_run` selects its first result, but that lookup queries runs from every team. Another team's newer matching row can shadow a valid run for this team, so another tenant's data changes this tenant's authorization result despite the facade's stated scope contract.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: no leg of find_task_run filters by team; the post-hoc gate rejects a cross-team row but never re-selects this team's own match. Consequences: cross-team denial for the correct team, and wrong-tenant attribution on the unscoped webhook path. Real tenant-isolation defect; cheap fix with existing FKs. should_fix kept."
+    },
+    {
+        "id": "VA11",
+        "title": "Check every assigned reviewer's Stamphog opt-in",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "111-126,151-154",
+        "priority": "must_fix",
+        "claim": "The gate checks only the single user returned by `_resolve_assigned_reviewer`. If the first reviewer is off, a later assigned reviewer with the toggle on cannot start Stamphog, affecting the initial trigger and each webhook re-review, conflicting with the stated rule that any assigned reviewer can opt in.",
+        "validator_kept": false,
+        "validator_reason": "The claimed conflict does not exist: no design statement says any assigned reviewer can opt in; docs consistently gate on the acting reviewer, chosen deliberately per dated maintainer decisions so one canonical reviewer's settings govern. The suggested fallback would silently swap whose configuration drives the review — a regression, not a fix. Speculative preference; dismissed."
+    },
+    {
+        "id": "VA12",
+        "title": "Internal implementation tasks cannot qualify",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "508-509",
+        "priority": "must_fix",
+        "claim": "Production auto-start creates each self-driving implementation task with `internal=True`. This condition rejects that task, so later webhooks miss the carve-out and StampHog does not re-review the stated self-driving PR.",
+        "validator_kept": false,
+        "validator_reason": "No validator verdict recorded for this finding (header marked no-verdict; no Checked/Found rebuttal or acceptance present in the dump)."
+    },
+    {
+        "id": "VA13",
+        "title": "Self-driving flag bypasses gates without checking the PR shape",
+        "file": "tools/pr-approval-agent/review_local.py",
+        "lines": "316-324",
+        "priority": "must_fix",
+        "claim": "The initial hosted trigger accepts the task's `pr_url` and stamps `inbox_review` after fetching the PR, without checking the expected app bot, a native head, or the task repository. A linked task can therefore mark an unrelated human or fork PR as self-driving, and this line relaxes both hard gates for that PR.",
+        "validator_kept": false,
+        "validator_reason": "Every claimed-missing verification exists: team repo-config match before any GitHub call, URL parsing, open-state fetch with App credentials, HMAC-verified webhooks, non-internal signal-report run with opted-in reviewer, and the engine gate keyed on server-stamped provenance. The attack chain has no reachable input (forks excluded by internal-branch check). Premise mistaken; dismissed."
+    },
+    {
+        "id": "VA14",
+        "title": "The self-driving prompt conflicts with the system rules",
+        "file": "tools/pr-approval-agent/reviewer.py",
+        "lines": "683-701",
+        "priority": "must_fix",
+        "claim": "Both review-guidance files still list every bot author as a showstopper that always needs human review. The new provenance text is part of the user prompt and cannot override that higher-priority system rule, so a compliant reviewer must still refuse or escalate the self-driving PRs this change intends to approve.",
+        "validator_kept": true,
+        "validator_reason": "Conflict is real and structural: the code gate is relaxed by the flag but the system-prompt showstopper is not, so a compliant reviewer must REFUSE/ESCALATE every self-driving PR — the feature is dead on arrival. Suggested system-level exception is minimal and correctly scoped. must_fix correct."
+    },
+    {
+        "id": "VA15",
+        "title": "The trusted prompt can report the wrong draft state",
+        "file": "tools/pr-approval-agent/reviewer.py",
+        "lines": "694-701",
+        "priority": "should_fix",
+        "claim": "Self-driving webhook reviews can run after `ready_for_review` when a later push arrives. At that point `pr.draft` is false, but this trusted block says the PR is a draft on purpose, so the reviewer receives incorrect state information.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: the draft statement is a static string with no state coupling, factually wrong on every post-ready re-review, which is reachable through the ordinary lifecycle. Consequence contained — the draft exemption is enforced in code, no verdict changes — but trusted provenance text should not assert false state. should_fix stands."
+    },
+    {
+        "id": "VA16",
+        "title": "Broker failures can lose requested reviews",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "131-138,225-234",
+        "priority": "should_fix",
+        "claim": "After the TaskRun commits, the callback publishes the Celery task. `_start_stamphog_review` catches every publish error, stores no dispatch record, and schedules no retry. A temporary broker outage can lose the only initial review request; the TaskRun save still succeeds so no caller knows to try again, and `process_inbox_pr_review` retries do not help because Celery never received the task.",
+        "validator_kept": false,
+        "validator_reason": "Premise contradicted: Celery's default task_publish_retry retries transient publish failures, the failure log carries full context, and the module docstring records the loss mode as a deliberate trade-off. The proposed transactional outbox is cross-cutting overengineering with no observed incident. Residual ~1s window exists but no trigger demonstrated; fails the bar."
+    },
+    {
+        "id": "VA17",
+        "title": "Celery acknowledges the task before completion",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1109-1112",
+        "priority": "should_fix",
+        "claim": "Celery uses early acknowledgement because this task does not set `acks_late`. A worker exit can lose the task during the GitHub fetch or database transaction; a crash after the run commits but before `_start_review_workflow` executes leaves the run in QUEUED forever. Head-keyed deduplication already makes redelivery safe.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: early acks mean a worker exit silently drops the task and can strand a QUEUED run with no sweeper; redelivery is already safe via head-keyed dedupe and idempotent workflow start. The repo already uses acks_late + reject_on_worker_lost elsewhere, and the short task avoids visibility-timeout concerns. should_fix stands."
+    },
+    {
+        "id": "VA18",
+        "title": "The retry window is too short for service outages",
+        "file": "products/stamphog/backend/tasks/tasks.py",
+        "lines": "1109-1109,1148-1165,1234-1237",
+        "priority": "should_fix",
+        "claim": "`max_retries=3` and `default_retry_delay=5` give non-rate-limit failures only four attempts with short fixed delays. Longer database, GitHub, or Temporal outages exhaust the task. Failures before row creation leave no recoverable state; failures after commit can leave a QUEUED run without a workflow because no reconciliation sweep exists.",
+        "validator_kept": true,
+        "validator_reason": "Every numeric claim holds: ~15 seconds total outage tolerance; post-commit failures strand a QUEUED run indefinitely with no reconciliation path on the inbox leg. Concrete silent permanent-failure mode; remedy matches existing in-repo backoff/sweep conventions. should_fix correct — real reliability hole but the common case succeeds."
+    },
+    {
+        "id": "VA19",
+        "title": "Bot webhook misses can scan the TaskRun table",
+        "file": "products/tasks/backend/facade/api.py",
+        "lines": "502-505",
+        "priority": "should_fix",
+        "claim": "The carve-out calls `find_task_run` for each head-changing native bot PR on a configured repository. On a PR URL miss, the helper falls back to `TaskRun.branch` and a repository join; `TaskRun.branch` has no index, so unlinked Dependabot or Renovate updates can scan the hot TaskRun table on every push.",
+        "validator_kept": true,
+        "validator_reason": "Confirmed: neither branch nor repository is indexed, and iexact defeats a btree anyway, so every bot-PR synchronize miss sequentially scans the hot posthog_task_run table. Cost grows with total run volume and degrades the shared webhook path. Fix: team-scoped filtering, partial composite index, UPPER(repository) expression index, EXPLAIN verification. should_fix stands."
+    },
+    {
+        "id": "VA20",
+        "title": "Resolver failures can leave stale approvals active",
+        "file": "products/review_hog/backend/receivers.py",
+        "lines": "150-155",
+        "priority": "must_fix (validator→should_fix)",
+        "claim": "`resolve_stamphog_acting_reviewer` can raise when the main database or reviewer lookup fails. The Stamphog webhook handler retries before it reaches its approval retraction; after Celery exhausts retries, the old approval remains active on the new, unreviewed head, breaking Stamphog's stale-approval invariant.",
+        "validator_kept": true,
+        "validator_reason": "Correct mechanism, wrong consequence: resolver failure defers retraction (delivery retried/redelivered), it does not permanently strand an approval — every path retries and the first successful pass retracts. Making retraction independent of the resolver is genuine robustness hardening of a non-violable invariant. must_fix overstates; downgraded to targeted hardening (should_fix)."
+    },
+    {
+        "id": "VA21",
+        "title": "Remove the false label confidence signal",
+        "file": "tools/pr-approval-agent/reviewer.py",
+        "lines": "683-703",
+        "priority": "should_fix",
+        "claim": "The PostHog system prompt says a maintainer applied the `stamphog` label and considers the PR ready. Self-driving PRs skip that label, and this block does not remove the higher-priority system claim, so the reviewer receives a false readiness signal even after the bot-author conflict is fixed.",
+        "validator_kept": false,
+        "validator_reason": "Premise mistaken: the system prompt makes no per-PR label-based readiness assertion; the only 'maintainer applied' sentence describes repository opt-in and is accurate. Readiness state lives in the trusted context block from deterministic gates. The rewrite would churn two files and blur the trusted/untrusted boundary. Nothing to fix; dismissed."
+    }
+]

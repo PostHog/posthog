@@ -7,6 +7,9 @@ import datetime
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
+# Generated sources are excluded from MAX_SOURCES_PER_TEAM. This bounds the
+# sources list when learning publishes one text source per accepted topic.
+MAX_LEARNED_SOURCES_PER_TEAM = 10000
 MAX_CHUNKS_PER_TEAM = 100_000
 # 1 MB of raw text. Above this Stage 1 refuses the create; for longer docs the
 # customer is expected to split them or wait for Stage 2/3.
@@ -181,10 +184,36 @@ BK_RERANK_SNIPPET_CHARS = 500
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 
+# --- Search endpoint bounds ---
+# Ranked-chunk count for the documents/search endpoint. The default when the
+# caller passes no `limit`, and the hard cap the view clamps `limit` to.
+# `search_knowledge` also clamps its anchor count to the max.
+BK_SEARCH_DEFAULT_LIMIT = 10
+BK_SEARCH_MAX_LIMIT = 20
+
 # --- Always-on context cap ---
 # Hard char cap for always-on sources injected into every support prompt.
 # These bypass query filtering, so unbounded injection blows the token budget.
 MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
+
+# --- Abandoned-trial shape (`logic.has_maintained_sources`) ---
+# A team that pasted a little text in to see what the product does and never came back still
+# reads as available to everything checking `is_available_for_team`, so an agent prompt
+# describing the knowledge base costs that team tokens on every run for a base nobody consults.
+# The shape below is what that trial looks like on the rows, and `has_maintained_sources`
+# treats it as not worth the prompt space. Deliberately narrow — one lone unpinned manual
+# source, this little content, quiet this long — because the opposite error hides a real
+# knowledge base from every agent. Widen it only on evidence.
+#
+# The content bar counts searchable (SAFE) chunks, not documents: an upload or a paste stores the
+# whole text as ONE document however long it is (`create_text_source` / `create_file_source`), so
+# a document count would read a book-length handbook as a one-item trial. Chunks track content
+# volume (~CHUNK_TARGET_CHARS each), so a real base clears this bar and only a genuine tire-kick
+# paste — a chunk or two — stays under it. It counts only chunks the search path would return
+# (SAFE, non-tombstoned, in a READY source), so a base of UNSAFE/UNKNOWN content that no search
+# can reach never clears the bar on volume alone.
+TRIAL_MAX_CHUNKS = 2
+TRIAL_QUIET_PERIOD = datetime.timedelta(days=60)
 
 # --- Drill-down (agentic read) tunables ---
 # Default chunk radius for get_document_window: returns center +/- radius

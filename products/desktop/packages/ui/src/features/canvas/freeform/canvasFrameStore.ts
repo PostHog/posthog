@@ -11,7 +11,7 @@ import { create } from "zustand";
 // across canvases. The sandbox's `init` message swaps the rendered canvas in place
 // without reloading, so a booted iframe can be re-pointed at a different canvas's
 // code. We therefore keep a small pool of physical frames (indexed slots) alive in
-// the persistent WebsiteLayout and assign canvases to them: the first few distinct
+// the persistent ShellLayout and assign canvases to them: the first few distinct
 // canvases each boot a frame; after the pool is full, a new canvas reuses the
 // least-recently-active frame via an init code-swap — no reload.
 //
@@ -20,7 +20,7 @@ import { create } from "zustand";
 // host renders the frames and overlays each onto the active route's placeholder
 // rect rather than mounting the iframe inside the route tree.
 
-export interface CanvasFrameRect {
+interface CanvasFrameRect {
   top: number;
   left: number;
   width: number;

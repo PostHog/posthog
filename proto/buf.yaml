@@ -18,3 +18,26 @@ lint:
 breaking:
     use:
         - FILE
+    # Temporary: allows deleting a retired RPC and its messages. Safe to
+    # remove once the deletion is on master, which these checks compare
+    # against.
+    ignore_only:
+        RPC_NO_DELETE:
+            - personhog/replica/v1/replica.proto
+            - personhog/service/v1/service.proto
+        MESSAGE_NO_DELETE:
+            - personhog/types/v1/person.proto
+        # Temporary: the WorkerIngest stream has no consumers yet, so its
+        # response message can be reshaped in place. Remove once on master.
+        FIELD_NO_DELETE:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_CARDINALITY:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_JSON_NAME:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_NAME:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_ONEOF:
+            - ingestion/worker/v1/worker.proto
+        FIELD_SAME_TYPE:
+            - ingestion/worker/v1/worker.proto

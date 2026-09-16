@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
+import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -16,10 +20,12 @@ import {
     reportTabReports,
     runReportsMany,
 } from '../../__mocks__/inboxMocks'
-import { SignalReportStatus } from '../../types'
+import { reportMetricQueryHandler, reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
-import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
+import { ReportDetailLegacy } from './ReportDetailLegacy'
 
 const mixedPrChecks = {
     checks: [
@@ -106,11 +112,34 @@ const detailMocks = mswDecorator({
         ],
         '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
     },
+    post: {
+        '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
+    },
+})
+
+const readyToImplementMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+            const artefacts = mockArtefacts(req.params.reportId as string)
+            return [
+                200,
+                {
+                    ...artefacts,
+                    results: artefacts.results.filter((artefact) => artefact.type !== 'task_run'),
+                },
+            ]
+        },
+    },
 })
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
-    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
+    },
     decorators: [detailMocks],
 }
 export default meta
@@ -124,7 +153,39 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const Report: Story = {
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} tab="reports" />
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportReadyToImplement: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={reportTabReports[0]} />
+        </Frame>
+    ),
+}
+
+export const ReportWithMetrics: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    summary: [
+                        'The Create key button swallows its own validation error, so people click it repeatedly and leave settings without a key.',
+                        '## Problem',
+                        'When the new API key form fails validation, the click handler returns early before the error state reaches the form. The button stays enabled and nothing renders.',
+                        '## Impact',
+                        'People creating keys are usually mid-setup, wiring an SDK or a CI job, so a silent failure here stalls an integration without leaving an error event behind.',
+                        '## Solution',
+                        'Set the form errors before the early return so the existing error rendering works again, and give the button a disabled reason while the request is in flight.',
+                    ].join('\n\n'),
+                    metrics: reportMetricsFixture,
+                })}
+            />
         </Frame>
     ),
 }
@@ -139,7 +200,6 @@ export const ReportMinimal: Story = {
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
                 })}
-                tab="reports"
             />
         </Frame>
     ),
@@ -148,7 +208,28 @@ export const ReportMinimal: Story = {
 export const PullRequest: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestStack: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    pull_requests: [1, 2].map((number) => ({
+                        id: `019e64b8-0000-7000-8000-00000000000${number}`,
+                        url: `https://github.com/example/app/pull/${number}`,
+                        state: number === 1 ? 'merged' : 'open',
+                        merged: number === 1,
+                        claim_id: null,
+                        attached_at: null,
+                        attached_by: null,
+                    })),
+                })}
+            />
         </Frame>
     ),
 }
@@ -156,7 +237,22 @@ export const PullRequest: Story = {
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[1]} />
+            <ReportDetail report={pullRequestReports[1]} />
+        </Frame>
+    ),
+}
+
+// Opens the "Files changed" tab: the file tree beside the branch diff from `mockBranchDiff()`.
+function FilesChangedTab({ report }: { report: SignalReport }): JSX.Element {
+    const { setDetailTab } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    useEffect(() => setDetailTab('files'), [setDetailTab])
+    return <ReportDetail report={report} />
+}
+
+export const PullRequestFilesChanged: Story = {
+    render: () => (
+        <Frame>
+            <FilesChangedTab report={pullRequestReports[0]} />
         </Frame>
     ),
 }
@@ -262,7 +358,27 @@ export const PullRequestInlineReview: Story = {
     decorators: [inlineReviewMocks],
     render: () => (
         <Frame>
-            <PullRequestDetail report={pullRequestReports[0]} />
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+// The detail pages with the redesign flag off: summary on the left, evidence on the right, and the
+// "Files changed" tab for a report with a PR.
+export const ReportLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={reportTabReports[0]} tab="reports" />
+        </Frame>
+    ),
+}
+
+export const PullRequestLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={pullRequestReports[0]} tab="pulls" />
         </Frame>
     ),
 }

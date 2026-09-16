@@ -28,6 +28,7 @@ hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
 symbolic = { version = "12.12", features = ["sourcemapcache", "debuginfo", "symcache", "demangle"] }
@@ -60,6 +61,8 @@ common-temporal = { path = "../common/temporal" }
 
 [dev-dependencies]
 common-compression = { path = "../common/compression" }
+# For constructing IO-flavored RedisErrors in redis_heal classifier tests
+redis = { workspace = true }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
@@ -67,6 +70,7 @@ tower.workspace = true
 # For decompressing the committed native ELF test fixture
 zstd = "0.13"
 testcontainers = { workspace = true }
+metrics-util = { workspace = true }
 
 [lints]
 workspace = true

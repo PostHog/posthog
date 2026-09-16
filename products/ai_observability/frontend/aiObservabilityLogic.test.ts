@@ -12,7 +12,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
-import { isTracesQuery } from '~/queries/utils'
+import { isEventsQuery, isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -218,6 +218,17 @@ describe('aiObservabilitySharedLogic', () => {
 
         expectLogic(logic).toMatchValues({
             dashboardDateFilter: { dateFrom: '-30d', dateTo: null },
+            dashboardDateOverride: false,
+            dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+    })
+
+    it('does not move the dashboard date range when the events tabs change dates', () => {
+        logic.actions.setDates('-30d', '-1d')
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-30d', dateTo: '-1d' },
+            dashboardDateFilter: { dateFrom: '-7d', dateTo: null },
             dashboardDateOverride: false,
             dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
         })
@@ -570,20 +581,38 @@ describe('AI observability persisted preferences', () => {
         sharedLogic.unmount()
     })
 
-    it('persists generation column preferences across remount', () => {
-        const columns = ['uuid', 'timestamp']
-        const firstLogic = aiObservabilityGenerationsLogic()
-        firstLogic.mount()
-        firstLogic.actions.setGenerationsColumns(columns)
-        firstLogic.unmount()
+    it.each([[['uuid', 'timestamp']], [['uuid', "'' -- Sentiment", 'timestamp']]])(
+        'preserves generation column preferences while excluding retired sentiment (%j)',
+        (columns) => {
+            const firstLogic = aiObservabilityGenerationsLogic()
+            firstLogic.mount()
+            firstLogic.actions.setGenerationsColumns(columns)
+            firstLogic.unmount()
 
-        const secondLogic = aiObservabilityGenerationsLogic()
-        secondLogic.mount()
+            const secondLogic = aiObservabilityGenerationsLogic()
+            secondLogic.mount()
 
-        expect(secondLogic.values.generationsColumns).toEqual(columns)
+            expect(secondLogic.values.generationsColumns).toEqual(columns)
 
-        secondLogic.unmount()
-    })
+            const query = secondLogic.values.generationsQuery
+            if (!isEventsQuery(query.source)) {
+                throw new Error('Expected an EventsQuery')
+            }
+            expect(query.source.select).toEqual(['uuid', 'timestamp'])
+
+            secondLogic.actions.setGenerationsQuery({
+                ...query,
+                source: { ...query.source, select: columns },
+            })
+            const overriddenQuery = secondLogic.values.generationsQuery
+            expect(isEventsQuery(overriddenQuery.source) && overriddenQuery.source.select).toEqual([
+                'uuid',
+                'timestamp',
+            ])
+
+            secondLogic.unmount()
+        }
+    )
 
     it('persists traces table preferences across remount', () => {
         const firstLogic = aiObservabilityTracesTabLogic()

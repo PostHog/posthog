@@ -1,27 +1,19 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getAngularSteps as getAngularStepsPA } from '../product-analytics/angular'
+import { getAngularInstallSteps } from '../product-analytics/angular'
 import { StepDefinition } from '../steps'
 
 export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { snippets } = ctx
     const WebFinalSteps = snippets?.WebFinalSteps
 
-    // Get installation steps from product-analytics
-    const paSteps = getAngularStepsPA(ctx)
-
-    // Replace the "Send events" step with web analytics specific content
-    const webAnalyticsSteps = paSteps.map((step) => {
-        if (step.title === 'Send events') {
-            return {
-                ...step,
-                content: <>{WebFinalSteps && <WebFinalSteps />}</>,
-            }
-        }
-        return step
-    })
-
-    return webAnalyticsSteps
+    return [
+        ...getAngularInstallSteps(ctx),
+        {
+            title: 'Send events',
+            content: <>{WebFinalSteps && <WebFinalSteps />}</>,
+        },
+    ]
 }
 
 export const AngularInstallation = createInstallation(getAngularSteps)

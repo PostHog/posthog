@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -60,10 +58,10 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPEN_ROUTER,
+            name=ExternalDataSourceType.OPENROUTER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenRouter",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your OpenRouter API key to pull your OpenRouter usage and account data into the PostHog Data warehouse.
 
 Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, organization members, and workspaces tables can sync. A regular inference key can only read the models and providers catalogs.""",

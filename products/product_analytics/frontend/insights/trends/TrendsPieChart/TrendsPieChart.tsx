@@ -16,20 +16,23 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+import { datasetToActorsQuery } from 'products/product_analytics/frontend/insights/trends/viz/datasetToActorsQuery'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { DonutCenterLabel } from './DonutCenterLabel'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -37,6 +40,8 @@ interface TrendsPieChartProps {
     inSharedMode?: boolean
     showPersonsModal?: boolean
 }
+
+const DONUT_INNER_RADIUS_RATIO = 0.6
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -60,6 +65,7 @@ export function TrendsPieChart({
     const { aggregationLabel } = useValues(groupsModel)
 
     const {
+        display,
         indexedResults,
         trendsFilter,
         formula,
@@ -88,6 +94,7 @@ export function TrendsPieChart({
 
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
+    const isDonut = display === ChartDisplayType.ActionsDonut
 
     // Share the line/bar label resolver so the legend humanizes event names ($pageview → Pageview)
     // and honors series renames, instead of showing the raw event key.
@@ -140,6 +147,7 @@ export function TrendsPieChart({
             showLabelOnSlice: !!showLabelOnSeries,
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
+            innerRadiusRatio: isDonut ? DONUT_INNER_RADIUS_RATIO : undefined,
             legend: legendConfig,
         }),
         [
@@ -148,6 +156,7 @@ export function TrendsPieChart({
             showLabelOnSeries,
             isPercentStackView,
             pieChartVizOptions?.disableHoverOffset,
+            isDonut,
             legendConfig,
         ]
     )
@@ -266,6 +275,13 @@ export function TrendsPieChart({
     // center the whole group. In-app (right legend) the chart keeps filling the column.
     const legendAtBottom = !!legendConfig.show && legendConfig.position === 'bottom'
 
+    // A donut's hollow center is the natural home for the total, so move it there instead of
+    // stranding it below the chart.
+    const centerLabel =
+        isDonut && showAggregation ? (
+            <DonutCenterLabel>{formatAggregationAxisValue(trendsFilter, total, baseCurrency)}</DonutCenterLabel>
+        ) : undefined
+
     const pie = (
         <PieChart<TrendsSeriesMeta>
             series={series}
@@ -274,6 +290,7 @@ export function TrendsPieChart({
             tooltip={renderTooltip}
             onSliceClick={canHandleClick ? onSliceClick : undefined}
             valueFormatter={valueFormatter}
+            centerLabel={centerLabel}
             dataAttr="trend-pie-graph"
             onError={handleChartError}
         />
@@ -285,7 +302,7 @@ export function TrendsPieChart({
         // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
         <div className={clsx('flex flex-col w-full flex-1 min-h-0', legendAtBottom && 'justify-center')}>
             {legendAtBottom ? <div className="flex flex-col w-full min-h-0 max-h-full aspect-square">{pie}</div> : pie}
-            {showAggregation && (
+            {showAggregation && !isDonut && (
                 <div className={clsx('text-7xl text-center font-bold m-0', legendAtBottom && 'mt-6')}>
                     {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
                 </div>

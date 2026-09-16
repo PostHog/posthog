@@ -12,6 +12,7 @@ import {
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
     isClaudeUiHostClient,
     isCliModeEnabledClient,
+    isLegacyDialectOnlyClient,
     isPostHogCodeConsumer,
     isToolsModeClient,
     resolveEffectiveClientName,
@@ -182,6 +183,27 @@ describe('isPostHogCodeConsumer', () => {
     })
 })
 
+describe('isLegacyDialectOnlyClient', () => {
+    it.each([
+        ['antigravity-client'],
+        ['antigravity'],
+        ['Antigravity'],
+        ['antigravity-client/1.2.3'],
+        // Bridge variants are gated too: their fallback lands on the legacy
+        // handshake, which works, while their stateless support varies by version.
+        ['antigravity-client (via mcp-remote 0.1.37)'],
+    ])('returns true for %s', (clientName) => {
+        expect(isLegacyDialectOnlyClient(clientName)).toBe(true)
+    })
+
+    it.each([['claude-code'], ['cursor'], ['mcp-remote-fallback-test'], [''], [undefined]])(
+        'returns false for %s',
+        (clientName) => {
+            expect(isLegacyDialectOnlyClient(clientName)).toBe(false)
+        }
+    )
+})
+
 describe('isToolsModeClient', () => {
     it.each([['cursor'], ['Cursor'], ['cursor-vscode'], ['cursor/1.2.3'], ['cursor-editor']])(
         'returns true for client name %s',
@@ -190,21 +212,22 @@ describe('isToolsModeClient', () => {
         }
     )
 
-    it.each([
-        // ChatGPT never self-reports a client name; the surface is UA-only.
-        ['openai-mcp/1.0.0 (ChatGPT)'],
-        // Older Cursor builds omit clientInfo.name and identify only via UA.
-        ['Cursor/3.1.15 (darwin arm64)'],
-    ])('returns true for the name-less user-agent %s', (userAgent) => {
-        expect(isToolsModeClient(undefined, userAgent)).toBe(true)
+    // Older Cursor builds omit clientInfo.name and identify only via UA.
+    it('returns true for the name-less Cursor user-agent', () => {
+        expect(isToolsModeClient(undefined, 'Cursor/3.1.15 (darwin arm64)')).toBe(true)
     })
 
-    it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Codex)'], ['openai-mcp/1.0.0 (Agent Builder)']])(
-        'returns false for the non-ChatGPT openai-mcp surface %s',
-        (userAgent) => {
-            expect(isToolsModeClient(undefined, userAgent)).toBe(false)
-        }
-    )
+    // OpenAI's proxy caches the roster it captures for a published plugin, so a
+    // labeled ChatGPT request landing in tools mode would freeze the full roster
+    // for every plugin user. Every openai-mcp surface stays on the cli default.
+    it.each([
+        ['openai-mcp/1.0.0'],
+        ['openai-mcp/1.0.0 (ChatGPT)'],
+        ['openai-mcp/1.0.0 (Codex)'],
+        ['openai-mcp/1.0.0 (Agent Builder)'],
+    ])('returns false for the openai-mcp surface %s', (userAgent) => {
+        expect(isToolsModeClient(undefined, userAgent)).toBe(false)
+    })
 
     it.each([['claude-code'], ['mcp-inspector'], ['some-random-tool'], [''], [undefined]])(
         'returns false for client name %s',

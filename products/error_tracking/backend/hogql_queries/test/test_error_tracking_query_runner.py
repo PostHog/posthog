@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     ClickhouseTestMixin,
     NonAtomicBaseTestKeepIdentities,
@@ -12,8 +12,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest import TestCase
+from unittest import TestCase, mock
 
+from django.db import OperationalError
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -27,6 +28,7 @@ from posthog.schema import (
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -37,12 +39,18 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition, Team
 from posthog.models.utils import uuid7
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
@@ -53,6 +61,10 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
+    MAX_RECENT_ISSUE_STATES,
+    load_recent_issue_states,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -61,9 +73,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
-
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
+from products.event_definitions.backend.property_type import PropertyType
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -108,7 +118,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         person_id=None,
     ):
         if timestamp:
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 self.create_issue(issue_id, fingerprint, name=issue_name)
         else:
             self.create_issue(issue_id, fingerprint, name=issue_name)
@@ -145,10 +155,26 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
         self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
 
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.DISABLED,),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,),
+        ]
+    )
+    def test_user_aggregation_does_not_resolve_person_overrides(self, persons_on_events_mode):
+        self.team.modifiers = {"personsOnEventsMode": persons_on_events_mode}
+
+        response = self._calculate(withAggregations=True)
+
+        self.assertIn("e.event_person_id", response["hogql"])
+        self.assertNotIn("person_distinct_id_overrides", response["hogql"])
+
     def setUp(self):
         super().setUp()
 
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_person(
                 team=self.team,
                 distinct_ids=[self.distinct_id_one],
@@ -243,6 +269,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -260,6 +287,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -281,6 +309,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -299,6 +328,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -317,17 +347,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         ]
     )
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_column_names(self, _name, kwargs, expected_columns):
         columns = self._calculate(**kwargs)["columns"]
         self.assertEqual(columns, expected_columns)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_date_range_resolution(self):
-        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d")
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d", self.team.timezone_info)
         date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
-        self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        self.assertEqual(date_from, datetime(2022, 1, 9, 0, 0, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        # Day ranges snap to midnight in the project timezone, not UTC.
+        self.assertEqual(
+            ErrorTrackingQueryRunner.parse_relative_date_from("-1d", ZoneInfo("America/Los_Angeles")),
+            datetime(2022, 1, 9, 0, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+        )
 
     def test_event_fetching_defaults_off(self):
         runner = ErrorTrackingQueryRunner(
@@ -343,13 +378,59 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertFalse(runner.query.withLastEvent)
         self.assertTrue(runner.query.withAggregations)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_cache_payload_keeps_latest_issue_state_watermark_after_overlay_expiry(self):
+        query = ErrorTrackingQuery(
+            kind="ErrorTrackingQuery",
+            dateRange=DateRange(date_from="all"),
+            orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+            volumeResolution=1,
+        )
+        initial_payload = ErrorTrackingQueryRunner(
+            team=self.team, query=query.model_copy(deep=True)
+        ).get_cache_payload()
+        mutation_timestamp = now() - timedelta(seconds=61)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=mutation_timestamp)
+
+        mutated_payload = ErrorTrackingQueryRunner(
+            team=self.team, query=query.model_copy(deep=True)
+        ).get_cache_payload()
+        with time_machine.travel("2022-01-10T12:13:00", tick=False):
+            expired_payload = ErrorTrackingQueryRunner(
+                team=self.team, query=query.model_copy(deep=True)
+            ).get_cache_payload()
+
+        self.assertNotEqual(
+            initial_payload["error_tracking_issue_state_watermark"],
+            mutated_payload["error_tracking_issue_state_watermark"],
+        )
+        self.assertEqual(
+            mutated_payload["error_tracking_issue_state_watermark"],
+            expired_payload["error_tracking_issue_state_watermark"],
+        )
+
+    def test_cache_payload_degrades_when_watermark_read_fails(self):
+        query = ErrorTrackingQuery(
+            kind="ErrorTrackingQuery",
+            dateRange=DateRange(date_from="all"),
+            orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+            volumeResolution=1,
+        )
+        with mock.patch(
+            "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.latest_issue_state_watermark",
+            side_effect=OperationalError("query_wait_timeout"),
+        ):
+            payload = ErrorTrackingQueryRunner(team=self.team, query=query).get_cache_payload()
+
+        self.assertEqual(payload["error_tracking_issue_state_watermark"], "unavailable")
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_missing_date_from_defaults_to_seven_days(self):
         # A missing date_from must default to a bounded 7-day window, not all-time.
-        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None, self.team.timezone_info)
         self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_date_to_only_window_ends_at_date_to(self):
         # date_to-only queries must anchor the default window to date_to, not to now.
         runner = ErrorTrackingQueryRunner(
@@ -363,7 +444,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )
         self.assertEqual(runner.date_from, runner.date_to - timedelta(days=7))
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
         results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
@@ -372,7 +453,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["occurrences"], 2)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_search_query(self):
         self.create_events_and_issue(
@@ -419,13 +500,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[1]["aggregations"]["sessions"], 0)
         self.assertEqual(results[1]["aggregations"]["users"], 1)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2022-01-10 12:11:00")
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_search_query_with_multiple_search_items(self):
         self.create_events_and_issue(
@@ -461,7 +542,28 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
 
-    @freeze_time("2022-01-10 12:11:00")
+    @parameterized.expand([("event", PropertyDefinition.Type.EVENT), ("person", PropertyDefinition.Type.PERSON)])
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
+    def test_search_with_non_string_property_definition(self, _name, definition_type):
+        # A Boolean definition makes the property swapper cast `email` away from
+        # String, which used to make `lower()` reject it and fail the query.
+        PropertyDefinition.objects.create(
+            team=self.team, name="email", type=definition_type, property_type=PropertyType.Boolean
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$exception_types": "['DatabaseNotFoundX']"},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery="databasenotfoundx")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
+
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_search_person_properties(self):
         distinct_id = "david@posthog.com"
@@ -484,7 +586,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "684bd8ae-498f-4548-bc05-e621b5b5b9aa")
 
-    @freeze_time("2020-01-10 12:11:00")
+    @time_machine.travel("2020-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_only_returns_exception_events(self):
         _create_event(
@@ -498,7 +600,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate()["results"]
         self.assertEqual(len(results), 3)
 
-    @freeze_time("2022-01-10 12:11:00")
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_correctly_counts_session_ids(self):
         common_properties = {
@@ -531,14 +633,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
-    @freeze_time("2022-01-10 12:11:00")
+    @time_machine.travel("2022-01-10 12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_correctly_counts_persons(self):
         results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         self.assertEqual(results[0]["aggregations"]["users"], 2)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
         results = self._calculate(
@@ -559,7 +661,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         # two errors exist for person with distinct_id_two
         self.assertEqual(len(results), 2)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_ordering(self):
         results = self._calculate(orderBy="last_seen")["results"]
@@ -568,19 +670,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
         resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
-        resolved_issue.save()
-        # re-sync after status change
+        resolved_issue.description = "Stale description"
+        resolved_issue.severity = ErrorTrackingIssue.Severity.LOW
+        resolved_issue.save(update_fields=["status", "description", "severity"])
         sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
 
-        results = self._calculate(status="active")["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
+        clickhouse_results = self._calculate(status="resolved", issueId=self.issue_id_one)["results"]
+        self.assertEqual([result["id"] for result in clickhouse_results], [self.issue_id_one])
+        self.assertEqual(clickhouse_results[0]["status"], ErrorTrackingIssue.Status.RESOLVED)
+
+        resolved_issue.status = ErrorTrackingIssue.Status.ACTIVE
+        resolved_issue.severity = ErrorTrackingIssue.Severity.CRITICAL
+        resolved_issue.name = "Updated TypeError"
+        resolved_issue.description = None
+        resolved_issue.state_updated_at = now()
+        resolved_issue.save(update_fields=["status", "severity", "name", "description", "state_updated_at"])
 
         results = self._calculate(status="resolved")["results"]
+        self.assertNotIn(self.issue_id_one, [result["id"] for result in results])
+
+        results = self._calculate(status="active", issueId=self.issue_id_one)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+        self.assertEqual(results[0]["status"], ErrorTrackingIssue.Status.ACTIVE)
+        self.assertEqual(results[0]["severity"], ErrorTrackingIssue.Severity.CRITICAL)
+        self.assertEqual(results[0]["name"], "Updated TypeError")
+        self.assertIsNone(results[0]["description"])
 
         results = self._calculate()["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
@@ -588,7 +706,81 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_expired_postgres_state_uses_clickhouse_state(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now() - timedelta(seconds=61),
+        )
+
+        active_response = self._calculate(status="active")
+        self.assertIn(self.issue_id_one, [result["id"] for result in active_response["results"]])
+        self.assertNotIn("error_tracking_recent_issue_state", active_response["hogql"])
+
+        resolved_results = self._calculate(status="resolved")["results"]
+        self.assertNotIn(self.issue_id_one, [result["id"] for result in resolved_results])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_recent_issue_state_is_scoped_to_team(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(
+            team=other_team,
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        with self.assertNumQueries(2):
+            recent_states = load_recent_issue_states(self.team.pk)
+
+        self.assertEqual(
+            [state.issue_id for state in recent_states], [ErrorTrackingIssue.objects.get(id=self.issue_id_one).id]
+        )
+        self.assertNotIn(other_issue.id, [state.issue_id for state in recent_states])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_recent_issue_state_skips_overlay_when_bound_exceeded(self):
+        ErrorTrackingIssue.objects.bulk_create(
+            ErrorTrackingIssue(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now())
+            for _ in range(MAX_RECENT_ISSUE_STATES)
+        )
+        self.assertEqual(len(load_recent_issue_states(self.team.pk)), MAX_RECENT_ISSUE_STATES)
+
+        ErrorTrackingIssue.objects.create(
+            team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
+        )
+        # Over the bound the rows are never read, so the id probe is the only query.
+        with self.assertNumQueries(1):
+            self.assertEqual(load_recent_issue_states(self.team.pk), [])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
+        for index in range(50):
+            fingerprint = f"additional-fingerprint-{index}"
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                team=self.team,
+                issue_id=self.issue_id_one,
+                fingerprint=fingerprint,
+            )
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$exception_issue_id": self.issue_id_one, "$exception_fingerprint": fingerprint},
+            )
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+        flush_persons_and_events()
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        results = self._calculate(status="resolved", withAggregations=True)["results"]
+
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 52)
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_overrides_aggregation(self):
         self.override_fingerprint(self.issue_three_fingerprint, self.issue_id_one)
@@ -623,7 +815,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual(response.results, [(issue_id, issue_id)])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_user_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
@@ -633,14 +825,18 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )
         flush_persons_and_events()
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
-        # re-sync with a newer version so the assignment wins argMax over the create-time row
-        with freeze_time("2022-01-10T12:11:05"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
-    @freeze_time("2022-01-10T12:11:00")
+        with time_machine.travel("2022-01-10T12:11:05", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now() - timedelta(seconds=61))
+            results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_role_assignee(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
@@ -651,18 +847,19 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
-        # re-sync with a newer version so the assignment wins argMax over the create-time row
-        with freeze_time("2022-01-10T12:11:05"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
-    @freeze_time("2022-01-10T12:11:00")
+        with time_machine.travel("2022-01-10T12:11:05", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now() - timedelta(seconds=61))
+            results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+        self.assertEqual([x["id"] for x in results], [issue_id])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_unassignment_clears_assignee(self):
-        # Reproduces argMax(field, version) NULL-skip behavior: writing a newer
-        # row with assigned_user_id=NULL must not let the query return the prior
-        # non-NULL user_id.
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id, fingerprint="unassign_issue_fingerprint", distinct_ids=[self.distinct_id_one]
@@ -670,19 +867,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         flush_persons_and_events()
 
         assignment = ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
-        with freeze_time("2022-01-10T12:11:01"):
+        with time_machine.travel("2022-01-10T12:11:01", tick=False):
             sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
 
-        assignment.delete()
-        with freeze_time("2022-01-10T12:11:02"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        with time_machine.travel("2022-01-10T12:11:02", tick=False):
+            assignment.delete()
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
-        results = self._calculate()["results"]
+            results = self._calculate()["results"]
+            matching = [r for r in results if r["id"] == issue_id]
+            self.assertEqual(len(matching), 1)
+            self.assertIsNone(matching[0]["assignee"])
+
+        with time_machine.travel("2022-01-10T12:11:03", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now() - timedelta(seconds=61))
+            results = self._calculate()["results"]
         matching = [r for r in results if r["id"] == issue_id]
         self.assertEqual(len(matching), 1)
         self.assertIsNone(matching[0]["assignee"])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_issue_filters(self):
         results = self._calculate(
@@ -702,6 +907,107 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )["results"]
         self.assertEqual(len(results), 1)
 
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_recent_issue_state_applies_before_issue_filters(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            name="Updated TypeError",
+            severity=ErrorTrackingIssue.Severity.CRITICAL,
+            state_updated_at=now(),
+        )
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=["Updated TypeError"], operator=PropertyOperator.EXACT
+                            ),
+                            ErrorTrackingIssueFilter(
+                                key="severity",
+                                value=ErrorTrackingIssue.Severity.CRITICAL,
+                                operator=PropertyOperator.EXACT,
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self):
+        issue_id = "01936e80-f594-7a2e-8545-7bcb491aa620"
+        ErrorTrackingIssue.objects.create(
+            id=issue_id,
+            team=self.team,
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            severity=ErrorTrackingIssue.Severity.CRITICAL,
+            name="Recent unmapped issue",
+            state_updated_at=now(),
+        )
+        _create_event(
+            distinct_id="unmapped-fingerprint-user",
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_issue_id": issue_id,
+                "$exception_fingerprint": "fingerprint_without_clickhouse_state",
+            },
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT
+                            )
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual([result["id"] for result in results], [issue_id])
+        self.assertEqual(results[0]["severity"], ErrorTrackingIssue.Severity.CRITICAL)
+
+    @parameterized.expand(
+        [
+            ("exact", PropertyOperator.EXACT, ErrorTrackingIssue.Severity.HIGH, (issue_id_one,)),
+            ("is_set", PropertyOperator.IS_SET, True, (issue_id_one,)),
+            ("is_not_set", PropertyOperator.IS_NOT_SET, True, (issue_id_two, issue_id_three)),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_issue_severity_filter(self, _name, operator, value, expected_ids):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(severity=ErrorTrackingIssue.Severity.HIGH)
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[ErrorTrackingIssueFilter(key="severity", value=value, operator=operator)],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual({result["id"] for result in results}, set(expected_ids))
+        for result in results:
+            expected_severity = ErrorTrackingIssue.Severity.HIGH if result["id"] == self.issue_id_one else None
+            self.assertEqual(result["severity"], expected_severity)
+
     @parameterized.expand(
         [
             (
@@ -718,7 +1024,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         ]
     )
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_filter_group_operator(self, _name, operator: FilterLogicalOperator, expected_membership: list[bool]):
         results = self._calculate(
             filterGroup=PropertyGroupFilter(
@@ -748,7 +1054,58 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         }
         self.assertEqual(result_ids, expected_ids)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @parameterized.expand(
+        [
+            ("optimized_shape", False),
+            ("legacy_shape", True),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_distinct_aggregations_are_capped_at_occurrences(self, _name: str, legacy_shape: bool):
+        # `uniq` is approximate, so on a high-cardinality issue it can report
+        # more users or sessions than there are occurrences. Both query shapes
+        # must cap the estimate at the exact occurrence count.
+        filter_group = None
+        if legacy_shape:
+            filter_group = PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+                            ErrorTrackingIssueFilter(
+                                key="name", value=[self.issue_name_one], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=filter_group,
+                orderBy="last_seen",
+                volumeResolution=1,
+                withAggregations=True,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+        self.assertEqual(builder._needs_legacy_shape(), legacy_shape)
+
+        selected = {expr.alias: expr.expr for expr in builder.build_query().select if isinstance(expr, ast.Alias)}
+        occurrences = selected["occurrences"].to_hogql()
+        for alias in ("users", "sessions"):
+            capped = selected[alias]
+            assert isinstance(capped, ast.Call)
+            self.assertEqual(capped.name, "least")
+            self.assertEqual(capped.args[1].to_hogql(), occurrences)
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_nested_filter_group_routes_issue_filters_to_issue_fields(self):
         filter_group = PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
@@ -795,7 +1152,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(filterGroup=filter_group)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_event_filter_group_operator(self):
         firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"
         chrome_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5334"
@@ -841,7 +1198,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )["results"]
         self.assertEqual([result["id"] for result in and_results], [])
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
         person = _create_person(
@@ -868,7 +1225,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], issue_id)
 
-    @freeze_time("2022-01-10T12:11:00")
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_group_key_filter(self):
         group_a_id = "org:acme"
@@ -914,7 +1271,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(groupKey="nonexistent", groupTypeIndex=0)["results"]
         self.assertEqual(len(results), 0)
 
-    @freeze_time("2020-01-10T12:11:00")
+    @time_machine.travel("2020-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_first_seen_filters(self):
         cutoff_time = now() - relativedelta(hours=2)
@@ -955,7 +1312,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(len(results), 1)
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
-    @freeze_time("2020-01-12")
+    @time_machine.travel("2020-01-12", tick=False)
     @snapshot_clickhouse_queries
     def test_volume_aggregation_simple(self):
         results = self._calculate(
@@ -972,7 +1329,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
 
-    @freeze_time("2020-01-12")
+    @time_machine.travel("2020-01-12", tick=False)
     def test_volume_aggregation_counts_only(self):
         # Regression test: volumeResolution=0 (counts only) used to build
         # intDiv(..., 0) bin expressions and fail with an illegal division.
@@ -987,7 +1344,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             self.assertEqual(aggregations["volume_buckets"], [])
             self.assertGreaterEqual(aggregations["occurrences"], 1)
 
-    @freeze_time("2025-05-05")
+    @time_machine.travel("2025-05-05", tick=False)
     @snapshot_clickhouse_queries
     def test_volume_aggregation_advanced(self):
         issue_id = "e9ac529f-ac1c-4a96-bd3a-102334368d64"
@@ -1051,6 +1408,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for runner_class in (
             ErrorTrackingQueryRunner,
             ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingFingerprintProjectionQueryRunner,
             ErrorTrackingIssueCorrelationQueryRunner,
             ErrorTrackingSimilarIssuesQueryRunner,
         ):

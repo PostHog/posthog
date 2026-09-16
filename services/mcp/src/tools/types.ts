@@ -32,6 +32,8 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
+    skillsLearnedAt: number | undefined
+    skillsNoSkillsAckAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -41,6 +43,8 @@ export type State = {
     Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
     Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
+    Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
 
@@ -88,6 +92,8 @@ export type Env = {
      * Falls back to the production US host if not set.
      */
     POSTHOG_ANALYTICS_HOST: string | undefined
+    /** Override the published product skills archive, primarily for local development. */
+    POSTHOG_MCP_SKILLS_URL?: string | undefined
 }
 
 export type Context = {

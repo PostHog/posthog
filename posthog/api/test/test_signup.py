@@ -22,18 +22,19 @@ from rest_framework import status
 from posthog.api.signup import _save_session_with_recovery, lookup_invite_for_saml, process_social_invite_signup
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
+from posthog.helpers.oauth_pending_connection import PENDING_OAUTH_CONNECTION_COOKIE, PendingOAuthConnection
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -151,7 +152,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_requires_verification(self, mock_email_verifier, mock_is_email_available):
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -196,7 +197,7 @@ class TestSignupAPI(APIBaseTest):
         mock_email_verifier.assert_called_once_with(user)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     @patch("posthog.api.signup.is_email_verification_disabled", return_value=True)
     def test_api_sign_up_doesnt_require_verification_if_disabled(
         self,
@@ -1044,10 +1045,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1090,10 +1089,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1484,7 +1481,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_preserves_next_param(self, mock_email_verifier, mock_is_email_available):
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
 
@@ -1508,10 +1505,10 @@ class TestSignupAPI(APIBaseTest):
             response_data["redirect_url"],
             f"/verify_email/{user.uuid}?next=%2Fnext_path",
         )
-        mock_email_verifier.assert_called_once_with(user, "/next_path")
+        mock_email_verifier.assert_called_once_with(user)
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_sign_up_preserves_oauth_next_param_with_query_string(
         self, mock_email_verifier, mock_is_email_available
     ):
@@ -1539,7 +1536,30 @@ class TestSignupAPI(APIBaseTest):
             response_data["redirect_url"],
             f"/verify_email/{user.uuid}?next={expected_encoded}",
         )
-        mock_email_verifier.assert_called_once_with(user, oauth_url)
+        mock_email_verifier.assert_called_once_with(user)
+
+    @patch("posthoganalytics.capture")
+    def test_api_sign_up_reports_the_pending_oauth_connection(self, mock_capture):
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = PendingOAuthConnection(
+            client_name="Claude", client_id="https://claude.example.com/.well-known/oauth-client"
+        ).to_cookie_value()
+
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Jane",
+                "email": "oauth-signup@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        properties = signup_calls[0].kwargs["properties"]
+        self.assertEqual(properties["signup_oauth_client_name"], "Claude")
+        self.assertEqual(properties["signup_oauth_client_id"], "https://claude.example.com/.well-known/oauth-client")
+        self.assertEqual(properties["$set"]["signup_oauth_client_name"], "Claude")
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
@@ -2252,6 +2272,24 @@ class TestInviteSignupAPI(APIBaseTest):
 
     # Signup (using invite)
 
+    def test_api_invite_sign_up_preserves_next_param(self):
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="test+next@posthog.com", organization=self.organization
+        )
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Alice",
+                "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "Engineering",
+                "next_url": "/oauth/authorize?client_id=test123",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["redirect_url"], "/oauth/authorize?client_id=test123")
+
     @patch("posthoganalytics.capture")
     def test_api_invite_sign_up(self, mock_capture):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -2816,9 +2854,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
         ]
         organization.save()
-        OrganizationDomain.objects.create(
+        domain = OrganizationDomain.objects.create(
             domain="posthog_sss_test.com", organization=organization, sso_enforcement="saml", verified_at=timezone.now()
         )
+        config = IdentityProviderConfig.objects.create(
+            organization=organization,
+            config_scope="saml",
+            domain_scope="all",
+            saml_entity_id="https://idp.example.com",
+            saml_acs_url="https://idp.example.com/saml",
+            saml_x509_cert="test-certificate",
+        )
+        LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+sso@posthog_sss_test.com", organization=organization
@@ -2902,7 +2949,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
-    @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.signup.email_verification_code_verifier.send_code")
     def test_api_social_invite_sign_up_if_email_verification_on(self, email_mock, email_available_mock):
         """Test to make sure that social signups skip email verification"""
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
@@ -3384,11 +3431,13 @@ class TestSAMLInviteLookup(APIBaseTest):
             organization=self.organization, saml_entity_id="e", saml_acs_url="a", saml_x509_cert="c"
         )
         for domain in domains:
-            OrganizationDomain.objects.create(
+            organization_domain = OrganizationDomain.objects.create(
                 organization=self.organization,
                 domain=domain,
                 verified_at=timezone.now(),
-                identity_provider_config=config,
+            )
+            LinkedIdentityProviderConfig.objects.create(
+                organization_domain=organization_domain, identity_provider_config=config
             )
         config.refresh_from_db()
         assert config.saml_relay_state is not None

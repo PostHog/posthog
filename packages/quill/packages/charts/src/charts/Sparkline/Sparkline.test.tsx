@@ -62,6 +62,20 @@ describe('Sparkline', () => {
         expect(chart.seriesCount).toBe(2)
     })
 
+    it('tooltips a bar the cursor is above, which a bar chart would not', async () => {
+        const { chart } = renderHogChart(
+            <Sparkline
+                type="bar"
+                data={[100, 1, 1, 1]}
+                labels={LABELS}
+                theme={THEME}
+                tooltip={(ctx: TooltipContext) => <DefaultTooltip {...ctx} />}
+            />
+        )
+        const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 2, LABELS.length))
+        expect(tooltip.label()).toBe('Mar')
+    })
+
     it('enables the tooltip when a tooltip render prop is supplied', async () => {
         const { chart } = renderHogChart(
             <Sparkline

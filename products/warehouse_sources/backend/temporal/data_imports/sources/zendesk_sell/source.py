@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -40,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResumeConfig]):
+    # v2 is the terminal Core API version this source syncs (Zendesk versions its separate Search
+    # API independently). The vendor ships no Core API successor, so there is no version to repin
+    # to, and the per-version deprecation framework does not apply here because it never
+    # deprecates a source's sole/default version.
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference/sales-crm/"
@@ -51,9 +53,11 @@ class ZendeskSellSource(ResumableSource[ZendeskSellSourceConfig, ZendeskSellResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ZENDESK_SELL,
+            name=ExternalDataSourceType.ZENDESKSELL,
             category=DataWarehouseSourceCategory.CRM,
             label="Zendesk Sell",
+            # Zendesk Sell was formerly Base CRM; long-time users still search by the old name.
+            keywords=["base crm", "base"],
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Zendesk Sell access token to pull your Sell (formerly Base CRM) data into the PostHog Data warehouse.
 

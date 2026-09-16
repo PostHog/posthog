@@ -12,8 +12,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
 from products.customer_analytics.backend.test.factories import create_account
@@ -37,14 +37,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.addCleanup(csp_enabled.stop)
 
     def _create_psak_token(self, scopes, label="external-list"):
-        token = generate_random_token_secret()
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label=label,
-            mask_value=mask_key_value(token),
-            secure_value=hash_key_value(token),
-            scopes=scopes,
-        )
+        _, token = create_project_secret_api_key(self.team, label=label, scopes=scopes)
         return token
 
     def _create_definition(self, name, **kwargs):
@@ -190,6 +183,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.assertEqual(row["external_id"], "org-1")
         self.assertEqual(row["name"], "Acme")
         self.assertEqual(row["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertIsNone(row["ignored_at"])
         self.assertEqual(
             row["relationships"],
             {
@@ -235,6 +229,7 @@ class TestExternalAccountListAPI(APIBaseTest):
                     "external_id": "org-1",
                     "name": "Acme",
                     "churned_at": None,
+                    "ignored_at": None,
                     "relationships": {},
                 }
             ],
@@ -252,6 +247,29 @@ class TestExternalAccountListAPI(APIBaseTest):
 
         row = response.json()["results"][0]
         self.assertEqual(row["relationships"], {})
+
+    def test_excludes_ignored_accounts_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked", external_id="tracked")
+        create_account(
+            team_id=self.team.id,
+            name="Ignored",
+            external_id="ignored",
+            ignored_at=datetime(2026, 8, 2, 12, 30, tzinfo=UTC),
+        )
+
+        default_response = self._get()
+        included_response = self._get({"include_ignored": "true"})
+
+        self.assertEqual(
+            [row["name"] for row in default_response.json()["results"]],
+            ["Tracked"],
+        )
+        self.assertEqual(
+            {row["name"] for row in included_response.json()["results"]},
+            {"Tracked", "Ignored"},
+        )
+        ignored_row = next(row for row in included_response.json()["results"] if row["name"] == "Ignored")
+        self.assertEqual(ignored_row["ignored_at"], "2026-08-02T12:30:00Z")
 
     def test_excludes_accounts_without_external_id(self):
         no_external = create_account(team_id=self.team.id, name="No external id")

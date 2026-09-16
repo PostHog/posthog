@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar, cast
 
+import yaml
 import click
 import requests
 
@@ -32,6 +33,8 @@ DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
 DB_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+PRODUCT_DB_ROUTING_PATH = Path("products/db_routing.yaml")
+APP_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 T = TypeVar("T")
 
@@ -168,11 +171,70 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _ensure_migration_defaults(target_db: str) -> None:
+def _manage(target_db: str, *args: str) -> None:
+    """Run a management command against target_db."""
     _run(
-        ["python", "manage.py", "ensure_migration_defaults"],
+        ["python", "manage.py", *args],
         env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
     )
+
+
+def _ensure_migration_defaults(target_db: str) -> None:
+    _manage(target_db, "ensure_migration_defaults")
+
+
+def _psql_write(target_db: str, sql: str) -> None:
+    """Run a one-shot statement against target_db."""
+    _run(
+        [
+            *DOCKER_COMPOSE,
+            "exec",
+            "-T",
+            "db",
+            "psql",
+            "-q",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "posthog",
+            target_db,
+            "-c",
+            sql,
+        ]
+    )
+
+
+def _product_routed_app_labels() -> list[str]:
+    """App labels whose tables live in their own database, per products/db_routing.yaml."""
+    config_path = _resolve_repo_path(PRODUCT_DB_ROUTING_PATH)
+    if not config_path.is_file():
+        return []
+    config = yaml.safe_load(config_path.read_text()) or {}
+    labels = {str(route.get("app_label", "")).strip() for route in config.get("routes") or []}
+    return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
+
+
+def _forget_product_app_migrations(target_db: str) -> None:
+    """Drop the dump's claim that product-routed apps are migrated in this database.
+
+    The dump is taken from a CI database that routes those apps elsewhere, so `migrate` skipped
+    every operation in their migrations there while Django recorded them as applied anyway (it
+    records whatever the router decides). Restored verbatim, that leaves a database asserting
+    stamphog and visual_review are migrated without a single one of their tables — and an
+    environment that configures no product database then applies their NEXT migration for real
+    and dies on the missing table. Clearing the rows lets each consumer replay them under its own
+    routing: a no-op where the app is routed away, real tables where it isn't.
+
+    Only these rows go. Every other row stays, so the caller's `migrate` never re-applies schema
+    the dump already holds. That holds as long as no migration outside a routed app depends on
+    one inside it; `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py`
+    keeps it that way.
+    """
+    app_labels = _product_routed_app_labels()
+    if not app_labels:
+        return
+    in_list = ", ".join(f"'{label}'" for label in app_labels)
+    _psql_write(target_db, f"DELETE FROM django_migrations WHERE app IN ({in_list});")
 
 
 def restore_schema_dump(
@@ -194,6 +256,7 @@ def restore_schema_dump(
 
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
+        _forget_product_app_migrations(target_db)
 
         if ensure_defaults:
             _ensure_migration_defaults(target_db)

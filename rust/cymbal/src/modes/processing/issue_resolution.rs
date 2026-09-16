@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
@@ -91,11 +91,29 @@ pub enum IssueStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IssueSeverity {
+pub enum IssueSeverity {
     Low,
     Medium,
     High,
     Critical,
+}
+
+impl FromStr for IssueSeverity {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.eq_ignore_ascii_case("low") {
+            Ok(Self::Low)
+        } else if value.eq_ignore_ascii_case("medium") {
+            Ok(Self::Medium)
+        } else if value.eq_ignore_ascii_case("high") {
+            Ok(Self::High)
+        } else if value.eq_ignore_ascii_case("critical") {
+            Ok(Self::Critical)
+        } else {
+            Err(())
+        }
+    }
 }
 
 pub(crate) fn infer_issue_severity(
@@ -212,6 +230,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -413,24 +448,22 @@ impl IssueFingerprintOverride {
         Ok(res)
     }
 
-    pub async fn create_or_load<'c, E>(
-        executor: E,
+    pub async fn create_or_load(
+        conn: &mut sqlx::PgConnection,
         team_id: i32,
         fingerprint: &str,
         issue: &Issue,
         first_seen: DateTime<Utc>,
-    ) -> Result<Self, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
+    ) -> Result<Self, UnhandledError> {
         // We do an "ON CONFLICT DO NOTHING" here because callers can compare the returned issue id
-        // to the passed Issue, to see if the issue was actually inserted or not.
-        let res = sqlx::query_as!(
+        // to the passed Issue, to see if the issue was actually inserted or not. DO NOTHING takes
+        // no row lock and writes no dead tuple on a losing racer, unlike a self-assigning DO UPDATE.
+        let inserted = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
             INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
             VALUES ($1, $2, $3, $4, 0, $5, NOW())
-            ON CONFLICT (team_id, fingerprint) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
+            ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
@@ -438,9 +471,20 @@ impl IssueFingerprintOverride {
             issue.id,
             fingerprint,
             first_seen
-        ).fetch_one(executor).await.expect("Got at least one row back");
+        ).fetch_optional(&mut *conn).await?;
 
-        Ok(res)
+        if let Some(inserted) = inserted {
+            return Ok(inserted);
+        }
+
+        // Someone else won the insert, so DO NOTHING returned no row. Read the existing one back.
+        Self::load(&mut *conn, team_id, fingerprint)
+            .await?
+            .ok_or_else(|| {
+                UnhandledError::Other(
+                    "fingerprint override conflict but existing row not found".to_string(),
+                )
+            })
     }
 }
 
@@ -740,6 +784,30 @@ mod test {
                 expected.map(str::to_string)
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
     }
 
     #[tokio::test]

@@ -56,13 +56,8 @@ class LLMPrompt(UUIDModel):
     # Optional "what changed" note set when the version is published; immutable like the rest of the row
     version_description = models.CharField(max_length=400, null=True, blank=True)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -102,17 +97,57 @@ class LLMPromptLabel(ModelActivityMixin, UUIDModel):
 
     # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
     # constraint locks the parent table during migration.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class LLMPromptDependency(UUIDModel):
+    """One `@@@prompt:...@@@` reference found in a prompt version's content.
+
+    Rows are written when a version is created and are immutable like the
+    version row they belong to. The fetch path does not read this table; it
+    re-parses the content. The table exists for validation (reference and
+    nesting checks at publish), archive protection, and "used by" lookups,
+    all of which need the reverse direction: who references prompt X?
+
+    Like LLMPromptLabel, `child_name` keys the referenced prompt family by
+    name rather than FK, because prompts have no parent entity and the
+    referenced family's version rows keep changing.
+
+    Also like LLMPromptLabel, deliberately not on TeamScopedRootMixin: rows
+    must stay in the same team-space as the LLMPrompt rows they point into
+    (see the LLMPromptLabel docstring). Migrate all three models together.
+    """
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(child_version__isnull=False, child_label__isnull=True)
+                | models.Q(child_version__isnull=True, child_label__isnull=False),
+                name="llm_prompt_dependency_version_xor_label",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "child_name"], name="llm_prompt_dep_team_child"),
+        ]
+        db_table = "posthog_llmpromptdependency"
+
+    prompt = models.ForeignKey(LLMPrompt, on_delete=models.CASCADE, related_name="references")
+    parent_name = models.CharField(max_length=255)
+    child_name = models.CharField(max_length=255)
+    child_version = models.PositiveIntegerField(null=True, blank=True)
+    child_label = models.CharField(max_length=128, null=True, blank=True)
+
+    # db_constraint=False for the same reason as LLMPromptLabel: a real FK to the
+    # hot posthog_team table locks the parent during migration.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 def annotate_llm_prompt_version_history_metadata(queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:

@@ -10,6 +10,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.campaign_monitor.campaign_monitor import (
     FULL_REFRESH_SINCE_DATE,
+    JOURNEY_FULL_REFRESH_SINCE_DATE,
     CampaignMonitorResumeConfig,
     campaign_monitor_source,
     validate_credentials,
@@ -181,6 +182,19 @@ class TestPaginatedEndpoints:
         assert snapshots[0][1]["page"] == 2
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sent_campaigns_endpoint_reads_paged_envelope(self, MockSession) -> None:
+        # The sent-campaigns endpoint returns the paged envelope, not a bare array — a dict body
+        # was raising "Required a list response body" and failing every campaign sync.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}])])
+
+        rows = _rows(_source("campaigns"))
+
+        assert [r["CampaignID"] for r in rows] == ["c1", "c2"]
+        assert snapshots[0][0].endswith("clients/client-abc/campaigns.json")
+        assert snapshots[0][1]["pagesize"] == 1000
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_missing_results_key_yields_nothing(self, MockSession) -> None:
         # Campaign Monitor's paged envelope without Results is treated as a zero-row page.
         session = MockSession.return_value
@@ -335,7 +349,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json (paged envelope)
                 _envelope([{"EmailAddress": "a@x.com"}]),  # c1
                 _envelope([{"EmailAddress": "b@x.com"}]),  # c2
             ],
@@ -357,7 +371,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),
                 _response({"Name": "Newsletter", "Recipients": 100, "UniqueOpened": 40}),  # c1 summary
                 _response({"Name": "Promo", "Recipients": 50, "UniqueOpened": 10}),  # c2 summary
             ],
@@ -383,7 +397,7 @@ class TestCampaignFanOut:
     def test_empty_summary_object_yields_no_row(self, MockSession) -> None:
         # An empty summary body is not a row — no record carrying only the injected CampaignID.
         session = MockSession.return_value
-        _wire(session, [_response([{"CampaignID": "c1"}]), _response({})])
+        _wire(session, [_envelope([{"CampaignID": "c1"}]), _response({})])
 
         assert _rows(_source("campaign_summary")) == []
 
@@ -393,7 +407,7 @@ class TestCampaignFanOut:
         snapshots = _wire(
             session,
             [
-                _response([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
+                _envelope([{"CampaignID": "c1"}, {"CampaignID": "c2"}]),  # campaigns.json re-fetched
                 _envelope([{"EmailAddress": "b@x.com"}]),  # c2 only
             ],
         )
@@ -407,6 +421,181 @@ class TestCampaignFanOut:
 
         assert rows == [{"EmailAddress": "b@x.com", "CampaignID": "c2"}]
         assert snapshots[1][0].endswith("campaigns/c2/opens.json")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_campaign_recipients_order_by_email_and_carry_their_list(self, MockSession) -> None:
+        # Recipient rows have no timestamp, so this endpoint orders by email rather than by the
+        # `date` the other campaign reports use — passing `orderfield=date` here is rejected.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _envelope([{"CampaignID": "c1"}]),
+                _envelope([{"EmailAddress": "a@x.com", "ListID": "l1"}]),
+            ],
+        )
+
+        rows = _rows(_source("campaign_recipients"))
+
+        assert rows == [{"EmailAddress": "a@x.com", "ListID": "l1", "CampaignID": "c1"}]
+        assert snapshots[1][0].endswith("campaigns/c1/recipients.json")
+        _url, params = snapshots[1]
+        assert params["orderfield"] == "email"
+        assert params["orderdirection"] == "asc"
+        assert "date" not in params
+
+
+class TestJourneyFanOut:
+    @staticmethod
+    def _summary(journey_id: str, email_ids: list[str]) -> Response:
+        return _response(
+            {
+                "JourneyID": journey_id,
+                "Name": "Welcome",
+                "TriggerType": "On Subscription",
+                "Status": "Active",
+                "Emails": [{"EmailID": email_id, "Name": "Email one", "Sent": 1} for email_id in email_ids],
+            }
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_summary_yields_one_row_per_journey_email(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}, {"JourneyID": "j2"}]),  # journeys.json (bare array)
+                self._summary("j1", ["e1", "e2"]),
+                self._summary("j2", ["e3"]),
+            ],
+        )
+
+        rows = _rows(_source("journey_email_summary"))
+
+        # the nested `Emails` array is the grain, with the parent journey id as a plain column
+        assert [(row["JourneyID"], row["EmailID"]) for row in rows] == [("j1", "e1"), ("j1", "e2"), ("j2", "e3")]
+        assert snapshots[0][0].endswith("clients/client-abc/journeys.json")
+        assert snapshots[1][0].endswith("journeys/j1.json")
+        assert snapshots[2][0].endswith("journeys/j2.json")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_journey_without_emails_yields_nothing(self, MockSession) -> None:
+        # A journey that has never been built has no emails — that is a zero-row page, not a
+        # response-shape failure.
+        session = MockSession.return_value
+        _wire(session, [_response([{"JourneyID": "j1"}]), self._summary("j1", [])])
+
+        assert _rows(_source("journey_email_summary")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_resolves_email_ids_through_the_journey_summary(self, MockSession) -> None:
+        # The journeys list exposes no email ids, so a report endpoint has to walk two levels:
+        # journeys -> journey summary -> the report for each of its emails.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}, {"JourneyID": "j2"}]),
+                self._summary("j1", ["e1"]),
+                _envelope([{"EmailAddress": "a@x.com", "Date": "2026-01-02 03:04:00"}]),
+                self._summary("j2", ["e2"]),
+                _envelope([{"EmailAddress": "b@x.com", "Date": "2026-01-03 03:04:00"}]),
+            ],
+        )
+
+        rows = _rows(_source("journey_email_opens"))
+
+        # both parent ids must land as plain columns — they are part of the primary key
+        assert [(row["EmailAddress"], row["JourneyID"], row["EmailID"]) for row in rows] == [
+            ("a@x.com", "j1", "e1"),
+            ("b@x.com", "j2", "e2"),
+        ]
+        urls = [url for url, _params in snapshots]
+        assert urls[1].endswith("journeys/j1.json")
+        assert urls[2].endswith("journeys/email/e1/opens.json")
+        assert urls[4].endswith("journeys/email/e2/opens.json")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_requests_full_history_without_an_order_field(self, MockSession) -> None:
+        # Journey reports default `date` to the last 30 days, so it always has to be sent, in the
+        # documented `YYYY-MM-DD HH:MM` form. They accept `orderdirection` but no `orderfield`.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}]),
+                self._summary("j1", ["e1"]),
+                _envelope([{"EmailAddress": "a@x.com"}]),
+            ],
+        )
+
+        _rows(_source("journey_email_clicks"))
+
+        _url, params = snapshots[2]
+        assert params["date"] == JOURNEY_FULL_REFRESH_SINCE_DATE
+        assert params["orderdirection"] == "asc"
+        assert "orderfield" not in params
+        assert params["pagesize"] == 1000
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_paginates_within_a_journey_email(self, MockSession) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}]),
+                self._summary("j1", ["e1"]),
+                _envelope([{"EmailAddress": "a@x.com"}], number_of_pages=2, page_number=1),
+                _envelope([{"EmailAddress": "b@x.com"}], number_of_pages=2, page_number=2),
+            ],
+        )
+
+        rows = _rows(_source("journey_email_bounces"))
+
+        assert [row["EmailAddress"] for row in rows] == ["a@x.com", "b@x.com"]
+        assert snapshots[3][0].endswith("journeys/email/e1/bounces.json")
+        assert snapshots[3][1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_saves_no_resume_state(self, MockSession) -> None:
+        # The framework refuses to share one resume hook across a two-level chain, because state
+        # written from both levels would be ambiguous. A restart re-walks the chain instead, and
+        # the merge dedupes the re-pulled rows.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}]),
+                self._summary("j1", ["e1"]),
+                _envelope([{"EmailAddress": "a@x.com"}]),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("journey_email_unsubscribes", manager))
+
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_summary_checkpoints_completed_journeys(self, MockSession) -> None:
+        # The summary is a single-level fan-out, so it does checkpoint: a crash resumes on j2.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"JourneyID": "j1"}, {"JourneyID": "j2"}]),
+                self._summary("j1", ["e1"]),
+                self._summary("j2", ["e2"]),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("journey_email_summary", manager))
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert any(
+            state.fanout_state is not None and "journeys/j1.json" in state.fanout_state["completed"] for state in saved
+        )
 
 
 class TestResumeConfigCompatibility:

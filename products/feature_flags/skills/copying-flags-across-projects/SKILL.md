@@ -36,22 +36,28 @@ Targets must be in the same organization as the source. Call `posthog:projects-g
 
 For a multi-target copy, the tool accepts up to 50 target project ids in a single call. Successes and failures are reported per target, so a partial failure does not block the rest.
 
-### 3. Preview the source flag
+### 3. Preview the source flag and its dependencies
 
-Call `posthog:feature-flag-get-definition` on the source flag and present a concise summary to the user before copying:
+Call `posthog:feature-flag-get-definition` on the source flag. Then always call `posthog:feature-flags-copy-dependencies-check` with `feature_flag_key`, `from_project`, and `target_project_ids`, rather than trying to detect dependencies first — it copies nothing, and returns an empty result with no warnings when the flag has none, so running it on every copy is cheap and never skips a real dependency.
+
+A false `can_copy_dependencies` does not always mean the copy is blocked. It is also false when there is nothing to copy. Report a problem only when `warnings` is non-empty.
+
+Present a concise summary to the user before copying:
 
 - Flag key, name, and active state in the source
 - Filter groups (rollout %, property filters, variant splits)
 - Any cohort references in `filters.groups[].properties[]` — these will be remapped server-side, but the user should know whether the target project already has matching cohorts
 - Whether the flag has encrypted payloads (`has_encrypted_payloads`) or is remote configuration (`is_remote_configuration`)
 - Whether scheduled changes exist (the user can opt to copy them in step 4)
+- The dependency check's `copied_dependency_keys` (dependencies a copy would create in a target), `reused_dependency_keys` (dependencies a target already satisfies), and any `warnings`
 
 ### 4. Confirm copy options
 
-Default to the safest combination and ask the user to override only if they explicitly want different behavior:
+One confirmation covers all three options. Default to the safest combination and ask the user to override only if they explicitly want different behavior:
 
 - **`disable_copied_flag: true`** — the copied flag lands disabled in the target. Recommended by default; turning a flag on in a new project should be a deliberate, observed action.
 - **`copy_schedule: false`** — scheduled changes do not come along. Recommended by default; schedules are usually project-specific.
+- **`copy_dependencies: false`** — dependency flags do not come along. Set it to `true` only when the user approves copying the keys step 3's check reported.
 
 If the user says "promote it as-is" or "turn it on in prod", switch `disable_copied_flag` to `false`. If they say "include the rollout schedule" or "with the scheduled rollout", switch `copy_schedule` to `true`.
 
@@ -64,6 +70,7 @@ Call `posthog:feature-flags-copy-flags-create` with:
 - `target_project_ids`: the resolved list of target project ids
 - `disable_copied_flag`: from step 4 (default `true`)
 - `copy_schedule`: from step 4 (default `false`)
+- `copy_dependencies`: from step 4 (default `false`). Omitting it silently skips dependency copying, even when the user approved it.
 
 ### 6. Report per-target outcome
 
@@ -104,7 +111,8 @@ If any targets failed, ask the user whether to retry the failed ones, skip them,
 
 ## Available tools
 
-- `posthog:feature-flags-copy-flags-create` — performs the copy. Required fields: `feature_flag_key`, `from_project`, `target_project_ids`. Optional: `disable_copied_flag`, `copy_schedule`.
+- `posthog:feature-flags-copy-flags-create` — performs the copy. Required fields: `feature_flag_key`, `from_project`, `target_project_ids`. Optional: `disable_copied_flag`, `copy_schedule`, `copy_dependencies`.
+- `posthog:feature-flags-copy-dependencies-check` — previews what a copy would do to the flag's transitive flag dependencies. Copies nothing. Call it before every copy; it returns an empty result when the flag has no dependencies.
 - `posthog:feature-flag-get-all` — find a flag by key/name in a given project when the user only gave a friendly name.
 - `posthog:feature-flag-get-definition` — fetch the full source flag (filters, variants, cohort references, encryption flags) so you can preview before copying.
 - `posthog:projects-get` — list projects in the active organization, used to resolve and validate target project ids.

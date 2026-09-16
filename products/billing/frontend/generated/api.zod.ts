@@ -1,0 +1,432 @@
+/**
+ * Auto-generated Zod validation schemas from the Django backend OpenAPI schema.
+ * To modify these schemas, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+import * as zod from 'zod'
+
+export const billingActivateCreateBodyPlanMax = 100
+
+export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingActivateCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingActivateAuthorizeCreateBodyPlanMax = 100
+
+export const BillingActivateAuthorizeCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingActivateAuthorizeCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingActivateAuthorizeStatusCreateBodyPlanMax = 100
+
+export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingActivateAuthorizeStatusCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingCouponsClaimCreateBodyPlanMax = 100
+
+export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingCouponsClaimCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingCreditsPurchaseCreateBodyPlanMax = 100
+
+export const BillingCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingCreditsPurchaseCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingDeactivateCreateBodyPlanMax = 100
+
+export const BillingDeactivateCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingDeactivateCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingLicensePartialUpdateBodyPlanMax = 100
+
+export const BillingLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingLicensePartialUpdateBodyPlanMax).optional(),
+    billing_limit: zod.number().optional(),
+})
+
+export const billingStartupsApplyCreateBodyPlanMax = 100
+
+export const BillingStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingStartupsApplyCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingSubscriptionSwitchPlanCreateBodyPlanMax = 100
+
+export const BillingSubscriptionSwitchPlanCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingSubscriptionSwitchPlanCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingTrialsActivateCreateBodyPlanMax = 100
+
+export const BillingTrialsActivateCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingTrialsActivateCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingTrialsCancelCreateBodyPlanMax = 100
+
+export const BillingTrialsCancelCreateBody = /* @__PURE__ */ zod.object({
+    plan: zod.string().max(billingTrialsCancelCreateBodyPlanMax),
+    billing_limit: zod.number(),
+})
+
+export const billingAlertsCreateBodyNameMax = 160
+
+export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
+export const billingAlertsCreateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsCreateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsCreateBodyBaselineWindowDaysMax = 90
+
+export const billingAlertsCreateBodyEvaluationDelayHoursMin = 0
+export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
+
+export const billingAlertsCreateBodyCooldownHoursMin = 0
+export const billingAlertsCreateBodyCooldownHoursMax = 720
+
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 100
+
+export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
+    description: zod.string().optional().describe('Optional internal description.'),
+    enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    metric: zod
+        .enum(['spend', 'projected_spend'])
+        .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
+        .optional()
+        .describe(
+            'Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n\* `spend` - Spend\n\* `projected_spend` - Projected spend'
+        ),
+    threshold_type: zod
+        .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
+        .describe(
+            '\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        )
+        .optional()
+        .describe(
+            'Threshold rule type. The first version supports absolute value only.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        ),
+    threshold_percentage: zod
+        .stringFormat('decimal', billingAlertsCreateBodyThresholdPercentageRegExp)
+        .nullish()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    threshold_value: zod
+        .stringFormat('decimal', billingAlertsCreateBodyThresholdValueRegExp)
+        .nullish()
+        .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
+    minimum_value: zod
+        .stringFormat('decimal', billingAlertsCreateBodyMinimumValueRegExp)
+        .optional()
+        .describe('Minimum current value before the alert can fire.'),
+    baseline_window_days: zod
+        .number()
+        .min(1)
+        .max(billingAlertsCreateBodyBaselineWindowDaysMax)
+        .optional()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    evaluation_delay_hours: zod
+        .number()
+        .min(billingAlertsCreateBodyEvaluationDelayHoursMin)
+        .max(billingAlertsCreateBodyEvaluationDelayHoursMax)
+        .optional()
+        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
+    cooldown_hours: zod
+        .number()
+        .min(billingAlertsCreateBodyCooldownHoursMin)
+        .max(billingAlertsCreateBodyCooldownHoursMax)
+        .optional()
+        .describe('Minimum hours between repeated firing notifications.'),
+    snoozed_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(zod.array(zod.uuid()).min(1).max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax))
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod
+                            .number()
+                            .optional()
+                            .describe('Slack integration ID in the alert execution project.'),
+                        slack_channel_id: zod.string().optional().describe('Slack channel ID for alert delivery.'),
+                        slack_channel_name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional Slack channel name shown in the UI.'),
+                        webhook_url: zod
+                            .url()
+                            .optional()
+                            .describe('HTTPS webhook URL for webhook or Microsoft Teams delivery.'),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
+})
+
+export const billingAlertsUpdateBodyNameMax = 160
+
+export const billingAlertsUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
+export const billingAlertsUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsUpdateBodyBaselineWindowDaysMax = 90
+
+export const billingAlertsUpdateBodyEvaluationDelayHoursMin = 0
+export const billingAlertsUpdateBodyEvaluationDelayHoursMax = 72
+
+export const billingAlertsUpdateBodyCooldownHoursMin = 0
+export const billingAlertsUpdateBodyCooldownHoursMax = 720
+
+export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax = 100
+
+export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(billingAlertsUpdateBodyNameMax).describe('Display name for this billing alert.'),
+    description: zod.string().optional().describe('Optional internal description.'),
+    enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    metric: zod
+        .enum(['spend', 'projected_spend'])
+        .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
+        .optional()
+        .describe(
+            'Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n\* `spend` - Spend\n\* `projected_spend` - Projected spend'
+        ),
+    threshold_type: zod
+        .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
+        .describe(
+            '\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        )
+        .optional()
+        .describe(
+            'Threshold rule type. The first version supports absolute value only.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        ),
+    threshold_percentage: zod
+        .stringFormat('decimal', billingAlertsUpdateBodyThresholdPercentageRegExp)
+        .nullish()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    threshold_value: zod
+        .stringFormat('decimal', billingAlertsUpdateBodyThresholdValueRegExp)
+        .nullish()
+        .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
+    minimum_value: zod
+        .stringFormat('decimal', billingAlertsUpdateBodyMinimumValueRegExp)
+        .optional()
+        .describe('Minimum current value before the alert can fire.'),
+    baseline_window_days: zod
+        .number()
+        .min(1)
+        .max(billingAlertsUpdateBodyBaselineWindowDaysMax)
+        .optional()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    evaluation_delay_hours: zod
+        .number()
+        .min(billingAlertsUpdateBodyEvaluationDelayHoursMin)
+        .max(billingAlertsUpdateBodyEvaluationDelayHoursMax)
+        .optional()
+        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
+    cooldown_hours: zod
+        .number()
+        .min(billingAlertsUpdateBodyCooldownHoursMin)
+        .max(billingAlertsUpdateBodyCooldownHoursMax)
+        .optional()
+        .describe('Minimum hours between repeated firing notifications.'),
+    snoozed_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(zod.array(zod.uuid()).min(1).max(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax))
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod
+                            .number()
+                            .optional()
+                            .describe('Slack integration ID in the alert execution project.'),
+                        slack_channel_id: zod.string().optional().describe('Slack channel ID for alert delivery.'),
+                        slack_channel_name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional Slack channel name shown in the UI.'),
+                        webhook_url: zod
+                            .url()
+                            .optional()
+                            .describe('HTTPS webhook URL for webhook or Microsoft Teams delivery.'),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
+})
+
+export const billingAlertsPartialUpdateBodyNameMax = 160
+
+export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
+export const billingAlertsPartialUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsPartialUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
+export const billingAlertsPartialUpdateBodyBaselineWindowDaysMax = 90
+
+export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMin = 0
+export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
+
+export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
+export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
+
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 100
+
+export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(billingAlertsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name for this billing alert.'),
+    description: zod.string().optional().describe('Optional internal description.'),
+    enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    metric: zod
+        .enum(['spend', 'projected_spend'])
+        .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
+        .optional()
+        .describe(
+            'Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n\* `spend` - Spend\n\* `projected_spend` - Projected spend'
+        ),
+    threshold_type: zod
+        .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
+        .describe(
+            '\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        )
+        .optional()
+        .describe(
+            'Threshold rule type. The first version supports absolute value only.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+        ),
+    threshold_percentage: zod
+        .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdPercentageRegExp)
+        .nullish()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    threshold_value: zod
+        .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdValueRegExp)
+        .nullish()
+        .describe('Absolute value or absolute increase that triggers absolute threshold alerts.'),
+    minimum_value: zod
+        .stringFormat('decimal', billingAlertsPartialUpdateBodyMinimumValueRegExp)
+        .optional()
+        .describe('Minimum current value before the alert can fire.'),
+    baseline_window_days: zod
+        .number()
+        .min(1)
+        .max(billingAlertsPartialUpdateBodyBaselineWindowDaysMax)
+        .optional()
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
+    evaluation_delay_hours: zod
+        .number()
+        .min(billingAlertsPartialUpdateBodyEvaluationDelayHoursMin)
+        .max(billingAlertsPartialUpdateBodyEvaluationDelayHoursMax)
+        .optional()
+        .describe('Hours after a UTC billing date ends before it becomes eligible for evaluation.'),
+    cooldown_hours: zod
+        .number()
+        .min(billingAlertsPartialUpdateBodyCooldownHoursMin)
+        .max(billingAlertsPartialUpdateBodyCooldownHoursMax)
+        .optional()
+        .describe('Minimum hours between repeated firing notifications.'),
+    snoozed_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.'),
+    destination_changes: zod
+        .object({
+            delete: zod
+                .array(
+                    zod.array(zod.uuid()).min(1).max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
+                )
+                .optional(),
+            create: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['slack', 'webhook', 'teams'])
+                            .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+                            .describe(
+                                'Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+                            ),
+                        slack_workspace_id: zod
+                            .number()
+                            .optional()
+                            .describe('Slack integration ID in the alert execution project.'),
+                        slack_channel_id: zod.string().optional().describe('Slack channel ID for alert delivery.'),
+                        slack_channel_name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional Slack channel name shown in the UI.'),
+                        webhook_url: zod
+                            .url()
+                            .optional()
+                            .describe('HTTPS webhook URL for webhook or Microsoft Teams delivery.'),
+                    })
+                )
+                .optional(),
+        })
+        .optional()
+        .describe('Destination groups to create or delete in the same transaction as this configuration write.'),
+})
+
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind.
+ */
+export const BillingAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook', 'teams'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+        .describe('Destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'),
+    slack_workspace_id: zod.number().optional().describe('Slack integration ID in the alert execution project.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID for alert delivery.'),
+    slack_channel_name: zod.string().optional().describe('Optional Slack channel name shown in the UI.'),
+    webhook_url: zod.url().optional().describe('HTTPS webhook URL for webhook or Microsoft Teams delivery.'),
+})
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+
+export const BillingAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('HogFunction IDs to delete as one atomic destination group.'),
+})

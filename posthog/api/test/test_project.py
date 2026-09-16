@@ -1,20 +1,28 @@
+from datetime import timedelta
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
+from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
+from posthog.models.tag import Tag
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
+
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -84,6 +92,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Hedgebox")
+
+    def test_cannot_create_project_with_pending_duplicate_name(self):
+        self._set_unlimited_projects()
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.post("/api/projects/", {"name": self.project.name})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
 
     def test_creating_projects_without_name_generates_unique_default_names(self):
         self._set_unlimited_projects()
@@ -265,6 +283,21 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     def test_member_cannot_create_project_by_default(self):
         self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_over_plan_limit_gets_permission_message_not_billing(self):
+        # A non-admin member in an org that is also at its plan limit must be told they lack
+        # permission, not pointed at billing - upgrading the plan cannot unblock them.
+        self.organization.available_product_features = []  # no projects feature: capped at the 1 existing project
+        self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -492,12 +525,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Project deletion happens async in the Temporal workflow
 
-        mock_delete_task.assert_called_once_with(
-            team_ids=[team_id],
-            project_id=project_id,
-            user_id=self.user.id,
-            project_name=project_name,
-        )
+        mock_delete_task.assert_called_once()
+        call_kwargs = mock_delete_task.call_args.kwargs
+        self.assertEqual(call_kwargs["team_ids"], [team_id])
+        self.assertEqual(call_kwargs["project_id"], project_id)
+        self.assertEqual(call_kwargs["user_id"], self.user.id)
+        self.assertEqual(call_kwargs["project_name"], project_name)
+        self.assertGreater(call_kwargs["start_delay"], timedelta(hours=47))
+        self.assertLessEqual(call_kwargs["start_delay"], timedelta(hours=48))
 
     @parameterized.expand(
         [
@@ -552,7 +587,143 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        self.assertAlmostEqual(
+            self.project.deletion_scheduled_at.timestamp(),
+            (timezone.now() + timedelta(hours=48)).timestamp(),
+            delta=5,
+        )
         mock_delete_task.assert_called_once()
+        start_delay = mock_delete_task.call_args.kwargs["start_delay"]
+        self.assertGreater(start_delay, timedelta(hours=47))
+        self.assertLessEqual(start_delay, timedelta(hours=48))
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+        self.assertIsNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        restored_activities = list(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            )
+            .order_by("scope")
+            .values_list("scope", flat=True)
+        )
+        self.assertEqual(restored_activities, ["Project", "Team"])
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_deletion_cancellation_rejects_a_stale_schedule(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale_scheduled_at = timezone.now() + timedelta(hours=48)
+        current_scheduled_at = timezone.now() - timedelta(seconds=1)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=current_scheduled_at,
+        )
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = stale_scheduled_at
+
+        with patch.object(ProjectViewSet, "get_object", return_value=self.project):
+            response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("can no longer be canceled", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, current_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch(
+        "posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow",
+        side_effect=Exception("temporal unavailable"),
+    )
+    def test_project_deletion_cancellation_failure_keeps_project_active(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=scheduled_at,
+        )
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("could not be canceled", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        self.assertFalse(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            ).exists()
+        )
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_can_be_deleted_again_after_cancellation(self, mock_start_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        cancel_response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+        self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
+
+        mock_start_delete_task.reset_mock()
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_start_delete_task.assert_called_once()
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_member_cannot_cancel_deletion(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = timezone.now() + timedelta(hours=48)
+        self.project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertIsNotNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_cannot_be_canceled_after_deletion_starts(
+        self, mock_start_delete_task, mock_cancel_delete_task
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+        Project.objects.filter(id=self.project.id).update(deletion_scheduled_at=timezone.now() - timedelta(hours=1))
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already started", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_cancel_delete_task.assert_not_called()
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
@@ -576,6 +747,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.delete(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.assert_not_called()
+
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    @patch("products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason")
+    def test_concurrent_project_deletion_cannot_clear_pending_state(self, mock_block_reason, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+
+        def claim_deletion(*args: object, **kwargs: object) -> None:
+            Project.objects.filter(id=self.project.id).update(
+                is_pending_deletion=True,
+                deletion_scheduled_at=scheduled_at,
+            )
+            return None
+
+        mock_block_reason.side_effect = claim_deletion
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
         mock_delete_task.assert_not_called()
 
     def test_team_deletion_does_not_cascade_to_persons(self):
@@ -876,3 +1072,113 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
+
+    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
+        # A missing stamp would let the auto-enrollment job override a human's disable
+        # on its next run. Other settings must not stamp it.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_cuped_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertIsNone(config.precomputation_enabled_set_by)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_precomputation_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+    def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
+        # `tags` is not a Project column, so it must be pulled out before the serializer's
+        # passthrough loop setattr()s everything left in validated_data onto the model.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"tags": ["Production", " EU-Region "]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sorted(response.json()["tags"]), ["eu-region", "production"])
+
+        reread = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(sorted(reread.json()["tags"]), ["eu-region", "production"])
+        self.assertEqual(
+            set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)),
+            {"eu-region", "production"},
+        )
+
+    def test_tags_are_replaced_and_orphaned_tags_removed(self):
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["keep", "drop"]}, format="json")
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["keep"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["tags"], ["keep"])
+        self.assertEqual(set(Tag.objects.filter(team_id=self.project.id).values_list("name", flat=True)), {"keep"})
+
+    def test_project_can_be_created_with_tags(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 2}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Tagged", "tags": ["production"]}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.json()["tags"], ["production"])
+
+    @parameterized.expand(
+        [
+            ("all_narrows_to_projects_carrying_every_tag", "production,eu-region", "all", {"both"}),
+            ("all_is_the_default_match_mode", "production,eu-region", None, {"both"}),
+            ("any_widens_to_projects_carrying_either_tag", "production,us-region", "any", {"both", "us_only"}),
+            ("no_match_returns_nothing", "nonexistent", "all", set()),
+        ]
+    )
+    def test_list_filters_projects_by_tags(self, _name, tags_param, match, expected_keys):
+        both, _ = Project.objects.create_with_team(
+            organization=self.organization, name="Both", initiating_user=self.user
+        )
+        us_only, _ = Project.objects.create_with_team(
+            organization=self.organization, name="US only", initiating_user=self.user
+        )
+        self.client.patch(f"/api/projects/{both.id}/", {"tags": ["production", "eu-region"]}, format="json")
+        self.client.patch(f"/api/projects/{us_only.id}/", {"tags": ["production", "us-region"]}, format="json")
+        ids_by_key = {"both": both.id, "us_only": us_only.id}
+
+        query = f"?tags={tags_param}" + (f"&tags_match={match}" if match else "")
+        response = self.client.get(f"/api/projects/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        returned_ids = [project["id"] for project in response.json()["results"]]
+        self.assertEqual(len(returned_ids), len(set(returned_ids)), "A project matching several tags was duplicated")
+        self.assertEqual(set(returned_ids), {ids_by_key[key] for key in expected_keys})
+
+    def test_list_rows_carry_tags(self):
+        self.client.patch(f"/api/projects/{self.project.id}/", {"tags": ["production"]}, format="json")
+
+        response = self.client.get("/api/projects/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        rows = {project["id"]: project["tags"] for project in response.json()["results"]}
+        self.assertEqual(rows[self.project.id], ["production"])
+
+    def test_unknown_tags_match_mode_is_rejected(self):
+        response = self.client.get("/api/projects/?tags=production&tags_match=either")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_filtering_by_too_many_tags_is_rejected(self):
+        # "all" joins once per tag, so an unbounded list would let a caller size the query plan.
+        too_many = ",".join(f"tag-{index}" for index in range(MAX_TAGS_PER_FILTER + 1))
+
+        response = self.client.get(f"/api/projects/?tags={too_many}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())

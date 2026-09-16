@@ -117,6 +117,7 @@ export interface AlertTypeBase {
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null
+    schedule_start_time?: string | null
     detector_config?: DetectorConfig | null
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean
@@ -138,6 +139,7 @@ export interface AlertCheck {
     created_at: string
     calculated_value: number | null
     state: AlertState
+    error?: { code?: string; message?: string } | null
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null
     triggered_points?: number[] | null

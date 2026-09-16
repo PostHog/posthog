@@ -7,12 +7,11 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
-import { assertNotReadOnly } from 'lib/readOnlyGuard'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -30,8 +29,8 @@ import {
     AggregatedSpanRow,
     AnyResponseType,
     DashboardFilter,
-    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    DataWarehouseManagedViewsetKind,
     DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -39,7 +38,6 @@ import {
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
-    ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
     FileSystemViewLogEntry,
@@ -55,12 +53,12 @@ import {
     Node,
     NodeKind,
     QueryLogTags,
+    QueryScanResponse,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
     RecordingsQueryResponse,
     RefreshType,
-    SourceConfig,
     SpanTreeNode,
     TileFilters,
     UserProductListItem,
@@ -94,7 +92,6 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
-    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -126,7 +123,6 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
-    FeatureFlagStatusResponse,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -197,6 +193,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyType,
     SurveyStatsResponse,
     TeamType,
     TwilioPhoneNumberType,
@@ -229,6 +226,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
+import type { SignalUserAutonomyConfigCreateApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -245,6 +243,10 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    ExternalDataSourceTypeEnumApi,
+    SourceConfigMapResponseApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -313,6 +315,16 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+}
+
+export interface ApiUploadProgress {
+    loaded: number
+    /** Null when the browser can't measure the body, so only `loaded` is meaningful. */
+    total: number | null
+}
+
+export interface ApiUploadOptions extends ApiMethodOptions {
+    onUploadProgress?: (progress: ApiUploadProgress) => void
 }
 
 export { ApiError, NetworkError }
@@ -391,6 +403,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -681,6 +698,10 @@ export class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -1158,13 +1179,6 @@ export class ApiRequest {
             )
     }
 
-    public featureFlagStatus(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
-        return this.projectsDetail(teamId)
-            .addPathComponent('feature_flags')
-            .addPathComponent(String(featureFlagId))
-            .addPathComponent('status')
-    }
-
     public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
     }
@@ -1262,7 +1276,11 @@ export class ApiRequest {
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.tasks(teamId).addPathComponent(id)
+        if (id === '.' || id === '..') {
+            throw new Error('Invalid task ID')
+        }
+
+        return this.tasks(teamId).addEncodedPathComponent(id)
     }
 
     public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1484,15 +1502,6 @@ export class ApiRequest {
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
-    }
-
-    // # Data Modeling DAGs
-    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
-    }
-
-    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataModelingDags(teamId).addPathComponent(id)
     }
 
     // # Data Modeling Nodes
@@ -1720,6 +1729,10 @@ export class ApiRequest {
         return apiRequest
     }
 
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -1734,6 +1747,14 @@ export class ApiRequest {
 
     public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
+    }
+
+    public queryScan(cacheKey: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent('scan').addPathComponent(cacheKey)
+    }
+
+    public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(clientQueryId)
     }
 
     // Endpoints
@@ -1927,12 +1948,8 @@ export class ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
 
-    public authenticateWizard(): ApiRequest {
-        return this.wizard().addPathComponent('authenticate')
-    }
-
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_templates')
+        return this.environmentsDetail().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
@@ -1940,7 +1957,7 @@ export class ApiRequest {
     }
 
     public messagingCategories(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_categories')
+        return this.environmentsDetail().addPathComponent('messaging_categories')
     }
 
     public messagingCategory(categoryId: string): ApiRequest {
@@ -1976,29 +1993,23 @@ export class ApiRequest {
     }
 
     public messagingPreferences(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences')
+        return this.environmentsDetail().addPathComponent('messaging_preferences')
     }
 
     public messagingPreferencesLink(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+        return this.messagingPreferences().addPathComponent('generate_link')
     }
 
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('export_opt_outs_csv')
+        return this.messagingPreferences().addPathComponent('export_opt_outs_csv')
     }
 
     public messagingPreferencesBulkAddOptOuts(): ApiRequest {
-        return this.environments()
-            .current()
-            .addPathComponent('messaging_preferences')
-            .addPathComponent('bulk_add_opt_outs')
+        return this.messagingPreferences().addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flows')
+        return this.environmentsDetail().addPathComponent('hog_flows')
     }
 
     public hogFlow(hogFlowId: HogFlow['id']): ApiRequest {
@@ -2006,15 +2017,11 @@ export class ApiRequest {
     }
 
     public hogFlowTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('hog_flow_templates')
+        return this.environmentsDetail().addPathComponent('hog_flow_templates')
     }
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public wizard(): ApiRequest {
-        return this.addPathComponent('wizard')
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2267,8 +2274,8 @@ const api = {
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
         },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
+        async update(id: number, data: any, options?: ApiMethodOptions): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data, ...options })
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
@@ -2389,10 +2396,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
@@ -2407,12 +2411,6 @@ const api = {
             data: Partial<ScheduledChangeType>
         ): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagScheduledChange(teamId, scheduledChangeId).update({ data })
-        },
-        async getStatus(
-            teamId: TeamType['id'],
-            featureFlagId: FeatureFlagType['id']
-        ): Promise<FeatureFlagStatusResponse> {
-            return await new ApiRequest().featureFlagStatus(teamId, featureFlagId).get()
         },
     },
 
@@ -2659,6 +2657,16 @@ const api = {
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
+
+            // The experiment activity endpoint merges in entries from the experiment's holdout
+            // and shared metrics, which the generic /activity_log scope+item_id filter can't express.
+            if (scopes.length === 1 && scopes[0] === ActivityScope.EXPERIMENT && props.id) {
+                return new ApiRequest()
+                    .experimentsDetail(props.id as number, projectId)
+                    .withAction('activity')
+                    .withQueryString(toParams({ page: page || 1, limit: ACTIVITY_PAGE_SIZE }))
+                    .get()
+            }
 
             // Opt into the new /activity_log API
             if (
@@ -3109,10 +3117,11 @@ const api = {
             event_type?: EventDefinitionType
             search?: string
             ordering?: string
+            names?: string[]
         }): Promise<CountedPaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
-                .withQueryString(toParams({ limit, ...params }))
+                .withQueryString(toParams({ limit, ...params }, true))
                 .get()
         },
         async primaryProperties({
@@ -3619,8 +3628,8 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            params: { limit?: number; offset?: number; search?: string; levels?: string; ordering?: string } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -3709,8 +3718,11 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
-            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        async list(
+            params: PersonListParams = {},
+            options?: ApiMethodOptions
+        ): Promise<CountedPaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get(options)
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
@@ -3785,8 +3797,8 @@ const api = {
     },
 
     search: {
-        async list(params: SearchListParams): Promise<SearchResponse> {
-            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        async list(params: SearchListParams, options?: ApiMethodOptions): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get(options)
         },
     },
 
@@ -3886,6 +3898,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
@@ -4741,7 +4762,9 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | 'variables' | '_create_in_folder'>
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4804,63 +4827,6 @@ const api = {
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
         },
-        async hogqlExecute(
-            notebookId: NotebookType['short_id'],
-            data: { query: string }
-        ): Promise<{ columns?: string[]; results?: any[]; error?: string }> {
-            return await new ApiRequest().notebook(notebookId).withAction('hogql/execute').create({ data })
-        },
-        async kernelExecuteStream(
-            notebookId: NotebookType['short_id'],
-            data: {
-                code: string
-                return_variables?: boolean
-                timeout?: number
-            },
-            {
-                onMessage,
-                onError,
-                signal,
-            }: {
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                signal?: AbortSignal
-            }
-        ): Promise<void> {
-            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute/stream').assembleFullUrl(true)
-            await api.stream(url, {
-                method: 'POST',
-                data,
-                onMessage,
-                onError,
-                signal,
-            })
-        },
-        async kernelDataframe(
-            notebookId: NotebookType['short_id'],
-            params: {
-                variable_name: string
-                offset?: number
-                limit?: number
-                timeout?: number
-            }
-        ): Promise<{
-            columns: string[]
-            rows: Record<string, any>[]
-            rowCount: number
-        }> {
-            const response = await new ApiRequest()
-                .notebook(notebookId)
-                .withAction('kernel/dataframe')
-                .withQueryString(params)
-                .get()
-
-            return {
-                columns: response.columns ?? [],
-                rows: response.rows ?? [],
-                rowCount: response.row_count ?? 0,
-            }
-        },
         async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()
         },
@@ -4886,15 +4852,17 @@ const api = {
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
             data: {
+                reuse_results?: boolean
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null
                 send_raw_query?: boolean
             }
-        ): Promise<{ run_id: string }> {
+        ): Promise<{ run_id: string; starts_sandbox?: boolean; sandbox_hourly_price?: number | null }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
         async sqlV2RunInterrupt(
@@ -5018,7 +4986,8 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
         ): Promise<PaginatedResponse<RawBatchExportRun>> {
-            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params)).get()
+            // Explode arrays, as the runs endpoint reads repeated parameters (`?status=Failed&status=Running`).
+            return await new ApiRequest().batchExportRuns(id).withQueryString(toParams(params, true)).get()
         },
         async createBackfill(
             id: BatchExportConfiguration['id'],
@@ -5154,6 +5123,8 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** true returns only the filtered total: `results` is empty and no rows are serialized. */
+            count_only?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5172,7 +5143,7 @@ const api = {
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
-        // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
+        // State transitions: suppress (dismiss), resolve, or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
@@ -5263,7 +5234,7 @@ const api = {
             }
         },
         async update(
-            data: Partial<SignalUserAutonomyConfig>,
+            data: SignalUserAutonomyConfigCreateApi,
             userId: string | '@me' = '@me'
         ): Promise<SignalUserAutonomyConfig> {
             return await new ApiRequest().signalUserAutonomy(userId).create({ data })
@@ -5417,7 +5388,10 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                created_by?: number
                 ids?: string
+                status?: 'draft' | 'running' | 'complete'
+                type?: SurveyType
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }
@@ -5653,10 +5627,15 @@ const api = {
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
         },
-        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
-        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
-        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
-            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        // Goes over XHR rather than fetch so the caller can follow how much of a large file has
+        // gone up. FormData, not JSON — the browser sets the multipart boundary itself, so neither
+        // this call nor the transport adds a Content-Type header.
+        async uploadFile(data: FormData, options?: ApiUploadOptions): Promise<WarehouseTableFileUpload> {
+            return await api.createWithUploadProgress(
+                new ApiRequest().dataWarehouseTables().withAction('upload_file').assembleFullUrl(),
+                data,
+                options
+            )
         },
         async createFromUpload(data: {
             upload_id: string
@@ -5768,31 +5747,9 @@ const api = {
         },
     },
 
-    dataModelingDags: {
-        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
-            return await new ApiRequest().dataModelingDags().get()
-        },
-        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDags().create({ data })
-        },
-        async update(
-            dagId: DataModelingDAG['id'],
-            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
-        ): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDag(dagId).update({ data })
-        },
-        async delete(dagId: DataModelingDAG['id']): Promise<void> {
-            await new ApiRequest().dataModelingDag(dagId).delete()
-        },
-    },
-
     dataModelingNodes: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
-            const req = new ApiRequest().dataModelingNodes()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -5811,11 +5768,6 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
-        },
-        async dagIds(): Promise<{
-            dag_ids: Array<{ id: string; name: string }>
-        }> {
-            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage({
             nodeId,
@@ -5836,12 +5788,8 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
-            const req = new ApiRequest().dataModelingEdges()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
@@ -5943,7 +5891,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceType,
+            source_type: ExternalDataSourceTypeEnumApi,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5951,11 +5899,11 @@ const api = {
                 .withAction('database_schema')
                 .create({ data: { source_type, ...payload } })
         },
-        async wizard(): Promise<Record<string, SourceConfig>> {
+        async wizard(): Promise<SourceConfigMapResponseApi> {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceType,
+            source_type: ExternalDataSourceTypeEnumApi,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5965,7 +5913,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceType
+                source_type: ExternalDataSourceTypeEnumApi
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6426,6 +6374,12 @@ const api = {
         },
     },
 
+    queryScan: {
+        async get(cacheKey: string): Promise<QueryScanResponse> {
+            return await new ApiRequest().queryScan(cacheKey).get()
+        },
+    },
+
     personalApiKeys: {
         async list(): Promise<PersonalAPIKeyType[]> {
             return await new ApiRequest().personalApiKeys().get()
@@ -6564,11 +6518,6 @@ const api = {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
         },
     },
-    wizard: {
-        async authenticateWizard(data: { hash: string; projectId: number }): Promise<{ success: boolean }> {
-            return await new ApiRequest().authenticateWizard().create({ data })
-        },
-    },
     messaging: {
         async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
             return await new ApiRequest().messagingTemplates().get()
@@ -6631,6 +6580,9 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
+            type?: 'messaging' | 'automation' | 'loop'
+            /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
+            trigger?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6689,12 +6641,13 @@ const api = {
         },
         async getBatchTriggerBlastRadius(
             filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters'],
-            dedupeKey?: 'email'
+            dedupeKey?: 'email',
+            sendsEmail?: boolean
         ): Promise<BlastRadiusApi> {
             return await new ApiRequest()
                 .hogFlows()
                 .withAction('user_blast_radius')
-                .create({ data: { filters, dedupe_key: dedupeKey ?? null } })
+                .create({ data: { filters, dedupe_key: dedupeKey ?? null, sends_email: sendsEmail ?? true } })
         },
         async createHogFlowBatchJob(
             hogFlowId: HogFlow['id'],
@@ -6784,6 +6737,14 @@ const api = {
         return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
     },
 
+    /**
+     * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
+     * request does not reach ClickHouse, which keeps working on the query until it finishes.
+     */
+    async cancelQuery(clientQueryId: string): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId).delete()
+    },
+
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         queryOptions?: {
@@ -6809,7 +6770,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -7129,7 +7095,6 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -7166,7 +7131,6 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', async () =>
@@ -7185,10 +7149,24 @@ const api = {
         )
     },
 
+    /**
+     * POST a body and report how much of it has been sent.
+     *
+     * `fetch` exposes no upload progress at all, so a caller uploading a large file can only show
+     * an indeterminate spinner. This sends over XMLHttpRequest instead and wraps the result in a
+     * `Response`, so the call still goes through the same error, retry, and telemetry path as
+     * every other request.
+     */
+    async createWithUploadProgress<T = any>(url: string, data: FormData, options?: ApiUploadOptions): Promise<T> {
+        url = prepareUrl(url)
+        ensureProjectIdNotInvalid(url)
+        const response = await handleFetch(url, 'POST', () => xhrPost(url, data, options))
+        return await getJSONFromSuccessResponse(response, 'POST', url)
+    },
+
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
@@ -7445,6 +7423,29 @@ function requestPathname(url: string): string {
     }
 }
 
+/**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ *
+ * Matching a bare `TypeError` is safe here in a way it would not be elsewhere, because this runs
+ * only after a `fetch` call rejected. `isBrowserNetworkFailure` decides the same question about an
+ * arbitrary error, so it matches the message alone.
+ */
+function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
 function classifyNetworkFailure(): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
@@ -7469,6 +7470,59 @@ function captureClientRequestFailure(properties: {
     if (posthog.capture) {
         posthog.capture('client_request_failure', properties)
     }
+}
+
+// The `Response` constructor rejects a body on these statuses, so they resolve with a null body.
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
+
+function parseXhrHeaders(rawHeaders: string): Headers {
+    const headers = new Headers()
+    for (const line of rawHeaders.trim().split(/[\r\n]+/)) {
+        const separator = line.indexOf(':')
+        if (separator > 0) {
+            headers.append(line.slice(0, separator), line.slice(separator + 1).trim())
+        }
+    }
+    return headers
+}
+
+function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promise<Response> {
+    return new Promise<Response>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', url, true)
+        // No Content-Type: the body is always FormData, which carries its own multipart boundary.
+        const headers = {
+            ...objectClean(options?.headers ?? {}),
+            'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+            ...tracingHeaders(),
+            ...oauthAuthHeaders(url),
+        }
+        for (const [name, value] of Object.entries(headers)) {
+            xhr.setRequestHeader(name, value)
+        }
+
+        const onUploadProgress = options?.onUploadProgress
+        if (onUploadProgress) {
+            xhr.upload.onprogress = (event) =>
+                onUploadProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : null })
+        }
+
+        // `fetch` rejects with a TypeError when the request never reached the server, and aborts
+        // surface as an AbortError. Match both so handleFetch classifies XHR failures the same way.
+        xhr.onerror = () => reject(new TypeError('Failed to fetch'))
+        xhr.onabort = () => reject(new DOMException('The user aborted a request.', 'AbortError'))
+        xhr.onload = () =>
+            resolve(
+                new Response(NULL_BODY_STATUSES.has(xhr.status) ? null : xhr.responseText, {
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
+                })
+            )
+
+        options?.signal?.addEventListener('abort', () => xhr.abort())
+        xhr.send(data)
+    })
 }
 
 async function handleFetch(
@@ -7499,7 +7553,7 @@ async function handleFetch(
         // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
         // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
         // relabelled as a connectivity problem and filtered out of error tracking.
-        if (error instanceof TypeError) {
+        if (isBrowserFetchFailure(error)) {
             const reason = classifyNetworkFailure()
             captureClientRequestFailure({
                 pathname: requestPathname(url),

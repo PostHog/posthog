@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock
 
@@ -102,7 +102,7 @@ class TestToDatetime:
 
 
 class TestActivityDateWindow:
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_first_sync_uses_lookback_window(self) -> None:
         window = _activity_date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=None, lookback_days=30
@@ -110,7 +110,7 @@ class TestActivityDateWindow:
         assert window.end - window.start == 30 * 24 * 60 * 60
         assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_full_refresh_uses_lookback_window(self) -> None:
         # Activity requires a date window even without an incremental cursor, so a full refresh still
         # falls back to the lookback window rather than omitting the bounds.
@@ -119,7 +119,7 @@ class TestActivityDateWindow:
         )
         assert window.end - window.start == 30 * 24 * 60 * 60
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_incremental_starts_from_last_value(self) -> None:
         last = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
         window = _activity_date_window(
@@ -128,7 +128,7 @@ class TestActivityDateWindow:
         assert window.start == int(last.timestamp())
         assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_future_cursor_is_clamped_below_date_to(self) -> None:
         # A future-dated cursor would make date_from >= date_to and 422 the request; it must be clamped.
         future = datetime(2027, 1, 1, tzinfo=UTC)

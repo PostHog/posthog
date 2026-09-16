@@ -1,4 +1,4 @@
-import { isSafePostHogUrl } from "@posthog/shared";
+import { isSafeGitHubPullRequestUrl, isSafePostHogUrl } from "@posthog/shared";
 import { z } from "zod";
 import { textCommentAnchorDataSchema } from "../comments/anchors";
 
@@ -31,6 +31,7 @@ export const canvasDataQueryInput = z
     hogql: z.string().min(1).max(20_000).optional(),
     // Reserved for bound parameters (Phase 3 named queries). Edit mode ignores it.
     params: z.record(z.string().max(128), z.unknown()).optional(),
+    refresh: z.number().int().min(30).max(86_400).optional(),
   })
   .refine((v) => v.query != null || v.hogql != null, {
     message: "ph.query requires a query node or a HogQL string",
@@ -39,6 +40,11 @@ export type CanvasDataQueryInput = z.infer<typeof canvasDataQueryInput>;
 
 export const canvasDataResultSchema = z.object({
   columns: z.array(z.string()),
+  // True when the host served a cached result older than the canvas's declared
+  // refresh window and kicked off a background recompute. The bridge uses it to
+  // shorten its client-cache lifetime so the canvas's next read picks up the
+  // fresh numbers; it is stripped before the result reaches canvas code.
+  stale: z.boolean().optional(),
   // The result rows. SHAPE DEPENDS ON THE QUERY KIND (true for both `ph.query`
   // and `ph.loadInsight`):
   //   • HogQLQuery / SQL insight → an array of ROWS, each row an array of cell
@@ -77,6 +83,7 @@ export const canvasLoadInsightInput = z.object({
   // Keyed by the variable's `code_name`, not its uuid — the host resolves ids
   // server-side, so canvas code never carries a variable uuid.
   variables: z.record(z.string().min(1).max(128), z.unknown()).optional(),
+  refresh: z.number().int().min(30).max(86_400).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 
@@ -94,13 +101,28 @@ export type CanvasCaptureInput = z.infer<typeof canvasCaptureInput>;
 export const canvasCaptureResultSchema = z.object({ ok: z.boolean() });
 export type CanvasCaptureResult = z.infer<typeof canvasCaptureResultSchema>;
 
+// Connector-call avenue behind the `ph.connectors.call` shim. The host resolves
+// the viewer's own connection server-side; the iframe names only the provider,
+// the tool, and its arguments.
+export const canvasConnectorProviderSchema = z.union([
+  z.literal("github"),
+  z
+    .string()
+    .max(300)
+    .regex(/^mcp:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i),
+]);
+
+export const canvasConnectorCallInput = z.object({
+  provider: canvasConnectorProviderSchema,
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string().max(128), z.unknown()).default({}),
+  refresh: z.number().int().min(30).max(86_400).optional(),
+});
+export type CanvasConnectorCallInput = z.infer<typeof canvasConnectorCallInput>;
+
 export const canvasAgentRequestInputSchema = z.object({
   prompt: z.string().min(1).max(10_000),
 });
-export type CanvasAgentRequestInput = z.infer<
-  typeof canvasAgentRequestInputSchema
->;
-
 export const canvasAgentRequestResultSchema = z.object({
   requestOutcome: z.enum(["signaled", "new_run", "already_queued", "reported"]),
   taskId: z.string().min(1),
@@ -130,8 +152,6 @@ export type CanvasCaptureConfig = z.infer<typeof canvasCaptureConfigSchema>;
 // Stamped on every frame so a page hosting multiple canvas iframes (or other
 // postMessage traffic) can route unambiguously.
 const CANVAS_CHANNEL = "posthog-canvas" as const;
-export const CANVAS_MESSAGE_CHANNEL = CANVAS_CHANNEL;
-
 // Analytics bootstrap config handed to the iframe so posthog-js can run INSIDE
 // it (the only way session replay records the app's DOM). Only the PUBLIC
 // capture key crosses — never the private read token. `distinctId` seeds
@@ -175,8 +195,8 @@ export type CanvasCommentHighlight = z.infer<
   typeof canvasCommentHighlightSchema
 >;
 
-export const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
-export const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
+const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
+const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
 
 export function limitCanvasCommentHighlights(
   highlights: CanvasCommentHighlight[],
@@ -261,8 +281,23 @@ export type HostToCanvasMessage = z.infer<typeof hostToCanvasMessageSchema>;
 export const canvasNavIntentSchema = z.discriminatedUnion("target", [
   z.object({ target: z.literal("task"), taskId: z.string().min(1) }),
   z.object({ target: z.literal("new-task") }),
+  z.object({
+    target: z.literal("compose-task"),
+    prompt: z.string().max(16_000).optional(),
+    repository: z
+      .string()
+      .max(200)
+      .regex(/^[a-z0-9-]+\/[a-z0-9_.-]+$/i)
+      .optional(),
+  }),
   z.object({ target: z.literal("canvas"), dashboardId: z.string().min(1) }),
   z.object({ target: z.literal("new-canvas") }),
+  // ph.connectors.connect(provider): the host maps the provider to its own
+  // settings page, so the iframe never names a route.
+  z.object({
+    target: z.literal("connect"),
+    provider: canvasConnectorProviderSchema,
+  }),
 ]);
 export type CanvasNavIntent = z.infer<typeof canvasNavIntentSchema>;
 
@@ -290,6 +325,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "stateList",
       "actionInvoke",
       "agentRequest",
+      "connectorCall",
     ]),
     payload: z.unknown(),
   }),
@@ -315,12 +351,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("navigate"),
     nav: canvasNavIntentSchema,
   }),
-  // Open a URL outside the sandbox. The PostHog-only https allowlist is part
+  // Open a URL outside the sandbox. The HTTPS allowlist is part
   // of the schema, so no consumer can forward an unvalidated URL.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("open-external"),
-    url: z.string().refine(isSafePostHogUrl),
+    url: z
+      .string()
+      .refine(
+        (url) => isSafePostHogUrl(url) || isSafeGitHubPullRequestUrl(url),
+      ),
   }),
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
@@ -335,6 +375,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("comment-activate"),
     id: z.string().min(1).max(128),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("keydown"),
+    key: z.string().min(1).max(32),
+    code: z.string().max(32),
+    metaKey: z.boolean(),
+    ctrlKey: z.boolean(),
+    shiftKey: z.boolean(),
+    altKey: z.boolean(),
   }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;

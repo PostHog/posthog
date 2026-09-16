@@ -7,6 +7,7 @@ import psycopg.errors
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
     PostgresCDCAdapter,
     _slot_setup_error_message,
@@ -183,6 +184,11 @@ class TestSlotSetupErrorMessage:
 
     def test_must_be_superuser_message_suggests_incremental_sync(self) -> None:
         error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
+        assert "Incremental sync" in error
+
+    def test_read_only_transaction_error_points_at_primary(self) -> None:
+        error = _slot_setup_error_message(Exception("cannot execute CREATE PUBLICATION in a read-only transaction"))
+        assert "primary database" in error
         assert "Incremental sync" in error
 
     def test_non_permission_error_keeps_raw_message_only(self) -> None:
@@ -373,6 +379,7 @@ class TestIsConnectionError:
             ("connect_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
             ("operational", psycopg.OperationalError("connection refused"), True),
             ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
+            ("host_policy", HostNotAllowedError("resolves to a private address"), True),
             ("programming_bug", ValueError("unexpected status shape"), False),
         ]
     )

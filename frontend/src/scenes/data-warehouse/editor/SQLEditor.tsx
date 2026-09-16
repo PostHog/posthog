@@ -7,12 +7,14 @@ import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@p
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -32,10 +34,13 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
+import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { ExpressionModal } from '../ExpressionModal'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
@@ -56,6 +61,7 @@ export enum SQLEditorPanel {
 }
 
 const VARIABLE_QUERY_SYNC_DEBOUNCE_MS = 150
+const MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
 
 interface SQLEditorProps {
     tabId?: string
@@ -73,8 +79,12 @@ interface SQLEditorProps {
     /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Drop the toolbar's run button, for hosts that offer the run affordance themselves. */
+    hideRunButton?: boolean
     onShareTab?: () => void
     queryPaneDefaultHeight?: number
+    /** Floor for a dragged query pane. Notebook cells pass a smaller one than the scene. */
+    queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
 }
@@ -93,8 +103,10 @@ export function SQLEditor({
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    hideRunButton,
     onShareTab,
     queryPaneDefaultHeight,
+    queryPaneMinHeight,
     autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
@@ -125,6 +137,7 @@ export function SQLEditor({
             sidebarRef,
             databaseTreeRef,
             queryPaneDefaultHeight,
+            queryPaneMinHeight,
             biEditorResizerProps: {
                 containerRef: biEditorRef,
                 logicKey: 'bi-editor-pane',
@@ -155,10 +168,10 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }
-    }, [mode, tabId, queryPaneDefaultHeight])
+    }, [mode, tabId, queryPaneDefaultHeight, queryPaneMinHeight])
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
-        null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
+        null as [Monaco, importedEditor.IStandaloneCodeEditor | null] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
 
@@ -167,6 +180,21 @@ export function SQLEditor({
             setMonacoAndEditor(null)
         }
     })
+
+    // The SQL/BI view toggle and the sidebar "Query" action tear the editor widget down and
+    // rebuild it while this scene stays mounted. Nothing else clears the cached reference, so the
+    // logic keeps a disposed editor as a prop. Drop only the editor the instant Monaco disposes it,
+    // and keep the Monaco namespace: `Uri` and `editor.createModel`/`getModel` stay valid after the
+    // widget is gone, so createTab can still prepare a tab before the next editor mounts.
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        const disposable = editor.onDidDispose(() =>
+            setMonacoAndEditor((current) => (current ? [current[0], null] : null))
+        )
+        return () => disposable.dispose()
+    }, [editor])
 
     const logic = sqlEditorLogic({
         tabId: tabId || '',
@@ -281,6 +309,7 @@ export function SQLEditor({
                                                             runQueryTooltip={runQueryTooltip}
                                                             onCancelQuery={onCancelQuery}
                                                             cancelQueryLoading={cancelQueryLoading}
+                                                            hideRunButton={hideRunButton}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
                                                         />
@@ -319,28 +348,68 @@ function ViewLoadingOverlay(): JSX.Element | null {
     )
 }
 
+function OpenModelButton({ viewId, onClose }: { viewId: string; onClose: () => void }): JSX.Element {
+    const { upstream, upstreamLoading } = useValues(sqlEditorLogic)
+    const { hasMaterializationChanges, savingMaterialization } = useValues(materializationJobsLogic({ viewId }))
+    const nodeId =
+        upstream?.modelId === viewId ? upstream.nodes.find((node) => node.saved_query_id === viewId)?.id : undefined
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            to={nodeId ? urls.nodeDetail(nodeId, 'materialization') : undefined}
+            onClick={onClose}
+            disabledReason={
+                hasMaterializationChanges || savingMaterialization
+                    ? 'Save or discard your changes first'
+                    : !nodeId
+                      ? upstreamLoading
+                          ? 'Loading model'
+                          : 'Model is not available'
+                      : undefined
+            }
+        >
+            Open model
+        </LemonButton>
+    )
+}
+
 function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
     const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
     const { closeMaterializationModal } = useActions(sqlEditorLogic)
+    // Cadence and refresh mode are drafts that only Save writes, and this modal is the only place
+    // they are mounted, so closing the modal throws them away. Keyed on an empty string while no
+    // view is open, which builds an inert instance because every request in that logic is reached
+    // through a viewId guard.
+    const { hasMaterializationChanges } = useValues(
+        materializationJobsLogic({ viewId: materializationModalView?.id ?? '' })
+    )
 
     return (
         <LemonModal
-            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
+            title={materializationModalView?.name ?? 'Model settings'}
+            footer={
+                materializationModalView && !viewLoading ? (
+                    <div className="flex flex-wrap justify-between items-center gap-4 w-full">
+                        <OpenModelButton viewId={materializationModalView.id} onClose={closeMaterializationModal} />
+                        <div className="flex flex-wrap items-center gap-2">
+                            <MaterializationRunActions viewId={materializationModalView.id} />
+                        </div>
+                    </div>
+                ) : undefined
+            }
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
+            hasUnsavedInput={hasMaterializationChanges}
             width={960}
         >
-            <div className="max-h-[75vh] overflow-auto">
+            <div className="min-h-[min(60vh,560px)]">
                 {viewLoading ? (
-                    <div className="flex min-h-64 items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
+                    <MaterializationLoading />
                 ) : materializationModalView ? (
-                    <QueryInfo tabId={tabId} view={materializationModalView} />
+                    <QueryInfo key={materializationModalView.id} tabId={tabId} view={materializationModalView} tabbed />
                 ) : (
-                    <div className="flex min-h-64 items-center justify-center">
-                        <Spinner className="text-2xl" />
-                    </div>
+                    <MaterializationLoading />
                 )}
             </div>
         </LemonModal>
@@ -411,13 +480,23 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
-    useAttachedContext([
-        {
-            type: 'sql_editor_state',
-            value: JSON.stringify(getExecuteSqlToolContext(queryInput, sourceQuery)),
-            label: 'Current query',
-        },
-    ])
+    const debouncedQueryInput = useDebouncedValue(queryInput, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const debouncedSourceQuery = useDebouncedValue(sourceQuery, MAX_TOOL_CONTEXT_DEBOUNCE_MS)
+    const executeSqlToolContext = useMemo(
+        () => getExecuteSqlToolContext(debouncedQueryInput, debouncedSourceQuery),
+        [debouncedQueryInput, debouncedSourceQuery]
+    )
+    const attachedContextItems = useMemo(
+        () => [
+            {
+                type: 'sql_editor_state' as const,
+                value: JSON.stringify(executeSqlToolContext),
+                label: 'Current query',
+            },
+        ],
+        [executeSqlToolContext]
+    )
+    useAttachedContext(attachedContextItems)
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
@@ -594,7 +673,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 })}
                 maxToolProps={{
                     identifier: 'execute_sql',
-                    context: getExecuteSqlToolContext(queryInput, sourceQuery),
+                    context: executeSqlToolContext,
                     contextDescription: {
                         text: 'Current query',
                         icon: iconForType('sql_editor'),

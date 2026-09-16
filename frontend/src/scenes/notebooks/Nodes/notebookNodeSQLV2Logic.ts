@@ -12,20 +12,31 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
-import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
+import {
+    NotebookNodeRunTerminalStatus,
+    NotebookStaleReason,
+    notebookNodeStalenessLogic,
+} from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
+import { NotebookVariable } from '../Notebook/notebookVariables'
+import { sandboxStartMessage } from '../Notebook/SandboxStartMessage'
 import { NotebookNodeType } from '../types'
 import {
     buildNotebookDependencyGraph,
-    collectPythonKernelNodes,
-    collectSqlV2Nodes,
+    collectNotebookDataframeNodes,
     extractDuckSqlTables,
 } from './notebookNodeContent'
 import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
@@ -38,6 +49,24 @@ export type SqlV2RunRef = {
     kind: 'hogql' | 'local'
 }
 
+// Turn a run/result request failure into a message the user can act on. The browser endpoints
+// render every 404 as DRF's generic {"detail": "Not found."}, so the response can't say what is
+// gone — the caller does, via notFoundKind: a run dispatch that 404s means the notebook itself is
+// gone, while a result poll or page fetch that 404s means that run's result is gone. Every other
+// failure keeps its original message.
+export function sqlV2RunErrorMessage(
+    error: unknown,
+    fallback: string,
+    notFoundKind: 'notebook' | 'result' = 'result'
+): string {
+    if (error instanceof ApiError && error.status === 404) {
+        return notFoundKind === 'notebook'
+            ? 'This notebook could not be found. It may have been deleted.'
+            : 'This query result is no longer available. Run the cell again.'
+    }
+    return error instanceof Error ? error.message : fallback
+}
+
 // Map every sibling cell's dataframe name -> {node id, kind}, excluding the running node itself.
 // SQLV2 siblings delegate to collectSqlV2Nodes so duplicate names get the same disambiguated
 // form the dependency graph shows (sql_df, sql_df_2, …) — raw attributes would let a later
@@ -48,25 +77,33 @@ export type SqlV2RunRef = {
 // supplies the wiring.
 export function collectSqlV2Refs(doc: JSONContent | null | undefined, selfNodeId: string): Record<string, SqlV2RunRef> {
     const refs: Record<string, SqlV2RunRef> = {}
-    for (const node of collectSqlV2Nodes(doc)) {
-        // An unnamed cell (blank dataframe name) is display-only: nothing can reference it.
-        if (node.nodeId && node.nodeId !== selfNodeId && node.returnVariable) {
-            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'hogql' }
-        }
-    }
-    for (const node of collectPythonKernelNodes(doc)) {
-        // An unnamed python cell binds nothing in the kernel, so there is no frame to reference.
-        if (node.nodeId && node.nodeId !== selfNodeId && node.returnVariable && !(node.returnVariable in refs)) {
-            refs[node.returnVariable] = { node_id: node.nodeId, kind: 'local' }
+    for (const { node, nodeId, exportedName } of collectNotebookDataframeNodes(doc)) {
+        if (nodeId !== selfNodeId && exportedName) {
+            refs[exportedName] = { node_id: nodeId, kind: node.type === NotebookNodeType.PythonV2 ? 'local' : 'hogql' }
         }
     }
     return refs
 }
 
-const POLL_INTERVAL_MS = 1000
-// Must outlast the backend's own run budgets (180s data-plane poll deadline, 300s kernel
-// execute timeout) plus slack, or a slow-but-successful run gets reported as timed out.
-const MAX_POLL_ATTEMPTS = 330 // ~5.5 minutes at 1s
+// How often the poller re-checks a run, by how long it already waited. A cell that
+// materializes a large frame can legitimately run for many minutes, and a flat one-second
+// cadence across that window costs hundreds of requests for a single cell, so the interval
+// widens once nobody is plausibly still watching the first result land.
+const POLL_INTERVAL_STEPS_MS = [
+    { afterMs: 120_000, intervalMs: 5_000 },
+    { afterMs: 30_000, intervalMs: 2_000 },
+    { afterMs: 0, intervalMs: 1_000 },
+]
+
+export function pollIntervalMs(waitedMs: number): number {
+    return POLL_INTERVAL_STEPS_MS.find(({ afterMs }) => waitedMs >= afterMs)?.intervalMs ?? 1_000
+}
+
+// Must outlast every backend run budget, so the client reports the run's real outcome rather
+// than inventing one. The backend expires a stalled run itself: the direct lane at 600s, the
+// kernel lane at 1200s. Under those, a run the backend goes on to finish still reads here as
+// a client timeout, and the cell renders as errored while the server is still working on it.
+const MAX_POLL_WAIT_MS = 21 * 60 * 1000
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
 
@@ -94,34 +131,51 @@ export interface RunQueryOptions {
     sendRawQuery?: boolean
 }
 
+// What an open editor holds right now, for the callers that can read it — the document only
+// catches up to a keystroke or a just-picked connection on a later render.
+export interface RunNodeOverrides {
+    code?: string
+    connectionId?: string | null
+    sendRawQuery?: boolean
+}
+
 export interface NotebookNodeSQLV2LogicProps {
     nodeId: string
     notebookShortId: string
     // Current node attributes, so a fresh mount can recover an in-flight/finished run by its runId.
     runId?: string | null
     hasResult?: boolean
+    hasResultMetadata?: boolean
+    prepareInsightDataframes?: (code: string, nodeType: 'python' | 'hogql') => Promise<void>
     updateAttributes: (attrs: {
         nodeId?: string
+        returnVariable?: string
         runId?: string | null
         result?: NotebookNodeSQLV2Result | null
         runStatus?: NotebookNodeRunTerminalStatus | null
     }) => void
     // The live notebook document, for staleness marking and chain-dispatched runs (Journey 10).
     getContent?: () => JSONContent | null
+    // The notebook's variables, already filtered to the valid ones. A notebook property rather
+    // than document content, so it does not come out of getContent.
+    getVariables?: () => NotebookVariable[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface notebookNodeSQLV2LogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     chainQueue: string[] // notebookNodeStalenessLogic
     isChainRunning: boolean // notebookNodeStalenessLogic
     lastRunNodeId: string | null // notebookNodeStalenessLogic
     lastRunStaleDownstreamNodeIds: string[] // notebookNodeStalenessLogic
-    staleNodeIds: Record<string, true> // notebookNodeStalenessLogic
+    staleNodeIds: Record<string, NotebookStaleReason> // notebookNodeStalenessLogic
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
     directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
+    isRestoringResult: boolean
     isRunning: boolean
+    isSandboxComputeFree: boolean
     isStale: boolean
     operationBlockReason: string | null
     page: number
@@ -129,8 +183,11 @@ export interface notebookNodeSQLV2LogicValues {
     pageResult: NotebookNodeSQLV2Page | null
     pageSize: number
     pendingKernelStart: boolean
+    result: NotebookNodeSQLV2Result | null
+    resultRestoreUnavailable: boolean
     runError: string | null
     staleDownstreamCount: number
+    staleReason: NotebookStaleReason | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -172,6 +229,9 @@ export interface notebookNodeSQLV2LogicActions {
     setShowKernelInfo: (showKernelInfo: boolean) => {
         showKernelInfo: boolean
     } // notebookSettingsLogic
+    announceSandboxStart: (hourlyPrice: number | null) => {
+        hourlyPrice: number | null
+    }
     interruptRun: () => {
         value: true
     }
@@ -180,6 +240,12 @@ export interface notebookNodeSQLV2LogicActions {
     }
     resetPaging: () => {
         value: true
+    }
+    resultRestoreFailed: () => {
+        value: true
+    }
+    runNode: (overrides?: RunNodeOverrides) => {
+        overrides: RunNodeOverrides
     }
     runQuery: (
         code: string,
@@ -214,10 +280,17 @@ export interface notebookNodeSQLV2LogicActions {
     setPendingKernelStart: (pendingKernelStart: boolean) => {
         pendingKernelStart: boolean
     }
+    setResult: (result: NotebookNodeSQLV2Result | null) => {
+        result: NotebookNodeSQLV2Result | null
+    }
     setRunError: (runError: string | null) => {
         runError: string | null
     }
-    startPolling: (runId: string) => {
+    startPolling: (
+        runId: string,
+        restoring?: boolean
+    ) => {
+        restoring: boolean
         runId: string
     }
     stopPolling: () => {
@@ -229,8 +302,10 @@ export interface notebookNodeSQLV2LogicActions {
 export interface notebookNodeSQLV2LogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        isSandboxComputeFree: (featureFlags: FeatureFlagsSet) => boolean
         operationBlockReason: (activeOperation: NotebookOperation | null) => string | null
-        isStale: (staleNodeIds: Record<string, true>) => boolean
+        isStale: (staleNodeIds: Record<string, NotebookStaleReason>) => boolean
+        staleReason: (staleNodeIds: Record<string, NotebookStaleReason>) => NotebookStaleReason | null
         staleDownstreamCount: (lastRunNodeId: string | null, lastRunStaleDownstreamNodeIds: string[]) => number
     }
 }
@@ -248,6 +323,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
     key((props) => props.nodeId),
     connect((props: NotebookNodeSQLV2LogicProps) => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             notebookOperationsLogic({ shortId: props.notebookShortId }),
             ['activeOperation', 'isBusy'],
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
@@ -263,6 +340,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         ],
     })),
     actions({
+        setResult: (result: NotebookNodeSQLV2Result | null) => ({ result }),
         // refs maps each named sibling cell's dataframe name to {node id, kind}. A SQL node
         // inlines referenced hogql refs as CTEs (Journey 3) — or runs locally in DuckDB when
         // it references a local frame (Journey 5); a python node materializes the hogql refs
@@ -272,7 +350,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             refs,
             opts,
         }),
-        startPolling: (runId: string) => ({ runId }),
+        // Run this cell the way its own Run button does, deriving the code, the refs and the run
+        // options from the live document rather than from the caller. The single entry point for
+        // every run trigger — the toolbar button, Cmd+Enter, a chain dispatch — so a cell runs the
+        // same way whether or not its editor is on screen.
+        runNode: (overrides: RunNodeOverrides = {}) => ({ overrides }),
+        startPolling: (runId: string, restoring: boolean = false) => ({ runId, restoring }),
+        resultRestoreFailed: true,
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
         interruptRun: true,
@@ -286,14 +370,30 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         resetPaging: true,
         setDirectRows: (directRows: NotebookNodeSQLV2DirectRows | null) => ({ directRows }),
         setPendingKernelStart: (pendingKernelStart: boolean) => ({ pendingKernelStart }),
+        announceSandboxStart: (hourlyPrice: number | null) => ({ hourlyPrice }),
     }),
     reducers({
+        isRestoringResult: [
+            false,
+            { startPolling: (_, { restoring }) => restoring, stopPolling: () => false, runQuery: () => false },
+        ],
+        resultRestoreUnavailable: [
+            false,
+            { resultRestoreFailed: () => true, runQuery: () => false, startPolling: () => false },
+        ],
+        result: [
+            null as NotebookNodeSQLV2Result | null,
+            {
+                runQuery: () => null,
+                setResult: (_, { result }) => result,
+            },
+        ],
         // Tracks the run being in progress; driven by the run's status, not a socket lifecycle.
         isRunning: [
             false,
             {
                 runQuery: () => true,
-                startPolling: () => true,
+                startPolling: (_, { restoring }) => !restoring,
                 setIsRunning: (_, { isRunning }) => isRunning,
             },
         ],
@@ -443,7 +543,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (error?.status === 409) {
                     lemonToast.info('This result was replaced by a newer run — showing the latest first page.')
                 } else {
-                    lemonToast.error(error?.detail || error?.message || 'Failed to fetch page')
+                    lemonToast.error(sqlV2RunErrorMessage(error, 'Failed to fetch page'))
                 }
                 // Either way the requested page never arrived — fall back to the envelope's
                 // first page rather than showing old rows under a new page number.
@@ -461,6 +561,12 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             setPage: loadCurrentPage,
             setPageSize: loadCurrentPage,
             runQuery: async ({ code, refs, opts }) => {
+                if (cache.preparingInputs) {
+                    return
+                }
+                cache.isRestoringResult = false
+                cache.activeRunId = null
+                cache.disposables.dispose('pollResult')
                 if (!code.trim()) {
                     actions.setRunError('Nothing to run — type some code first.')
                     actions.setIsRunning(false)
@@ -480,6 +586,20 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // and never when it targets an external connection (the sandbox can't reach one).
                 // The backend stays authoritative — this only drives the kernel panel, never
                 // dispatch.
+                if (props.prepareInsightDataframes) {
+                    cache.preparingInputs = true
+                    try {
+                        await props.prepareInsightDataframes(code, opts.nodeType ?? 'hogql')
+                        refs = collectSqlV2Refs(props.getContent?.() ?? null, props.nodeId)
+                    } catch (error) {
+                        actions.setRunError(sqlV2RunErrorMessage(error, 'Could not prepare insight dataframes'))
+                        actions.setIsRunning(false)
+                        actions.nodeRunFinished(props.nodeId, 'failed', null)
+                        return
+                    } finally {
+                        cache.preparingInputs = false
+                    }
+                }
                 const isKernelLane =
                     opts.nodeType === 'python' ||
                     (!opts.connectionId && extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local'))
@@ -492,15 +612,20 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (!kernelKnownRunning) {
                         actions.setShowKernelInfo(true)
                         actions.setPendingKernelStart(true)
-                        lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
                     }
                 }
+                // Read from the notebook rather than the caller: every run path (Run button,
+                // Cmd+Enter, chain dispatch) needs the same notebook-level values.
+                const variables = props.getVariables?.() ?? []
                 actions.startOperation(runOperation)
                 try {
-                    const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
+                    const runResponse = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
                         refs,
+                        // Omitted when the notebook declares none, so an unchanged notebook's
+                        // run body stays byte-identical to before.
+                        ...(variables.length ? { variables } : {}),
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
                         // Omitted entirely for a PostHog cell — the backend's defaults say the same
@@ -511,63 +636,126 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
+                    const run_id = runResponse.run_id
                     cache.activeRunId = run_id
+                    // The backend decides this at dispatch, so it is the only accurate source.
+                    // A kernel poll is up to ten seconds old, which is long enough to miss a
+                    // sandbox that stopped inside that window and start paid compute silently.
+                    if (runResponse.starts_sandbox) {
+                        actions.announceSandboxStart(runResponse.sandbox_hourly_price ?? null)
+                    }
                     // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
                     // content fingerprints otherwise, so without the pin any later prop change
                     // would orphan this run's node_id and break refs to this cell.
                     props.updateAttributes({
                         nodeId: props.nodeId,
+                        ...(opts.outputName !== undefined ? { returnVariable: opts.outputName } : {}),
                         runId: run_id,
                         result: null,
                         runStatus: null,
                     })
                     actions.startPolling(run_id)
                 } catch (error) {
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to run query', 'notebook'))
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
             },
-            // A chain-dispatched run (Journey 10): only the matching node acts; it rebuilds its
-            // code and refs from the live document, exactly like its own Run button would.
-            dispatchChainRun: ({ nodeId }) => {
-                if (nodeId !== props.nodeId) {
-                    return
-                }
+            announceSandboxStart: ({ hourlyPrice }) => {
+                // The panel that shows the price is only just opening, so say the rate in the
+                // toast too. A user who runs a Python cell never opens the panel deliberately and
+                // would otherwise start paid compute without being told what it costs. The price
+                // is null for a local docker kernel, which is free.
+                lemonToast.info(sandboxStartMessage(hourlyPrice, values.isSandboxComputeFree))
+            },
+            runNode: ({ overrides }) => {
                 const content = props.getContent?.() ?? null
                 const self = content ? buildNotebookDependencyGraph(content).nodesById[props.nodeId] : null
                 if (!content || !self) {
+                    // A cell the document no longer holds can never report a result, so tell the
+                    // staleness chain now rather than leave it waiting on this node.
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
+                // The graph's returnVariable is the disambiguated frame name (sql_df, sql_df_2, …)
+                // downstream cells reference, which is what a rerouted run has to bind.
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
                         ? { nodeType: 'python', outputName: self.returnVariable }
-                        : { connectionId: self.connectionId ?? null, sendRawQuery: !!self.sendRawQuery }
-                actions.runQuery(self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
+                        : {
+                              outputName: self.returnVariable,
+                              connectionId:
+                                  overrides.connectionId !== undefined
+                                      ? overrides.connectionId
+                                      : (self.connectionId ?? null),
+                              sendRawQuery: overrides.sendRawQuery ?? !!self.sendRawQuery,
+                          }
+                actions.runQuery(overrides.code ?? self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
             },
-            startPolling: ({ runId }) => {
+            // A chain-dispatched run (Journey 10): only the matching node acts, and it runs itself
+            // exactly as its own Run button would.
+            dispatchChainRun: ({ nodeId }) => {
+                if (nodeId === props.nodeId) {
+                    actions.runNode()
+                }
+            },
+            startPolling: ({ runId, restoring }) => {
+                cache.isRestoringResult = restoring
                 // Idempotent re-register: also covers a remount resuming a persisted in-flight run.
-                actions.startOperation(runOperation)
+                if (!cache.isRestoringResult) {
+                    actions.startOperation(runOperation)
+                }
                 cache.activeRunId = runId
-                cache.pollAttempts = 0
+                cache.pollWaitedMs = 0
                 actions.pollResult(runId)
                 // Same key auto-disposes any previous poller; disposables clean up on unmount and pause on hidden tab.
                 cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => actions.pollResult(runId), POLL_INTERVAL_MS)
-                    return () => clearInterval(intervalId)
+                    // Reschedules itself rather than using setInterval, because the cadence
+                    // widens as the wait grows.
+                    let timeoutId = 0
+                    const scheduleNext = (): void => {
+                        timeoutId = window.setTimeout(
+                            () => {
+                                actions.pollResult(runId)
+                                // pollResult can stop the poller synchronously when it reaches the
+                                // budget, which disposes this entry. Re-arm only while it still
+                                // owns a live poller, or the new timer would outlive the disposable
+                                // and loop the failure forever.
+                                if (cache.disposables.registry.has('pollResult')) {
+                                    scheduleNext()
+                                }
+                            },
+                            pollIntervalMs(cache.pollWaitedMs ?? 0)
+                        )
+                    }
+                    scheduleNext()
+                    return () => clearTimeout(timeoutId)
                 }, 'pollResult')
             },
             pollResult: async ({ runId }) => {
+                const restoring = !!cache.isRestoringResult
                 if (cache.pollInFlight) {
                     return
                 }
-                cache.pollAttempts = (cache.pollAttempts ?? 0) + 1
-                if (cache.pollAttempts > MAX_POLL_ATTEMPTS) {
-                    actions.setRunError('Timed out waiting for result')
+                // Accumulated from the intervals the poller actually used, not from the clock:
+                // it pauses while the tab is hidden, so a clock-based budget would burn down
+                // during a pause the user never spent waiting.
+                cache.pollWaitedMs = (cache.pollWaitedMs ?? 0) + pollIntervalMs(cache.pollWaitedMs ?? 0)
+                if (cache.pollWaitedMs > MAX_POLL_WAIT_MS) {
+                    // Past every backend budget, so the server is unreachable rather than slow.
+                    // The run keeps whatever outcome the server gave it; only this client gave up.
+                    if (restoring) {
+                        actions.resultRestoreFailed()
+                    } else {
+                        actions.setRunError(
+                            'Stopped checking for a result. Reload the page to see if the run finished.'
+                        )
+                    }
                     actions.stopPolling()
-                    actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    if (!restoring) {
+                        actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    }
                     return
                 }
                 cache.pollInFlight = true
@@ -600,6 +788,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                               media: result.media ?? [],
                           }
                         : null
+                    const resultMetadata = envelopeResult ? notebookResultPreview(envelopeResult) : null
                     if (status === 'done') {
                         // A direct run's full capped row set arrives with the result — keep it
                         // in memory for client-side paging (kernel runs return no rows here).
@@ -614,34 +803,58 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         )
                         // The outcome rides along with the result so a reload can tell a completed
                         // run from an interrupted one — both leave a result behind.
-                        props.updateAttributes({ result: envelopeResult, runStatus: 'done' })
+                        actions.setResult(envelopeResult)
+                        if (!restoring) {
+                            props.updateAttributes({ result: resultMetadata, runStatus: 'done' })
+                        }
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()
                         actions.stopPolling()
                         // Downstream cells now derive from outdated data — mark them stale
                         // against the document as it stands now (Journey 10).
-                        actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        if (!restoring) {
+                            actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        }
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
-                        props.updateAttributes({ result: envelopeResult, runStatus: 'interrupted' })
-                        actions.setRunError(error ?? 'Run interrupted.')
+                        actions.setResult(envelopeResult)
+                        if (!restoring) {
+                            props.updateAttributes({ result: resultMetadata, runStatus: 'interrupted' })
+                        }
+                        if (!restoring) {
+                            actions.setRunError(error ?? 'Run interrupted.')
+                        }
                         actions.resetPaging()
                         actions.stopPolling()
-                        actions.nodeRunFinished(props.nodeId, 'interrupted', null)
+                        if (!restoring) {
+                            actions.nodeRunFinished(props.nodeId, 'interrupted', null)
+                        }
                     } else if (status === 'failed') {
-                        actions.setRunError(error ?? 'Run failed')
+                        if (restoring) {
+                            actions.resultRestoreFailed()
+                        } else {
+                            actions.setRunError(error ?? 'Run failed')
+                        }
                         actions.stopPolling()
-                        actions.nodeRunFinished(props.nodeId, 'failed', null)
+                        if (!restoring) {
+                            actions.nodeRunFinished(props.nodeId, 'failed', null)
+                        }
                     }
                     // 'running' → keep polling
                 } catch (error) {
                     if (runId !== cache.activeRunId) {
                         return
                     }
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
+                    if (restoring) {
+                        actions.resultRestoreFailed()
+                    } else {
+                        actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to fetch result'))
+                    }
                     actions.stopPolling()
-                    actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    if (!restoring) {
+                        actions.nodeRunFinished(props.nodeId, 'failed', null)
+                    }
                 } finally {
                     cache.pollInFlight = false
                 }
@@ -666,7 +879,14 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     lemonToast.error(error?.detail || error?.message || 'Failed to stop the run')
                 }
             },
+            resultRestoreFailed: () => {
+                posthog.capture('notebook result restore failed', {
+                    notebook_short_id: props.notebookShortId,
+                    node_id: props.nodeId,
+                })
+            },
             stopPolling: () => {
+                cache.isRestoringResult = false
                 cache.disposables.dispose('pollResult')
                 actions.setIsRunning(false)
                 actions.finishOperation(runOperation.id)
@@ -674,18 +894,28 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         }
     }),
     selectors(({ props }) => ({
+        isSandboxComputeFree: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE],
+        ],
         // Set while another node's operation is in flight — wire into disabledReason props.
         operationBlockReason: [
             (s) => [s.activeOperation],
             (activeOperation: NotebookOperation | null): string | null =>
                 activeOperation && activeOperation.nodeId !== props.nodeId
-                    ? 'Another operation is running in this notebook'
+                    ? (activeOperation.label ?? 'Another operation is running in this notebook')
                     : null,
         ],
         // An upstream cell's run landed after this cell last ran (Journey 10).
         isStale: [
             (s) => [s.staleNodeIds],
-            (staleNodeIds: Record<string, true>): boolean => !!staleNodeIds[props.nodeId],
+            (staleNodeIds: Record<string, NotebookStaleReason>): boolean => !!staleNodeIds[props.nodeId],
+        ],
+        // What made it stale, so the banner names the actual cause.
+        staleReason: [
+            (s) => [s.staleNodeIds],
+            (staleNodeIds: Record<string, NotebookStaleReason>): NotebookStaleReason | null =>
+                staleNodeIds[props.nodeId] ?? null,
         ],
         // Non-zero only on the cell whose run most recently landed: how many of its
         // downstream cells are still stale. Drives the "run downstream cells" button.
@@ -702,7 +932,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         // Recover after a reload/remount: a persisted runId with no result means the run may still be
         // in flight or already finished — poll to catch up rather than lose the result.
         if (props.runId && !props.hasResult) {
-            actions.startPolling(props.runId)
+            actions.startPolling(props.runId, !!props.hasResultMetadata)
         }
     }),
     beforeUnmount(({ props, actions, values }) => {

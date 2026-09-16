@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -50,7 +50,7 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
             created_by=self.user,
         )
 
-    @freeze_time("2022-02-08")
+    @time_machine.travel("2022-02-08", tick=False)
     def test_delete_team_activity_log(self):
         team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
@@ -172,7 +172,6 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
         fake = get_active_fake()
         for rpc in [
             "delete_hash_key_overrides_by_teams",
-            "delete_personless_distinct_ids_batch_for_team",
             "delete_persons_batch_for_team",
             "delete_groups_batch_for_team",
             "delete_group_type_mappings_batch_for_team",

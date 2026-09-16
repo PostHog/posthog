@@ -67,12 +67,39 @@ describe('entityFilterLogic', () => {
             )
         })
 
-        it('closes modal after renaming', () => {
-            expectLogic(logic, () => {
-                logic.actions.renameFilter('Custom event name')
-            })
-                .toDispatchActions(['renameFilter', 'hideModal'])
-                .toMatchValues({ modalVisible: false })
+        it('applies the rename and closes the modal without yielding', () => {
+            logic.actions.selectFilter(logic.values.localFilters[0])
+            logic.actions.showModal()
+
+            logic.actions.renameFilter('Custom event name')
+
+            expect(logic.values.localFilters[0].custom_name).toEqual('Custom event name')
+            expect(logic.values.modalVisible).toBe(false)
+        })
+
+        it('closes the modal when no series is selected', () => {
+            logic.actions.showModal()
+
+            logic.actions.renameFilter('Custom event name')
+
+            expect(logic.values.modalVisible).toBe(false)
+        })
+
+        it('does not rename another series when the selected series is removed', () => {
+            const selectedFilter = logic.values.localFilters[0]
+            const replacementFilter = {
+                ...logic.values.localFilters[1],
+                order: selectedFilter.order,
+                uuid: 'replacement-uuid',
+            }
+            logic.actions.selectFilter(selectedFilter)
+            logic.actions.showModal()
+            logic.actions.setFilters([replacementFilter])
+
+            logic.actions.renameFilter('Custom event name')
+
+            expect(logic.values.localFilters[0].custom_name).not.toEqual('Custom event name')
+            expect(logic.values.modalVisible).toBe(false)
         })
     })
 

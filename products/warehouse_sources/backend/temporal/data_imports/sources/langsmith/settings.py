@@ -39,8 +39,12 @@ RUNS_SELECT_FIELDS = [
     "feedback_stats",
 ]
 
+# The fields holding a run's raw prompt and completion. They carry nearly all of a run's size, so
+# `_fetch_runs_page` gives them up as a last resort when one run stays over the response cap.
+RUNS_HEAVY_SELECT_FIELDS = ("inputs", "outputs")
 
-@dataclass
+
+@dataclass(frozen=False)  # mutability is unused (always constructed fresh); explicit per house convention
 class LangSmithEndpointConfig:
     name: str
     path: str
@@ -69,6 +73,9 @@ class LangSmithEndpointConfig:
     # successful job end instead of checkpointing per batch, which is correct under any actual
     # ordering. Mid-run recovery comes from the resumable cursor/offset state instead.
     sort_mode: Literal["asc", "desc"] = "asc"
+    # GET /examples rejects an unscoped request — examples belong to a dataset — so it's paged per
+    # dataset with a `dataset` filter instead of the plain offset paginator. Only examples sets this.
+    scoped_by_dataset: bool = False
 
 
 _START_TIME_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -118,12 +125,14 @@ LANGSMITH_ENDPOINTS: dict[str, LangSmithEndpointConfig] = {
         path="/api/v1/datasets",
         incremental_fields=[],
     ),
-    # Dataset examples across all datasets. The API versions examples via `as_of` snapshots
+    # Dataset examples across all datasets. GET /examples must be scoped to a dataset, so this is
+    # paged per dataset (see `scoped_by_dataset`). The API versions examples via `as_of` snapshots
     # rather than a created/modified filter, so full refresh only.
     "examples": LangSmithEndpointConfig(
         name="examples",
         path="/api/v1/examples",
         incremental_fields=[],
+        scoped_by_dataset=True,
     ),
     # Human and programmatic feedback scores attached to runs. `min_created_at` is a genuine
     # server-side filter; feedback edits move modified_at (not filterable), so the lookback

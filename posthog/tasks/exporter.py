@@ -12,6 +12,7 @@ from posthog.tasks.utils import CeleryQueue
 
 from products.exports.backend.facade.exporters import get_export_format_handler
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks.failure_handler import (
     USER_QUERY_ERRORS,
     InvalidExportContext,
@@ -120,6 +121,7 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
+        assert_export_authorization(exported_asset)
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:

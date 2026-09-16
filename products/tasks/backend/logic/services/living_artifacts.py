@@ -24,18 +24,20 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.event_usage import groups
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
+from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# Both scopes are approved (see posthog/helpers/slack_scopes.py), so the canvas and file adapters
-# stay behind the slack-app-canvas-file-artifacts flag: scope checks alone would turn the feature
-# on for every install that has them, with no rollout control.
+# Both scopes are approved but recent (see posthog/helpers/slack_scopes.py), so an install
+# authorized earlier lacks them until it reconnects — the adapters check them at point of use
+# and can name the one to grant.
 SLACK_CANVAS_SCOPE = "canvases:write"
 SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"
@@ -110,7 +112,6 @@ def create_living_artifact(
     metadata: dict[str, Any] | None = None,
     export_asset_id: int | None = None,
 ) -> TaskArtifact:
-    _require_living_artifacts_enabled(run)
     content_payload = resolve_artifact_content(
         run=run,
         name=name,
@@ -178,7 +179,6 @@ def edit_living_artifact(
     # must resolve Slack mappings (repointed to the latest run) and storage paths as itself,
     # not as the run that originally created the artifact.
     run = run or artifact.task_run
-    _require_living_artifacts_enabled(run)
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
     next_name = name or artifact.name
@@ -589,13 +589,16 @@ class SlackMessageArtifactAdapter(LivingArtifactAdapter):
         mapping = _get_slack_mapping(run)
         text = content.strip() or name
         if artifact is None:
-            response = _slack_client_for_mapping(mapping).chat_postMessage(
+            response = post_slack_thread_reply(
+                _slack_client_for_mapping(mapping),
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
                 text=text,
                 unfurl_links=False,
                 unfurl_media=False,
             )
+            if response is None:
+                raise ValueError("Slack message artifact has no thread left to deliver into")
             message_ts = response.get("ts")
             if not message_ts:
                 raise ValueError("Slack message delivery did not return a message timestamp")
@@ -649,11 +652,6 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
-        if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError(
-                "Slack canvas delivery is not enabled for this workspace: you do not have this capability. "
-                "Use adapter=slack_message and deliver the content as text instead."
-            )
         slack_integration = _slack_integration_for_mapping(mapping)
         missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_CANVAS_SCOPE}))
         if missing_scopes:
@@ -774,11 +772,6 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
-        if not _canvas_file_artifacts_enabled(mapping):
-            raise ValueError(
-                "Slack file delivery is not enabled for this workspace: you do not have this capability. "
-                "Use adapter=slack_message and summarize the result as text instead."
-            )
         slack_integration = _slack_integration_for_mapping(mapping)
         resolved_content_type = content_type or _guess_content_type(name)
         # Chart images deliver as image blocks referencing a PostHog-hosted url, which needs no
@@ -833,9 +826,6 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
 # file artifact leaves the pending version on that artifact, and this run's end-of-turn
 # delivery must pick it up.
 def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
-    if not _living_artifacts_enabled_for_run(run):
-        return False
-
     artifacts = TaskArtifact.objects.for_team(run.team_id).filter(
         task_id=run.task_id,
         adapter=TaskArtifact.Adapter.SLACK_FILE,
@@ -868,7 +858,7 @@ def deliver_pending_slack_file_artifacts(
     """Deliver pending slack_file artifacts to the mapped thread.
 
     Images compose into a single chat message together with ``answer_sections``
-    (the relay's converted answer text): text sections first, then one card per
+    (the relay's answer text): text sections first, then one card per
     chart (title, image block, "Open in PostHog" button). Chart images reference a
     url minted here from their export asset — Slack's image proxy fetches the PNG
     from us, so no file upload (and no files:write scope) is involved; other images
@@ -884,15 +874,13 @@ def deliver_pending_slack_file_artifacts(
     if mapping is None:
         return result
 
-    if not _living_artifacts_enabled_for_mapping(mapping):
-        logger.warning("task_artifact.slack_living_artifacts_disabled", task_run_id=str(run.id))
-        return result
-
-    if not _canvas_file_artifacts_enabled(mapping):
-        logger.warning("task_artifact.slack_file_delivery_disabled", task_run_id=str(run.id))
-        return result
-
     slack_integration = _slack_integration_for_mapping(mapping)
+    # Nobody is waiting on charts or file shares for a prompt that has been deleted.
+    # Leave the artifacts pending rather than delivering them into the thread.
+    if not slack_message_exists(slack_integration.client, mapping.channel, mapping.thread_ts):
+        logger.warning("task_artifact.slack_delivery_skipped_message_deleted", task_run_id=str(run.id))
+        return result
+
     has_file_scope = not slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
 
     # The relay activity's start_to_close_timeout is a minute; a self-inflicted timeout would
@@ -988,9 +976,9 @@ def deliver_pending_slack_file_artifacts(
     elif answer_sections is not None:
         # Compose was requested but every image upload failed: the answer text must
         # still land — and before the non-image shares below, to keep thread order.
-        sections = [section for section in answer_sections if section.strip()]
-        posted = [_post_thread_text(slack, mapping=mapping, text=section) for section in sections]
-        result.answer_posted = bool(sections) and all(posted)
+        blocks = _answer_text_blocks(answer_sections)
+        posted = [_post_answer_block(slack, mapping=mapping, block=block) for block in blocks]
+        result.answer_posted = bool(blocks) and all(posted)
 
     for artifact, version_payload, content_type in other_files:
         if not has_file_scope:
@@ -1130,44 +1118,59 @@ def _post_composed_answer_message(
     post succeeds, so an activity that dies part-way through doesn't replay the cards
     that already landed."""
     sections = [section for section in answer_sections if section.strip()]
-    section_blocks = _section_blocks(sections)
+    section_blocks = _answer_text_blocks(sections)
     card_blocks: list[dict[str, Any]] = []
     for card in image_cards:
         card_blocks.extend(_chart_card_blocks(card))
 
-    spill_count = max(len(section_blocks) - max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0), 0)
+    # A composed message carries a single answer block, because the budget the block's
+    # character cap comes from is spent across every markdown block in one payload. The
+    # ones before it go out on their own. The relay chunks under that cap, so most answers
+    # are one block and nothing spills.
+    spilled, kept = section_blocks[:-1], section_blocks[-1:]
     posted_blocks = 0
-    for block in section_blocks[:spill_count]:
-        posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
-    kept = section_blocks[spill_count:]
+    for block in spilled:
+        # A spilled block is one post each, and a long answer spills several, so this loop
+        # answers to the same budget as the posts below it.
+        if time.monotonic() >= deadline:
+            # The caller reposts the whole answer once this reports it unsent, so stop here
+            # rather than adding a composed message that the repost would duplicate. The cards
+            # stay pending and the next relay delivers them.
+            logger.warning("task_artifact.slack_post_budget_exhausted", spilled=posted_blocks, of=len(spilled))
+            return False
+        posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
 
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else _artifact_fallback_text(image_cards[0].artifact)
+        # The fallback names what this message shows, which is the block it kept rather than the
+        # answer's first chunk. Slack reads it for the notification, the screen reader, and the
+        # mentions it pings, so naming a spilled chunk would preview the wrong text and could
+        # ping its mention a second time.
+        fallback_text = kept[0]["text"] if kept else _artifact_fallback_text(image_cards[0].artifact)
         try:
-            _post_blocks_with_processing_retry(
+            if _post_blocks_with_processing_retry(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
                 text=fallback_text,
                 blocks=[*kept, *card_blocks],
                 deadline=deadline,
-            )
-            for card in image_cards:
-                mark_delivered(card)
-            posted_blocks += len(kept)
-            return bool(section_blocks) and posted_blocks == len(section_blocks)
+            ):
+                for card in image_cards:
+                    mark_delivered(card)
+                posted_blocks += len(kept)
+                return bool(section_blocks) and posted_blocks == len(section_blocks)
         except Exception:
             logger.warning("task_artifact.slack_composed_message_failed", exc_info=True)
 
-    # Degraded path: the answer must not be lost — post the text plainly, then each
+    # Degraded path: the answer must not be lost — post the text on its own, then each
     # card on its own so one bad card can't sink the others.
     for block in kept:
-        posted_blocks += 1 if _post_thread_text(slack, mapping=mapping, text=block["text"]["text"]) else 0
+        posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
     for card in image_cards:
         try:
-            _post_blocks_with_processing_retry(
+            if _post_blocks_with_processing_retry(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
@@ -1175,41 +1178,52 @@ def _post_composed_answer_message(
                 blocks=_chart_card_blocks(card),
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
                 deadline=deadline,
-            )
-            mark_delivered(card)
+            ):
+                mark_delivered(card)
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(card.artifact.id), exc_info=True)
     return bool(section_blocks) and posted_blocks == len(section_blocks)
 
 
-# Section blocks hard-cap at 3000 chars. The relay pre-splits at 2900 before conversion,
-# but the mention prefix and mrkdwn expansion (table column padding, escapes) can push a
-# section past that — re-split after conversion, preferring whitespace so the cut doesn't
-# land inside a converted mrkdwn entity like `<url|text>`. Tables convert to fenced blocks,
-# so a cut inside one is closed and reopened to keep each block self-contained.
-_SLACK_SECTION_BLOCK_CHAR_LIMIT = 3000
 _SLACK_CODE_FENCE = "```"
 
 
-def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
+def _answer_text_blocks(sections: list[str]) -> list[dict[str, Any]]:
+    """One `markdown` block per section, re-split to the block's character cap.
+
+    The relay is the only producer of sections and already reserves the mention prefix out
+    of that cap, so the re-split is a guard for a section that arrives oversized rather than
+    a step the answer normally goes through. It prefers whitespace so a cut doesn't land
+    inside an entity like `<url|text>` or a Markdown link, and closes and reopens a fenced
+    block it has to cut so each block stays self-contained.
+    """
     blocks: list[dict[str, Any]] = []
     for section in sections:
-        for piece in _split_section_text(section):
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": piece}})
+        for piece in _split_section_text(section, limit_chars=SLACK_MARKDOWN_TEXT_MAX_LEN):
+            blocks.append(slack_markdown_block(piece))
     return blocks
 
 
-def _split_section_text(section: str) -> list[str]:
+def _post_answer_block(slack: Any, *, mapping: Any, block: dict[str, Any]) -> bool:
+    """Post one answer block as its own message, reporting whether it landed.
+
+    The block goes out as a block, because a plain-text message would show the Markdown
+    source instead of rendering it.
+    """
+    return _post_thread_text(slack, mapping=mapping, text=block["text"], blocks=[block])
+
+
+def _split_section_text(section: str, *, limit_chars: int) -> list[str]:
     pieces: list[str] = []
     remaining = section
     reopen = ""
     while True:
         candidate = reopen + remaining
-        if len(candidate) <= _SLACK_SECTION_BLOCK_CHAR_LIMIT:
+        if len(candidate) <= limit_chars:
             if candidate.strip():
                 pieces.append(candidate)
             return pieces
-        limit = _SLACK_SECTION_BLOCK_CHAR_LIMIT
+        limit = limit_chars
         if candidate[:limit].count(_SLACK_CODE_FENCE) % 2:
             limit -= len(f"\n{_SLACK_CODE_FENCE}")
         window = candidate[:limit]
@@ -1228,12 +1242,19 @@ def _split_section_text(section: str) -> list[str]:
             pieces.append(piece)
 
 
-def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> bool:
-    """Post one plain text message, reporting whether it landed — callers use this to decide
-    whether the answer still needs a fallback, so a swallowed failure must not read as sent."""
+def _post_thread_text(slack: Any, *, mapping: Any, text: str, blocks: list[dict[str, Any]] | None = None) -> bool:
+    """Post one message, reporting whether it landed — callers use this to decide whether the
+    answer still needs a fallback, so a swallowed failure must not read as sent.
+
+    ``blocks`` is for text a plain message cannot render, and ``text`` stays the notification
+    fallback beside it."""
     try:
-        slack.chat_postMessage(channel=mapping.channel, thread_ts=mapping.thread_ts, text=text)
-        return True
+        return (
+            post_slack_thread_reply(
+                slack, channel=mapping.channel, thread_ts=mapping.thread_ts, text=text, blocks=blocks
+            )
+            is not None
+        )
     except Exception:
         logger.warning("task_artifact.slack_thread_text_failed", exc_info=True)
         return False
@@ -1328,11 +1349,13 @@ def _post_blocks_with_processing_retry(
     blocks: list[dict[str, Any]],
     attempts: int = _IMAGE_BLOCK_POST_ATTEMPTS,
     deadline: float | None = None,
-) -> None:
+) -> bool:
+    """Whether the message actually landed. A skipped post — the message it would answer
+    is gone — returns False, so the caller leaves the cards pending instead of delivered."""
     for attempt in range(1, attempts + 1):
         try:
-            slack.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
-            return
+            posted = post_slack_thread_reply(slack, channel=channel, thread_ts=thread_ts, text=text, blocks=blocks)
+            return posted is not None
         except SlackApiError as e:
             error = e.response.get("error")
             if attempt == attempts or error not in ("invalid_blocks", "ratelimited"):
@@ -1349,6 +1372,7 @@ def _post_blocks_with_processing_retry(
             if deadline is not None and time.monotonic() + wait >= deadline:
                 raise
             time.sleep(wait)
+    return False  # unreachable: attempts >= 1, so the loop always returns or raises
 
 
 def _pending_slack_file_version(artifact: TaskArtifact) -> tuple[int, dict[str, Any]] | None:
@@ -1472,31 +1496,6 @@ def _get_slack_mapping(run: TaskRun, *, raise_if_missing: bool = True):
     return mapping
 
 
-def _living_artifacts_enabled_for_run(run: TaskRun) -> bool:
-    mapping = _get_slack_mapping(run, raise_if_missing=False)
-    return mapping is None or _living_artifacts_enabled_for_mapping(mapping)
-
-
-def _living_artifacts_enabled_for_mapping(mapping: Any) -> bool:
-    from products.slack_app.backend.feature_flags import is_slack_app_living_artifacts_enabled  # noqa: PLC0415
-
-    return is_slack_app_living_artifacts_enabled(mapping.integration)
-
-
-def _require_living_artifacts_enabled(run: TaskRun) -> None:
-    if not _living_artifacts_enabled_for_run(run):
-        raise ValueError(
-            "Living artifacts are not enabled for this Slack workspace: you cannot create or deliver "
-            "artifacts on this run. Deliver results as plain text in your reply instead."
-        )
-
-
-def _canvas_file_artifacts_enabled(mapping: Any) -> bool:
-    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
-
-    return is_slack_app_canvas_file_artifacts_enabled(mapping.integration)
-
-
 def _slack_client_for_mapping(mapping: Any):
     return _slack_integration_for_mapping(mapping).client
 
@@ -1575,7 +1574,8 @@ def _post_canvas_created_message(
     escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
     canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
     try:
-        slack.chat_postMessage(
+        post_slack_thread_reply(
+            slack,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
             text=f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`).",

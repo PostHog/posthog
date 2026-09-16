@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
 from pydantic import (
     RootModel as PydanticRootModel,
@@ -59,9 +59,13 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfig,
+    IngestionPipeline,
+    RestrictionType,
+)
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import Organization, OrganizationMembership
@@ -71,7 +75,6 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
-from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -89,8 +92,6 @@ from posthog.permissions import (
     get_authenticator_scoped_organization_ids,
     get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -109,12 +110,41 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
+from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
+from products.tasks.backend.facade.workflow_tasks import (
+    MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+)
+from products.tracing.backend.facade.team_extension import TeamTracingConfig
+from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (
+    MAX_CUSTOM_BOT_DEFINITIONS,
+    assert_patterns_compile as assert_custom_bot_patterns_compile,
+    compiled_patterns as compiled_custom_bot_patterns,
+    parse_rules as parse_custom_bot_rules,
+    validate_rule as validate_custom_bot_rule,
+    validate_rule_set as validate_custom_bot_rule_set,
+)
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+def _validate_unique_attribute_keys(value: list[str]) -> list[str]:
+    # The child CharField already trims whitespace and rejects blanks; only
+    # cross-item uniqueness needs checking here.
+    if len(set(value)) != len(value):
+        raise serializers.ValidationError("Attribute keys must be unique.")
+    return value
 
 
 class TeamLogsConfigSerializer(serializers.ModelSerializer):
@@ -149,10 +179,25 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
+        ),
+    )
+    logs_pattern_message_keys = serializers.ListField(
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=True,
+        max_length=10,
+        help_text=(
+            "Ordered list of top-level JSON keys whose value is the message text that log "
+            "patterns are derived from. Keys are matched literally at the top level of the log "
+            "body; a dot in a key is part of the key name, not a path into nested objects. "
+            "Selection checks keys in order; the first key whose value is a non-empty string "
+            "wins. Defaults to ['message', 'msg', 'event']. An empty list "
+            "turns message extraction off, so JSON log bodies group by their key set instead. "
+            "The stored log body is never changed by this setting."
         ),
     )
 
@@ -162,20 +207,17 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
             "logs_distinct_id_attribute_key",
             "logs_distinct_id_attribute_keys",
             "logs_session_id_attribute_keys",
+            "logs_pattern_message_keys",
         ]
 
-    def _validate_unique_keys(self, value: list[str]) -> list[str]:
-        # The child CharField already trims whitespace and rejects blanks; only
-        # cross-item uniqueness needs checking here.
-        if len(set(value)) != len(value):
-            raise serializers.ValidationError("Attribute keys must be unique.")
-        return value
-
     def validate_logs_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
 
     def validate_logs_session_id_attribute_keys(self, value: list[str]) -> list[str]:
-        return self._validate_unique_keys(value)
+        return _validate_unique_attribute_keys(value)
+
+    def validate_logs_pattern_message_keys(self, value: list[str]) -> list[str]:
+        return _validate_unique_attribute_keys(value)
 
     def update(self, instance: TeamLogsConfig, validated_data: dict) -> TeamLogsConfig:
         # Keep the legacy single-key column in sync so pre-plural readers stay coherent.
@@ -183,6 +225,66 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         if keys:
             validated_data["logs_distinct_id_attribute_key"] = keys[0]
         return super().update(instance, validated_data)
+
+
+class TeamTracingConfigSerializer(serializers.ModelSerializer):
+    tracing_distinct_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Span or resource attribute keys whose values should match a person's distinct_id — "
+            "a span links to a person when any of these attributes holds one of their distinct "
+            "IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / "
+            "posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if "
+            "your pipeline emits the person identifier under different attributes."
+        ),
+    )
+    tracing_session_id_attribute_keys = serializers.ListField(
+        # trim_whitespace is the DRF default, but the uniqueness validator below
+        # depends on it — spell it out so it can't drift silently.
+        child=serializers.CharField(max_length=200, allow_blank=False, trim_whitespace=True),
+        allow_empty=False,
+        max_length=10,
+        help_text=(
+            "Ordered list of span or resource attribute keys whose values hold the PostHog "
+            "session ID. Detection checks keys in order, then falls back to common session ID "
+            "attribute conventions; the first key with a value wins. Defaults to ['sessionId'], "
+            "the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they "
+            "emit. Add keys only if your pipeline emits the session ID under different attributes."
+        ),
+    )
+
+    class Meta:
+        model = TeamTracingConfig
+        fields = [
+            "tracing_distinct_id_attribute_keys",
+            "tracing_session_id_attribute_keys",
+        ]
+
+    def validate_tracing_distinct_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return _validate_unique_attribute_keys(value)
+
+    def validate_tracing_session_id_attribute_keys(self, value: list[str]) -> list[str]:
+        return _validate_unique_attribute_keys(value)
+
+
+def handle_tracing_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the tracing_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamTracingConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamTracingConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamTracingConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamTracingConfigSerializer(config).data)
 
 
 def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
@@ -207,6 +309,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "default_sequential_tuning_parameter",
                 "flag_cleanup_repository",
             ]
+
+        def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
+            # A human toggling precomputation must stick: the auto-enrollment job only
+            # writes when precomputation_enabled_set_by is null or "auto".
+            if "experiment_precomputation_enabled" in validated_data:
+                instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
             # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
@@ -438,6 +547,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_message",
     "default_evaluation_contexts_enabled",
     "require_evaluation_contexts",
+    "feature_flag_policy_config",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -643,6 +753,12 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         required=False,
         help_text="How credit is split across touchpoints when a person saw several campaigns before converting.",
     )
+    filter_test_accounts = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether marketing analytics drops traffic matching the project's test-account filters. Off by default."
+        ),
+    )
     campaign_name_mappings = MarketingAnalyticsCampaignNameMappingsField(
         required=False,
         help_text=(
@@ -672,6 +788,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "conversion_goals",
             "attribution_window_days",
             "attribution_mode",
+            "filter_test_accounts",
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
@@ -691,7 +808,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             internal_value["_campaign_field_preferences"] = internal_value["campaign_field_preferences"]
         return internal_value
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        instance.refresh_from_db(from_queryset=TeamMarketingAnalyticsConfig.objects.select_for_update())
         # Handle sources_map with partial updates
         if "sources_map" in validated_data:
             new_sources_map = validated_data["sources_map"]
@@ -714,6 +833,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "attribution_mode" in validated_data:
             instance.attribution_mode = validated_data["attribution_mode"]
+
+        if "filter_test_accounts" in validated_data:
+            instance.filter_test_accounts = validated_data["filter_test_accounts"]
 
         if "campaign_name_mappings" in validated_data:
             instance.campaign_name_mappings = validated_data["campaign_name_mappings"]
@@ -748,10 +870,91 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "Transactional emails are exempt from consent enforcement."
         ),
     )
+    workflow_task_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many AI tasks one workflow can create in a rolling 24 hours. "
+            f"Null uses the default of {WORKFLOW_TASK_RATE_CAP_PER_DAY}; zero pauses task creation "
+            f"for every workflow in the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY}."
+        ),
+    )
+    workflow_task_team_rate_limit_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "How many AI tasks all workflows in the project can create together in a rolling "
+            f"24 hours. Null uses the default of {WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}; zero pauses "
+            f"task creation for the project. Support raises the limit above "
+            f"{MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY}."
+        ),
+    )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_workflows_engagement_events", "email_tracking_consent_mode"]
+        fields = [
+            "capture_workflows_engagement_events",
+            "email_tracking_consent_mode",
+            "workflow_task_rate_limit_per_day",
+            "workflow_task_team_rate_limit_per_day",
+        ]
+
+    def _enforce_self_serve_ceiling(self, field: str, value: int | None, ceiling: int) -> int | None:
+        # As a nested field there is no stored row to compare against; the parent serializer
+        # re-runs this serializer bound to the row in validate_workflows_config.
+        if self.parent:
+            return value
+        # Support raises a project past the ceiling in Django admin; clients that echo the whole
+        # config must be able to send that value back unchanged. Read the row fresh: the
+        # `Team.workflows_config` accessor is cached per process and can be stale.
+        if value is not None and value > ceiling:
+            stored = (
+                TeamWorkflowsConfig.objects.filter(pk=self.instance.pk).values_list(field, flat=True).first()
+                if self.instance is not None
+                else None
+            )
+            if stored != value:
+                raise serializers.ValidationError(f"Contact support to go above {ceiling} tasks a day.")
+        return value
+
+    def validate_workflow_task_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_RATE_CAP_PER_DAY
+        )
+
+    def validate_workflow_task_team_rate_limit_per_day(self, value: int | None) -> int | None:
+        return self._enforce_self_serve_ceiling(
+            "workflow_task_team_rate_limit_per_day", value, MAX_SELF_SERVE_WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+        )
+
+
+def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+
+    serializer = TeamWorkflowsConfigSerializer(team.workflows_config if team else None, data=value)
+    if not serializer.is_valid():
+        raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+    return serializer.validated_data
+
+
+class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    require_tags = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its "
+            "last one. A create that declares it comes from a survey, experiment, early access feature, "
+            "product tour, or web experiment is exempt, because those forms have no tag input. The caller "
+            "sets that declaration, so a flag can still be created without a tag."
+        ),
+    )
+
+    class Meta:
+        model = TeamFeatureFlagPolicyConfig
+        fields = ["require_tags"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -974,6 +1177,13 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     return token
 
 
+def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: UserPermissions) -> str | None:
+    level = user_permissions.team(team).effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        return None
+    return team.heatmaps_screenshot_secret
+
+
 def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerializer) -> Organization | None:
     if serializer.instance is not None:
         team = (
@@ -1005,16 +1215,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
+    feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
-    event_retention_months = serializers.IntegerField(
-        read_only=True,
+
+    heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
-            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this many months."
+            "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
+            "so bot protection can allow them. Only project admins can read it; null for "
+            "everyone else and when none has been generated."
         ),
-    )
-    events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
     )
 
     class Meta:
@@ -1029,6 +1238,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "api_token",
             "secret_api_token",
             "secret_api_token_backup",
+            "heatmaps_screenshot_secret",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -1045,8 +1255,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
-            "event_retention_months",
-            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -1102,16 +1310,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             self._group_types_cache = group_types
         return group_types
 
-    @extend_schema_field(serializers.BooleanField())
-    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
-    def get_events_retention_enforced(self, team: Team) -> bool:
-        return should_enforce_events_retention(team.id)
-
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:
+        return heatmaps_screenshot_secret_for_reader(team, self.user_permissions)
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     @tracer.start_as_current_span("team_serializer.product_intents")
@@ -1182,12 +1389,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
+    def validate_workflows_config(self, value):
+        return validate_team_workflows_config(self.instance, value)
+
     @staticmethod
-    def validate_workflows_config(value):
+    def validate_feature_flag_policy_config(value):
         if value is None:
             return None
 
-        serializer = TeamWorkflowsConfigSerializer(data=value)
+        serializer = TeamFeatureFlagPolicyConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1674,6 +1884,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if value is None:
             return value
 
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("logs_settings must be an object or null.")
+
+        if "json_parse_logs_attribute_key" in value:
+            attribute_key = value["json_parse_logs_attribute_key"]
+            # Length is measured after trimming, matching CharField(trim_whitespace=True,
+            # max_length=200) on the logs_config key lists.
+            if not isinstance(attribute_key, str) or len(attribute_key.strip()) > 200:
+                raise exceptions.ValidationError(
+                    "json_parse_logs_attribute_key must be a string of at most 200 characters. "
+                    "Use an empty string to disable parsing."
+                )
+            value["json_parse_logs_attribute_key"] = attribute_key.strip()
+
         new_retention = value.get("retention_days")
         if new_retention is not None and new_retention not in TeamSerializer.VALID_RETENTION_DAYS:
             raise exceptions.ValidationError(
@@ -1736,10 +1960,46 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
                     )
 
+        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # Cap before parsing, so an oversized list is rejected without instantiating a model
+            # per entry.
+            if len(value["customBotDefinitions"]) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            # Strict, so a malformed rule is rejected with a specific error rather than the
+            # generic "Invalid modifier key.", and the stored list is normalized.
+            try:
+                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
+
         try:
-            HogQLQueryModifiers(**value)
+            modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
+
+        if "customBotDefinitions" in value:
+            rules = modifiers.customBotDefinitions or []
+            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
+                raise exceptions.ValidationError(
+                    {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
+                )
+            for rule in rules:
+                # An unusable pattern would break every query that reads $virt_is_bot for this
+                # project, so it is rejected here rather than dropped silently at query time.
+                try:
+                    validate_custom_bot_rule(rule)
+                except ValueError as error:
+                    # An empty name would render as an orphaned leading colon.
+                    message = f"{rule.name}: {error}" if rule.name else str(error)
+                    raise exceptions.ValidationError({"customBotDefinitions": message})
+            try:
+                validate_custom_bot_rule_set(rules)
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 
         return value
 
@@ -1810,6 +2070,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("workflows_config", None):
             self._update_workflows_config(instance, config_data)
+
+        if config_data := validated_data.pop("feature_flag_policy_config", None):
+            self._update_feature_flag_policy_config(instance, config_data)
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -1985,6 +2248,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
             "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
             "attribution_mode": instance.marketing_analytics_config.attribution_mode,
+            "filter_test_accounts": instance.marketing_analytics_config.filter_test_accounts,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -2005,6 +2269,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "sources_map": validated_data.get("sources_map", {}),
             "attribution_window_days": validated_data.get("attribution_window_days"),
             "attribution_mode": validated_data.get("attribution_mode"),
+            "filter_test_accounts": validated_data.get("filter_test_accounts"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }
@@ -2062,6 +2327,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "workflows_config", old_config, new_config)
         return instance
 
+    def _update_feature_flag_policy_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamFeatureFlagPolicyConfigSerializer(
+            instance.feature_flag_policy_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.feature_flag_policy_config, field)
+            for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "feature_flag_policy_config", old_config, new_config)
+        return instance
+
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
         retention_feature = instance.organization.get_available_feature(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
         highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
@@ -2117,6 +2406,49 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     hidden_from_suggestions = serializers.BooleanField(
         help_text="Whether the context is now hidden from the flag editor's suggestion list."
     )
+
+
+class EventIngestionRestrictionSerializer(serializers.Serializer):
+    restriction_type = serializers.ChoiceField(
+        choices=RestrictionType.choices,
+        help_text="What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID.",
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs the restriction applies to. Empty means it is not filtered by session ID.",
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the restriction applies to. Empty means it is not filtered by event name.",
+    )
+    event_uuids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID.",
+    )
+    pipelines = serializers.ListField(
+        child=serializers.ChoiceField(choices=IngestionPipeline.choices),
+        help_text="Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR.",
+    )
+
+
+def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
+    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+    data = [
+        {
+            "restriction_type": restriction.restriction_type,
+            "distinct_ids": restriction.distinct_ids or [],
+            "session_ids": restriction.session_ids or [],
+            "event_names": restriction.event_names or [],
+            "event_uuids": restriction.event_uuids or [],
+            "pipelines": restriction.pipelines or [],
+        }
+        for restriction in restrictions
+    ]
+    return response.Response(EventIngestionRestrictionSerializer(data, many=True).data)
 
 
 class TeamViewSet(
@@ -2311,6 +2643,20 @@ class TeamViewSet(
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @extend_schema(request=None, responses=TeamSerializer)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_heatmaps_screenshot_secret(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        team.rotate_heatmaps_screenshot_secret_and_save(
+            user=request.user, is_impersonated_session=is_impersonated(request)
+        )
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
     @action(
         methods=["PATCH"],
         detail=True,
@@ -2335,6 +2681,18 @@ class TeamViewSet(
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamLogsConfigSerializer,
+        responses={200: TeamLogsConfigSerializer},
+        extensions={"x-product": "logs"},
+    )
     @action(
         methods=["GET", "PATCH"],
         detail=True,
@@ -2345,6 +2703,29 @@ class TeamViewSet(
         """Manage logs product configuration for this environment. Members can read;
         writing requires project admin, matching the admin-only settings UI."""
         return handle_logs_config(request, self.get_object())
+
+    @extend_schema(
+        methods=["GET"],
+        request=None,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @extend_schema(
+        methods=["PATCH"],
+        request=TeamTracingConfigSerializer,
+        responses={200: TeamTracingConfigSerializer},
+        extensions={"x-product": "tracing"},
+    )
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="tracing_config",
+    )
+    def tracing_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage tracing product configuration for this environment. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
+        return handle_tracing_config(request, self.get_object())
 
     @action(
         methods=["GET", "PATCH"],
@@ -2400,8 +2781,7 @@ class TeamViewSet(
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         team = self.get_object()
 
@@ -2409,10 +2789,10 @@ class TeamViewSet(
             scope="Team",
             team_id=team.pk,
             item_ids=[str(team.pk)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
@@ -2558,18 +2938,16 @@ class TeamViewSet(
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
+    @extend_schema(responses=EventIngestionRestrictionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["project:read"],
+        url_path="event_ingestion_restrictions",
+        pagination_class=None,
+    )
     def event_ingestion_restrictions(self, request, **kwargs):
-        team = self.get_object()
-        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
-        data = [
-            {
-                "restriction_type": restriction.restriction_type,
-                "distinct_ids": restriction.distinct_ids,
-            }
-            for restriction in restrictions
-        ]
-        return response.Response(data)
+        return team_event_ingestion_restrictions_view(self.get_object(), request)
 
     @cached_property
     def user_permissions(self):
@@ -2583,16 +2961,13 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-@extend_schema_view(
-    list=extend_schema(deprecated=True),
-    retrieve=extend_schema(deprecated=True),
-    create=extend_schema(deprecated=True),
-    update=extend_schema(deprecated=True),
-    partial_update=extend_schema(deprecated=True),
-    destroy=extend_schema(deprecated=True),
-)
 class ProjectEnvironmentsViewSet(TeamViewSet):
-    """Deprecated: use /api/environments/{id}/ instead."""
+    """Deprecated: use /api/environments/{id}/ instead.
+
+    Hidden from the API docs, so the actions it inherits from TeamViewSet do not reach the
+    generated types and MCP tools under a route that rejects every request."""
+
+    hide_api_docs = True
 
     def initial(self, request: request.Request, *args, **kwargs) -> None:
         raise exceptions.PermissionDenied(

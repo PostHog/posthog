@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
+import { UserProductListItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -10,8 +10,6 @@ const serverRow = (productPath: string): UserProductListItem => ({
     id: `id-${productPath}`,
     product_path: productPath,
     enabled: true,
-    reason: UserProductListReason.PRODUCT_INTENT,
-    reason_text: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
 })

@@ -18,7 +18,9 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -28,17 +30,25 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_metrics import ReportMetric
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
+    ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
+    set_report_metrics,
+    set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
+    set_scout_report_repository,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
+from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
 
@@ -80,6 +90,57 @@ class TestScoutReportPersistence(BaseTest):
             skill_version=1,
         )
         return run
+
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY, True),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, True),
+            ("suppressed", SignalReport.Status.SUPPRESSED, False),
+        ]
+    )
+    def test_create_stamps_first_visible_only_for_visible_born_status(self, _name, born_status, expect_stamp):
+        # Scout reports are born in their final status without passing through transition_to (which
+        # stamps pipeline reports), so creation must stamp visible births or the daily report limit
+        # would never count them.
+        run = self._make_run()
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            status=born_status,
+            run=run,
+        )
+        report = SignalReport.objects.get(id=result.report_id)
+        assert (report.first_visible_at is not None) is expect_stamp
+
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+        # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
+        # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
+        run = self._make_run()
+        first = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            run=run,
+            idempotency_key="emission-1",
+        )
+        with pytest.raises(ScoutReportAlreadyEmittedError) as raised:
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+                run=run,
+                idempotency_key="emission-1",
+            )
+        assert raised.value.existing.report_id == first.report_id
+        assert raised.value.existing.status == SignalReport.Status.READY
+        assert SignalReport.objects.filter(team=self.team).count() == 1
 
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
@@ -217,12 +278,38 @@ class TestScoutReportPersistence(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
         updated = update_scout_report(
-            team_id=self.team.id, report_id=result.report_id, title="new title", summary="new summary"
+            team_id=self.team.id,
+            report_id=result.report_id,
+            title="new title",
+            summary="new summary",
+            attribution=ArtefactAttribution.system(),
         )
         assert set(updated) == {"title", "summary", "updated_at"}
         report = SignalReport.objects.get(id=result.report_id)
         assert report.title == "new title"
         assert report.summary == "new summary"
+
+        # The edit is logged as typed title_change / summary_change artefacts carrying the value before
+        # and after — the same machine-readable shape the human PATCH path writes, not a prose note.
+        title_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.TITLE_CHANGE
+        )
+        assert TitleChange.model_validate_json(title_change.content) == TitleChange(
+            old_title="old title", new_title="new title"
+        )
+        summary_change = SignalReportArtefact.objects.get(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE
+        )
+        assert SummaryChange.model_validate_json(summary_change.content) == SummaryChange(
+            old_summary="old summary", new_summary="new summary"
+        )
+        # The edit adds no prose note — only the one provenance note the create path wrote survives.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE
+            ).count()
+            == 1
+        )
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing
@@ -509,3 +596,323 @@ class TestScoutReportCharts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored_charts(other_report.report_id) == []
+
+
+class TestScoutReportMetrics(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _metric(self, value: int = 17) -> ReportMetric:
+        return ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": "2026-08-29T12:00:00Z",
+                "value_format": "count",
+                "unit": "users",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    },
+                },
+            }
+        )
+
+    def _create(self, metrics: list[ReportMetric]) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Exceptions affect 17 users",
+            summary="Seventeen users saw the same exception.",
+            signals=[ScoutReportSignal(description="same exception", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            metrics=metrics,
+        )
+        return result.report_id
+
+    def test_create_and_replace_metrics_as_one_report_content_set(self) -> None:
+        report_id = self._create([self._metric(17)])
+        assert SignalReport.objects.get(id=report_id).metrics[0]["value"] == 17
+
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[self._metric(23)]) is True
+        assert SignalReport.objects.get(id=report_id).metrics[0]["value"] == 23
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[self._metric(23)]) is False
+
+    def test_an_explicit_empty_set_clears_metrics(self) -> None:
+        report_id = self._create([self._metric()])
+
+        assert set_report_metrics(team_id=self.team.id, report_id=report_id, metrics=[]) is True
+        assert SignalReport.objects.get(id=report_id).metrics == []
+
+
+class TestReportMetricsUnchanged:
+    """Unit coverage for the datetime-tolerant idempotency comparison (no DB)."""
+
+    def _canonical(self, *, value: int = 17, value_at: str = "2026-08-29T12:00:00Z") -> dict[str, object]:
+        return ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": value_at,
+                "value_format": "count",
+                "unit": "users",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_from": "-30d"},
+                        "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
+                    },
+                },
+            }
+        ).model_dump(mode="json")
+
+    def test_a_refreshed_utc_offset_snapshot_equals_the_pydantic_z_form(self) -> None:
+        # The refresh worker writes value_at as `+00:00`; set_report_metrics compares against the
+        # pydantic `Z` form. The same instant must read as unchanged, not a new edit.
+        payload = [self._canonical()]
+        stored = [{**payload[0], "value_at": "2026-08-29T12:00:00+00:00"}]
+        assert _report_metrics_unchanged(stored, payload) is True
+
+    def test_a_changed_value_is_not_absorbed_by_normalization(self) -> None:
+        payload = [self._canonical(value=23)]
+        stored = [{**payload[0], "value": 999}]
+        assert _report_metrics_unchanged(stored, payload) is False
+
+    def test_a_malformed_stored_row_counts_as_changed(self) -> None:
+        assert _report_metrics_unchanged([{"metric_id": "affected-users"}], [self._canonical()]) is False
+
+
+class TestScoutReportRepository(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _create(self) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+        )
+        return result.report_id
+
+    def _set(self, report_id: str, repository: str | None) -> bool:
+        return set_scout_report_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository=repository,
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+    @parameterized.expand([("a_repository", "acme/widgets"), ("a_cleared_target", None)])
+    def test_resending_the_stored_repository_is_not_a_change(self, _name: str, repository: str | None) -> None:
+        # `edit_report` is non-idempotent, so the same correction can arrive twice. Reporting a
+        # re-send as a change leaves a second "Set repository" note on the work log, tallies an edit
+        # that moved nothing, and re-runs autostart for a target that never changed.
+        report_id = self._create()
+
+        assert self._set(report_id, repository) is True
+        assert self._set(report_id, repository) is False
+        assert self._set(report_id, "acme/other") is True
+
+    def test_naming_an_already_inferred_repository_is_a_change(self) -> None:
+        # An inferred selection names the repository the report links, and is stamped ineligible for
+        # autostart because the report never asked for a pull request. A scout naming the same one is
+        # the decision that lifts it, so comparing the repository alone would drop the correction and
+        # leave the report unable to open a draft pull request.
+        report_id = self._create()
+        set_scout_report_inferred_repository(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="acme/widgets",
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert self._set(report_id, "acme/widgets") is True
+        selection = (
+            SignalReportArtefact.objects.filter(
+                report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        assert selection is not None
+        assert '"autostart_eligible":true' in selection.content
+
+
+class TestScoutReportSuggestedPrompts(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _stored(self, report_id: str) -> list[str]:
+        return SignalReport.objects.get(id=report_id).suggested_prompts
+
+    def _create(self, suggested_prompts: list[str] | None = None) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            suggested_prompts=suggested_prompts or [],
+        )
+        return result.report_id
+
+    def test_suggested_prompts_are_stored_on_the_report_on_author(self) -> None:
+        report_id = self._create(["Which teams are affected?"])
+
+        assert self._stored(report_id) == ["Which teams are affected?"]
+
+    def test_setting_prompts_replaces_the_report_s_whole_set(self) -> None:
+        # The set is what the report offers, the way `summary` is the whole summary. Appending
+        # instead would grow the row past its cap and leave questions about a superseded finding
+        # sitting under the current one.
+        report_id = self._create(["Which teams are affected?"])
+
+        set_report_suggested_prompts(
+            team_id=self.team.id, report_id=report_id, suggested_prompts=["Did the 18 June deploy do this?"]
+        )
+
+        assert self._stored(report_id) == ["Did the 18 June deploy do this?"]
+
+    @parameterized.expand(
+        [
+            ("identical", ["Which teams are affected?"]),
+            ("whitespace_only_difference", ["  Which teams are affected? "]),
+        ]
+    )
+    def test_resending_the_stored_prompts_is_not_a_change(self, _name: str, resent: list[str]) -> None:
+        # `edit_report` is non-idempotent, so a retry restates what the report already holds. Reading
+        # that as an edit notifies the report's destination a second time about nothing. Trailing
+        # whitespace is the same case wearing a disguise: LLM output carries it, and comparing raw
+        # would make every such retry look like a real replacement.
+        report_id = self._create(["Which teams are affected?"])
+
+        assert (
+            set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=resent) is False
+        )
+        assert (
+            set_report_suggested_prompts(
+                team_id=self.team.id, report_id=report_id, suggested_prompts=["Something else entirely?"]
+            )
+            is True
+        )
+
+    def test_setting_an_empty_set_takes_the_report_s_prompts_down(self) -> None:
+        # An empty sequence is a real write that clears, not a no-op — the caller that means "leave
+        # them alone" doesn't call this at all. Clearing a report that has none is still a re-send of
+        # what's stored, so it reports no change.
+        report_id = self._create(["Which teams are affected?"])
+
+        assert set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=[]) is True
+        assert self._stored(report_id) == []
+        assert set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=[]) is False
+
+    def test_replacing_prompts_is_recorded_on_the_report_s_work_log(self) -> None:
+        # Reader-visible content, and `edit_report` reaches any inbox report, so a rewrite needs the
+        # same attributable trail the title and summary get.
+        report_id = self._create(["Which teams are affected?"])
+
+        set_report_suggested_prompts(
+            team_id=self.team.id,
+            report_id=report_id,
+            suggested_prompts=["Did the 18 June deploy do this?"],
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-general",
+        )
+
+        notes = SignalReportArtefact.objects.filter(report_id=report_id).values_list("content", flat=True)
+        assert any("Replaced report suggested prompts" in str(content) for content in notes)
+
+    @parameterized.expand(
+        [
+            ("over_the_count_cap", [f"Question {i}?" for i in range(MAX_SUGGESTED_PROMPTS + 1)]),
+            ("over_the_length_cap", ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]),
+            ("duplicates", ["Which teams are affected?", "Which teams are affected?"]),
+        ]
+    )
+    def test_prompts_past_a_bound_are_refused(self, _name: str, prompts: list[str]) -> None:
+        # Both writes carry their own copy of the bounds, and authoring is the one a scout reaches
+        # first on `emit`. Duplicates matter because the inbox renders one row per question: two
+        # identical rows read as a rendering bug and cost the reader a choice that isn't one.
+        with pytest.raises(InvalidScoutReportError):
+            self._create(prompts)
+        assert not SignalReport.objects.filter(title="Signups dropped").exists()
+
+        report_id = self._create(["Which teams are affected?"])
+        with pytest.raises(InvalidScoutReportError):
+            set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=prompts)
+        assert self._stored(report_id) == ["Which teams are affected?"]
+
+    def test_setting_prompts_on_another_teams_report_is_refused(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        with team_scope(other_team.id):
+            other_report = create_scout_report(
+                team_id=other_team.id,
+                title="theirs",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                attribution=ArtefactAttribution.system(),
+            )
+
+        with pytest.raises(InvalidScoutReportError):
+            set_report_suggested_prompts(
+                team_id=self.team.id,
+                report_id=other_report.report_id,
+                suggested_prompts=["Which teams are affected?"],
+            )
+        with team_scope(other_team.id):
+            assert self._stored(other_report.report_id) == []

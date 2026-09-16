@@ -1,5 +1,7 @@
 import dataclasses
 
+SYMBOL_SET_CLEANUP_BUCKET_COUNT = 256
+
 
 @dataclasses.dataclass(frozen=True)
 class SymbolSetCleanupInputs:
@@ -7,11 +9,12 @@ class SymbolSetCleanupInputs:
     delete_unused: bool = True
     total_per_run: int = 1000000
     batch_size: int = 10000
-    # Workers contend rather than divide: they take `FOR UPDATE SKIP LOCKED` over the same
-    # ordered range, so each one pays the full traversal and skips what the others hold.
-    # `total_per_run` caps throughput regardless, so fewer workers spend less to reach it.
+    # Runtime workers divide the fixed indexed buckets, so parallelism can change without rebuilding the index.
     parallelism: int = 4
     dry_run: bool = False
+    bucket_worker_index: int = 0
+    bucket_worker_count: int = 1
+    bucket_offset: int = 0
 
 
 @dataclasses.dataclass(frozen=True)

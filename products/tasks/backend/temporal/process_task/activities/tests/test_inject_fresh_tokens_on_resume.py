@@ -32,8 +32,8 @@ class TestInjectFreshTokensOnResumeActivity:
     ):
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
@@ -68,6 +68,58 @@ class TestInjectFreshTokensOnResumeActivity:
             f"chmod 600 {OAUTH_ENV_FILE}",
         ]
 
+    def test_read_only_run_resumes_on_a_read_only_token(self, activity_environment, test_task, sandbox):
+        # A resume re-resolves credentials from scratch, so without this the read-only downscope
+        # is dropped and the sandbox comes back with the write-capable installation token. The
+        # repository is set here because that is the case a repo-pinned Signals scout resumes in.
+        context = TaskProcessingContext(
+            task_id=str(test_task.id),
+            run_id="run-id",
+            team_id=test_task.team_id,
+            team_uuid=str(test_task.team.uuid),
+            organization_id=str(test_task.team.organization_id),
+            github_integration_id=123,
+            repository=test_task.repository,
+            distinct_id="distinct",
+            state={"github_read_access": True, "repositories": [test_task.repository, "acme/second"]},
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token",
+                return_value="ghs_readonly",
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
+            ) as resolve_full,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
+                return_value="oauth_new",
+            ),
+        ):
+            async_to_sync(activity_environment.run)(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(
+                    context=context,
+                    sandbox_id="sandbox-abc",
+                    repository=context.repository,
+                ),
+            )
+
+        resolve_full.assert_not_called()
+        # Both clones carry the token in their own `origin`, so both remotes are rewritten.
+        rewritten = [c.args[0] for c in sandbox.execute.call_args_list if "x-access-token:ghs_readonly" in c.args[0]]
+        assert len(rewritten) == 2
+        assert any("acme/second" in command for command in rewritten)
+        assert (
+            GITHUB_ENV_FILE,
+            b"GITHUB_TOKEN=ghs_readonly\x00GH_TOKEN=ghs_readonly\x00",
+        ) in [call.args for call in sandbox.write_file.call_args_list]
+
     def test_clears_stale_github_credentials_when_integration_missing(self, activity_environment, test_task, sandbox):
         context = TaskProcessingContext(
             task_id=str(test_task.id),
@@ -82,8 +134,8 @@ class TestInjectFreshTokensOnResumeActivity:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
@@ -117,8 +169,8 @@ class TestInjectFreshTokensOnResumeActivity:
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
