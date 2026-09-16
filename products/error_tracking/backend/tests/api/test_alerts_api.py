@@ -300,6 +300,46 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 },
             ),
             (
+                "same_field_under_its_issue_page_spelling",
+                {
+                    "filters": {
+                        "properties": [
+                            {"key": "issue_description", "value": "a", "type": "error_tracking_issue"},
+                            {"key": "issue_description", "value": "b", "type": "event"},
+                        ]
+                    }
+                },
+            ),
+            (
+                "relative_first_seen",
+                {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "first_seen",
+                                "value": "-7d",
+                                "operator": "is_date_after",
+                                "type": "error_tracking_issue",
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
+                "relative_event_date",
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$error_tracking_issue_created",
+                                "type": "events",
+                                "properties": [{"key": "first_seen", "value": ["-1w"], "operator": "is_date_before"}],
+                            }
+                        ]
+                    }
+                },
+            ),
+            (
                 "action_filters",
                 {"filters": {"actions": [{"id": "1", "name": "Action", "type": "actions"}]}},
             ),

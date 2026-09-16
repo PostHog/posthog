@@ -1,5 +1,6 @@
 """CRUD and validation for error tracking alert configurations."""
 
+import re
 import json
 from typing import Any, Optional
 from uuid import UUID
@@ -245,8 +246,25 @@ ISSUE_FILTER_KEYS = frozenset({"name", "issue_description", "severity", "first_s
 
 
 # The issue page stores description filters under `issue_description`; the same field
-# reaches the event namespace as `description`.
+# reaches the event namespace as `description`. Both spellings name one field.
 _ISSUE_KEY_IN_EVENT_NAMESPACE = {"issue_description": "description"}
+_DATE_OPERATORS = ("is_date_before", "is_date_after", "is_date_exact")
+# Same shape the HogQL compiler treats as relative ("-7d", "-10m").
+_RELATIVE_DATE = re.compile(r"^-?[0-9]+[hdwmqysHDWMQY]")
+
+
+def _reject_relative_dates(property_filter: dict[str, Any]) -> None:
+    # Filters compile to bytecode once, on save, and the compiler resolves a relative
+    # date to that moment's wall clock. "In the last 7 days" would silently mean
+    # "after the day this alert was saved" forever.
+    if property_filter.get("operator") not in _DATE_OPERATORS:
+        return
+    values = property_filter.get("value")
+    for value in values if isinstance(values, list) else [values]:
+        if isinstance(value, str) and _RELATIVE_DATE.match(value):
+            raise AlertValidationError(
+                f"Relative dates such as {value} are fixed when the alert is saved; use an absolute date."
+            )
 
 
 def _validate_issue_leaf(property_filter: dict[str, Any]) -> None:
@@ -305,11 +323,12 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
             if not isinstance(property_filter, dict) or not isinstance(key, str):
                 raise AlertValidationError("Each alert property filter must be an object with a key.")
             property_type = property_filter.get("type")
+            _reject_relative_dates(property_filter)
             if property_type == "error_tracking_issue":
                 _validate_issue_leaf(property_filter)
                 issue_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(key, key))
             elif property_type in (None, "event"):
-                event_keys.add(key)
+                event_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(key, key))
             else:
                 raise AlertValidationError(
                     f"Alert filters support event and issue properties only, got: {property_type}."
