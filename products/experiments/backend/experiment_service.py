@@ -19,7 +19,6 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
@@ -120,10 +119,6 @@ from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetric
 
 logger = structlog.get_logger(__name__)
 
-# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
-# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
-EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
-
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
 
@@ -138,7 +133,7 @@ class CleanupRequestSummary(TypedDict):
 
     attempted: bool
     repository_source: CleanupRepositorySource | None
-    skip_reason: Literal["no_conclusion", "flag_disabled", "no_repository", "error"] | None
+    skip_reason: Literal["no_conclusion", "no_repository", "error"] | None
     confident: bool | None
 
 
@@ -2751,21 +2746,6 @@ class ExperimentService:
 
         return experiment
 
-    def _cleanup_pr_flag_enabled(self) -> bool:
-        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
-        # customer team by passing it as the "project" group and targeting that group's id on the flag.
-        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
-        return bool(
-            posthoganalytics.feature_enabled(
-                EXPERIMENT_CLEANUP_PR_FLAG,
-                str(self.team.id),
-                groups={"project": str(self.team.id)},
-                group_properties={"project": {"id": str(self.team.id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-
     def _maybe_open_cleanup_pr(
         self,
         experiment: Experiment,
@@ -2773,8 +2753,8 @@ class ExperimentService:
         requested_repository: str | None = None,
         set_repository_as_team_default: bool = False,
     ) -> CleanupRequestSummary:
-        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
-        experiment's feature-flag code, via the Tasks engine.
+        """When opted in (the checkbox), open a draft PR that removes the experiment's feature-flag
+        code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
         break ending an experiment.
@@ -2791,9 +2771,6 @@ class ExperimentService:
                 return summary
             if not conclusion:
                 summary["skip_reason"] = "no_conclusion"
-                return summary
-            if not self._cleanup_pr_flag_enabled():
-                summary["skip_reason"] = "flag_disabled"
                 return summary
 
             flag_key = experiment.get_feature_flag_key()

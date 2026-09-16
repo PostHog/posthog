@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1363_teamheatmapconfig"),
+        ("posthog", "1364_teamheatmapconfig"),
     ]
 
     operations = [
