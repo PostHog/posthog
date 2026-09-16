@@ -577,6 +577,34 @@ class TestOrganizationAPI(APIBaseTest):
             "Only the scoped organization should be listed, the other one should be excluded",
         )
 
+    @parameterized.expand(
+        [
+            ("member", True, status.HTTP_200_OK),
+            ("non_member", False, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_listing_organizations_without_a_current_organization(self, _name, is_member, expected_status):
+        user = self.user if is_member else User.objects.create(email="no_org@posthog.com")
+        user.current_organization = None
+        user.current_team = None
+        user.save()
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["*"],
+        )
+
+        response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {personal_api_key}"})
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if is_member:
+            self.assertEqual(
+                {org["id"] for org in response.json()["results"]},
+                {str(self.organization.id)},
+            )
+
     def test_projects_outside_oauth_scoped_organizations_causes_401(self):
         # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
         other_org, _, _ = Organization.objects.bootstrap(self.user)
