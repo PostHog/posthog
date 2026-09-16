@@ -27,7 +27,10 @@ let templateRepoPromise: Promise<string> | null = null;
 // first thing to crawl on a contended CI runner. Build the repo once per
 // module and copy it: a git repo has no absolute paths, so the copy is valid.
 function getTemplateRepo(): Promise<string> {
-  templateRepoPromise ??= buildTemplateRepo();
+  templateRepoPromise ??= buildTemplateRepo().catch((error: unknown) => {
+    templateRepoPromise = null;
+    throw error;
+  });
   return templateRepoPromise;
 }
 

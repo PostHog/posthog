@@ -1088,7 +1088,13 @@ export class AgentServer {
 
   private async cleanupInitializingConnection(): Promise<void> {
     const connection = this.initializingConnection;
-    await withTimeout(connection?.cleanup() ?? Promise.resolve(), 5_000);
+    const cleanup = await withTimeout(
+      connection?.cleanup() ?? Promise.resolve(),
+      5_000,
+    );
+    if (cleanup.result === "timeout") {
+      this.logger.warn("Timed out waiting for initializing connection cleanup");
+    }
   }
 
   async stop(): Promise<void> {
@@ -1104,7 +1110,7 @@ export class AgentServer {
         5_000,
       );
       if (initializationCleanup.result === "timeout") {
-        this.logger.warn("Timed out waiting for initialization cleanup");
+        this.logger.warn("Timed out waiting for initialization to settle");
       }
       const sessionCleanup = await withTimeout(
         this.session
