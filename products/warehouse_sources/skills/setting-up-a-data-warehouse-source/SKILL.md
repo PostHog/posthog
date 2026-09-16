@@ -147,8 +147,8 @@ field definitions. The response is a dict keyed by source type. Each entry descr
   - A separate boolean `secret` marks an input field that holds a sensitive value. The `type` does not tell you
     this, so a `text` or a `textarea` field can carry `secret: true`.
   - Other fields are sensitive by type and carry no `secret` flag. A `password` field is always sensitive. A
-    `file-upload` field is always sensitive, because it holds a service-account key file. An `ssh-tunnel` field
-    declares no child fields, but its `password`, `passphrase` and `private_key` values are sensitive.
+    `file-upload` field is always sensitive, whatever the uploaded file holds. An `ssh-tunnel` field declares no
+    child fields, but its `password`, `passphrase` and `private_key` values are sensitive.
   - Collect every sensitive field through `data-warehouse-source-connect-link`, never in chat.
   - `switch-group` and `select` options nest their own `fields` array. Read those the same way.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
