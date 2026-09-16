@@ -704,6 +704,14 @@ snapshots:
         hash: v1.k794b7964.8130eafe275f6eb471a60a4eec4f54f07f243c664aba0a64e5431f7728b22fe0.5-iHw88oelBcXyENYl4mnYzsVNsQR7qDfpYyz4GPdWw
     components-hogcharts-barchart--with-value-labels--light:
         hash: v1.k794b7964.6aff50b1c147df21230d149c147deb023f6308cd2e01983b58e65461dd4c7207.vLZ6XqXFhSTA3hr10RUEv9vzOgxKWYtUzWj0OvoCTU0
+    components-hogcharts-boxplot--horizontal--dark:
+        hash: v1.k794b7964.30cbeacc1f375b50732dd7c20765bbedfc0dc626d4896c8fa9687aa5f9bfc001.FTUzztXbfM9Du-zf-HPWGeBiY0cPJRqb3Ybj7dYNln8
+    components-hogcharts-boxplot--horizontal--light:
+        hash: v1.k794b7964.aec9e9c2b045f52ff9c7b439bc22260f45ca59a8965a8086ba9150aea221edd4.JkVfjROZzhUJfai3iKOmQmvmcOSY92m5tKg24b65qpA
+    components-hogcharts-boxplot--horizontal-log-scale--dark:
+        hash: v1.k794b7964.3ac079cae9db4bd2deb288342d8954ccd11e58a34e8e0cb8fc6ec92dfb82b1b1.Gm5cGG6ZEsju02uwqNvHF62mtJuI7Poo7cA_VCxmjHg
+    components-hogcharts-boxplot--horizontal-log-scale--light:
+        hash: v1.k794b7964.f4b58820e4955ee8d26de3cb2f9e743c3ff5f7cbfe94253ed95d7fce11b0fe51.47EN0L76m4Tszagv7IimkYbuVmbTOj3OHAkbertIvuA
     components-hogcharts-boxplot--multi-series-grouped--dark:
         hash: v1.k794b7964.fd8a8c11e35ef420a663807a21a6349eba0ae2658c6c3d114763f4629dd45934.d23KBypemM2QY55g8_QWVUc9diJoAL1oNZjK3d3Ebs4
     components-hogcharts-boxplot--multi-series-grouped--light:
@@ -7445,13 +7453,13 @@ snapshots:
     scenes-app-discussions--threads--light:
         hash: v1.k794b7964.28ac830bf83be5cbb6d7a397d67c9b9c61711904a822de38402b82220b0f7a49.7wENY7hvo1-qAJwq5fcsvKGJsfRAF_vDkpnM8iqFZcc
     scenes-app-engineering-analytics-author--author--dark:
-        hash: v1.k794b7964.8520adcd3ce8680c16613e32f5d64566355a27bade6dfc442e19be47be8bfbb2._hZPqT7OcEhiSKDedzXlSpJpzb8jceYtcwwSyqB801A
+        hash: v1.k794b7964.1d3d5ad4384d1455db661057f83f2981deeac486db482f18fda2ffc4831a0d64.KlfXRXFvKylYGb6tLKz5vnU1IPJ2l0AA7rrBFwIYnOE
     scenes-app-engineering-analytics-author--author--light:
-        hash: v1.k794b7964.ad664cfe6903ddfe5bdc7bb15c1817088b89b858eb6e781d2eaa93bfcd6bd74d.KnT1_QSVMPtOR_dHTGSxaXVUDLtkjWcvqfWY_Dy3w3U
+        hash: v1.k794b7964.11b4fa1297a2fe26ca31fcbfd078f2eb026dc52d8b9feae8e4b01dd5b5e344d3.ZossZ7M9N-OOLyssbqwNNj6wNb_3-TKgEcxgAIPk0TM
     scenes-app-engineering-analytics-author--author-narrow--dark:
-        hash: v1.k794b7964.3bca0cb64645bdd887796aa0ccdc1e4f38ae3e91f6d536dd540b83fd72a3b91f.oXXTVcvEsGIrPvGCG0HR1FqpAwid9TXkQpa00ScMiYM
+        hash: v1.k794b7964.61586233f0d99a295503bc466f739ed4b76043ab9bbf39a8c40c643aff3f5eb4.hAIwpK76FMPr3nZ4p2ZN65DyJYuPpaOMSBt7raTwUVU
     scenes-app-engineering-analytics-author--author-narrow--light:
-        hash: v1.k794b7964.29c171a5bdbe8125b19c449a55fef1ad52b249d6361d5785929473c53437208f.P_bjFcBIITGAsCj_c-Fo6jdxvgMJiKi1xqwS6x0X0uo
+        hash: v1.k794b7964.3d7a289e93726190975964c1a0c13b3aff934688510a92d41c36a61c38e28de0.zbZRiTmhxMUFC_68LYnMHJZ6hn8gOtdJWHLWzTh09yM
     scenes-app-engineering-analytics-author--author-without-reviews-or-deploys--dark:
         hash: v1.k794b7964.079499fddb5d88126b2fc93501d215aad1e361fd0622ec9e06aae82b0f81b1b3.X1gQOWOwe8W2YokDSb50W_fa0YC5LU0KyhI3S0wnsxs
     scenes-app-engineering-analytics-author--author-without-reviews-or-deploys--light:
@@ -7488,6 +7496,10 @@ snapshots:
         hash: v1.k794b7964.a88a986e975778b0ad232c7e8f75211b0d66acb126082b2f781fd9d5641ff28d.P4_7HWOcC-Z8pGr_2GTGkAc_fzupx_TRaZdlauEmVQE
     scenes-app-engineering-analytics-lead-time-box-plot--default--light:
         hash: v1.k794b7964.040d7b8b88503881e75c0e7d6c0bc8588c6096f1315f75b5071c2721d13f567a.jAkjFsaMTKwsbxZsBriJ6JoPzwYGQSXgG9ERQd0H06E
+    scenes-app-engineering-analytics-lead-time-box-plot--horizontal-log-scale--dark:
+        hash: v1.k794b7964.df91ee73eb9c7f851f7c987ff3d06f975e6187267e898a2a8b3a3a1f898dee7a.ieTfJEFpcuil3f4uqJ1jp_tg64ChsB81jLF3Rf9SeFM
+    scenes-app-engineering-analytics-lead-time-box-plot--horizontal-log-scale--light:
+        hash: v1.k794b7964.bc3a9455717626ef2f9541e03740bd0027c89139cd54ba4eb57a883d0e222667.OlAdmRvrHHSpGH8a2jHqV60Z957X8hIrNlcY9Duvv9A
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
         hash: v1.k794b7964.1a470083e7a94ff46652f4368277eae5d35c927d65b58685e43ce34881e1e728.SEm3E8XvqrTHtJNRhVGX-9aaaw6xdWyzTNb_mw6c380
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
