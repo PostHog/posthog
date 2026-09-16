@@ -1088,6 +1088,13 @@ class TestKnownFreeformTags:
             ),
         )
 
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team_id=target.team_id,
+            export_format="video/mp4",
+            is_system=True,
+            export_context={"session_recording_id": target.session_id, "inactivity_periods": []},
+        )
+
         with (
             patch(
                 "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
@@ -1105,7 +1112,7 @@ class TestKnownFreeformTags:
                 CallScannerProviderInputs(
                     team_id=target.team_id,
                     observation_id=target.id,
-                    exported_asset_id=1,
+                    exported_asset_id=asset.id,
                     file_uri="gemini://files/x",
                     mime_type="video/mp4",
                 ),
