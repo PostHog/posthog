@@ -69,7 +69,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "unit": "rate",
                 "guardrails": [{"metric": "complaint rate", "value": 0.0, "n": 240, "unit": "rate"}],
             },
-            "source_type": "scout",
             **overrides,
         }
         if "base_version" not in payload:
@@ -230,7 +229,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "A caller must not be able to pass its own work off as someone else's.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "base_version": 1,
-                "source_type": "scout",
                 "created_via": "web",
             },
             format="json",
@@ -250,7 +248,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "A retried agent run must not queue a second copy for the human.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "base_version": 1,
-                "source_type": "scout",
                 "source_id": "run:1:finding:webhook-url",
             },
             format="json",
@@ -306,7 +303,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "Testing the evidence contract.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "evidence": evidence,
-                "source_type": "scout",
             },
             format="json",
         )
@@ -470,7 +466,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "Merging is keyed on the id, so there is nothing to merge onto.",
                 "content": {"actions": [webhook]},
                 "base_version": 1,
-                "source_type": "scout",
             },
             format="json",
         )
@@ -517,7 +512,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "title": "Point the webhook somewhere else",
                 "rationale": "Testing the version contract.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
-                "source_type": "scout",
             },
             format="json",
         )
@@ -546,7 +540,6 @@ class TestWorkflowProposals(APIBaseTest):
                 "rationale": "Testing the content contract.",
                 "content": content,
                 "base_version": 1,
-                "source_type": "scout",
             },
             format="json",
         )
@@ -598,7 +591,6 @@ class TestWorkflowProposals(APIBaseTest):
             base_version=1,
             status=WorkflowProposal.Status.APPLIED,
             applied_version=3,
-            source_type=WorkflowProposal.SourceType.SCOUT,
             created_via=WorkflowProposal.CreatedVia.MCP,
         )
         written_first.save()
@@ -611,7 +603,6 @@ class TestWorkflowProposals(APIBaseTest):
             base_version=1,
             status=WorkflowProposal.Status.APPLIED,
             applied_version=2,
-            source_type=WorkflowProposal.SourceType.SCOUT,
             created_via=WorkflowProposal.CreatedVia.MCP,
         )
         written_last.save()
@@ -638,7 +629,7 @@ class TestWorkflowProposalsFlagOff(APIBaseTest):
         assert listed.status_code == 404, listed.json()
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
-            {"title": "x", "rationale": "y", "content": {"actions": []}, "source_type": "scout"},
+            {"title": "x", "rationale": "y", "content": {"actions": []}},
             format="json",
         )
         assert created.status_code == 404, created.json()
@@ -656,7 +647,6 @@ class TestWorkflowProposalModel(APIBaseTest):
             rationale="Fail-closed reads filter on this row's team, so it has to match the workflow's.",
             content={"actions": []},
             base_version=1,
-            source_type=WorkflowProposal.SourceType.SCOUT,
             created_via=WorkflowProposal.CreatedVia.MCP,
         )
         proposal.save()
