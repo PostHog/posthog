@@ -131,7 +131,7 @@ export const SettingsTabNarrow: Story = {
     render: () => <SettingsCard width="narrow" dailyLimit={10} reportsToday={3} />,
 }
 
-// A repository that branches from `develop`: the override list and the picker render under Base branches.
+// A repository that branches from `develop`: the override list and the Add override button render under Base branches.
 export const SettingsTabBaseBranches: Story = {
     parameters: REDESIGN,
     render: () => (
@@ -147,6 +147,21 @@ export const SettingsTabBaseBranches: Story = {
 export const SettingsTabBaseBranchesWithoutGitHub: Story = {
     parameters: REDESIGN,
     render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
+}
+
+// A Jira tracker with a saved project: the target reads as text with a Change button, and no picker mounts.
+export const SettingsTabIssueTrackerJira: Story = {
+    parameters: REDESIGN,
+    render: () => (
+        <SettingsCard
+            width="wide"
+            integrations={[
+                { id: 2, kind: 'jira', display_name: 'example.atlassian.net', config: {}, created_at: '2024-03-01' },
+            ]}
+            issueTrackingIntegration={2}
+            issueTrackingConfig={{ project_key: 'ENG' }}
+        />
+    ),
 }
 
 // Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.

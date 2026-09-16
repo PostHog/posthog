@@ -117,8 +117,13 @@ function BaseBranchOverridePicker(): JSX.Element {
         addBaseBranchOverrideDisabledReason,
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
-    const { setDraftBaseBranchIntegrationId, setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride } =
-        useActions(signalTeamConfigLogic)
+    const {
+        setDraftBaseBranchIntegrationId,
+        setDraftBaseBranchRepo,
+        setDraftBaseBranchBranch,
+        addBaseBranchOverride,
+        clearDraftBaseBranch,
+    } = useActions(signalTeamConfigLogic)
     const { githubIntegrations } = useValues(integrationsLogic)
 
     const integrationId = draftBaseBranchIntegrationId ?? githubIntegrations[0].id
@@ -164,7 +169,15 @@ function BaseBranchOverridePicker(): JSX.Element {
                 data-attr="signals-base-branch-override-add"
                 onClick={() => addBaseBranchOverride()}
             >
-                Add override
+                Add
+            </LemonButton>
+            <LemonButton
+                type="tertiary"
+                size="small"
+                disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
+                onClick={() => clearDraftBaseBranch()}
+            >
+                Cancel
             </LemonButton>
         </div>
     )
@@ -172,12 +185,14 @@ function BaseBranchOverridePicker(): JSX.Element {
 
 /**
  * Where agents branch from, per repository. Renders regardless of the auto-start toggle, because the
- * inbox "Create PR" button resolves the same overrides for a PR opened by hand. The list and the
- * picker stay in view so a configured team can read its overrides without opening anything.
+ * inbox "Create PR" button resolves the same overrides for a PR opened by hand. The list stays in
+ * view so a configured team can read its overrides without opening anything. The picker mounts on
+ * request, because the repository combobox loads the repository list as soon as it renders.
  */
 function BaseBranchesRow(): JSX.Element {
     const { githubIntegrations } = useValues(integrationsLogic)
-    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
+    const { baseBranchOverrides, baseBranchPickerOpen } = useValues(signalTeamConfigLogic)
+    const { setBaseBranchPickerOpen } = useActions(signalTeamConfigLogic)
 
     return (
         <AutonomySettingRow
@@ -199,7 +214,22 @@ function BaseBranchesRow(): JSX.Element {
             {(githubIntegrations.length > 0 || baseBranchOverrides.length > 0) && (
                 <div className="flex flex-col gap-2 py-3">
                     <BaseBranchOverrideList />
-                    {githubIntegrations.length > 0 && <BaseBranchOverridePicker />}
+                    {githubIntegrations.length > 0 &&
+                        (baseBranchPickerOpen ? (
+                            <BaseBranchOverridePicker />
+                        ) : (
+                            <div>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlus />}
+                                    data-attr="signals-base-branch-override-open"
+                                    onClick={() => setBaseBranchPickerOpen(true)}
+                                >
+                                    Add override
+                                </LemonButton>
+                            </div>
+                        ))}
                 </div>
             )}
         </AutonomySettingRow>
@@ -267,6 +297,60 @@ function IssueTrackerTarget({
         )
     }
     return <p className="m-0 text-xs text-secondary">Issues go to {integration.display_name}.</p>
+}
+
+/** One sentence for a saved target, so the section reads it without mounting the picker. */
+function describeIssueTrackerTarget(integration: IntegrationType, target: Record<string, string>): string | null {
+    if (integration.kind === 'github' && target.repository) {
+        return `Issues go to ${integration.display_name}/${target.repository}.`
+    }
+    if (integration.kind === 'jira' && target.project_key) {
+        return `Issues go to project ${target.project_key}.`
+    }
+    // Linear stores only the team id, which means nothing to a reader. The picker shows the name.
+    if (integration.kind === 'linear' && target.team_id) {
+        return `Issues go to a team in ${integration.display_name}.`
+    }
+    return null
+}
+
+/**
+ * The saved target as text with a Change button, or the picker. The Linear and Jira pickers call
+ * the provider for their option lists as soon as they mount, so the picker only renders once a
+ * person asks to change the target, or when the chosen tracker has no target yet.
+ */
+function IssueTrackerTargetRow({
+    integration,
+    target,
+    disabled,
+    onSave,
+}: {
+    integration: IntegrationType
+    target: Record<string, string>
+    disabled: boolean
+    onSave: (config: Record<string, string>) => void
+}): JSX.Element | null {
+    const { issueTrackerTargetPickerOpen } = useValues(signalTeamConfigLogic)
+    const { setIssueTrackerTargetPickerOpen } = useActions(signalTeamConfigLogic)
+
+    const summary = describeIssueTrackerTarget(integration, target)
+    if (summary === null || issueTrackerTargetPickerOpen) {
+        return <IssueTrackerTarget integration={integration} target={target} disabled={disabled} onSave={onSave} />
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-2">
+            <p className="m-0 text-xs text-secondary">{summary}</p>
+            <LemonButton
+                type="secondary"
+                size="small"
+                disabledReason={disabled ? 'Saving changes' : undefined}
+                data-attr="signals-issue-tracker-target-change"
+                onClick={() => setIssueTrackerTargetPickerOpen(true)}
+            >
+                Change
+            </LemonButton>
+        </div>
+    )
 }
 
 /**
@@ -361,7 +445,7 @@ function IssueTrackerRow(): JSX.Element {
         <AutonomySettingRow title="Issue tracker" description={description} control={control}>
             {selected && (
                 <div className="flex flex-col gap-2 py-3">
-                    <IssueTrackerTarget
+                    <IssueTrackerTargetRow
                         integration={selected}
                         target={target}
                         disabled={teamConfigUpdating}
