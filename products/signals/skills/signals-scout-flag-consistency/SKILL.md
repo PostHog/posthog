@@ -87,7 +87,7 @@ Everything here joins on one table: _flag key × repository × evaluation mode_.
 | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Key in repo A, absent from repo B, both serve the same user-facing flow   | Coverage split if B still serves the fallback path (Lane A)                              |
 | Key in no pinned repo, flag rolled out and called                         | The caller is a repo nobody pinned — a config gap, not flag debt                         |
-| Key in no pinned repo, flag never called                                  | Union-confirmed unreferenced flag — cleanup candidate the single-repo search can't claim |
+| Key in no pinned repo, flag never called                                  | Unreferenced across the pinned set — a candidate to confirm, not a proven one            |
 | Same key, client SDK in A and server SDK in B, responses agree            | Normal for a split stack — baseline, write it to memory once                             |
 | Same key, two regimes, and the same person gets different answers         | Evaluation-mode split — real divergent behavior (Lane B)                                 |
 | Flag conditions read person properties; one local-only call omits them    | Context split — that service silently serves the fallback (Lane C)                       |
@@ -104,7 +104,7 @@ A key with real call sites in some pinned repos and none in others. The absence 
 
 Confirm the user impact before reporting: read the flag's rollout from `feature-flag-get-definition`. **An absent gate does not prove the fallback path runs.** The house cleanup for a fully rolled-out flag removes the check and keeps the enabled path, one repo at a time, so on a flag at 100% the silent repo may be the finished one rather than the unpatched one. Settle that from its history, and where history says nothing, read which branch it implements: only a repo still serving the pre-flag behavior is a coverage split. A finished cleanup next to a still-gated repo is leftover debt in the gated repo, which one tree shows on its own — the feature flags scout's, so skip it. A flag at 0% rollout has no divergence yet — that is memory, not a report.
 
-The **reverse direction is the one only you can claim**: a flag with no real call site in _any_ pinned tree. A single-repo search can only ever say "not in this repo"; the union of the pinned set is what makes "unreferenced" a claim worth filing. Say in the report that the pinned set may not be every deployed consumer, because it usually is not.
+The **reverse direction is the one only you can raise**: a flag with no real call site in _any_ pinned tree. A single-repo search can only ever say "not in this repo"; the union is what makes the question worth asking. It does not settle it. Two blind spots close together here — the pinned set is usually not every deployed consumer, and a service on local evaluation sends no call event, so the stream cannot corroborate either. Absence of calls is not absence of use. File this as `requires_human_input`, name what you searched and what you could not see, and leave the verdict to an owner who knows the full deployment set. Never make it a task: removing a flag something still evaluates switches those users to the fallback.
 
 #### Lane B — evaluation-mode split
 
