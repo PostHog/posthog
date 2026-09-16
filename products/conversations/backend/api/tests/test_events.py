@@ -395,9 +395,7 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            # The requester's current project names the `project` group, but only when it sits in
-            # the organization the membership resolved: a project from another organization would
-            # contradict the org group, and the support team's own project is never a candidate.
+            # A project outside the resolved organization would contradict the organization group.
             ("no_current_project", None),
             ("current_project_in_org", "same_org"),
             ("current_project_in_another_org", "other_org"),
@@ -964,7 +962,7 @@ class TestConversationEvents(BaseTest):
             {"group_type": "organization", "group_type_index": 1},
             {"group_type": "customer", "group_type_index": 2},
         ]
-        mock_hogql.return_value.results = [["org-eu-123", customer_key, "customer-project-uuid"]]
+        mock_hogql.return_value.results = [[("org-eu-123", "customer-project-uuid"), customer_key]]
 
         capture_ticket_created(self.ticket)
 
@@ -983,7 +981,7 @@ class TestConversationEvents(BaseTest):
     @parameterized.expand(
         [
             ("no_events", []),
-            ("empty_org_key", [["", "", ""]]),
+            ("empty_org_key", [[("", ""), ""]]),
         ]
     )
     @patch("products.conversations.backend.events.capture_internal")
@@ -1043,7 +1041,7 @@ class TestConversationEvents(BaseTest):
         mock_get_by_email.return_value = {customer_email: person}
 
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["org-eu-123", "", ""]]
+        mock_hogql.return_value.results = [[("org-eu-123", ""), ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -1061,7 +1059,7 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("positive", [["org-eu-123", "", ""]], True),
+            ("positive", [[("org-eu-123", ""), ""]], True),
             ("negative", [], False),
         ]
     )
@@ -1114,7 +1112,7 @@ class TestConversationEvents(BaseTest):
             mock_get_persons.return_value = []
             mock_get_by_email.return_value = {}
         mock_group_types.return_value = [{"group_type": "organization", "group_type_index": 0}]
-        mock_hogql.return_value.results = [["attacker-org", "", ""]]
+        mock_hogql.return_value.results = [[("attacker-org", ""), ""]]
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
@@ -1461,7 +1459,7 @@ class TestResolveGroupsFromAnalyticsClickHouse(ClickhouseTestMixin, APIBaseTest)
 
         groups = _resolve_groups_from_analytics(self.team, ["eu-user-did"])
 
-        # No project group on the customer's events: better unset than the support team's own project.
+        # No project group on the customer's events: unset beats the support team's own project.
         assert groups == {"instance": SITE_URL, "organization": "org-eu-123"}
 
     @patch(

@@ -62,10 +62,8 @@ def _get_actor_distinct_id(
     return ticket.distinct_id or ticket.channel_source or "unknown"
 
 
-# Every resolved ``$groups`` describes the customer, never us. These events are captured into
-# the support team's own project, so stamping that team's uuid as the `project` group would
-# attribute each ticket to the support team's project instead of the customer's. `project` names
-# the requester's own project where a path can see it, and stays unset where none can.
+# A resolved ``$groups`` describes the customer, never us: these events are captured into the
+# support team's own project, so its uuid as the `project` group mis-attributes every ticket.
 
 # Channels whose customer email is tied to a provider-verified identity and is therefore safe
 # to use for organization attribution.
@@ -78,14 +76,13 @@ _EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, 
 # newer SDKs only re-emit it for newly-seen groups. A $groupidentify filter would therefore
 # silently miss exactly the cross-region customers this fallback exists for — those whose apps
 # don't pass group properties, or whose last group identify predates the 30-day window.
-# {org_col}/{customer_select}/{project_select} are interpolated from this project's own
-# group-type indexes (see _resolve_groups_from_analytics); column names can't be HogQL
-# placeholders.
+# {org_col}/{project_col}/{customer_select} are interpolated from this project's own group-type indexes
+# (see _resolve_groups_from_analytics); column names can't be HogQL placeholders. One argMax over both
+# group columns pairs an organization with the project it was seen with, never with an older one.
 GROUPS_FROM_EVENTS_QUERY = """
 SELECT
-    argMax({org_col}, timestamp),
-    {customer_select},
-    {project_select}
+    argMax(tuple({org_col}, {project_col}), timestamp),
+    {customer_select}
 FROM events
 WHERE distinct_id IN {{distinct_ids}}
   AND timestamp >= now() - INTERVAL 30 DAY
@@ -105,7 +102,8 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
     Event-supplied groups are captured with the project's public token and are
     therefore spoofable — fine for analytics enrichment (same trust level as
     ``$identify``), never for authorization. ``instance`` is rebuilt server-side;
-    ``project`` is the customer's own project group, read from the same events.
+    ``project`` is the customer's own project group, read from the same event as the
+    organization.
     """
     if not distinct_ids:
         return None
@@ -134,14 +132,8 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
         if customer_index is not None
         else "''"
     )
-    project_select = (
-        f"argMaxIf(`$group_{project_index}`, timestamp, `$group_{project_index}` != '')"
-        if project_index is not None
-        else "''"
-    )
-    query = GROUPS_FROM_EVENTS_QUERY.format(
-        org_col=org_col, customer_select=customer_select, project_select=project_select
-    )
+    project_col = f"`$group_{project_index}`" if project_index is not None else "''"
+    query = GROUPS_FROM_EVENTS_QUERY.format(org_col=org_col, project_col=project_col, customer_select=customer_select)
 
     # Deferred: hogql.query pulls the whole query-runner layer, and this module loads
     # at django.setup() via the conversations signal wiring.
@@ -158,7 +150,7 @@ def _resolve_groups_from_analytics(team: Team, distinct_ids: list[str]) -> dict 
 
     groups: dict | None = None
     if response.results:
-        org_key, customer_key, project_key = response.results[0]
+        (org_key, project_key), customer_key = response.results[0]
         if org_key:
             groups = {"instance": SITE_URL, "organization": org_key}
             if customer_key:
