@@ -60,6 +60,7 @@ export interface sharedMetricLogicValues {
     currentProjectId: number | string // teamLogic
     action: 'create' | 'duplicate' | 'update'
     breadcrumbs: Breadcrumb[]
+    metricSaving: boolean
     newSharedMetric: {
         created_at?: string | null | undefined
         created_by?: UserBasicType | null | undefined
@@ -134,6 +135,9 @@ export interface sharedMetricLogicActions {
               }
         payload?: any
     }
+    setMetricSaving: (saving: boolean) => {
+        saving: boolean
+    }
     setSharedMetric: (metric: Partial<SharedMetric>) => {
         metric: Partial<SharedMetric>
     }
@@ -178,6 +182,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         createSharedMetric: true,
         updateSharedMetric: (redirect?: boolean) => ({ redirect }),
         deleteSharedMetric: true,
+        setMetricSaving: (saving: boolean) => ({ saving }),
     }),
 
     loaders(({ props, values }) => ({
@@ -233,19 +238,27 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to create shared metric')
+            } finally {
+                actions.setMetricSaving(false)
             }
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
-            const response = await api.update(
-                `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
-                values.sharedMetric
-            )
-            if (response.id) {
-                lemonToast.success('Shared metric updated successfully')
-                actions.loadSharedMetrics()
-                if (redirect) {
-                    router.actions.push('/experiments?tab=shared-metrics')
+            try {
+                const response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/${values.sharedMetricId}`,
+                    values.sharedMetric
+                )
+                if (response.id) {
+                    lemonToast.success('Shared metric updated successfully')
+                    actions.loadSharedMetrics()
+                    if (redirect) {
+                        router.actions.push('/experiments?tab=shared-metrics')
+                    }
                 }
+            } catch (error: any) {
+                lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to update shared metric')
+            } finally {
+                actions.setMetricSaving(false)
             }
         },
         deleteSharedMetric: async () => {
@@ -268,6 +281,14 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             { ...NEW_SHARED_METRIC } as Partial<SharedMetric>,
             {
                 setSharedMetric: (state, { metric }) => ({ ...state, ...metric }),
+            },
+        ],
+        metricSaving: [
+            false,
+            {
+                createSharedMetric: () => true,
+                updateSharedMetric: () => true,
+                setMetricSaving: (_, { saving }) => saving,
             },
         ],
     }),
