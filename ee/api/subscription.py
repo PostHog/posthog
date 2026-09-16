@@ -93,6 +93,18 @@ AI_DELIVERY_DISPLAY_FIELDS = frozenset(
 )
 
 
+def _capture_post_write_failure(exc: Exception) -> None:
+    """Report a failure that happens after the write is committed.
+
+    `capture_exception` reads query tags and logs, neither of which is guarded, so a fault in
+    reporting would propagate and fail a request whose write already landed.
+    """
+    try:
+        capture_exception(exc)
+    except Exception:
+        pass
+
+
 def _summary_quota_cache_key(organization_id) -> str:
     return f"subscription:summary_quota:org:{organization_id}"
 
@@ -776,8 +788,12 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         if "contexts" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
-                raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
-            attrs["contexts"] = self._validate_contexts(attrs["contexts"])
+                if attrs["contexts"]:
+                    raise ValidationError({"contexts": ["Context only applies to AI subscriptions."]})
+                # Every read carries an empty list here, so a client saving what it read sends one back.
+                attrs.pop("contexts")
+            else:
+                attrs["contexts"] = self._validate_contexts(attrs["contexts"])
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)
@@ -1191,51 +1207,56 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if not instance.enabled or not send_test_now:
             return instance
 
-        with slo_operation(
-            spec=SloSpec(
-                distinct_id=str(request.user.distinct_id),
-                area=SloArea.ANALYTIC_PLATFORM,
-                operation=SloOperation.SUBSCRIPTION_CREATE,
-                team_id=instance.team_id,
-                resource_id=str(instance.id),
-            ),
-            properties={
-                "subscription_id": instance.id,
-                "target_type": instance.target_type,
-                "frequency": instance.frequency,
-                "interval": instance.interval,
-                "byweekday": instance.byweekday,
-                "bysetpos": instance.bysetpos,
-                "count": instance.count,
-                "resource_type": instance.resource_type,
-                "dashboard_export_insights_count": len(dashboard_export_insight_ids),
-                "summary_enabled": instance.summary_enabled,
-                "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
-                "has_until_date": instance.until_date is not None,
-                "has_invite_message": bool(invite_message),
-            },
-        ):
-            temporal = sync_connect()
-            workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-            asyncio.run(
-                temporal.start_workflow(
-                    "handle-subscription-value-change",
-                    ProcessSubscriptionWorkflowInputs(
-                        subscription_id=instance.id,
-                        team_id=instance.team_id,
-                        distinct_id=str(instance.created_by.distinct_id)
-                        if instance.created_by
-                        else str(instance.team_id),
-                        previous_target_value="",
-                        previous_value="",
-                        invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
-                        resource_type=instance.resource_type,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        # The row is committed above and the schedule runs off next_delivery_date, so failing the
+        # request here would hide a subscription that exists and make the retry create a second one.
+        try:
+            with slo_operation(
+                spec=SloSpec(
+                    distinct_id=str(request.user.distinct_id),
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    operation=SloOperation.SUBSCRIPTION_CREATE,
+                    team_id=instance.team_id,
+                    resource_id=str(instance.id),
+                ),
+                properties={
+                    "subscription_id": instance.id,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "interval": instance.interval,
+                    "byweekday": instance.byweekday,
+                    "bysetpos": instance.bysetpos,
+                    "count": instance.count,
+                    "resource_type": instance.resource_type,
+                    "dashboard_export_insights_count": len(dashboard_export_insight_ids),
+                    "summary_enabled": instance.summary_enabled,
+                    "has_summary_prompt_guide": bool(instance.summary_prompt_guide),
+                    "has_until_date": instance.until_date is not None,
+                    "has_invite_message": bool(invite_message),
+                },
+            ):
+                temporal = sync_connect()
+                workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
+                asyncio.run(
+                    temporal.start_workflow(
+                        "handle-subscription-value-change",
+                        ProcessSubscriptionWorkflowInputs(
+                            subscription_id=instance.id,
+                            team_id=instance.team_id,
+                            distinct_id=str(instance.created_by.distinct_id)
+                            if instance.created_by
+                            else str(instance.team_id),
+                            previous_target_value="",
+                            previous_value="",
+                            invite_message=invite_message,
+                            trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
+                            resource_type=instance.resource_type,
+                        ),
+                        id=workflow_id,
+                        task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    )
                 )
-            )
+        except Exception as exc:
+            _capture_post_write_failure(exc)
 
         return instance
 
@@ -1340,7 +1361,6 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
         if not delivery_triggered:
             return instance
 
-        temporal = sync_connect()
         if send_test_now:
             # Explicit ask: deterministic ID so a caller spamming send_test_now dedupes to one
             # in-flight delivery per subscription instead of fanning out real sends. Kept distinct
@@ -1351,6 +1371,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # consecutive edits both deliver instead of the second silently deduping.
             workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
         try:
+            temporal = sync_connect()
             asyncio.run(
                 temporal.start_workflow(
                     "handle-subscription-value-change",
@@ -1374,6 +1395,8 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # A delivery for this subscription is already in flight; the update itself
             # succeeded, so skip the duplicate send rather than failing the request.
             pass
+        except Exception as exc:
+            _capture_post_write_failure(exc)
 
         return instance
 

@@ -43,7 +43,7 @@ pub(super) async fn attach_distinct_ids(
         WHERE NOT EXISTS (
             SELECT 1 FROM {lop} m
             WHERE m.team_id = p.team_id AND m.person_id = p.id
-              AND m.status IN ('marked', 'sealed')
+              AND m.mark_active
         )
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
