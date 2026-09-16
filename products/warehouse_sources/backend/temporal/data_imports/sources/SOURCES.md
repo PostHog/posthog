@@ -848,6 +848,7 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
+- amplemarket
 - anodot_cost
 - anomalo
 - anvil

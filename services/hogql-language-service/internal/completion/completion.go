@@ -41,12 +41,13 @@ const (
 )
 
 var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS", "CASE", "NULL", "TRUE", "FALSE", "NOT"}
+var betweenSeparator = []string{"AND"}
 var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 
-func Complete(schema *catalog.Catalog, query string, position int, positionEncoding PositionEncoding, cursor string) (Result, error) {
+func Complete(schema *catalog.PreparedCatalog, query string, position int, positionEncoding PositionEncoding, cursor string) (Result, error) {
 	if err := querylimits.Validate(query); err != nil {
 		return Result{}, err
 	}
@@ -75,36 +76,31 @@ func Complete(schema *catalog.Catalog, query string, position int, positionEncod
 	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	bindings, parseErr := tableBindings(repaired)
-	tablesByLowerName := tableNamesByLowerName(schema)
 	for binding, tableName := range bindings {
-		if canonicalName, ok := tablesByLowerName[strings.ToLower(tableName)]; ok {
-			bindings[binding] = canonicalName
+		if table, ok := schema.Table(tableName); ok {
+			bindings[binding] = table.Name
 		}
 	}
-	for binding, tableName := range fallbackBindings(repaired, tablesByLowerName) {
+	for binding, tableName := range fallbackBindings(repaired, schema) {
 		bindings[binding] = tableName
 	}
 
 	var suggestions []Suggestion
 	if namespace, propertyPrefix, ok := propertyContext(query[:position], bindings); ok {
-		lowerPropertyPrefix := strings.ToLower(propertyPrefix)
-		for _, property := range schema.Properties[namespace] {
-			if hasLowerPrefix(property.Name, lowerPropertyPrefix) {
-				suggestions = append(suggestions, Suggestion{Label: property.Name, Kind: "property", Detail: property.ValueType})
-			}
-		}
+		return indexedResult(schema.Properties(namespace).Prefix(propertyPrefix), "property", offset, parseErr), nil
 	} else if qualifier != "" {
 		if tableName, ok := bindings[strings.ToLower(qualifier)]; ok {
-			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
-		}
-	} else if mode == completionModeTable {
-		for name, table := range schema.Tables {
-			if hasLowerPrefix(name, lowerPrefix) {
-				suggestions = append(suggestions, Suggestion{Label: name, Kind: "table", Detail: table.Type})
+			if table, exists := schema.Table(tableName); exists {
+				return indexedResult(table.Fields.Prefix(lowerPrefix), "field", offset, parseErr), nil
 			}
 		}
+		return indexedResult(nil, "field", offset, parseErr), nil
+	} else if mode == completionModeTable {
+		return indexedResult(schema.Tables().Prefix(lowerPrefix), "table", offset, parseErr), nil
 	} else if mode == completionModeComparison {
 		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+	} else if mode == completionModeBetweenSeparator {
+		suggestions = appendNamed(suggestions, betweenSeparator, lowerPrefix, "keyword", "")
 	} else if mode == completionModePredicateContinuation {
 		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else if mode == completionModePostExpression {
@@ -117,7 +113,9 @@ func Complete(schema *catalog.Catalog, query string, position int, positionEncod
 				continue
 			}
 			seen[tableName] = true
-			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
+			if table, ok := schema.Table(tableName); ok {
+				suggestions = appendFields(suggestions, table, lowerPrefix)
+			}
 		}
 		if mode == completionModeExpression {
 			suggestions = appendFunctions(suggestions, lowerPrefix)
@@ -152,6 +150,28 @@ func Complete(schema *catalog.Catalog, query string, position int, positionEncod
 		result.ParseError = parseErr.Error()
 	}
 	return result, nil
+}
+
+func indexedResult(entries []catalog.Entry, kind string, offset int, parseErr error) Result {
+	result := Result{Total: len(entries)}
+	if offset > len(entries) {
+		offset = len(entries)
+	}
+	end := min(offset+PageSize, len(entries))
+	result.Suggestions = make([]Suggestion, end-offset)
+	rank := strconv.Itoa(suggestionRank(kind)) + "-"
+	for index, entry := range entries[offset:end] {
+		result.Suggestions[index] = Suggestion{
+			Label: entry.Name, Kind: kind, Detail: entry.Type, SortText: rank + strings.ToLower(entry.Name),
+		}
+	}
+	if end < len(entries) {
+		result.NextCursor = encodeCursor(end)
+	}
+	if parseErr != nil {
+		result.ParseError = parseErr.Error()
+	}
+	return result
 }
 
 func utf16OffsetToByteOffset(value string, offset int) int {
@@ -213,34 +233,24 @@ func encodeCursor(offset int) string {
 
 // The ClickHouse grammar accepts database.table while HogQL warehouse names may have more segments.
 // Keep parser-derived bindings as the primary path and fill that syntax gap until the grammar supports it.
-func fallbackBindings(query string, tablesByLowerName map[string]string) map[string]string {
+func fallbackBindings(query string, schema *catalog.PreparedCatalog) map[string]string {
 	bindings := map[string]string{}
 	for _, match := range tableReference.FindAllStringSubmatch(query, -1) {
-		tableName, ok := tablesByLowerName[strings.ToLower(match[1])]
+		table, ok := schema.Table(match[1])
 		if !ok {
 			continue
 		}
-		bindings[strings.ToLower(tableName)] = tableName
+		bindings[strings.ToLower(table.Name)] = table.Name
 		if match[2] != "" && !strings.EqualFold(match[2], "FINAL") {
-			bindings[strings.ToLower(match[2])] = tableName
+			bindings[strings.ToLower(match[2])] = table.Name
 		}
 	}
 	return bindings
 }
 
-func tableNamesByLowerName(schema *catalog.Catalog) map[string]string {
-	tables := make(map[string]string, len(schema.Tables))
-	for name := range schema.Tables {
-		tables[strings.ToLower(name)] = name
-	}
-	return tables
-}
-
-func appendFields(out []Suggestion, table catalog.Table, lowerPrefix string) []Suggestion {
-	for name, field := range table.Fields {
-		if hasLowerPrefix(name, lowerPrefix) {
-			out = append(out, Suggestion{Label: name, Kind: "field", Detail: field.Type})
-		}
+func appendFields(out []Suggestion, table *catalog.PreparedTable, lowerPrefix string) []Suggestion {
+	for _, field := range table.Fields.Prefix(lowerPrefix) {
+		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type})
 	}
 	return out
 }
