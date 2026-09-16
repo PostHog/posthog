@@ -685,6 +685,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "experimenttosavedmetric_set",
         # Optimistic-concurrency counter, not a user-meaningful change.
         "version",
+        # Internal pointer to the flag-cleanup task, not a user-meaningful change.
+        "flag_cleanup_task_id",
     ],
     "ExperimentSavedMetric": [
         "experiments",
