@@ -452,6 +452,21 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["first_wrong_dismissed_at"] == T1
 
     @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
+    def test_a_reasonless_first_dismissal_carries_no_reason_forward(self, gap):
+        # A dismissal with no reason is normal: the PR-closed path suppresses a report with no
+        # artefact. The earliest dismissal must not borrow the reason of a later one, or a consumer
+        # pairs that reason with first_dismissed_server_at and misreads why the report was dismissed.
+        self._transition(T1, "ready", "suppressed", None)
+        self._transition(T1 + gap, "suppressed", "ready")
+        self._transition(T1 + 2 * gap, "ready", "suppressed", "analysis_wrong")
+
+        row = self._status_row()
+        assert row["first_dismissed_server_at"] == T1
+        assert row["first_dismissal_reason"] is None
+        assert row["dismissal_reason"] == "analysis_wrong"
+        assert row["first_wrong_dismissed_at"] == T1 + 2 * gap
+
+    @parameterized.expand([(datetime.timedelta(hours=1),), (datetime.timedelta(minutes=1),)])
     def test_first_wrong_dismissed_at_skips_an_earlier_plain_dismissal(self, gap):
         # dismissed as already_fixed, restored, then dismissed as analysis_wrong. The bucket's own
         # first timestamp is the plain dismissal, so a time-to-outcome read would date the wrong

@@ -395,12 +395,17 @@ SELECT
     -- The reason on the *earliest* reasoned dismissal, under the same tenant restriction. The
     -- latest-wins reason above answers "how is this report classified now"; a horizon or
     -- time-to-outcome read needs the reason that came with the dismissal it is dating.
-    argMinIf(
-        bucket_first_dismissal_reason,
-        first_timestamp,
-        outcome = 'dismissed'
-        AND bucket_first_dismissal_reason IS NOT NULL
-        AND event_team_id = latest_event_team_id
+    -- The empty sentinel rides all the way to the end so a reason-less earliest dismissal reports
+    -- NULL rather than handing over the next dismissal's reason: a dismissal carries no reason
+    -- whenever no artefact accompanies the transition, and this column has to stay paired with
+    -- first_dismissed_server_at.
+    nullIf(
+        argMinIf(
+            bucket_first_dismissal_reason,
+            first_timestamp,
+            outcome = 'dismissed' AND event_team_id = latest_event_team_id
+        ),
+        ''
     ) AS first_dismissal_reason,
     -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
     -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
@@ -464,17 +469,13 @@ FROM (
         -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
         -- aggregates to the outer alias, which is itself an aggregate.
         nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS bucket_dismissal_reason,
-        -- The bucket's earliest reason, the parallel of first_timestamp: a bucket can collapse a
-        -- dismiss, a restore and a second dismissal, and then its latest reason is not the one the
-        -- first dismissal carried. Reason-less events are excluded, so a bucket that holds one
-        -- still reports the reason it does have.
-        nullIf(
-            argMinIf(
-                toString(properties.dismissal_reason),
-                events.timestamp,
-                toString(properties.dismissal_reason) != ''
-            ),
-            ''
+        -- The reason on the bucket's earliest event, the parallel of first_timestamp: a bucket can
+        -- collapse a dismiss, a restore and a second dismissal, and then its latest reason is not
+        -- the one the first dismissal carried. A reason-less event is kept as the empty string,
+        -- because argMin skips a null and would hand over a later event's reason, so the reason
+        -- always describes the event first_timestamp dates.
+        argMin(
+            coalesce(toString(properties.dismissal_reason), ''), events.timestamp
         ) AS bucket_first_dismissal_reason,
         max(toString(properties.dismissal_reason) IN ("""
     + _WRONG_DISMISSAL_REASONS_SQL
