@@ -1462,7 +1462,14 @@ def create_and_run_task(
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
     """
-    enforce_code_access(team, user_id, origin_product=origin_product, create_pr=create_pr, internal=internal)
+    enforce_code_access(
+        team,
+        user_id,
+        origin_product=origin_product,
+        create_pr=create_pr,
+        internal=internal,
+        signal_report_id=signal_report_id,
+    )
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2744,24 +2751,28 @@ def enforce_self_driving_free_trial(
     raise FreeTrialPullRequestRefused()
 
 
-# Origin products whose cloud PR runs are entitled without PostHog Desktop access, so
-# `enforce_code_access` lets them through. Each one has a documented reason:
-#
-# - ONBOARDING: the setup-wizard cloud run bills to nobody. It routes to the unbilled
-#   `onboarding` gateway product and PostHog absorbs the cost (see `create_wizard_cloud_run`).
-# - SIGNAL_REPORT and SIGNALS_CHAT: Inbox work, entitled through self-driving rather than the
-#   Desktop waitlist, and already priced by `enforce_self_driving_pr_quota` below. Auto-start
-#   opens the same run server-side, so gating the button would only make the outcome depend on
-#   who started it. `task_exempt_from_code_access` makes the same call for the run endpoints.
-#
-# Everything else is denied by default, so a new caller has to decide rather than inherit a pass.
-CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS = frozenset(
-    {
-        Task.OriginProduct.ONBOARDING,
-        Task.OriginProduct.SIGNAL_REPORT,
-        Task.OriginProduct.SIGNALS_CHAT,
-    }
-)
+# The setup-wizard cloud run bills to nobody: it routes to the unbilled `onboarding` gateway
+# product and PostHog absorbs the cost (see `create_wizard_cloud_run`). It is the one origin that
+# is entitled on its own, because the origin is the whole claim.
+CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS = frozenset({Task.OriginProduct.ONBOARDING})
+
+
+def _entitled_without_code_access(origin_product: "Task.OriginProduct", signal_report_id: str | None) -> bool:
+    """Whether this run is entitled outside PostHog Desktop, from the creation inputs alone.
+
+    Inbox work is entitled through self-driving rather than the Desktop waitlist, and
+    `enforce_self_driving_pr_quota` below already prices it. Auto-start opens the same run
+    server-side, so gating the button would only make the outcome depend on who started it.
+    `task_exempt_from_code_access` makes the same call for the run endpoints.
+
+    The report link carries that claim, not the origin. An origin on its own is one field, and
+    `task_exempt_from_code_access` refuses a bare `SIGNAL_REPORT` for the same reason: a caller
+    that could set it would hold a one-field waitlist bypass. Everything else is denied by
+    default, so a new caller has to decide rather than inherit a pass.
+    """
+    if origin_product in CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS:
+        return True
+    return origin_product == Task.OriginProduct.SIGNAL_REPORT and signal_report_id is not None
 
 
 def enforce_code_access(
@@ -2771,6 +2782,7 @@ def enforce_code_access(
     origin_product: "Task.OriginProduct",
     create_pr: bool,
     internal: bool,
+    signal_report_id: str | None = None,
 ) -> None:
     """Refuse to start a cloud run that can open a pull request when the organization is not
     entitled to PostHog Desktop, or is over its usage limit.
@@ -2800,7 +2812,7 @@ def enforce_code_access(
         usage_limit_response,
     )
 
-    if not create_pr or internal or origin_product in CODE_ACCESS_EXEMPT_ORIGIN_PRODUCTS:
+    if not create_pr or internal or _entitled_without_code_access(origin_product, signal_report_id):
         return
 
     user = User.objects.filter(id=user_id).first()
@@ -2810,14 +2822,15 @@ def enforce_code_access(
     try:
         decision = get_desktop_access_decision(user, team.organization)
     except DesktopAccessResolutionError:
+        # Only the entitlement decision fails open. The usage limit below is a separate service and
+        # a separate question, so a degraded entitlement check must not also drop the cost backstop.
         logger.warning(
             "task_code_access_check_unavailable",
             extra={"team_id": team.id, "origin_product": str(origin_product)},
         )
-        return
-
-    if not decision.allowed:
-        raise PermissionDenied("PostHog Desktop access is required to run tasks in the cloud.")
+    else:
+        if not decision.allowed:
+            raise PermissionDenied("PostHog Desktop access is required to run tasks in the cloud.")
 
     if usage_limit_response(user, team.id) is not None:
         raise Throttled(detail="Your organization reached its PostHog Desktop usage limit.")

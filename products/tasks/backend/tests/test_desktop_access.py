@@ -199,6 +199,7 @@ class TestEnforceCodeAccess(APIBaseTest):
             "origin_product": Task.OriginProduct.EXPERIMENTS,
             "create_pr": True,
             "internal": False,
+            "signal_report_id": None,
         }
         enforce_code_access(self.team, self.user.id, **{**defaults, **kwargs})
 
@@ -209,8 +210,7 @@ class TestEnforceCodeAccess(APIBaseTest):
             ("no_pull_request", "experiments", False, False, False),
             ("internal_machinery", "experiments", True, True, False),
             ("onboarding_wizard", "onboarding", True, False, False),
-            ("inbox_report", "signal_report", True, False, False),
-            ("inbox_chat", "signals_chat", True, False, False),
+            ("bare_signal_report_origin", "signal_report", True, False, True),
         ]
     )
     @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
@@ -227,12 +227,32 @@ class TestEnforceCodeAccess(APIBaseTest):
             self._enforce(origin_product=origin_product, create_pr=create_pr, internal=internal)
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.access.get_desktop_access_decision")
+    def test_inbox_report_run_is_entitled_through_its_report_link(self, mock_decision, _mock_usage) -> None:
+        from products.tasks.backend.models import Task
+
+        mock_decision.return_value = MagicMock(allowed=False, reason=DesktopAccessReason.STARTUP_PLAN)
+
+        self._enforce(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report_id="a-report-id")
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response", return_value=None)
     @patch(
         "products.tasks.backend.access.get_desktop_access_decision",
         side_effect=DesktopAccessResolutionError("billing unreachable"),
     )
     def test_fails_open_when_entitlement_cannot_be_resolved(self, _mock_decision, _mock_usage) -> None:
         self._enforce()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response")
+    @patch(
+        "products.tasks.backend.access.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("billing unreachable"),
+    )
+    def test_unresolved_entitlement_still_applies_the_usage_limit(self, _mock_decision, mock_usage) -> None:
+        mock_usage.return_value = MagicMock()
+
+        with self.assertRaises(Throttled):
+            self._enforce()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.usage_limit_response")
     @patch("products.tasks.backend.access.get_desktop_access_decision")
