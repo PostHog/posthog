@@ -72,7 +72,12 @@ export type IntegrationConnectSurface =
     // Surfaces that render the Slack not-configured banner, one per call site.
     | 'comment_slack_destination'
     | 'survey_notification_modal'
-    | 'alert_notification_destination'
+    // One value per product that renders the shared alert notification destination editor, because a
+    // single value cannot say which product showed the banner.
+    | 'insight_alert_notification_destination'
+    | 'billing_alert_notification_destination'
+    | 'logs_alert_notification_destination'
+    | 'scanner_alert_notification_destination'
     | 'subscription_wizard'
     | 'subscription_edit'
     | 'evaluation_report_config'

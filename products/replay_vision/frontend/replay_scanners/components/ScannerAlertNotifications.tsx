@@ -86,6 +86,7 @@ export function ScannerAlertNotifications(): JSX.Element {
             }}
             slack={{
                 notificationType: VISION_ALERT_NOTIFICATION_TYPE_SLACK,
+                connectSurface: 'scanner_alert_notification_destination',
                 integrationsLoading,
                 integrationsFailed,
                 onRetryIntegrations: loadIntegrations,

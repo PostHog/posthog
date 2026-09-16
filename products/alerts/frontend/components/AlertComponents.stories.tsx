@@ -218,6 +218,7 @@ function NotificationsStory(): JSX.Element {
                 }}
                 slack={{
                     notificationType: 'slack',
+                    connectSurface: 'insight_alert_notification_destination',
                     integrationsLoading: false,
                     integrationsFailed: false,
                     onRetryIntegrations: () => {},
