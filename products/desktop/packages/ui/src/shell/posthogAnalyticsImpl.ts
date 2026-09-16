@@ -8,7 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
-import type { Adapter, ModelAccess } from "@posthog/shared";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -111,6 +116,35 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
+  {
+    pattern:
+      /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/,
+    replacement: "$1:id$2:id$3:id",
+  },
+  {
+    pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
+    replacement: "$1:id$2:id",
+  },
+  {
+    // The tool name comes from the MCP server, so a custom server can put any
+    // text here. `tools/refresh/` is a fixed action rather than a tool name, so
+    // the lookahead keeps that route on its own path.
+    pattern:
+      /^(\/api\/environments\/)\d+(\/mcp_server_installations\/)[^/]+(\/tools\/)(?!refresh\/?$)[^/]+(\/?)$/,
+    replacement: "$1:id$2:id$3:id$4",
+  },
+] as const;
+
+function templateOwnApiPath(pathname: string): string | undefined {
+  for (const template of OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES) {
+    if (template.pattern.test(pathname)) {
+      return pathname.replace(template.pattern, template.replacement);
+    }
+  }
+  return undefined;
+}
+
 /**
  * Path attribute for the automatic network-duration metric. posthog-js's default
  * path templating only replaces numeric/uuid-like segments, so a presigned
@@ -118,17 +152,24 @@ const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
  * user-controlled filename — see `_build_artifact_storage_path` in
  * products/tasks/backend/facade/api.py) or any other non-API request would leak
  * that filename into the shared Metrics project. Only requests to the app's own
- * API host get path-based attribution; everything else collapses to a fixed
+ * backend host get path-based attribution; everything else collapses to a fixed
  * value.
+ *
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
  */
 export function networkMetricPath(
   request: NetworkMetricsRequest,
-  apiHost: string,
 ): string | undefined {
   try {
-    const requestHost = new URL(request.url).host;
-    const appHost = new URL(apiHost).host;
-    return requestHost === appHost ? undefined : "external";
+    const requestUrl = new URL(request.url);
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
   } catch {
     return "external";
   }
@@ -165,10 +206,10 @@ export function initializePostHog(sessionId?: string) {
       // keyed by method/host/path (posthog-js templates numeric and uuid-like
       // path segments to `:id` before dimensioning). posthog-js's own capture/flags/session-recording
       // requests are excluded automatically. `attributes` keeps path-based
-      // attribution to this app's own API — see `networkMetricPath`.
+      // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, apiHost);
+          const path = networkMetricPath(request);
           return path === undefined ? undefined : { path };
         },
       },
