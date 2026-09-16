@@ -147,6 +147,7 @@ describe('scoutCreateModalLogic', () => {
 
         expect(logic.values.scoutCreateForm).toEqual({
             name: 'signals-scout-checkout-failures',
+            display_name: 'Checkout failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
@@ -173,6 +174,7 @@ describe('scoutCreateModalLogic', () => {
 
         expect(mockSignalsScoutCreate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
             name: 'signals-scout-checkout-failures',
+            display_name: 'Checkout failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             config: {
@@ -279,7 +281,7 @@ describe('scoutCreateModalLogic', () => {
         expect(logic.values.mcpServersDefaulted).toBe(true)
         expect(logic.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
 
-        logic.actions.setScoutCreateFormValue('name', 'checkout-failures')
+        logic.actions.setScoutCreateFormValue('display_name', 'Checkout failures')
         logic.actions.setScoutCreateFormValue('description', 'Investigates recurring checkout failures.')
         logic.actions.setScoutCreateFormValue(
             'body',
@@ -436,7 +438,7 @@ describe('scoutCreateModalLogic', () => {
         await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
 
         expect(logic.values.scoutCreateFormManualErrors).toEqual({
-            name: 'A scout with this name already exists with different instructions.',
+            display_name: 'A scout with this name already exists with different instructions.',
         })
         expect(logic.values.scoutCreateForm).toMatchObject(initialValues)
         expect(onCreated).not.toHaveBeenCalled()
@@ -445,6 +447,26 @@ describe('scoutCreateModalLogic', () => {
 
     it.each([
         ['', 'Name is required'],
+        ['   ', 'Name is required'],
+        // Whatever the person writes is the name: spaces, capitals and acronyms all survive.
+        ['Checkout failures', undefined],
+        ['My APM scout', undefined],
+        ['a'.repeat(201), 'Name must be 200 characters or fewer'],
+    ])('validates the typed name %p', async (displayName, expectedError) => {
+        logic = scoutCreateModalLogic({ logicKey: `display-name-${displayName}`, onClose, onCreated })
+        logic.mount()
+
+        logic.actions.setScoutCreateFormValue('display_name', displayName)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateFormValidationErrors: expect.objectContaining({ display_name: expectedError }),
+        })
+    })
+
+    it.each([
+        // Only a prefill carries a skill name, so an invalid one is a broken deep link rather
+        // than a typo, and a blank one is the ordinary create the server names for us.
+        ['', undefined],
         ['checkout failures', 'Name cannot contain spaces. Use hyphens between words.'],
         ['Checkout', 'Lowercase letters, numbers, and hyphens only'],
         // The inbox routes these as sub-pages of /inbox/scouts/, so the backend refuses them too.
@@ -453,7 +475,7 @@ describe('scoutCreateModalLogic', () => {
         ['runs', "'runs' is reserved by the inbox. Pick another name."],
         ['checkout-failures', undefined],
         ['signals-scout-checkout-failures', undefined],
-    ])('validates the typed name %p', async (name, expectedError) => {
+    ])('validates a prefilled skill name %p', async (name, expectedError) => {
         logic = scoutCreateModalLogic({ logicKey: `name-${name}`, onClose, onCreated })
         logic.mount()
 
@@ -465,13 +487,16 @@ describe('scoutCreateModalLogic', () => {
     })
 
     it.each([
-        [' checkout-failures ', 'checkout-failures'],
+        // No prefilled skill name: the server derives the scout's identity from what was typed.
+        ['', undefined],
+        // A prefill proposed one, and it has to go back verbatim or the suggestion stays on offer.
         [' signals-scout-checkout-failures ', 'signals-scout-checkout-failures'],
-    ])('submits the typed name %p as it is', async (typedName, expectedName) => {
+    ])('submits the typed name with prefilled skill name %p', async (prefilledName, expectedName) => {
         mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
         logic = scoutCreateModalLogic({
-            logicKey: `typed-name-${typedName}`,
+            logicKey: `typed-name-${prefilledName}`,
             initialValues: {
+                name: prefilledName || undefined,
                 description: 'Investigates recurring checkout failures.',
                 body: 'Inspect checkout failure signals and report meaningful regressions.',
             },
@@ -480,13 +505,12 @@ describe('scoutCreateModalLogic', () => {
         })
         logic.mount()
 
-        expect(logic.values.scoutCreateForm.name).toBe('')
-        logic.actions.setScoutCreateFormValue('name', typedName)
+        logic.actions.setScoutCreateFormValue('display_name', '  Checkout failures  ')
         await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
 
         expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
             String(MOCK_TEAM_ID),
-            expect.objectContaining({ name: expectedName })
+            expect.objectContaining({ display_name: 'Checkout failures', name: expectedName })
         )
     })
 

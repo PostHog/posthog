@@ -122,9 +122,9 @@ PRODUCTS_APPS = [
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
-    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
-    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
-    # keeps every product/admin import out of `django.setup()`.
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called by
+    # the admin URL conf in `ee/urls.py`, and by `LazyAdminRegistry`), which keeps
+    # every product/admin import out of `django.setup()`.
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -298,7 +298,8 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
-    # Must stay ahead of association/provisioning so a mismatched re-auth identity is rejected first
+    # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
+    "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",

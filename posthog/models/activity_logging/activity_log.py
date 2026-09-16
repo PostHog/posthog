@@ -319,6 +319,7 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "IdentityProviderConfig": [
         "scim_bearer_token",
+        "oidc_credentials",
         "saml_x509_cert",
     ],
     "User": [
@@ -576,6 +577,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
+    # The generic pointer mirrors whichever per-model foreign key is set, so it is never a user edit.
+    "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
@@ -1185,17 +1188,17 @@ AGENT_TRIGGER_JOB_TYPE = "agent"
 
 
 def agent_trigger() -> Optional[Trigger]:
-    """The agent attribution for this request, or None when no token-bound task reached it.
+    """The agent attribution for this request, or None when neither field reached it.
 
-    The task id is required because it is the only server-set part. The intent is the agent's claim.
+    The task id is the only server-set part. The intent is the agent's claim.
     """
     task_id = activity_storage.get_agent_task_id()
-    if not task_id:
-        return None
     intent = activity_storage.get_agent_intent()
+    if not task_id and not intent:
+        return None
     return Trigger(
         job_type=AGENT_TRIGGER_JOB_TYPE,
-        job_id=task_id,
+        job_id=task_id or "",
         payload={"intent": intent} if intent else {},
     )
 

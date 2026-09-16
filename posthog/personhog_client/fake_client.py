@@ -46,6 +46,10 @@ def _order_identified_first(
     return sorted(dids, key=lambda d: is_anonymous_id(d.distinct_id))
 
 
+# The replica's row budget when a request leaves max_rows at 0.
+DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
+
+
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
 
@@ -64,6 +68,11 @@ class FakePersonHogClient:
         self._persons_by_distinct_id: dict[tuple[int, str], person_pb2.Person] = {}
         # keyed by (team_id, person_id) -> list of DistinctIdWithVersion
         self._distinct_ids: dict[tuple[int, int], list[person_pb2.DistinctIdWithVersion]] = {}
+        # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
+        self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
+        # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
+        # only, so the row budget counts them alone.
+        self.tombstoned_delete_max_rows = 5000
 
         # keyed by project_id -> list of GroupTypeMapping
         self._group_type_mappings_by_project: dict[int, list[group_pb2.GroupTypeMapping]] = {}
@@ -97,7 +106,11 @@ class FakePersonHogClient:
         distinct_ids: list[str] | None = None,
         distinct_id_versions: dict[str, int] | None = None,
         last_seen_at: int = 0,
+        is_deleted: bool = False,
+        tombstoned_distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
+        # Unlike the replica, the fake returns tombstoned persons on reads, so tests can inspect
+        # what a delete left in place.
         person = person_pb2.Person(
             id=person_id,
             uuid=uuid,
@@ -107,6 +120,7 @@ class FakePersonHogClient:
             version=version,
             is_identified=is_identified,
             last_seen_at=last_seen_at,
+            is_deleted=is_deleted,
         )
         if is_user_id is not None:
             person.is_user_id = is_user_id
@@ -118,6 +132,8 @@ class FakePersonHogClient:
             self._distinct_ids.setdefault((team_id, person_id), []).append(
                 person_pb2.DistinctIdWithVersion(distinct_id=did, version=(distinct_id_versions or {}).get(did, 0))
             )
+        for did in tombstoned_distinct_ids or []:
+            self._tombstoned_distinct_ids.add((team_id, did))
         return person
 
     def add_group_type_mapping(
@@ -568,22 +584,78 @@ class FakePersonHogClient:
 
     # ── Person deletes ────────────────────────────────────────────────
 
+    def _remove_person(self, team_id: int, person: person_pb2.Person) -> None:
+        self._persons_by_uuid.pop((team_id, person.uuid), None)
+        self._persons_by_id.pop((team_id, person.id), None)
+        for did in self._distinct_ids.pop((team_id, person.id), []):
+            self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
+            self._tombstoned_distinct_ids.discard((team_id, did.distinct_id))
+        self._cohort_memberships.pop(person.id, None)
+        for key in [key for key in self._cohort_members if key[1] == person.id]:
+            del self._cohort_members[key]
+
     def delete_persons(
         self, request: person_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> person_pb2.DeletePersonsResponse:
         self.calls.append(_Call("delete_persons", request))
         deleted_count = 0
         for uuid in request.person_uuids:
-            person = self._persons_by_uuid.pop((request.team_id, uuid), None)
+            person = self._persons_by_uuid.get((request.team_id, uuid))
             if person is None:
                 continue
             deleted_count += 1
-            self._persons_by_id.pop((request.team_id, person.id), None)
-            # Remove distinct_id mappings
-            dids = self._distinct_ids.pop((request.team_id, person.id), [])
-            for did in dids:
-                self._persons_by_distinct_id.pop((request.team_id, did.distinct_id), None)
+            self._remove_person(request.team_id, person)
         return person_pb2.DeletePersonsResponse(deleted_count=deleted_count)
+
+    def delete_tombstoned_persons(
+        self, request: person_pb2.DeleteTombstonedPersonsRequest, timeout: float | None = None
+    ) -> person_pb2.DeleteTombstonedPersonsResponse:
+        # Mirrors the server, in person id order: a tombstoned person whose distinct ids fit the
+        # leftover budget goes whole unless one is live (blocked); the first that does not fit
+        # gives up as many as the leftover allows and stays pending; the rest stay pending untouched.
+        response = person_pb2.DeleteTombstonedPersonsResponse()
+        budget = max(1, min(request.max_rows or DELETE_TOMBSTONED_DEFAULT_ROWS, self.tombstoned_delete_max_rows))
+        candidates: list[tuple[str, person_pb2.Person]] = []
+        for uuid in dict.fromkeys(request.person_uuids):
+            person = self._persons_by_uuid.get((request.team_id, uuid))
+            if person is None:
+                continue
+            if not person.is_deleted:
+                response.skipped_live_count += 1
+                continue
+            candidates.append((uuid, person))
+        candidates.sort(key=lambda candidate: candidate[1].id)
+
+        trim: tuple[str, person_pb2.Person] | None = None
+        for uuid, person in candidates:
+            dids = self._distinct_ids.get((request.team_id, person.id), [])
+            if len(dids) > budget:
+                trim = trim or (uuid, person)
+                response.pending_person_uuids.append(uuid)
+                continue
+            budget -= len(dids)
+            if any((request.team_id, did.distinct_id) not in self._tombstoned_distinct_ids for did in dids):
+                response.blocked_person_uuids.append(uuid)
+                continue
+            self._remove_person(request.team_id, person)
+            response.deleted_count += 1
+            response.rows_deleted += len(dids)
+
+        if trim is not None:
+            uuid, person = trim
+            dids = self._distinct_ids.get((request.team_id, person.id), [])
+            step = dids[:budget]
+            if any((request.team_id, did.distinct_id) not in self._tombstoned_distinct_ids for did in step):
+                response.pending_person_uuids.remove(uuid)
+                response.blocked_person_uuids.append(uuid)
+            else:
+                for did in step:
+                    dids.remove(did)
+                    self._persons_by_distinct_id.pop((request.team_id, did.distinct_id), None)
+                    self._tombstoned_distinct_ids.discard((request.team_id, did.distinct_id))
+                response.rows_deleted += len(step)
+        self.calls.append(_Call("delete_tombstoned_persons", request, response))
+        return response
 
     def delete_persons_batch_for_team(
         self, request: person_pb2.DeletePersonsBatchForTeamRequest, timeout: float | None = None
@@ -596,12 +668,8 @@ class FakePersonHogClient:
                 to_delete.append((team_id, uuid, person))
                 if len(to_delete) >= request.batch_size:
                     break
-        for team_id, uuid, person in to_delete:
-            self._persons_by_uuid.pop((team_id, uuid), None)
-            self._persons_by_id.pop((team_id, person.id), None)
-            dids = self._distinct_ids.pop((team_id, person.id), [])
-            for did in dids:
-                self._persons_by_distinct_id.pop((team_id, did.distinct_id), None)
+        for team_id, _uuid, person in to_delete:
+            self._remove_person(team_id, person)
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))

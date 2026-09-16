@@ -398,6 +398,42 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
     deleted_count: int
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
+class DeleteTombstonedPersonsRequest(_message.Message):
+    __slots__ = ("team_id", "person_uuids", "max_rows")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    MAX_ROWS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    max_rows: int
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        person_uuids: _Optional[_Iterable[str]] = ...,
+        max_rows: _Optional[int] = ...,
+    ) -> None: ...
+
+class DeleteTombstonedPersonsResponse(_message.Message):
+    __slots__ = ("deleted_count", "skipped_live_count", "blocked_person_uuids", "pending_person_uuids", "rows_deleted")
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_LIVE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    BLOCKED_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    PENDING_PERSON_UUIDS_FIELD_NUMBER: _ClassVar[int]
+    ROWS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+    skipped_live_count: int
+    blocked_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    pending_person_uuids: _containers.RepeatedScalarFieldContainer[str]
+    rows_deleted: int
+    def __init__(
+        self,
+        deleted_count: _Optional[int] = ...,
+        skipped_live_count: _Optional[int] = ...,
+        blocked_person_uuids: _Optional[_Iterable[str]] = ...,
+        pending_person_uuids: _Optional[_Iterable[str]] = ...,
+        rows_deleted: _Optional[int] = ...,
+    ) -> None: ...
+
 class SplitPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "distinct_ids_to_split")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
