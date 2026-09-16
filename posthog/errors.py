@@ -100,10 +100,13 @@ RAGGED_ROWS_MESSAGE = (
 )
 
 
+# The copy names the two operations instead of the AWS IAM actions, because a self-managed Google
+# Cloud Storage or Cloudflare R2 source reads through the same s3() function and reaches this
+# message. Neither provider has a permission named s3:ListBucket or s3:GetObject.
 STORAGE_ACCESS_DENIED_MESSAGE = (
     "Access was denied when reading the files for this table from your storage bucket. "
-    "Check that the credentials are still valid and can list the bucket (s3:ListBucket) "
-    "and read its objects (s3:GetObject), then try again."
+    "Check that the credentials are still valid and can list the bucket and read its objects, "
+    "then try again."
 )
 
 # Phrases ClickHouse itself writes when the object store refuses the read. A refused read carries
