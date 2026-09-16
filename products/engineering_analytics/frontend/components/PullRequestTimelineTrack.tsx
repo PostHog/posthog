@@ -9,6 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { PRTimelineApi } from '../generated/api.schemas'
 import { compactAgeLabel } from '../lib/format'
 import {
+    DAY_START_HOUR,
     NIGHT_START_OFFSET_HOURS,
     SEGMENT_KIND_STYLES,
     dayStartsBetween,
@@ -16,8 +17,9 @@ import {
     segmentBackground,
 } from '../lib/pullRequestDayView'
 
-const HOUR_MS = 3600 * 1000
 const TIME_FORMAT = 'ddd D MMM HH:mm'
+// Past this span a day is a few pixels wide, so shading adds page nodes and no information.
+const MAX_SHADED_DAYS = 60
 
 export function PullRequestTimelineTrack({
     pr,
@@ -42,11 +44,11 @@ export function PullRequestTimelineTrack({
 
     return (
         <div className={cn('relative overflow-hidden rounded-sm', className)}>
-            {dayStartsBetween(fromMs, toMs).map((day) => {
+            {(dayjs(toMs).diff(fromMs, 'day') <= MAX_SHADED_DAYS ? dayStartsBetween(fromMs, toMs) : []).map((day) => {
                 const dayMs = day.valueOf()
-                // Counted back from the next calendar day, so a daylight saving day still shades 22:00 to 06:00.
+                // Calendar times rather than elapsed hours, so a daylight saving day still shades 22:00 to 06:00.
                 const nextDayMs = day.add(1, 'day').valueOf()
-                const nightMs = nextDayMs - (24 - NIGHT_START_OFFSET_HOURS) * HOUR_MS
+                const nightMs = day.hour(DAY_START_HOUR + NIGHT_START_OFFSET_HOURS).valueOf()
                 return (
                     <div key={dayMs}>
                         {(day.day() === 0 || day.day() === 6) && (

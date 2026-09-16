@@ -85,12 +85,13 @@ export function PullRequestDeliveryTimeline({
             <div className="relative h-4">
                 {milestones.map((milestone, index) => {
                     const style = MILESTONE_STYLES[milestone.kind]
+                    const title = `${milestone.label} · ${dayjs(milestone.at).format(TIME_FORMAT)}`
                     return (
-                        <Tooltip
-                            key={`${milestone.kind}-${index}`}
-                            title={`${milestone.label} · ${dayjs(milestone.at).format(TIME_FORMAT)}`}
-                        >
+                        <Tooltip key={`${milestone.kind}-${index}`} title={title}>
                             <span
+                                role="img"
+                                aria-label={title}
+                                tabIndex={0}
                                 className={cn('absolute top-0 -translate-x-1/2 text-[11px] leading-4', style.className)}
                                 style={{ left: left(dayjs(milestone.at).valueOf()) }}
                             >

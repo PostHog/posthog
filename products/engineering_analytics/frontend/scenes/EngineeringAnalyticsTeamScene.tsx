@@ -21,13 +21,10 @@ import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { TestIdCell } from '../components/TestIdCell'
 import { WindowComparisonCard } from '../components/WindowComparisonCard'
-import { DeliveryScope } from '../lib/deliveryScope'
 import { compactHoursLabel } from '../lib/format'
 import { githubFileUrl } from '../lib/github'
-import { DELIVERY_DATE_OPTIONS, DeliverySections } from './DeliverySections'
-import { deliverySummaryLogic } from './deliverySummaryLogic'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { TeamDeliveryPanel } from './TeamDeliveryPanel'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
 import {
     DEFAULT_TEAMS_WINDOW,
@@ -45,29 +42,6 @@ export const scene: SceneExport<TeamDetailLogicProps> = {
         sourceId: source ?? null,
         window: isTeamsWindow(window) ? window : null,
     }),
-}
-
-// Delivery has its own window because the test-health endpoints below cap theirs at 30 days.
-function TeamDeliveryPanel({ scope, sourceId }: { scope: DeliveryScope; sourceId: string | null }): JSX.Element {
-    const { summaryLoading } = useValues(deliverySummaryLogic({ scope, sourceId }))
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
-    return (
-        <ScopePanel
-            busy={summaryLoading}
-            controls={
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                    dateOptions={DELIVERY_DATE_OPTIONS}
-                    size="small"
-                />
-            }
-        >
-            <DeliverySections scope={scope} scopeLabel="This team" sourceId={sourceId} />
-        </ScopePanel>
-    )
 }
 
 export function EngineeringAnalyticsTeamScene(): JSX.Element {

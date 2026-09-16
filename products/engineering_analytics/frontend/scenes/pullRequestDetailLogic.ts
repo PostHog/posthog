@@ -309,7 +309,7 @@ export interface pullRequestDetailLogicMeta {
         sourceId: (arg: string | null) => string | null
         repoOwner: (arg: string) => string
         repoName: (arg: string) => string
-        deliveryScope: (repoOwner: string, repoName: string, number: number) => DeliveryScope
+        deliveryScope: (repoOwner: string, repoName: string, arg: number) => DeliveryScope
         runs: (prRuns: WorkflowRunDetailApi[]) => WorkflowRun[]
         commitGroups: (prRuns: WorkflowRunDetailApi[]) => PrCommitRuns[]
         filteredCommitGroups: (commitGroups: PrCommitRuns[], workflowFilter: string) => PrCommitRuns[]
