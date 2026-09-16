@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     context::AppContext,
-    emit::Emitter,
+    emit::{Emitter, SinkFailure},
     error::{
         extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
         is_transient_network_error, is_transient_object_store_error, is_transient_server_error,
@@ -30,6 +30,25 @@ use crate::{
 pub mod backoff;
 pub mod config;
 pub mod model;
+
+/// Shown on a paused job when the sink failure has no action the user can take.
+const GENERIC_COMMIT_FAILURE_MESSAGE: &str =
+    "Job paused after a failed commit. Resolve the error and resume.";
+
+/// Classify a failed sink commit: the label to count the pause under, and the message the
+/// paused job shows the user.
+fn classify_commit_failure(err: &Error) -> (&'static str, String) {
+    let reason = err
+        .downcast_ref::<SinkFailure>()
+        .map_or("unclassified", |failure| failure.reason.metric_label());
+
+    let message = err.downcast_ref::<UserError>().map_or_else(
+        || GENERIC_COMMIT_FAILURE_MESSAGE.to_string(),
+        |user| user.msg.clone(),
+    );
+
+    (reason, message)
+}
 
 #[derive(Debug, PartialEq)]
 enum ErrorHandlingDecision {
@@ -853,13 +872,14 @@ impl Job {
         let status_message =
             format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
 
+        let (metric_reason, display_message) = classify_commit_failure(err);
+
         model
-            .pause(
-                self.context.clone(),
-                status_message,
-                Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
-            )
-            .await
+            .pause(self.context.clone(), status_message, Some(display_message))
+            .await?;
+
+        metric_emit::commit_pause(metric_reason);
+        Ok(())
     }
 
     // Unpauses the job
@@ -881,6 +901,7 @@ impl Job {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emit::SinkFailureReason;
     use async_trait::async_trait;
     use httpmock::Method;
     use httpmock::MockServer;
@@ -2965,5 +2986,37 @@ mod tests {
                 "only the healthy part may hit the origin (one download)"
             );
         }
+    }
+
+    #[test]
+    fn classify_commit_failure_selects_reason_and_message() {
+        // A pause carries two things the fixed string never did: the label the pause is
+        // counted under, and the action the user can take.
+        let classified = |reason: SinkFailureReason| {
+            let failure = Error::from(SinkFailure {
+                reason,
+                message: "capture batch failed".to_string(),
+            });
+            match reason.user_message() {
+                Some(message) => failure.context(UserError::new(message)),
+                None => failure,
+            }
+        };
+
+        let (reason, message) = classify_commit_failure(&classified(SinkFailureReason::Quota));
+        assert_eq!(reason, "quota");
+        assert_ne!(message, GENERIC_COMMIT_FAILURE_MESSAGE);
+
+        // A reason the user cannot act on keeps the generic message, and is still counted
+        // under its own label.
+        let (reason, message) =
+            classify_commit_failure(&classified(SinkFailureReason::ServerError));
+        assert_eq!(reason, "server_error");
+        assert_eq!(message, GENERIC_COMMIT_FAILURE_MESSAGE);
+
+        // A sink that classifies nothing.
+        let (reason, message) = classify_commit_failure(&Error::msg("connection reset"));
+        assert_eq!(reason, "unclassified");
+        assert_eq!(message, GENERIC_COMMIT_FAILURE_MESSAGE);
     }
 }
