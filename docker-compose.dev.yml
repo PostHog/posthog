@@ -410,6 +410,8 @@ services:
             - '127.0.0.1:4445:3000'
         environment:
             TOKEN: dev
+            LOG_LEVEL: warn
+            DEBUG: '-*'
         profiles:
             - browserless
 
