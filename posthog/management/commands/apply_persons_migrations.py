@@ -16,13 +16,13 @@ marker that CONCURRENTLY index builds need.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import psycopg
+import sqlparse
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
@@ -94,8 +94,18 @@ def _runs_outside_transaction(sql_content: str) -> bool:
 
 
 def _holds_multiple_statements(sql_content: str) -> bool:
-    body = re.sub(r"/\*.*?\*/", " ", re.sub(r"--[^\n]*", " ", sql_content), flags=re.DOTALL)
-    return len([statement for statement in body.split(";") if statement.strip()]) > 1
+    """Report whether a migration holds more than one statement.
+
+    A semicolon split miscounts a predicate such as ``WHERE value = ';'``, so leave the
+    parsing to sqlparse. Drop a fragment that is only a comment: the trailing note these
+    files carry is not a statement.
+    """
+    statements = [
+        statement
+        for statement in sqlparse.split(sql_content)
+        if sqlparse.format(statement, strip_comments=True).strip(" \t\r\n;")
+    ]
+    return len(statements) > 1
 
 
 def _invalid_indexes(cursor) -> list[str]:

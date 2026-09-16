@@ -11,7 +11,11 @@ from django.test import SimpleTestCase, TestCase
 import psycopg
 from parameterized import parameterized
 
-from posthog.management.commands.apply_persons_migrations import TRACKING_TABLE, _runs_outside_transaction
+from posthog.management.commands.apply_persons_migrations import (
+    TRACKING_TABLE,
+    _holds_multiple_statements,
+    _runs_outside_transaction,
+)
 from posthog.persons_db import persons_db_connection
 
 
@@ -40,6 +44,24 @@ class TestNoTransactionMarker(SimpleTestCase):
     )
     def test_marker_detection(self, _name: str, sql_content: str, expected: bool) -> None:
         assert _runs_outside_transaction(sql_content) is expected
+
+
+class TestMultipleStatementDetection(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("single_statement", "CREATE INDEX CONCURRENTLY i ON t (c);", False),
+            ("semicolon_in_a_string_literal", "CREATE INDEX CONCURRENTLY i ON t (c) WHERE v = ';';", False),
+            ("trailing_comment", "CREATE INDEX CONCURRENTLY i ON t (c);\n-- recovery note\n", False),
+            (
+                "comment_marker_in_a_string_literal",
+                "CREATE INDEX CONCURRENTLY i ON t (c) WHERE v = '--x'; CREATE INDEX j ON t (d);",
+                True,
+            ),
+            ("two_statements", "CREATE TABLE t (id INT);\nCREATE INDEX CONCURRENTLY i ON t (id);", True),
+        ]
+    )
+    def test_statement_counting(self, _name: str, sql_content: str, expected: bool) -> None:
+        assert _holds_multiple_statements(sql_content) is expected
 
 
 class TestApplyPersonsMigrations(TestCase):
