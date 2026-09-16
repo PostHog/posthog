@@ -405,6 +405,8 @@ async def _run_mission(
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
     client = genai.AsyncClient(
         api_key=api_key,
+        # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
+        posthog_privacy_mode=True,
         posthog_properties={
             "ai_product": "replay_vision",
             "feature": "scanner",

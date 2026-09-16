@@ -425,7 +425,8 @@ def load_pending_deletions(
 
     pending_deletions = AsyncDeletion.objects.filter(
         Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-        | Q(deletion_type=DeletionType.Team),
+        | Q(deletion_type=DeletionType.Team)
+        | Q(deletion_type=DeletionType.Event),
         delete_verified_at__isnull=True,
     )
     if create_pending_deletions_table.team_id:
@@ -495,7 +496,41 @@ def create_deletes_dict(
     return del_dict
 
 
-@dagster.op
+@dagster.op(out=dagster.Out(dagster.Nothing))
+def queue_event_deletions(
+    context: dagster.OpExecutionContext,
+    load_pending_deletions: PendingDeletesTable,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
+    """Move the event deletions from the pending table into the `adhoc_events_deletion` queue.
+
+    An event deletion names one row by `(team_id, uuid)`, which is what the adhoc arm of the delete
+    predicate joins on. Their `AsyncDeletion` rows still sit in the pending table, so
+    `mark_deletions_verified` marks them verified with everything else once the sweep is counted clean.
+    The queue is one replica set across the cluster, so one host is enough.
+    """
+    adhoc_event_deletions = AdhocEventDeletesTable()
+
+    def queue(client: Client) -> int:
+        # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants)
+        client.execute(
+            f"""
+            INSERT INTO {adhoc_event_deletions.qualified_name} (team_id, uuid, created_at)
+            SELECT team_id, toUUID(key), created_at
+            FROM {load_pending_deletions.qualified_name}
+            WHERE deletion_type = {DeletionType.Event}
+            """
+        )
+        result = client.execute(
+            f"SELECT count() FROM {load_pending_deletions.qualified_name} WHERE deletion_type = {DeletionType.Event}"
+        )
+        return result[0][0] if result else 0
+
+    queued = cluster.any_host_by_role(queue, NodeRole.DATA).result()
+    context.add_output_metadata({"queued_rows": dagster.MetadataValue.int(queued)})
+
+
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def create_adhoc_event_deletes_dict(
     context: dagster.OpExecutionContext,
     config: DeleteConfig,
@@ -968,7 +1003,9 @@ def deletes_job():
     oldest_override_timestamp = get_oldest_person_override_timestamp(start_after=ensure_no_concurrent_deletes_run())
     deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
     pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
-    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
+    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(
+        create_adhoc_event_deletes_dict(start_after=queue_event_deletions(deletions_table))
+    )
 
     # Delete all data requested
     delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)

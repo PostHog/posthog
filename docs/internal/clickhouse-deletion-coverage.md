@@ -20,6 +20,11 @@ It is a property of every table that stores rows attributable to a person.
 The first four use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
 
+The queued uuid drain reads `adhoc_events_deletion`, which has two writers.
+A deferred event removal request fills it from ClickHouse inside `deletes_job`.
+An `AsyncDeletion` row of type `Event` fills it from Postgres: `load_pending_deletions` carries the row into the pending table and `queue_event_deletions` copies its `(team_id, uuid)` into the queue before the adhoc dictionary is built.
+Replay Vision writes those rows: the recording-api inserts one per `$recording_observed` event in the same statement that deletes the recording's observations, so the queue entry and the observation delete commit together.
+
 Team deletion for tables that are replicated rather than sharded runs through a separate per-table loop (`delete_team_data_from`), which dispatches to a single host.
 A sharded table must not be registered there — it would sweep one shard.
 The team arm inside `delete_events` covers sharded tables.
