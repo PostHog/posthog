@@ -144,7 +144,7 @@ impl SinkFailureReason {
     pub fn user_message(self) -> Option<&'static str> {
         match self {
             Self::Quota => Some(
-                "Your organization is over its product analytics event limit, so the events are being rejected. Raise the limit on the billing page, then resume this migration.",
+                "Your organization is over a usage limit, so the events are being rejected. Raise the limit on the billing page, then resume this migration.",
             ),
             Self::RateLimited => Some(
                 "Events are arriving faster than we can accept them. Wait a few minutes, then resume this migration.",
