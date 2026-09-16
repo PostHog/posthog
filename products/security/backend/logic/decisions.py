@@ -6,6 +6,7 @@ from posthog.dataclasses import frozen
 
 from ..facade.enums import Effect, Scope, Surface, TargetType
 from ..models import SecurityRule
+from .protected import is_protected_domain
 from .targets import TARGETS, Subject
 
 SCOPE_SURFACES: dict[Scope, frozenset[Surface]] = {
@@ -28,6 +29,10 @@ def matching_rules(subject: Subject, rules: Iterable[SecurityRule] | None = None
 
 
 def decide(subject: Subject, rules: Iterable[SecurityRule] | None = None) -> list[SurfaceDecision]:
+    # A rule saved before the protection existed, or written straight to the table,
+    # still never blocks a protected account.
+    if is_protected_domain(subject.domain):
+        return [SurfaceDecision(surface=surface, blocked=False, deciding_rule=None) for surface in Surface]
     blocks = [rule for rule in matching_rules(subject, rules) if rule.effect == Effect.BLOCK]
     decisions = []
     for surface in Surface:

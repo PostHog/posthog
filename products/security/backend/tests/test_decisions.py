@@ -40,6 +40,15 @@ class TestDecide:
 
         assert {decision.surface for decision in decisions if decision.blocked} == blocked_surfaces
 
+    @pytest.mark.parametrize("email", ["staff@posthog.com", "staff@eu.posthog.com"])
+    def test_a_posthog_com_account_is_never_blocked(self, email):
+        rule = _rule(Scope.ALL_ACCESS, target_type=TargetType.EMAIL_DOMAIN)
+        rule.target_value = email.rpartition("@")[2]
+
+        decisions = decide(Subject.for_account(email=email), rules=[rule])
+
+        assert not any(decision.blocked for decision in decisions)
+
     def test_a_target_type_this_code_no_longer_knows_matches_nothing(self):
         decisions = decide(SUBJECT, rules=[_rule(Scope.ALL_ACCESS, target_type="retired_type")])
 

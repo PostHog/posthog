@@ -86,10 +86,27 @@ class TestSecurityRuleAdmin(BaseTest):
         self.assertNotContains(response, 'name="_save"')
         self.assertNotContains(response, "Leave empty to keep the rule")
 
-    def test_a_refused_rule_stays_on_the_form_with_the_reason(self):
-        response = self._post_add(target_type=TargetType.EMAIL_DOMAIN, target_value="gmail.com")
+    @parameterized.expand(
+        [
+            ("free_mail", TargetType.EMAIL_DOMAIN, lambda t: "gmail.com", Scope.ALL_ACCESS, "free email provider"),
+            ("posthog_domain", TargetType.EMAIL_DOMAIN, lambda t: "posthog.com", Scope.SIGNUP, "posthog.com accounts"),
+            ("posthog_subdomain", TargetType.EMAIL_DOMAIN, lambda t: "eu.posthog.com", Scope.SIGNUP, "posthog.com"),
+            ("posthog_alias", TargetType.EMAIL_ROOT, lambda t: "staff+x@posthog.com", Scope.ALL_ACCESS, "posthog.com"),
+            ("posthog_user", TargetType.USER_UUID, lambda t: str(t.user.uuid), Scope.AI_GATEWAY, "posthog.com address"),
+            (
+                "posthog_org",
+                TargetType.ORGANIZATION_ID,
+                lambda t: str(t.organization.id),
+                Scope.AI_GATEWAY,
+                "posthog.com members",
+            ),
+            ("posthog_project", TargetType.TEAM_ID, lambda t: str(t.team.id), Scope.AI_GATEWAY, "posthog.com members"),
+        ]
+    )
+    def test_a_refused_rule_stays_on_the_form_with_the_reason(self, _name, target_type, value, scope, refusal):
+        response = self._post_add(target_type=target_type, target_value=value(self), scope=scope)
 
-        self.assertContains(response, "free email provider")
+        self.assertContains(response, refusal)
         self.assertNotContains(response, "Confirm the rule")
         assert not SecurityRule.objects.exists()
 

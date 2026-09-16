@@ -18,6 +18,7 @@ from .facade.enums import Effect, Scope, Surface, TargetType
 from .logic.decisions import decide, matching_rules
 from .logic.guards import RuleDraft, check_rule
 from .logic.impact import preview
+from .logic.protected import check_protected
 from .logic.targets import TARGETS, InvalidTarget, Subject
 from .models import SCOPE_LABELS, SecurityRule
 
@@ -64,7 +65,7 @@ class SecurityRuleForm(forms.ModelForm):
         draft = RuleDraft(
             target_type=TargetType(target_type), target_value=value, effect=Effect.BLOCK, scope=Scope(scope)
         )
-        for message in check_rule(draft, requester_ip=self.requester_ip):
+        for message in [*check_rule(draft, requester_ip=self.requester_ip), *check_protected(draft)]:
             self.add_error(None, message)
 
         # The unique constraint covers effect, which this form sets rather than asks for,
