@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util'
 import pLimit from 'p-limit'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
 
@@ -35,10 +36,10 @@ export class MlKeyEncryption {
     constructor(
         private readonly kms: Pick<KMSClient, 'send'>,
         private readonly masterKeyArn: string,
-        maxKeys = 10_000,
-        cacheLifetimeMs = 60_000,
+        maxKeys = 100_000,
+        cacheLifetimeMs = 1_800_000,
         concurrency = 8,
-        private readonly requestsPerSecond = 100
+        private readonly requestsPerSecond = 150
     ) {
         this.cache = new LRUCache({ max: maxKeys, ttl: cacheLifetimeMs })
         this.concurrency = pLimit(concurrency)
@@ -51,20 +52,27 @@ export class MlKeyEncryption {
         await sodium.ready
     }
 
-    private async request<T>(operation: () => Promise<T>): Promise<T> {
+    private async request<T>(kind: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
         return this.concurrency(async () => {
+            const queuedAt = performance.now()
             const now = Date.now()
             const scheduledAt = Math.max(now, this.nextRequestAt)
             this.nextRequestAt = scheduledAt + 1000 / this.requestsPerSecond
             if (scheduledAt > now) {
                 await new Promise((resolve) => setTimeout(resolve, scheduledAt - now))
             }
-            return operation()
+            const sentAt = performance.now()
+            MlMirrorMetrics.observeMlKeyRequest('kms_wait', sentAt - queuedAt)
+            try {
+                return await operation()
+            } finally {
+                MlMirrorMetrics.observeMlKeyRequest(kind, performance.now() - sentAt)
+            }
         })
     }
 
     public async generate(identity: MlKeyIdentity): Promise<MlDataKey> {
-        const result = await this.request(() =>
+        const result = await this.request('kms_generate', () =>
             this.kms.send(
                 new GenerateDataKeyCommand({
                     KeyId: this.masterKeyArn,
@@ -96,7 +104,7 @@ export class MlKeyEncryption {
         }
         let pending = this.pending.get(id)
         if (!pending) {
-            pending = this.request(async () => {
+            pending = this.request('kms_decrypt', async () => {
                 const result = await this.kms.send(
                     new DecryptCommand({
                         KeyId: this.masterKeyArn,

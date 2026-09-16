@@ -34,6 +34,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
@@ -72,11 +73,13 @@ from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmR
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
+    NavigationEntry,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
     VerificationRecord,
 )
+from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
 logger = structlog.get_logger(__name__)
 
@@ -169,6 +172,9 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    video_clock = await sync_to_async(_load_video_clock)(
+        inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
+    )
     return await run_scan(
         snapshot=snapshot,
         scanner=scanner,
@@ -177,7 +183,66 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         file_uri=inputs.file_uri,
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
+        video_clock=video_clock,
         trace_id=_scan_trace_id(inputs),
+    )
+
+
+# A render cuts whole inactive stretches, so anything under this is encoder rounding rather than a cut.
+_UNCUT_TOLERANCE_S = 2.0
+
+
+def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: float | None) -> VideoClock:
+    """The clock for the video this scan is about to read, from the asset the rasterizer rendered.
+
+    An asset predating the cut map leaves the clock unknown. The model cites video seconds, so assuming
+    nothing was cut would put every citation early by the cut time, which is the failure this conversion
+    exists to prevent and an invisible one. The durations settle it: a video as long as its session lost
+    nothing. Refuse rather than emit timestamps we know we cannot place.
+    """
+    asset = ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
+    clock = video_clock_from_export_context(asset.export_context if asset else None)
+    if clock is not None:
+        return clock
+
+    video_duration_s = (asset.export_context or {}).get("video_duration_s") if asset else None
+    # Compared both ways: a shorter video lost stretches, and one longer than its own session does not
+    # describe this recording either. Only lengths that agree prove nothing was cut.
+    if (
+        video_duration_s is not None
+        and session_duration_s
+        and abs(session_duration_s - video_duration_s) <= _UNCUT_TOLERANCE_S
+    ):
+        return VideoClock(spans=())
+
+    logger.warning(
+        "replay_vision.video_clock.missing_cut_map",
+        team_id=team_id,
+        exported_asset_id=exported_asset_id,
+        video_duration_s=video_duration_s,
+        session_duration_s=session_duration_s,
+    )
+    raise ScannerFailureError(
+        "The rendered video has no inactivity map, so cited moments cannot be placed in the recording",
+        kind=FailureKind.INTERNAL_ERROR,
+    )
+
+
+def _navigation_on_video_clock(entry: NavigationEntry, clock: VideoClock) -> dict[str, Any]:
+    """Navigation timeline `t` values, moved onto the clock the model cites in."""
+    payload = entry.model_dump()
+    payload["vid_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
+    del payload["rec_t"]
+    return payload
+
+
+def _signal_on_session_clock(signal: SignalFinding, clock: VideoClock) -> SignalFinding:
+    """Signal bounds come back in video seconds; downstream absolute-time math needs session seconds."""
+    return signal.model_copy(
+        update={
+            "start_time": clock.video_s_to_session_s(signal.start_time),
+            "end_time": clock.video_s_to_session_s(signal.end_time),
+        }
     )
 
 
@@ -190,6 +255,7 @@ async def run_scan(
     file_uri: str,
     mime_type: str,
     team_id: int,
+    video_clock: VideoClock,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
@@ -205,7 +271,7 @@ async def run_scan(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         session_identity=llm_inputs.identity.as_prompt_dict(),
-        navigation=[entry.model_dump() for entry in llm_inputs.navigation],
+        navigation=[_navigation_on_video_clock(entry, video_clock) for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
@@ -221,11 +287,13 @@ async def run_scan(
         preamble_text=preamble_text,
         team_id=team_id,
         llm_inputs=llm_inputs,
+        video_clock=video_clock,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
-    return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
+    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
+    return ScannerCallOutput(model_output=finalized, signals=signals, verification=outcome.verification)
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -241,6 +309,7 @@ def _resolve_citations(
     finalized: _OutputT,
     scanner: BaseScanner,
     duration_ms: int,
+    clock: VideoClock,
 ) -> _OutputT:
     """Walk each `(t <sec>)` marker in the citation fields: drop out-of-range ones, build the plain text, and persist a parallel render-ready segment list."""
     field_updates: dict[str, str | list[Segment]] = {}
@@ -248,7 +317,7 @@ def _resolve_citations(
         text = getattr(finalized, field, None)
         if not isinstance(text, str):
             continue
-        plain, segments = _extract_segments(text, duration_ms)
+        plain, segments = _extract_segments(text, duration_ms, clock)
         field_updates[field] = plain
         field_updates[f"{field}_segments"] = segments
 
@@ -257,8 +326,12 @@ def _resolve_citations(
     return finalized
 
 
-def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
-    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments)."""
+def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
+    """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments).
+
+    The model cites video seconds, which is the scale it can index exactly. `clock` converts each one to the
+    session milliseconds the player seeks to, so a citation survives the stretches the rasterizer cut.
+    """
     plain_parts: list[str] = []
     segments: list[Segment] = []
     last_end = 0
@@ -269,11 +342,13 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
             segments.append(TextSegment(value=chunk))
         # A leaked comma-joined marker like `(t 12, 34)` carries several moments, one chip each.
         for raw_seconds in re.findall(r"\d+", match.group(1)):
-            timestamp_ms = int(raw_seconds) * 1000
-            # Drop citations past the recording end (a misread footer value). 1s slack spares a genuine
-            # final-second citation from a sub-second start-time skew. The marker is stripped either way.
-            if timestamp_ms <= duration_ms + 1000:
-                segments.append(ChipSegment(timestamp_ms=timestamp_ms))
+            video_s = float(raw_seconds)
+            # Drop citations past the video's end (a time the model invented) before converting, because the
+            # clock clamps past its last span and would turn any such value into the recording endpoint. No
+            # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
+            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            if longest_citable_s is not None and video_s <= longest_citable_s:
+                segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
     trailing = text[last_end:]
     plain_parts.append(trailing)
@@ -394,6 +469,7 @@ async def _run_mission(
     preamble_text: str,
     team_id: int,
     llm_inputs: ScannerLlmInputs,
+    video_clock: VideoClock,
     trace_id: str,
 ) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
@@ -405,6 +481,8 @@ async def _run_mission(
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
     client = genai.AsyncClient(
         api_key=api_key,
+        # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
+        posthog_privacy_mode=True,
         posthog_properties={
             "ai_product": "replay_vision",
             "feature": "scanner",
@@ -420,7 +498,7 @@ async def _run_mission(
         "scanner_type": snapshot.scanner_type.value,
     }
 
-    events_index = build_events_index(llm_inputs)
+    events_index = build_events_index(llm_inputs, video_clock)
 
     def dispatch(call: Any) -> dict[str, Any]:
         return dispatch_events_tool(call, events_index)
@@ -430,7 +508,10 @@ async def _run_mission(
         replace(
             step,
             validate=functools.partial(
-                _validate_signal_timestamps, duration_seconds=llm_inputs.metadata.duration_seconds
+                _validate_signal_timestamps,
+                duration_seconds=llm_inputs.metadata.duration_seconds
+                if video_clock.is_identity
+                else video_clock.video_duration_s,
             ),
         )
         if step.name == STEP_SIGNALS
@@ -558,13 +639,14 @@ def _remaining_verify_budget_seconds() -> float | None:
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
+    """`duration_seconds` is the video's length: signals are reported in video time."""
     if not isinstance(output, SignalsResponse) or not output.signals:
         return None
     if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
         return "Recording duration is unavailable. Return an empty signals list."
     if any(signal.end_time > duration_seconds for signal in output.signals):
         return (
-            f"Signal timestamps must not exceed REC_T {math.floor(duration_seconds)}. "
+            f"Signal timestamps must not exceed video second {math.floor(duration_seconds)}. "
             "Use timestamps visible in the recording, or omit the finding. Do not clamp timestamps."
         )
     return None

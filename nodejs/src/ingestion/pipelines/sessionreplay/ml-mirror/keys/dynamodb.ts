@@ -7,6 +7,8 @@ import {
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
 
+import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+
 import { TableKey, tableKeyString } from './schema'
 
 export type DynamoItem = Record<string, AttributeValue>
@@ -17,12 +19,12 @@ export function encodeKey(key: TableKey): DynamoItem {
 
 export function decodeKey(item: DynamoItem): TableKey {
     if (!item.pk?.S || !item.sk?.S) {
-        throw new Error('Invalid ML privacy item key')
+        throw new Error('Invalid ML key manager item key')
     }
     return { pk: item.pk.S, sk: item.sk.S }
 }
 
-export class MlPrivacyDynamoDB {
+export class MlKeyDynamoDB {
     private readonly concurrency = pLimit(4)
     private readonly writeConcurrency = pLimit(32)
 
@@ -45,11 +47,13 @@ export class MlPrivacyDynamoDB {
                 this.concurrency(async () => {
                     let pending = chunk.map(encodeKey)
                     for (let attempt = 0; pending.length && attempt < this.attempts; attempt++) {
-                        const response = await this.client.send(
-                            new BatchGetItemCommand({
-                                RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
-                            }),
-                            { abortSignal: this.requestSignal(deadline) }
+                        const response = await this.timed('dynamodb_read', () =>
+                            this.client.send(
+                                new BatchGetItemCommand({
+                                    RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
+                                }),
+                                { abortSignal: this.requestSignal(deadline) }
+                            )
                         )
                         for (const item of response.Responses?.[this.tableName] ?? []) {
                             result.set(tableKeyString(decodeKey(item)), item)
@@ -60,7 +64,7 @@ export class MlPrivacyDynamoDB {
                         }
                     }
                     if (pending.length) {
-                        throw new Error('ML privacy bulk read exhausted retries')
+                        throw new Error('ML key manager bulk read exhausted retries')
                     }
                 })
             )
@@ -69,35 +73,46 @@ export class MlPrivacyDynamoDB {
     }
 
     public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {
-        return this.writeConcurrency(async () => {
-            try {
-                await this.client.send(
-                    new PutItemCommand({
-                        TableName: this.tableName,
-                        Item: { ...encodeKey(key), ...attributes },
-                        ConditionExpression: 'attribute_not_exists(pk)',
-                    }),
-                    { abortSignal: this.requestSignal(deadline) }
-                )
-                return true
-            } catch (error) {
-                if (error instanceof ConditionalCheckFailedException) {
-                    return false
+        return this.writeConcurrency(() =>
+            this.timed('dynamodb_put_if_absent', async () => {
+                try {
+                    await this.client.send(
+                        new PutItemCommand({
+                            TableName: this.tableName,
+                            Item: { ...encodeKey(key), ...attributes },
+                            ConditionExpression: 'attribute_not_exists(pk)',
+                        }),
+                        { abortSignal: this.requestSignal(deadline) }
+                    )
+                    return true
+                } catch (error) {
+                    if (error instanceof ConditionalCheckFailedException) {
+                        return false
+                    }
+                    throw error
                 }
-                throw error
-            }
-        })
+            })
+        )
     }
 
     public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
         await this.writeConcurrency(() =>
-            this.client.send(
-                new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
-                {
-                    abortSignal: this.requestSignal(deadline),
-                }
+            this.timed('dynamodb_put', () =>
+                this.client.send(
+                    new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
+                    { abortSignal: this.requestSignal(deadline) }
+                )
             )
         )
+    }
+
+    private async timed<T>(request: MlKeyRequest, operation: () => Promise<T>): Promise<T> {
+        const startedAt = performance.now()
+        try {
+            return await operation()
+        } finally {
+            MlMirrorMetrics.observeMlKeyRequest(request, performance.now() - startedAt)
+        }
     }
 
     private requestSignal(deadline?: AbortSignal): AbortSignal {
