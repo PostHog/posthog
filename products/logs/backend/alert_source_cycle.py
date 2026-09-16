@@ -24,7 +24,7 @@ from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import AlertDeliveryPreview, GroupTransition, SourceKind
 from products.alerts.backend.facade.destinations import list_active_alert_destinations
-from products.alerts.backend.facade.scheduling import advance_next_check_at
+from products.alerts.backend.logic.wip_lifecycle import apply_outcome
 from products.alerts.backend.models import WIPAlert, WIPAlertConfiguration
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
@@ -123,21 +123,6 @@ def _snapshot(configuration: WIPAlertConfiguration, alert: WIPAlert, prior_breac
     )
 
 
-def _apply_outcome(configuration: WIPAlertConfiguration, alert: WIPAlert, outcome, now: datetime) -> None:
-    """Persists the decision to the shared tables. The logs product's own rows are untouched:
-    that stack keeps its own state and reaches its own verdict on the same configuration."""
-    alert.state = outcome.new_state.value
-    if outcome.update_last_notified_at:
-        alert.last_notified_at = now
-    alert.save(update_fields=["state", "last_notified_at"])
-
-    configuration.consecutive_failures = outcome.consecutive_failures
-    configuration.next_check_at = advance_next_check_at(
-        configuration.next_check_at, configuration.check_interval_minutes, now
-    )
-    configuration.save(update_fields=["consecutive_failures", "next_check_at"])
-
-
 def _evaluate_one(
     configuration: WIPAlertConfiguration,
     alert: WIPAlert,
@@ -155,7 +140,7 @@ def _evaluate_one(
         CheckResult(result_count=None, threshold_breached=current_breached),
         now,
     )
-    _apply_outcome(configuration, alert, outcome, now)
+    apply_outcome(configuration, alert, outcome, now)
     if outcome.notification == NotificationAction.NONE:
         return None
 
