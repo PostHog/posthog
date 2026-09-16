@@ -4,14 +4,17 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
+    describe_task_run_workflow_liveness,
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
@@ -528,3 +531,77 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+
+@override_settings(DEBUG=False)
+class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
+    def _client(self, outcomes):
+        handles = []
+        for outcome in outcomes:
+            handle = Mock()
+            handle.describe = AsyncMock()
+            if isinstance(outcome, Exception):
+                handle.describe.side_effect = outcome
+            else:
+                handle.describe.return_value = Mock(status=outcome)
+            handles.append(handle)
+        client = Mock()
+        client.get_workflow_handle.side_effect = handles
+        return client
+
+    @parameterized.expand(
+        [
+            (WorkflowExecutionStatus.RUNNING, "running"),
+            (WorkflowExecutionStatus.TERMINATED, "gone"),
+            (WorkflowExecutionStatus.COMPLETED, "gone"),
+        ]
+    )
+    def test_maps_execution_status_to_liveness(self, execution_status, expected):
+        client = self._client([execution_status])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1"])
+
+        self.assertEqual(result, {"wf-1": expected})
+
+    @parameterized.expand(
+        [
+            # Absence is the only verdict an error may prove; a reaper acts on it.
+            (RPCStatusCode.NOT_FOUND, "gone"),
+            # Says nothing about the workflow, so the run keeps its benefit of the doubt.
+            (RPCStatusCode.PERMISSION_DENIED, "unknown"),
+        ]
+    )
+    def test_maps_per_workflow_rpc_error_to_liveness(self, status, expected):
+        client = self._client([RPCError("boom", status, b"")])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1"])
+
+        self.assertEqual(result, {"wf-1": expected})
+
+    @parameterized.expand(
+        [
+            (RPCStatusCode.UNAVAILABLE,),
+            (RPCStatusCode.DEADLINE_EXCEEDED,),
+            (RPCStatusCode.RESOURCE_EXHAUSTED,),
+        ]
+    )
+    def test_temporal_wide_failure_stops_the_batch(self, status):
+        client = self._client(
+            [WorkflowExecutionStatus.RUNNING, RPCError("down", status, b""), WorkflowExecutionStatus.RUNNING]
+        )
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2", "wf-3"])
+
+        # The third workflow is never described: hammering a degraded Temporal would only burn
+        # the sweep's time limit. Omitting it reads as `unknown`, which is what it would have got.
+        self.assertEqual(result, {"wf-1": "running"})
+        self.assertEqual(client.get_workflow_handle.call_count, 2)
+
+    def test_connect_failure_reports_every_workflow_unknown(self):
+        with patch("products.tasks.backend.temporal.client.sync_connect", side_effect=RuntimeError("no temporal")):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2"])
+
+        self.assertEqual(result, {"wf-1": "unknown", "wf-2": "unknown"})

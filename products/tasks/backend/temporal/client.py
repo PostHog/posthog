@@ -532,6 +532,13 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     return "recovered"
 
 
+# Temporal-wide failures, as opposed to anything specific to one workflow. Hitting one means
+# every later describe in the batch would fail the same way, so the batch stops instead.
+_SERVICE_DEGRADED_STATUSES = frozenset(
+    {RPCStatusCode.UNAVAILABLE, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.RESOURCE_EXHAUSTED}
+)
+
+
 def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str, str]:
     """Liveness of each orchestrating workflow, keyed by workflow id.
 
@@ -542,6 +549,9 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
     NOT_FOUND is the only error that proves absence. Timeouts, unavailability and permission
     errors say nothing about the workflow, and failing a live run is unrecoverable, so every
     other error reports ``unknown`` and leaves the row for a later sweep to judge.
+
+    The result can cover fewer ids than were asked for: a Temporal-wide failure stops the batch
+    (see ``_SERVICE_DEGRADED_STATUSES``). Callers must read a missing id as ``unknown``.
 
     Batched because ``sync_connect`` opens a fresh client per call: describing one workflow at
     a time would pay a connection and an event loop for every candidate in a sweep.
@@ -555,6 +565,15 @@ def describe_task_run_workflow_liveness(workflow_ids: Sequence[str]) -> dict[str
             try:
                 description = await client.get_workflow_handle(workflow_id).describe()
             except RPCError as e:
+                if e.status in _SERVICE_DEGRADED_STATUSES:
+                    # Temporal is down, overloaded or timing out, so the rest of the batch would
+                    # only add load and burn the sweep's time limit against a failing dependency.
+                    # Every id left out reads as `unknown`, which is what each would have got.
+                    logger.warning(
+                        "task_run_liveness_batch_stopped",
+                        extra={"described": len(results), "of": len(workflow_ids), "error": str(e)},
+                    )
+                    break
                 results[workflow_id] = "gone" if e.status == RPCStatusCode.NOT_FOUND else "unknown"
             except Exception as e:
                 logger.warning("task_run_liveness_describe_failed", extra={"workflow_id": workflow_id, "error": str(e)})
