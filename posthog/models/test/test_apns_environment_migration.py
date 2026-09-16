@@ -9,6 +9,7 @@ from django.db.migrations.executor import MigrationExecutor
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.integration import Integration
@@ -138,6 +139,29 @@ class TestApnsEnvironmentMigration(BaseTest):
         assert first.integration_id == "TEAMID1234.com.example.app"
         assert second.integration_id == "TEAMID1234.com.example.app "
         assert Integration.objects.filter(kind="apns").count() == 2
+
+    @parameterized.expand(
+        [
+            ("a list", "[1, 2, 3]"),
+            ("a string", '"not a mapping"'),
+            ("null", "null"),
+            ("a number", "42"),
+        ]
+    )
+    def test_a_config_that_is_not_a_mapping_does_not_stop_the_migration(self, _name, raw_config):
+        healthy = self.an_integration(environment="sandbox")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO posthog_integration "
+                "(team_id, kind, integration_id, config, sensitive_config, repository_cache, created_at, errors) "
+                "VALUES (%s, 'apns', 'odd-shape', %s::jsonb, '{}'::jsonb, '{}'::jsonb, now(), '')",
+                [self.team.id, raw_config],
+            )
+
+        self.run_migration()
+        healthy.refresh_from_db()
+
+        assert healthy.integration_id == "TEAMID1234.com.example.app:sandbox"
 
     def test_a_second_team_keeps_its_own_row_for_the_same_bundle(self):
         mine = self.an_integration(environment="sandbox")
