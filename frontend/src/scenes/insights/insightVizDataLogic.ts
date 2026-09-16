@@ -23,7 +23,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { trendsResultsMatchDisplay } from 'scenes/insights/utils/queryUtils'
+import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
@@ -2472,10 +2472,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (!querySource || !isTrendsQuery(querySource) || !Array.isArray(results)) {
                     return true
                 }
-                return trendsResultsMatchDisplay(
-                    results,
-                    querySource.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
-                )
+                return trendsResultsMatchQuery(results, querySource)
             },
         ],
 
