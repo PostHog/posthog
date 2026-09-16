@@ -682,17 +682,12 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
     ) -> None:
         self._authenticate_as_oauth_agent(client_id, task_id, delegated)
 
-        agent_headers = {
-            "HTTP_X_POSTHOG_CLIENT": "mcp",
-            "HTTP_X_POSTHOG_TASK_ID": "019f4c2a-0000-7000-8000-0000000000bb",
-        }
-        if intent:
-            agent_headers["HTTP_X_POSTHOG_INTENT"] = intent
-
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
             {"name": "Weekly signups"},
-            **agent_headers,
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+            HTTP_X_POSTHOG_INTENT=intent or "",
         )
         self.assertEqual(response.status_code, 201, response.content)
 
