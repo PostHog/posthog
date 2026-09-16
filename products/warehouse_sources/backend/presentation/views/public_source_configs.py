@@ -6,8 +6,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import SourceConfig
-
+from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 
 logger = structlog.get_logger(__name__)
@@ -64,7 +63,7 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
     permission_classes = [permissions.AllowAny]
 
     @extend_schema(
-        responses={200: dict[str, SourceConfig]},
+        responses={200: SourceConfigMapResponse},
         description=(
             "Returns a map of source type identifiers to their full SourceConfig. Each entry is "
             "augmented with `supportsColumnSelection`, a `tables` array (the credential-free "
