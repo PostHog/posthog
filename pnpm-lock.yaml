@@ -2331,6 +2331,8 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
+  products/aeo: {}
+
   products/ai_gateway:
     dependencies:
       '@posthog/brand':

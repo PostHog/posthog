@@ -1,0 +1,89 @@
+"""Scheduled entrypoints for the AEO citation runner.
+
+The dispatcher is double-gated: a team must be in the AEO_CITATION_TEAM_IDS env
+allowlist AND have the `aeo-citation-tracking` feature flag enabled. Both are
+empty/off by default, so this is a no-op everywhere until deliberately turned
+on. Each eligible team gets its own long-running task so one slow team can't
+block another and a worker restart only loses one team's in-flight run.
+"""
+
+from __future__ import annotations
+
+from django.conf import settings
+
+import structlog
+from celery import shared_task
+
+from posthog.celery_queues import CeleryQueue
+from posthog.models.team import Team
+from posthog.ph_client import feature_enabled_or_false
+from posthog.scoping_audit import skip_team_scope_audit
+
+from products.aeo.backend.runner import run_citation_checks
+
+logger = structlog.get_logger(__name__)
+
+AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+
+# A full run is up to 50 prompts x 3 engines of sequential web-search calls
+# (typically 10-60s each); four hours gives slow days headroom without letting
+# a hung run hold a worker slot indefinitely.
+RUN_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
+RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
+
+
+def _citation_tracking_enabled(team: Team) -> bool:
+    """The double gate: a team runs only when it is in the env allowlist AND has
+    the flag on. Both default off, so this is fail-closed. Shared by the dispatcher
+    and the per-team task so a task queued directly cannot skip the gate."""
+    allowlist = {str(raw).strip() for raw in settings.AEO_CITATION_TEAM_IDS}
+    if str(team.id) not in allowlist:
+        return False
+    # No person is behind this scheduled run; the team UUID keeps the flag call
+    # well-formed and the organization group lets the flag target teams.
+    return feature_enabled_or_false(
+        AEO_CITATION_TRACKING_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; the per-team gate scopes what follows
+def run_aeo_citation_checks_task() -> None:
+    """Beat entrypoint: fan out one runner task per allowlisted, flag-enabled team."""
+    for raw_team_id in settings.AEO_CITATION_TEAM_IDS:
+        try:
+            team = Team.objects.get(id=int(raw_team_id))
+        except (Team.DoesNotExist, ValueError):
+            logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
+            continue
+        if not _citation_tracking_enabled(team):
+            logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
+            continue
+        run_aeo_citation_checks_for_team_task.delay(team.id)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=RUN_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=RUN_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant, not tenant data; prompts are read via AEOPrompt.objects.for_team
+def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
+        return
+    # Re-check the gate here too, so this task fails closed even if it is queued
+    # outside the dispatcher (which already checks before fan-out).
+    if not _citation_tracking_enabled(team):
+        logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
+        return
+    try:
+        run_citation_checks(team)
+    except Exception:
+        logger.exception("aeo_citation_task_failed", team_id=team_id)
