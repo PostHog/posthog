@@ -2,6 +2,7 @@ package completion
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -10,10 +11,18 @@ import (
 	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
 )
 
 func testCatalog() *catalog.PreparedCatalog {
 	return catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"events": {Name: "events", Type: "posthog", Fields: map[string]catalog.Field{
+			"uuid": {Name: "uuid", Type: "string"}, "event": {Name: "event", Type: "string"},
+			"properties": {Name: "properties", Type: "json"},
+		}},
+		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{
+			"id": {Name: "id", Type: "string"}, "properties": {Name: "properties", Type: "json"},
+		}},
 		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"order_id": {Name: "order_id", Type: "string"},
 			"amount":   {Name: "amount", Type: "float"},
@@ -109,6 +118,261 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 	}
 	if len(result.Suggestions) != 2 {
 		t.Fatalf("suggestions = %#v; parse error = %q", result.Suggestions, result.ParseError)
+	}
+}
+
+func TestCompletesScopedProjections(t *testing.T) {
+	for _, test := range []struct {
+		name, query string
+		fields      map[string]string
+	}{
+		{"cte", "WITH t AS (SELECT order_id, amount AS total FROM orders) SELECT t.| FROM t", map[string]string{"order_id": "string", "total": "float"}},
+		{"before from", "WITH t AS (SELECT amount AS total FROM orders) SELECT t.|", map[string]string{"total": "float"}},
+		{"unqualified", "WITH t AS (SELECT amount AS total FROM orders) SELECT tot| FROM t", map[string]string{"total": "float"}},
+		{"chained", "WITH a AS (SELECT amount AS total FROM orders), b AS (SELECT * FROM a) SELECT b.| FROM b", map[string]string{"total": "float"}},
+		{"shadow catalog", "WITH orders AS (SELECT event FROM events) SELECT orders.| FROM orders", map[string]string{"event": "string"}},
+		{"nested shadow", "WITH t AS (SELECT amount FROM orders) SELECT * FROM (WITH t AS (SELECT event FROM events) SELECT t.| FROM t) AS s", map[string]string{"event": "string"}},
+		{"subquery", "SELECT s.| FROM (SELECT order_id, amount AS total FROM orders) AS s", map[string]string{"order_id": "string", "total": "float"}},
+		{"nested subquery", "SELECT s.| FROM (SELECT x.total FROM (SELECT amount AS total FROM orders) AS x) AS s", map[string]string{"total": "float"}},
+		{"warehouse", "WITH t AS (SELECT * FROM postgres.synced.orders) SELECT t.| FROM t", map[string]string{"synced_id": "string"}},
+		{"no sibling alias", "SELECT x.| FROM (SELECT amount FROM orders AS x) AS s", nil},
+		{"no sibling cte", "WITH t AS (SELECT amount FROM orders), u AS (SELECT x.| FROM events) SELECT * FROM orders AS x", nil},
+		{"no later cte", "WITH a AS (SELECT b.| FROM orders), b AS (SELECT event FROM events) SELECT * FROM a", nil},
+		{"no self cte", "WITH a AS (SELECT a.| FROM orders) SELECT * FROM a", nil},
+		{"no sibling statement", "SELECT * FROM orders AS x; SELECT x.| FROM events", nil},
+		{"no sibling union", "SELECT * FROM orders AS x UNION ALL SELECT x.| FROM events", nil},
+		{"malformed scopes", "WITH t AS (SELECT amount FROM orders AS x) SELECT x.| FROM (", nil},
+		{"malformed literal", "SELECT 'FROM orders AS x' WHERE x.| =", nil},
+		{"property shadow", "WITH events AS (SELECT amount AS properties FROM orders) SELECT events.properties.| FROM events", nil},
+		{"property shadow before from", "WITH events AS (SELECT amount AS properties FROM orders) SELECT events.properties.|", nil},
+		{"unrelated cte preserves properties", "WITH t AS (SELECT 1 AS x) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"unrelated subquery preserves properties", "SELECT properties.$geo_ci| FROM events JOIN (SELECT 1 AS x) AS t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"renamed properties are unrelated", "WITH t AS (SELECT properties AS attrs FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"derived properties are ambiguous", "WITH t AS (SELECT properties FROM events) SELECT properties.$geo_ci| FROM events JOIN t ON 1 = 1", nil},
+		{"qualified physical properties remain available", "WITH t AS (SELECT properties FROM events) SELECT e.properties.$geo_ci| FROM events AS e JOIN t ON 1 = 1", map[string]string{"$geo_city": "String"}},
+		{"derived body isolation", "SELECT * FROM orders AS x JOIN (SELECT x.| FROM events) AS s ON 1 = 1", nil},
+		{"joined derived sources", "WITH t AS (SELECT event FROM events) SELECT s.| FROM t JOIN (SELECT amount AS total FROM orders) AS s ON 1 = 1", map[string]string{"total": "float"}},
+		{"unicode prefix", "WITH t AS (SELECT amount AS `数額` FROM orders) SELECT t.数| FROM t", map[string]string{"数額": "float"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			position := strings.IndexByte(test.query, '|')
+			query := strings.Replace(test.query, "|", "", 1)
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := map[string]string{}
+			for _, suggestion := range result.Suggestions {
+				if suggestion.Kind == "field" || suggestion.Kind == "property" {
+					fields[suggestion.Label] = suggestion.Detail
+				}
+			}
+			if len(fields) != len(test.fields) {
+				t.Fatalf("fields = %#v, want %#v; parse error = %s", fields, test.fields, result.ParseError)
+			}
+			for name, detail := range test.fields {
+				if actual, ok := fields[name]; !ok || actual != detail {
+					t.Errorf("field %q = %q (%t), want %q", name, actual, ok, detail)
+				}
+			}
+		})
+	}
+}
+
+func derivedLookupQuery(sources, aliases, fields, missing int) (string, int) {
+	items := make([]string, fields)
+	for index := range items {
+		items[index] = fmt.Sprintf("amount AS field_%03d", index)
+	}
+	ctes := []string{"c0 AS (SELECT " + strings.Join(items, ", ") + " FROM orders)"}
+	for index := 1; index < sources; index++ {
+		ctes = append(ctes, fmt.Sprintf("c%d AS (SELECT * FROM c0)", index))
+	}
+	from := "c0 AS a0"
+	for index := 1; index < aliases; index++ {
+		from += fmt.Sprintf(" JOIN c%d AS a%d ON 1 = 1", index%sources, index)
+	}
+	projections := strings.Repeat("unknown_identifier, ", missing) + "a0.field_000 AS known"
+	ctes = append(ctes, "result AS (SELECT "+projections+" FROM "+from+")")
+	prefix := "WITH " + strings.Join(ctes, ", ") + " SELECT result."
+	return prefix + " FROM result", len(prefix)
+}
+
+func TestDerivedLookupWork(t *testing.T) {
+	for _, test := range []struct {
+		name                              string
+		sources, aliases, fields, missing int
+		limit                             bool
+	}{
+		{name: "repeated aliases share one field index", sources: 1, aliases: 512, fields: 256, missing: 256},
+		{name: "distinct sources exhaust lookup budget", sources: 128, aliases: 128, fields: 8, missing: 512, limit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query, position := derivedLookupQuery(test.sources, test.aliases, test.fields, test.missing)
+			if err := querylimits.Validate(query); err != nil {
+				t.Fatal(err)
+			}
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, "")
+			if test.limit {
+				if !errors.Is(err, querylimits.ErrFieldLookupTooLarge) || len(result.Suggestions) != 0 {
+					t.Fatalf("result = %#v, err = %v", result, err)
+				}
+			} else if known, ok := findSuggestion(result.Suggestions, "known"); err != nil || !ok || known.Detail != "float" {
+				t.Fatalf("result = %#v, err = %v", result, err)
+			}
+		})
+	}
+}
+
+func BenchmarkCompleteDerivedLookups(b *testing.B) {
+	query, position := derivedLookupQuery(1, 512, 256, 256)
+	schema := testCatalog()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestDerivedProjectionPaginationAndLimits(t *testing.T) {
+	var items []string
+	for index := 0; index < PageSize+2; index++ {
+		items = append(items, fmt.Sprintf("amount AS field_%02d", index))
+	}
+	items = append(items, "amount AS field_00")
+	for _, source := range []string{
+		"WITH t AS (SELECT " + strings.Join(items, ", ") + " FROM orders) SELECT t.| FROM t",
+		"SELECT t.| FROM (SELECT " + strings.Join(items, ", ") + " FROM orders) AS t",
+	} {
+		position := strings.IndexByte(source, '|')
+		query := strings.Replace(source, "|", "", 1)
+		cursor := ""
+		var fields []string
+		for {
+			result, err := Complete(testCatalog(), query, position, PositionEncodingUTF8, cursor)
+			if err != nil || result.Total != PageSize+2 || len(result.Suggestions) > PageSize {
+				t.Fatalf("result = %#v, err = %v", result, err)
+			}
+			for _, suggestion := range result.Suggestions {
+				fields = append(fields, suggestion.Label)
+			}
+			cursor = result.NextCursor
+			if cursor == "" {
+				break
+			}
+			if len(fields) > PageSize+2 {
+				t.Fatal("pagination did not terminate")
+			}
+		}
+		if len(fields) != PageSize+2 {
+			t.Fatalf("fields = %#v", fields)
+		}
+		for index, name := range fields {
+			if name != fmt.Sprintf("field_%02d", index) {
+				t.Fatalf("fields = %#v", fields)
+			}
+		}
+	}
+
+	ctes := []string{"c0 AS (SELECT * FROM orders)"}
+	for index := 1; index < 15; index++ {
+		ctes = append(ctes, fmt.Sprintf("c%d AS (SELECT a.*, b.* FROM c%d AS a JOIN c%d AS b ON 1 = 1)", index, index-1, index-1))
+	}
+	for _, projection := range []string{"c14.", ""} {
+		prefix := "WITH " + strings.Join(ctes, ", ") + " SELECT " + projection
+		_, err := Complete(testCatalog(), prefix+" FROM c14", len(prefix), PositionEncodingUTF8, "")
+		if !errors.Is(err, querylimits.ErrCTEProjectionTooLarge) {
+			t.Fatalf("projection %q: err = %v", projection, err)
+		}
+	}
+}
+
+func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"from":          {Name: "from", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"order-items":   {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"percent%table": {Name: "percent%table", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
+			"billing address": {Name: "billing address", Type: "string"},
+			"FROM":            {Name: "FROM", Type: "string"},
+			"order-total":     {Name: "order-total", Type: "float"},
+			"percent%field":   {Name: "percent%field", Type: "string"},
+			"tick`value":      {Name: "tick`value", Type: "string"},
+		}},
+	}, Properties: map[string][]catalog.Property{}})
+
+	tableResult, err := Complete(schema, "SELECT * FROM order", len("SELECT * FROM order"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keywordTableResult, err := Complete(schema, "SELECT * FROM fr", len("SELECT * FROM fr"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsupportedTableResult, err := Complete(schema, "SELECT * FROM percent", len("SELECT * FROM percent"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldResult, err := Complete(schema, "SELECT o. FROM orders AS o", len("SELECT o."), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		result     Result
+		label      string
+		insertText string
+	}{
+		{result: tableResult, label: "order-items", insertText: "`order-items`"},
+		{result: keywordTableResult, label: "from", insertText: "`from`"},
+		{result: fieldResult, label: "billing address", insertText: "`billing address`"},
+		{result: fieldResult, label: "FROM", insertText: "`FROM`"},
+		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
+		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
+	} {
+		suggestion, ok := findSuggestion(test.result.Suggestions, test.label)
+		if !ok || suggestion.InsertText != test.insertText {
+			t.Fatalf("suggestion %q = %#v, want insert text %q", test.label, suggestion, test.insertText)
+		}
+	}
+	for _, test := range []struct {
+		result Result
+		label  string
+	}{
+		{result: fieldResult, label: "percent%field"},
+		{result: unsupportedTableResult, label: "percent%table"},
+	} {
+		if suggestion, ok := findSuggestion(test.result.Suggestions, test.label); ok {
+			t.Fatalf("unsupported suggestion %q = %#v", test.label, suggestion)
+		}
+	}
+}
+
+func TestCompletionPaginationSkipsUnsupportedIdentifiers(t *testing.T) {
+	tables := make(map[string]catalog.Table, PageSize+2)
+	for index := range PageSize + 1 {
+		name := fmt.Sprintf("table_%02d", index)
+		tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	}
+	tables["table_%"] = catalog.Table{Name: "table_%", Type: "data_warehouse", Fields: map[string]catalog.Field{}}
+	schema := catalog.Prepare(&catalog.Catalog{Tables: tables, Properties: map[string][]catalog.Property{}})
+	query := "SELECT * FROM table_"
+
+	first, err := Complete(schema, query, len(query), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Complete(schema, query, len(query), PositionEncodingUTF8, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != PageSize+1 || len(first.Suggestions) != PageSize || first.NextCursor == "" {
+		t.Fatalf("first page = %#v", first)
+	}
+	if second.Total != PageSize+1 || len(second.Suggestions) != 1 || second.NextCursor != "" {
+		t.Fatalf("second page = %#v", second)
 	}
 }
 

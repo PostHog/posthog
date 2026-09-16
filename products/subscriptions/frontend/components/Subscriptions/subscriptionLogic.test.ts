@@ -241,6 +241,22 @@ describe('subscriptionLogic', () => {
             bysetpos: 1,
             byweekday: ['monday'],
         })
+
+        // The day picker is hidden above a one-day interval, so an empty selection there is an
+        // error no visible control can clear.
+        newLogic.actions.setSubscriptionValue('interval', 7)
+        newLogic.actions.setSubscriptionValue('frequency', 'daily')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription.byweekday).toEqual([
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+        ])
+        expect(newLogic.values.subscriptionValidationErrors.frequency).toBeNull()
     })
 
     it('records successful wizard-created subscriptions separately from the editor', async () => {
@@ -661,11 +677,24 @@ describe('subscriptionLogic', () => {
         confirmSpy.mockRestore()
     })
 
-    it('does not toast when kea-forms reports client validation failure', async () => {
-        await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionFailure(new Error('Validation Failed'), {})
-        }).toFinishListeners()
-        expect(lemonToast.error).not.toHaveBeenCalled()
+    // A schedule error has no field that renders it, so without this the button looks dead.
+    it('names the section to check when client validation blocks the save', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.setSubscriptionValues({
+            title: 'Weekly report',
+            target_value: 'ben@posthog.com',
+            byweekday: [],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith('Check Recurrence before saving.')
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription save blocked',
+            expect.objectContaining({ fields: ['frequency'] })
+        )
     })
 
     it('toasts and maps ApiError attr to manual errors on save failure', async () => {
@@ -681,6 +710,11 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscriptionManualErrors).toEqual({
             dashboard_export_insights: 'Select at least one insight',
         })
+
+        // Untouchable otherwise: no field renders this error, so it would block every later submit.
+        newLogic.actions.setSubscriptionValue('title', 'Renamed after the failure')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionManualErrors).toEqual({})
     })
 
     it.each<[string, Partial<SubscriptionType>, string[]]>([
@@ -856,6 +890,60 @@ describe('subscriptionLogic', () => {
         await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
 
         expect(capturedBody?.target_value).toBeUndefined()
+    })
+
+    // Every read carries an empty `contexts`, and echoing it back made the API reject the rename.
+    it('does not send the read-only contexts when renaming an existing subscription', async () => {
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': {
+                    ...fixtureSubscriptionResponse(1),
+                    contexts: [],
+                },
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, fixtureSubscriptionResponse(1)]
+                },
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.setSubscriptionValue('title', 'Renamed')
+        existingLogic.actions.submitSubscription()
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody).not.toHaveProperty('contexts')
+        expect(capturedBody?.title).toBe('Renamed')
+    })
+
+    it('keeps pending edits dirty when a default integration arrives late', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'slack',
+                    target_value: 'C123|#general',
+                    integration_id: null,
+                }),
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.setSubscriptionValue('title', 'Renamed while connections load')
+        expect(existingLogic.values.subscriptionChanged).toBe(true)
+
+        existingLogic.actions.applyDefaultIntegration(7)
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.subscription).toMatchObject({
+            title: 'Renamed while connections load',
+            integration_id: 7,
+        })
+        expect(existingLogic.values.subscriptionChanged).toBe(true)
     })
 
     it('asks for a URL again once the Teams webhook is being replaced', async () => {
