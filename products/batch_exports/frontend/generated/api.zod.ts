@@ -41,7 +41,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -445,8 +445,10 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -755,7 +757,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1159,8 +1161,10 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -1222,7 +1226,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1632,8 +1636,10 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -2083,8 +2089,10 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2546,8 +2554,10 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2998,8 +3008,10 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -3471,8 +3483,10 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])

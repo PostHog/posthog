@@ -61,7 +61,7 @@ export const BatchExportsCreateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -528,7 +528,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([

@@ -13379,8 +13379,11 @@ export namespace Schemas {
       end_at?: string | null;
       /** The 10 most recent runs of this batch export, ordered newest first. */
       readonly latest_runs: readonly BatchExportRun[];
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -14204,7 +14207,7 @@ export namespace Schemas {
     export interface BatchExportRequest {
       /** Human-readable name for the batch export. */
       name: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -14223,8 +14226,11 @@ export namespace Schemas {
       interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -66016,7 +66022,7 @@ export namespace Schemas {
     export interface PatchedBatchExportRequest {
       /** Human-readable name for the batch export. */
       name?: string;
-      /** Which data model to export (events, persons, sessions).
+      /** Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.
        *
        * * `events` - Events
        * * `persons` - Persons
@@ -66035,8 +66041,11 @@ export namespace Schemas {
       interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
-      /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
-      hogql_query?: string;
+      /**
+         * HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'.
+         * @nullable
+         */
+      hogql_query?: string | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
