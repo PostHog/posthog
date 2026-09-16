@@ -11,10 +11,13 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from parameterized import parameterized
 
+from products.feature_flags.backend.api.feature_flag import calculate_filter_size_bytes
 from products.feature_flags.backend.facade.config_validation import (
+    _UUID as UUID_PATTERN,
     ASSIGNMENT_ALGORITHM,
     MAX_PREDICATES_PER_RULE,
     MAX_RULES,
+    MAX_SEED_LENGTH,
     PERSON_ASSIGNMENT,
     PROPERTY_OPERATORS,
     PROPERTY_TYPES,
@@ -24,6 +27,7 @@ from products.feature_flags.backend.facade.config_validation import (
     ValidatedConfig,
     ValidatedRule,
     ValidationLimits,
+    _encoded_size as config_size_bytes,
     validate_config,
 )
 
@@ -83,8 +87,10 @@ def load_contract(relative: str) -> Any:
         return json.load(handle)
 
 
-def schema_validator() -> Draft202012Validator:
-    return Draft202012Validator(load_contract("schemas/config.schema.json"), format_checker=FormatChecker())
+MANIFEST = load_contract("manifest.json")
+CONFIG_SCHEMA = load_contract("schemas/config.schema.json")
+SCHEMA_VALIDATOR = Draft202012Validator(CONFIG_SCHEMA, format_checker=FormatChecker())
+CONTRACT_FIXTURES = [entry for entry in MANIFEST["artifacts"] if entry["kind"] == "fixture"]
 
 
 VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
@@ -509,11 +515,10 @@ class TestValidateConfig:
     ) -> None:
         snapshot = deepcopy(document)
         validated = validate_config(document, limits=LIMITS)
-        assert validated.return_type == "boolean"
         assert [rule.id for rule in validated.rules] == [rule["id"] for rule in document["rules"]]
         assert document == snapshot
         # Admission is narrower than the contract, never wider: everything accepted here is schema-valid.
-        assert not list(schema_validator().iter_errors(document))
+        assert not list(SCHEMA_VALIDATOR.iter_errors(document))
 
     @parameterized.expand(INVALID_DOCUMENTS)
     def test_rejected_documents_report_deterministic_field_errors(
@@ -575,7 +580,6 @@ class TestValidateConfig:
         )
         validated = validate_config(document, limits=LIMITS)
         assert validated == ValidatedConfig(
-            return_type="boolean",
             default_value=None,
             rules=(
                 ValidatedRule(
@@ -583,10 +587,8 @@ class TestValidateConfig:
                     rule_type="targeted_release",
                     predicates=frozenset(
                         {
-                            Predicate(
-                                key="account_tier", type="person", operator="exact", value='"preview"', negation=False
-                            ),
-                            Predicate(key="beta", type="person", operator="is_set", value="null", negation=False),
+                            Predicate(key="account_tier", operator="exact", value='"preview"', negation=False),
+                            Predicate(key="beta", operator="is_set", value="null", negation=False),
                         }
                     ),
                     value=True,
@@ -642,9 +644,6 @@ def _admitted_family(document: dict[str, Any]) -> bool:
     )
 
 
-CONTRACT_FIXTURES = [entry for entry in load_contract("manifest.json")["artifacts"] if entry["kind"] == "fixture"]
-
-
 class TestReleasedContract:
     def test_vendored_contract_is_intact(self) -> None:
         source = load_contract("SOURCE.json")
@@ -664,10 +663,9 @@ class TestReleasedContract:
         for path in vendored:
             relative = path.relative_to(CONTRACT_DIR).as_posix()
             assert hashlib.sha256(path.read_bytes()).hexdigest() == index[relative], relative
-        manifest = load_contract("manifest.json")
         assert {entry["path"] for entry in CONTRACT_FIXTURES} <= relatives
-        assert manifest["contract"]["version"] == source["contract_version"]
-        versions = {artifact["path"]: artifact.get("version") for artifact in manifest["artifacts"]}
+        assert MANIFEST["contract"]["version"] == source["contract_version"]
+        versions = {artifact["path"]: artifact.get("version") for artifact in MANIFEST["artifacts"]}
         assert versions["schemas/config.schema.json"] == source["config_schema_version"]
         assert versions["registries/literals.json"] == source["registry_version"]
 
@@ -678,7 +676,14 @@ class TestReleasedContract:
         assert set(ROLLOUT_MISS_POLICIES) == set(registry["rollout_miss_policies"])
         assert [ASSIGNMENT_ALGORITHM] == registry["assignment_algorithms"]
         assert [PERSON_ASSIGNMENT] == registry["assignment_targets"]
-        assert MAX_RULES == load_contract("schemas/config.schema.json")["properties"]["rules"]["maxItems"]
+        assert MAX_RULES == CONFIG_SCHEMA["properties"]["rules"]["maxItems"]
+        assert MAX_PREDICATES_PER_RULE == CONFIG_SCHEMA["$defs"]["targeting"]["properties"]["properties"]["maxItems"]
+        assert MAX_SEED_LENGTH == CONFIG_SCHEMA["$defs"]["seed"]["maxLength"]
+        assert UUID_PATTERN.pattern == CONFIG_SCHEMA["$defs"]["uuid"]["pattern"]
+
+    def test_size_check_measures_the_same_bytes_as_the_v1_limit(self) -> None:
+        document = config(targeted(targeting={"properties": [person(value="ø")]}, metadata={"note": "x"}))
+        assert config_size_bytes(document) == calculate_filter_size_bytes(document)
 
     @parameterized.expand([(entry["fixture_id"], entry) for entry in CONTRACT_FIXTURES if entry["expected"] == "valid"])
     def test_canonical_fixtures_are_never_relabelled_as_malformed(self, _name: str, entry: dict[str, Any]) -> None:

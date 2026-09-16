@@ -1,7 +1,6 @@
 import json
 from copy import deepcopy
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, get_args
 
 import pytest
@@ -14,7 +13,6 @@ from products.feature_flags.backend.facade.config_validation import (
     Predicate,
     ValidatedConfig,
     ValidatedRule,
-    ValidationLimits,
 )
 from products.feature_flags.backend.facade.rule_warnings import (
     ConfigReview,
@@ -27,9 +25,7 @@ from products.feature_flags.backend.facade.warnings import (
     ManagementWarningCode,
     serialize_management_warning,
 )
-
-CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
-LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
+from products.feature_flags.backend.test.test_facade_config_validation import LIMITS, load_contract
 
 A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -38,9 +34,9 @@ D = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 SEED = "release-preview"
 OTHER_SEED = "second-seed"
 
-PRO = Predicate(key="plan", type="person", operator="exact", value='"pro"', negation=False)
-FREE = Predicate(key="plan", type="person", operator="exact", value='"free"', negation=False)
-NORWAY = Predicate(key="country", type="person", operator="exact", value='"NO"', negation=False)
+PRO = Predicate(key="plan", operator="exact", value='"pro"', negation=False)
+FREE = Predicate(key="plan", operator="exact", value='"free"', negation=False)
+NORWAY = Predicate(key="country", operator="exact", value='"NO"', negation=False)
 
 
 def targeted(rule_id: str, value: bool = True, *predicates: Predicate) -> ValidatedRule:
@@ -67,7 +63,7 @@ def rollout(
 
 
 def cfg(*rules: ValidatedRule, default: bool | None = False) -> ValidatedConfig:
-    return ValidatedConfig(return_type="boolean", default_value=default, rules=rules)
+    return ValidatedConfig(default_value=default, rules=rules)
 
 
 def codes(warnings: tuple[ManagementWarning, ...]) -> list[tuple[str, str | None]]:
@@ -424,7 +420,7 @@ class TestWarningWire:
         reordered = {**ROLLOUT_DOCUMENT, "rules": list(reversed(ROLLOUT_DOCUMENT["rules"]))}
         warnings = review_config(reordered, limits=LIMITS, current=current).warnings
         assert {warning.code for warning in warnings} == {UNREACHABLE, REORDER}
-        schema = json.loads((CONTRACT_DIR / "schemas/management_warning.schema.json").read_text(encoding="utf-8"))
+        schema = load_contract("schemas/management_warning.schema.json")
         assert set(schema["properties"]["code"]["enum"]) == set(get_args(ManagementWarningCode))
         validator = Draft202012Validator(schema)
         for warning in warnings:

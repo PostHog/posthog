@@ -23,6 +23,7 @@ evaluator, and it never claims an exact affected percentage.
 
 from collections.abc import Iterator
 from fractions import Fraction
+from itertools import product
 
 from posthog.dataclasses import frozen
 
@@ -75,27 +76,26 @@ def reorder_warnings(current: ValidatedConfig, proposed: ValidatedConfig) -> tup
     or whose evaluated content changed, is an edit rather than a reorder, so a value change
     it causes is never attributed to the order.
     """
-    current_rules = {rule.id: (index, rule) for index, rule in enumerate(current.rules)}
-    proposed_rules = {rule.id: (index, rule) for index, rule in enumerate(proposed.rules)}
-    unchanged = {
-        rule_id for rule_id, (_, rule) in current_rules.items() if proposed_rules.get(rule_id, (None, None))[1] == rule
-    }
+    unchanged = set(current.rules) & set(proposed.rules)
+    current_index = {rule.id: index for index, rule in enumerate(current.rules)}
+    proposed_index = {rule.id: index for index, rule in enumerate(proposed.rules)}
     inversions: dict[tuple[str, str], int] = {}
     for population in {rule.predicates for rule in (*current.rules, *proposed.rules)}:
         before = _walk(current, population)
         after = _walk(proposed, population)
-        for box_before, outcome_before in before.settled:
-            for box_after, outcome_after in after.settled:
-                if outcome_before.value == outcome_after.value or not _intersects(box_before, box_after):
-                    continue
-                earlier = current.rules[outcome_before.rule_index].id
-                later = proposed.rules[outcome_after.rule_index].id
-                if earlier == later or earlier not in unchanged or later not in unchanged:
-                    continue
-                if current_rules[earlier][0] < current_rules[later][0] and (
-                    proposed_rules[later][0] < proposed_rules[earlier][0]
-                ):
-                    inversions[(earlier, later)] = proposed_rules[later][0]
+        for (box_before, outcome_before), (box_after, outcome_after) in product(before.settled, after.settled):
+            earlier = current.rules[outcome_before.rule_index]
+            later = proposed.rules[outcome_after.rule_index]
+            if (
+                outcome_before.value != outcome_after.value
+                and earlier in unchanged
+                and later in unchanged
+                and current_index[earlier.id] < current_index[later.id]
+                and proposed_index[later.id] < proposed_index[earlier.id]
+                and (earlier.id, later.id) not in inversions
+                and _intersects(box_before, box_after)
+            ):
+                inversions[(earlier.id, later.id)] = proposed_index[later.id]
     return tuple(
         ManagementWarning(
             code="RULE_ORDER_CHANGES_TRAFFIC",
@@ -120,6 +120,7 @@ def _unreachable_lower_rules(config: ValidatedConfig) -> Iterator[ManagementWarn
 
 
 def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarning]:
+    walks: dict[tuple[frozenset[Predicate], int], _Walk] = {}
     for upper_index, upper in enumerate(config.rules):
         if not _continues_after_partial_miss(upper):
             continue
@@ -131,13 +132,13 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
             population = _overlap(upper, lower)
             if population is None:
                 continue
-            walk = _walk(config, population, until=lower_index)
-            # The upper rule has to include somebody here, otherwise there is no rollout to extend.
-            if not walk.open or not any(
-                outcome.rule_index == upper_index and outcome.served for _, outcome in walk.settled
-            ):
-                continue
-            if not any(_included(box, lower) for box in walk.open):
+            # The walk includes the lower rule, so a value it serves shows up as its own outcome.
+            key = (population, lower_index)
+            if key not in walks:
+                walks[key] = _walk(config, population, until=lower_index + 1)
+            served_by = {outcome.rule_index for _, outcome in walks[key].settled if outcome.served}
+            # Both rules must serve somebody here: an upper rule that includes nobody has no rollout to extend.
+            if not {upper_index, lower_index} <= served_by:
                 continue
             percentage = f"{upper.rollout_percentage.normalize():f}"
             yield ManagementWarning(
@@ -178,7 +179,6 @@ class _Outcome:
 @frozen
 class _Walk:
     settled: tuple[tuple[_Box, _Outcome], ...]  # regions with a definite outcome
-    open: tuple[_Box, ...]  # regions still evaluating after the last processed rule
     closed_by: int | None  # the rule after which nothing was left to evaluate
 
 
@@ -194,7 +194,7 @@ def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: i
         if not rule.predicates <= population:
             # Inconclusive: who passes this rule is unknown, so nothing below it can be settled
             # and the regions that were still open must not be reported as reaching anything.
-            return _Walk(settled=tuple(settled), open=(), closed_by=None)
+            return _Walk(settled=tuple(settled), closed_by=None)
         next_open: list[_Box] = []
         for box in open_boxes:
             if rule.rule_type == "targeted_release":
@@ -214,22 +214,14 @@ def _walk(config: ValidatedConfig, population: frozenset[Predicate], *, until: i
                     next_open.append(missed)
         open_boxes = next_open
         if not open_boxes:
-            return _Walk(settled=tuple(settled), open=(), closed_by=index)
-    return _Walk(settled=tuple(settled), open=tuple(open_boxes), closed_by=None)
-
-
-def _included(box: _Box, rule: ValidatedRule) -> bool:
-    """Whether ``rule`` serves its value to somebody in ``box``."""
-    if rule.rule_type == "targeted_release":
-        return True
-    assert rule.seed is not None and rule.rollout_percentage is not None
-    lo, hi = box.get(rule.seed, _FULL)
-    return lo < min(hi, Fraction(rule.rollout_percentage) / 100)
+            return _Walk(settled=tuple(settled), closed_by=index)
+    return _Walk(settled=tuple(settled), closed_by=None)
 
 
 def _intersects(a: _Box, b: _Box) -> bool:
-    for seed in a.keys() | b.keys():
-        (a_lo, a_hi), (b_lo, b_hi) = a.get(seed, _FULL), b.get(seed, _FULL)
+    # Every stored interval is non-empty, so only seeds constrained on both sides can be disjoint.
+    for seed in a.keys() & b.keys():
+        (a_lo, a_hi), (b_lo, b_hi) = a[seed], b[seed]
         if max(a_lo, b_lo) >= min(a_hi, b_hi):
             return False
     return True
