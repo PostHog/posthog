@@ -98,19 +98,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "source_type",
-                    models.CharField(
-                        choices=[
-                            ("scout", "Scout"),
-                            ("responder", "Responder"),
-                            ("human", "Human"),
-                            ("stub", "Stub generator"),
-                        ],
-                        help_text="What kind of producer authored the proposal.",
-                        max_length=20,
-                    ),
-                ),
-                (
                     "source_id",
                     models.CharField(
                         blank=True,
@@ -121,7 +108,6 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("resolved_at", models.DateTimeField(blank=True, null=True)),
-                ("resolution_note", models.TextField(blank=True, default="")),
                 (
                     "applied_version",
                     models.IntegerField(

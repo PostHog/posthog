@@ -12,9 +12,10 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
     Approving one stages its content into the workflow's `draft` — the same move as restoring a
     revision — so nothing here can reach the live config without a human publishing it.
 
-    Behind the `self-optimising-workflows` flag. Provenance is a created_via/source triple rather
-    than an agent-vs-human flag, so a Scout, a Responder and a person are told apart later without
-    a schema change, and no field assumes the workflow page is the only reader.
+    Behind the `self-optimising-workflows` flag. `created_via` says how a suggestion arrived (a
+    PostHog-run agent, an MCP client, the API, the web app) and is set by the server, so the page
+    can label it truthfully; `source_id` names the run or finding it came from, so a retry lands
+    on the row it already made.
     """
 
     class Status(models.TextChoices):
@@ -30,15 +31,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         API = "api", "API"
         MCP = "mcp", "MCP"
         SELF_DRIVING = "self_driving", "Self-driving"
-
-    class SourceType(models.TextChoices):
-        """What kind of producer authored it. The transport tells us `created_via`, but it can't
-        tell a proactive Scout from a Responder reacting to one signal, so this half is declared."""
-
-        SCOUT = "scout", "Scout"
-        RESPONDER = "responder", "Responder"
-        HUMAN = "human", "Human"
-        STUB = "stub", "Stub generator"
 
     OPEN_STATUSES = (Status.SUGGESTED,)
 
@@ -101,9 +93,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         choices=CreatedVia,
         help_text="How the proposal was created. Derived from the request, never set by the caller.",
     )
-    source_type = models.CharField(
-        max_length=20, choices=SourceType, help_text="What kind of producer authored the proposal."
-    )
     source_id = models.CharField(
         max_length=200,
         null=True,
@@ -124,7 +113,6 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDTModel):
         db_constraint=False,
         related_name="resolved_workflow_proposals",
     )
-    resolution_note = models.TextField(blank=True, default="")
     applied_version = models.IntegerField(
         null=True, blank=True, help_text="Workflow version the approved change went live as."
     )
