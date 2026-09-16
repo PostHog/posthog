@@ -1649,7 +1649,7 @@ class UserAccessControl:
             )
         return access.access_level if access else None
 
-    def resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+    def _resolved_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
         """The enforced access to `obj`, as `get_user_access_level` decides it, with the rule
         that supplied it kept so a display can attribute the level."""
         resource = model_to_resource(obj)

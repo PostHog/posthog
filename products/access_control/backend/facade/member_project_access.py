@@ -115,7 +115,7 @@ def member_project_access(
             if team_rows is None:
                 team_rows = subject.team_access_controls
 
-            resolved = subject.resolved_object_access(team)
+            resolved = subject._resolved_object_access(team)
             subject_id = None
             if resolved is not None:
                 resolved, subject_id = _with_deciding_subject(subject, resolved, role_names, member_names)
