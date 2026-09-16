@@ -9,12 +9,13 @@ import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLog
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, PreflightStatus } from '~/types'
 
 import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
 import {
@@ -29,6 +30,7 @@ import { runSubscriptionTestDelivery } from '../components/Subscriptions/runSubs
 import { toggleSubscriptionEnabled } from '../components/Subscriptions/toggleSubscriptionEnabled'
 import type { SubscriptionApi } from '../generated/api.schemas'
 import { newSubscriptionTargetLogic } from './newSubscriptionTargetLogic'
+import type { NewSubscriptionTarget } from './newSubscriptionTargetLogic'
 
 const PAGE_SIZE = 20
 
@@ -210,7 +212,9 @@ function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
 export interface subscriptionsSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    newSubscriptionTarget: NewSubscriptionTarget | null // newSubscriptionTargetLogic
     currentOrganization: OrganizationType | null // organizationLogic
+    preflight: PreflightStatus | null // preflightLogic
     user: UserType | null // userLogic
     aiSubscriptionsAvailable: boolean
     breadcrumbs: Breadcrumb[]
@@ -331,7 +335,8 @@ export interface subscriptionsSceneLogicMeta {
         aiSubscriptionsAvailable: (
             featureFlags: FeatureFlagsSet,
             receivedFeatureFlags: boolean,
-            currentOrganization: OrganizationType | null
+            currentOrganization: OrganizationType | null,
+            preflight: any
         ) => boolean
         subscriptions: (subscriptionsResponse: PaginatedSubscriptionListApi | null) => SubscriptionApi[]
         subscriptionsLoading: (subscriptionsResponseLoading: boolean) => boolean
@@ -366,6 +371,10 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             ['featureFlags', 'receivedFeatureFlags'],
             organizationLogic,
             ['currentOrganization'],
+            preflightLogic,
+            ['preflight'],
+            newSubscriptionTargetLogic,
+            ['target as newSubscriptionTarget'],
         ],
         actions: [newSubscriptionTargetLogic, ['chooseAiPrompt', 'reset as resetNewSubscriptionTarget']],
     })),
@@ -520,16 +529,20 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         ],
     })),
     selectors({
+        // Mirrors the gate the form applies (getAiSubscriptionGate): a self-hosted instance cannot
+        // run AI reports, so it must not offer them either.
         aiSubscriptionsAvailable: [
-            (s) => [s.featureFlags, s.receivedFeatureFlags, s.currentOrganization],
+            (s) => [s.featureFlags, s.receivedFeatureFlags, s.currentOrganization, s.preflight],
             (
                 featureFlags: FeatureFlagsSet,
                 receivedFeatureFlags: boolean,
-                currentOrganization: OrganizationType | null
+                currentOrganization: OrganizationType | null,
+                preflight: PreflightStatus | null
             ) =>
                 receivedFeatureFlags &&
                 Boolean(featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]) &&
-                Boolean(currentOrganization?.is_ai_data_processing_approved),
+                Boolean(currentOrganization?.is_ai_data_processing_approved) &&
+                Boolean(preflight?.cloud || preflight?.is_debug),
         ],
         subscriptions: [
             (s) => [s.subscriptionsResponse],
@@ -574,11 +587,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         // its own fetch, which the picker handles.
         applyDeepLinkTarget: () => {
             if (
-                values.subscriptionModalId === 'new' &&
-                values.deepLinkResourceType === SubscriptionResourceTypeEnumApi.AiPrompt &&
-                values.aiSubscriptionsAvailable
+                values.subscriptionModalId !== 'new' ||
+                values.deepLinkResourceType !== SubscriptionResourceTypeEnumApi.AiPrompt
             ) {
+                return
+            }
+            if (values.aiSubscriptionsAvailable) {
                 actions.chooseAiPrompt()
+            } else if (values.newSubscriptionTarget?.kind === 'ai') {
+                // Access was revoked while the deep-linked form was open, so fall back to the chooser.
+                actions.resetNewSubscriptionTarget()
             }
         },
         setSearch: async (_, breakpoint) => {

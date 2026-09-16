@@ -6,13 +6,16 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PreflightStatus } from '~/types'
 
 import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -46,6 +49,7 @@ describe('subscriptionsSceneLogic', () => {
         sceneLogic({ scenes }).mount()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        preflightLogic.actions.loadPreflightSuccess(preflightJson as unknown as PreflightStatus)
         router.actions.push(urls.subscriptions())
         logic = subscriptionsSceneLogic()
         logic.mount()
@@ -272,6 +276,46 @@ describe('subscriptionsSceneLogic', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+            targetLogic.unmount()
+        })
+
+        it('drops the deep-linked target when AI subscriptions become unavailable while the modal is open', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            expect(targetLogic.values.target).toEqual({ kind: 'ai' })
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: false })
+            expect(targetLogic.values.target).toBeNull()
+            targetLogic.unmount()
+        })
+
+        it('keeps the chooser for an AI deep link on a self-hosted instance', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
+            preflightLogic.actions.loadPreflightSuccess({
+                ...(preflightJson as unknown as PreflightStatus),
+                cloud: false,
+                is_debug: false,
+            })
+            const targetLogic = newSubscriptionTargetLogic()
+            targetLogic.mount()
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
+            }).toMatchValues({ subscriptionModalId: 'new', aiSubscriptionsAvailable: false })
+            expect(targetLogic.values.target).toBeNull()
             targetLogic.unmount()
         })
 
