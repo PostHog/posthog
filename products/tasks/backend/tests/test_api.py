@@ -6294,6 +6294,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "inactivity_timeout_seconds": 600,
                 "use_modal_directory_resume_snapshots": True,
                 "use_modal_vm_sandbox": False,
+                "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
                 "stream_presence_gated": True,
@@ -6355,6 +6356,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "wizard_config": {},
                     "use_modal_directory_resume_snapshots": False,
                     "use_modal_vm_sandbox": True,
+                    # a VM template here would boot a Docker-capable box past the VM gate
+                    "sandbox_template": "vm_base",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
                     "stream_presence_gated": False,
@@ -6421,6 +6424,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
         assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["use_modal_vm_sandbox"] is False
+        assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
         assert run.state["stream_presence_gated"] is True

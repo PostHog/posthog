@@ -1867,6 +1867,7 @@ export interface PaginatedTaskListItemListApi {
  * * `posthog_ai` - PostHog AI
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
+ * * `autoresearch` - Autoresearch
  * * `signals_scout` - Signals Scout
  * * `scout_suggestions` - Signals Scout Suggestions
  * * `support_reply` - Support Reply
@@ -1892,6 +1893,7 @@ export const TaskOriginProductEnumApi = {
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',
     ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
@@ -1949,6 +1951,7 @@ export interface TaskCreateApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -2169,6 +2172,7 @@ export interface TaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -2301,6 +2305,7 @@ export interface PatchedTaskWriteApi {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -5489,6 +5494,7 @@ export type TasksListParams = {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -5628,6 +5634,7 @@ export const TasksListExcludeOriginProduct = {
     PosthogAi: 'posthog_ai',
     Experiments: 'experiments',
     SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
     SignalsScout: 'signals_scout',
     ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
