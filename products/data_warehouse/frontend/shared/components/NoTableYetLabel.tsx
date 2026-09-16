@@ -1,13 +1,13 @@
 import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 const APPLE_ANALYTICS_REPORTS_DOCS_URL =
     'https://developer.apple.com/documentation/appstoreconnectapi/downloading-analytics-reports'
 
 export interface NoTableYetLabelProps {
-    sourceType?: ExternalDataSourceType
+    sourceType?: ExternalDataSourceTypeEnumApi
     schemaName?: string
 }
 
