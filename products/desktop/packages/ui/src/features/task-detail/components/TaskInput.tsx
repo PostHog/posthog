@@ -491,9 +491,6 @@ export function TaskInput({
   const flagsLoaded = useFeatureFlagsLoaded();
   const { defaults: runDefaults, isSettled: runDefaultsSettled } =
     useTaskRunDefaults();
-  // An explicit pick on this device outranks the stored default, the same rule
-  // `pickPreferredRunSelection` applies to the ACP model. Saving a default clears all
-  // three keys, so a new default reaches the next composer either way.
   const hasLocalModelPick = useSettingsStore(
     (state) =>
       state.lastUsedModel != null ||
@@ -511,8 +508,6 @@ export function TaskInput({
       didResolveRuntimeRef.current ||
       !settingsHydrated ||
       !flagsLoaded ||
-      // Latching before the stored default arrives would open every composer on ACP
-      // and never look again.
       !runDefaultsSettled
     ) {
       return;
@@ -903,8 +898,6 @@ export function TaskInput({
     modeFallback;
   const currentReasoningLevel =
     thoughtOption?.type === "select" ? thoughtOption.currentValue : undefined;
-  // The Pi model a stored default names, which applies on a device that has picked
-  // none of its own — the harness effect above opened this composer on Pi for it.
   const preferredPiModelId =
     !hasLocalModelPick && preferredRunsOnPi(runDefaults)
       ? runDefaults.model
@@ -924,8 +917,6 @@ export function TaskInput({
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
-  // The default's depth belongs to the default's model, so it only fills in while that
-  // model is the one shown.
   const preferredPiThinkingLevel =
     preferredPiModelId && currentPiModel?.id === preferredPiModelId
       ? (runDefaults.reasoning_effort as PiThinkingLevel | null)

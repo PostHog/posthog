@@ -154,9 +154,6 @@ describe("useTaskAgentDefaults", () => {
     expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp");
   });
 
-  // The composer resolves acp or pi before it looks at an adapter, and the stored Pi
-  // model shadows the default the same way the ACP model does. Without both moves, a Pi
-  // default saved here leaves the composer opening on Claude or Codex.
   it("moves the composer onto Pi when the new default runs there", async () => {
     const piDefault = {
       runtime: "pi",
@@ -179,7 +176,6 @@ describe("useTaskAgentDefaults", () => {
       expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("pi"),
     );
     expect(settingsStore.setLastUsedPiModel).toHaveBeenCalledWith(null);
-    // A Pi default names no adapter, so the last-used adapter stays where it was.
     expect(settingsStore.setLastUsedAdapter).not.toHaveBeenCalled();
   });
 

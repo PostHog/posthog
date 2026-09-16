@@ -28,7 +28,6 @@ const defaultsState = vi.hoisted(() => ({
     reasoning_effort: null as string | null,
   },
 }));
-// What the two levels resolve to, which the card's summary line names.
 const resolvedState = vi.hoisted(() => ({
   resolved: {
     runtime: "acp" as string | null,
@@ -235,9 +234,6 @@ describe("TaskAgentDefaultsSettings", () => {
     });
   });
 
-  // A Pi default was unreachable from this card: the harness list left Pi out, and a
-  // stored Pi selection rendered as the ACP pill, so the person could neither see the
-  // harness their runs use nor change the model it runs.
   it("shows a stored Pi default on the Pi control", async () => {
     defaultsState.myPreferences = {
       runtime: "pi",
@@ -262,13 +258,9 @@ describe("TaskAgentDefaultsSettings", () => {
       name: /Model(?: and reasoning)?: GPT-5.6 Terra/,
     });
     expect(trigger).toHaveTextContent("GPT-5.6 Terra");
-    // The summary line names the harness, which a model id alone cannot: Pi and the
-    // adapters share models.
     expect(screen.getByText(/use Pi · /)).toBeInTheDocument();
   });
 
-  // The whole point of the card: a model picked on Pi has to store as a Pi selection.
-  // Deriving an adapter for it instead would save a default that runs the other harness.
   it("saves a model picked on Pi as a Pi selection, with no adapter", async () => {
     defaultsState.myPreferences = {
       runtime: "pi",

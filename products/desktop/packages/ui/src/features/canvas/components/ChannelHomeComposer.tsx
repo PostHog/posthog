@@ -145,8 +145,6 @@ export const ChannelHomeComposer = forwardRef<
   const flagsLoaded = useFeatureFlagsLoaded();
   const { defaults: runDefaults, isSettled: runDefaultsSettled } =
     useTaskRunDefaults();
-  // An explicit pick on this device outranks the stored default, the same rule
-  // `pickPreferredRunSelection` applies to the ACP model.
   const hasLocalModelPick = useSettingsStore(
     (state) =>
       state.lastUsedModel != null ||
@@ -162,8 +160,6 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   useEffect(() => {
-    // Latch only after every input arrives. The stored default decides the harness, and the
-    // persisted picks below decide whether it applies. Both read as absent until they land.
     if (
       didResolveRuntimeRef.current ||
       !settingsHydrated ||
@@ -256,8 +252,6 @@ export const ChannelHomeComposer = forwardRef<
     fastModeOption?.type === "select"
       ? fastModeOption.currentValue === "on"
       : undefined;
-  // The Pi model a stored default names, which applies on a device that has picked
-  // none of its own — the harness effect above opened this composer on Pi for it.
   const preferredPiModelId =
     !hasLocalModelPick && preferredRunsOnPi(runDefaults)
       ? runDefaults.model
@@ -277,8 +271,6 @@ export const ChannelHomeComposer = forwardRef<
     piModelCatalog.find((model) => model.isDefault) ??
     piModelCatalog[0];
   const piThinkingLevels = currentPiModel?.thinkingLevels ?? [];
-  // The default's depth belongs to the default's model, so it only fills in while that
-  // model is the one shown.
   const preferredPiThinkingLevel =
     preferredPiModelId && currentPiModel?.id === preferredPiModelId
       ? (runDefaults.reasoning_effort as PiThinkingLevel | null)

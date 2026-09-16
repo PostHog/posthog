@@ -356,7 +356,6 @@ export interface TaskSearchResult {
  * says which level supplied them, and is `"none"` when neither is set.
  */
 export interface TaskRunDefaults {
-  /** The harness the default runs on: "acp" for claude/codex, "pi" for the Pi harness. */
   runtime: string;
   runtime_adapter: string | null;
   model: string | null;
@@ -378,10 +377,6 @@ export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
  * the project default to each surface's built-in model.
  */
 export interface TaskRunPreferences {
-  /**
-   * The harness the default runs on. Null clears it, and a row stored before the Pi
-   * harness was offered carries none, which the server reads as "acp".
-   */
   runtime: string | null;
   runtime_adapter: string | null;
   model: string | null;

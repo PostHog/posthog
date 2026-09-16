@@ -300,9 +300,6 @@ describe("pickPreferredRunSelection", () => {
       expected: null,
     },
     {
-      // Pi and the adapters share models, so a Pi default can name a model this
-      // adapter also offers. Adopting it would launch an ACP run on a default the
-      // person stored for Pi.
       label: "ignores a preference stored for the Pi harness",
       defaults: {
         runtime: "pi",
@@ -407,9 +404,6 @@ describe("matchesPreferredRunSelection", () => {
   });
 });
 
-// The composer resolves its harness before it resolves an adapter, and a Pi default
-// carries no adapter at all — so `preferredRunAdapter` answers null for one and cannot
-// tell it apart from "nothing stored".
 describe("preferredRunsOnPi", () => {
   it.each([
     {
