@@ -113,7 +113,10 @@ async function loadCurrentDistinctIds(personId: string | undefined): Promise<str
         return null
     }
     try {
-        const person = await personsRetrieve(String(ApiConfig.getCurrentProjectId()), personId)
+        // The persons route is nested under `/api/projects/`, but it is registered with a
+        // `team_id` parent lookup, so the path segment is an environment id. A child environment
+        // has a different project id, which would resolve to another environment and 404.
+        const person = await personsRetrieve(String(ApiConfig.getCurrentTeamId()), personId)
         return [...person.distinct_ids]
     } catch {
         // Without the current list the modal cannot name the stale IDs, but it still recovers.
@@ -155,7 +158,8 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                               : {}
                     let splitAction: { success?: boolean }
                     try {
-                        // personsSplitCreate needs a project id that this logic does not hold.
+                        // The split keeps the legacy flat route, because moving the working
+                        // path onto the environment-scoped route is a separate change.
                         // nosemgrep: prefer-codegen-api
                         splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
                     } catch (error) {

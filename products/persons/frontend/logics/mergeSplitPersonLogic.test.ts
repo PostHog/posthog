@@ -1,5 +1,8 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiConfig } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -41,6 +44,9 @@ describe('mergeSplitPersonLogic', () => {
             },
         })
         initKeaTests()
+        // A child environment has a project id that differs from its environment id. The default
+        // mocks give it the same value for both, which hides a request sent to the wrong scope.
+        ApiConfig.setCurrentProjectId(MOCK_TEAM_ID + 1)
 
         // execute() reports through eventUsageLogic, which must be mounted (in the app it always is)
         eventUsageLogic.mount()
@@ -127,11 +133,12 @@ describe('mergeSplitPersonLogic', () => {
         })
 
         it('recovers in place when a selected distinct ID has moved off the person', async () => {
+            let refreshScopeId: string | undefined
             useMocks({
                 get: {
-                    '/api/projects/:project_id/persons/123/': {
-                        ...MOCK_PERSON,
-                        distinct_ids: [URL_DISTINCT_ID],
+                    '/api/projects/:team_id/persons/123/': ({ params }) => {
+                        refreshScopeId = String(params.team_id)
+                        return { ...MOCK_PERSON, distinct_ids: [URL_DISTINCT_ID] }
                     },
                 },
                 post: {
@@ -160,12 +167,16 @@ describe('mergeSplitPersonLogic', () => {
             await expectLogic(personsLogicInstance).toMatchValues({
                 splitMergeModalShown: true,
             })
+            // The persons route is nested under `/api/projects/`, but the path segment it reads is
+            // the environment id. A project id there resolves to another environment and 404s, so
+            // the modal would fall back to the generic copy and name no stale IDs.
+            expect(refreshScopeId).toEqual(String(MOCK_TEAM_ID))
         })
 
         it('still recovers when the current distinct IDs cannot be loaded', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:project_id/persons/123/': () => [500, {}],
+                    '/api/projects/:team_id/persons/123/': () => [500, {}],
                 },
                 post: {
                     '/api/person/123/split/': () => [400, STALE_DISTINCT_ID_RESPONSE],
