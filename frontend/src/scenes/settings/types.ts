@@ -273,6 +273,7 @@ export type SettingId =
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
     | 'saml-configuration'
+    | 'oidc-configuration'
     | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
