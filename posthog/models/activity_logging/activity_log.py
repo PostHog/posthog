@@ -1179,6 +1179,37 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
         return None
 
 
+# The frontend matches on this job type to render the job id as a link to a sandbox task.
+# Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
+AGENT_TRIGGER_JOB_TYPE = "agent"
+
+
+def agent_trigger() -> Optional[Trigger]:
+    """The agent attribution for this request, or None when no token-bound task reached it.
+
+    The task id is required because it is the only server-set part. The intent is the agent's claim.
+    """
+    task_id = activity_storage.get_agent_task_id()
+    if not task_id:
+        return None
+    intent = activity_storage.get_agent_intent()
+    return Trigger(
+        job_type=AGENT_TRIGGER_JOB_TYPE,
+        job_id=task_id,
+        payload={"intent": intent} if intent else {},
+    )
+
+
+def _with_agent_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save."""
+    try:
+        trigger = agent_trigger()
+        return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
+    except Exception as e:
+        capture_exception(e)
+        return detail
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -1201,6 +1232,9 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    if detail.trigger is None:
+        # A product that sets its own trigger already says what drove the write.
+        detail = _with_agent_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
