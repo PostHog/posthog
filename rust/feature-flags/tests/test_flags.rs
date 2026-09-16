@@ -5524,18 +5524,25 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
 /// - With no stored `$initial_browser`, the row's `$browser` backfills it
 /// - Only when the row answers nothing does the request's own value stand, which covers the
 ///   first session, before ingestion has written the row
+///
+/// Ownership follows the `$initial_` prefix, not membership of the derivation map, so the row
+/// also wins a key the map cannot derive.
 #[rstest]
 #[case::request_initial_stands_when_row_answers_nothing(
     // posthog-js sends `$initial_browser` without a `$browser` to derive it from, so this
     // request value is the only one there is. The row has neither key.
     Some(json!({"email": "someone@example.com"})),
     json!({"$initial_browser": "Safari"}),
+    "$initial_browser",
+    "Safari",
     true
 )]
 #[case::request_initial_stands_when_no_person_row_exists(
     // Same case with no person row at all, which is the first session.
     None,
     json!({"$initial_browser": "Safari"}),
+    "$initial_browser",
+    "Safari",
     true
 )]
 #[case::override_initial_browser_does_not_replace_db(
@@ -5543,6 +5550,17 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
     // that value, so the request copy must lose.
     Some(json!({"$initial_browser": "Safari"})),
     json!({"$initial_browser": "Chrome"}),
+    "$initial_browser",
+    "Safari",
+    true
+)]
+#[case::row_owns_a_key_the_derivation_map_cannot_derive(
+    // `$initial_host` has no counterpart in the derivation map, so nothing can rebuild it.
+    // Ownership comes from the prefix alone, and the row still has to win the request copy.
+    Some(json!({"$initial_host": "app.example.com"})),
+    json!({"$initial_host": "other.example.com"}),
+    "$initial_host",
+    "app.example.com",
     true
 )]
 #[case::db_browser_backfills_initial_ahead_of_override(
@@ -5550,12 +5568,16 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
     // derivation must win over the request's $browser, which differs per device.
     Some(json!({"$browser": "Safari"})),
     json!({"$browser": "Chrome"}),
+    "$initial_browser",
+    "Safari",
     true
 )]
 #[case::db_has_initial_browser_preserves_it(
     // DB has $initial_browser, override has $browser - DB value should win
     Some(json!({"$initial_browser": "Safari", "$browser": "Firefox"})),
     json!({"$browser": "Chrome"}),
+    "$initial_browser",
+    "Safari",
     true       // Flag checking $initial_browser = Safari should match
 )]
 #[case::db_browser_backfills_initial_and_does_not_match(
@@ -5563,18 +5585,24 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
     // the request's $browser is Safari.
     Some(json!({"$browser": "Firefox"})),
     json!({"$browser": "Chrome"}),
+    "$initial_browser",
+    "Safari",
     false
 )]
 #[case::db_empty_populates_from_override(
     // DB has nothing, override has $browser - should populate from override
     None,
     json!({"$browser": "Chrome"}),
+    "$initial_browser",
+    "Safari",
     false      // Flag checking $initial_browser = Safari should NOT match
 )]
 #[tokio::test]
 async fn test_initial_property_population_respects_db_values(
     #[case] db_properties: Option<Value>,
     #[case] override_properties: Value,
+    #[case] filter_key: &str,
+    #[case] filter_value: &str,
     #[case] flag_should_match: bool,
 ) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
@@ -5596,12 +5624,12 @@ async fn test_initial_property_population_respects_db_values(
             .unwrap();
     }
 
-    // Create a flag that checks $initial_browser = "Safari"
+    // Create a flag that checks the case's $initial_ property against its expected value
     let flag_json = json!([
         {
             "id": 1,
-            "key": "initial-browser-flag",
-            "name": "Flag checking initial browser",
+            "key": "initial-property-flag",
+            "name": "Flag checking an initial property",
             "active": true,
             "deleted": false,
             "team_id": team.id,
@@ -5610,8 +5638,8 @@ async fn test_initial_property_population_respects_db_values(
                     {
                         "properties": [
                             {
-                                "key": "$initial_browser",
-                                "value": "Safari",
+                                "key": filter_key,
+                                "value": filter_value,
                                 "operator": "exact",
                                 "type": "person"
                             }
@@ -5646,9 +5674,8 @@ async fn test_initial_property_population_respects_db_values(
 
     let json_data = res.json::<Value>().await?;
 
-    // The flag checks $initial_browser = "Safari"
-    // - If DB had $initial_browser: "Safari", flag should match
-    // - If $initial_browser was populated from override's $browser: "Chrome", flag should NOT match
+    // The flag matches only when the merged property holds the case's expected value, which
+    // is the one the persons row supports rather than the one the request supplies.
     let expected_enabled = flag_should_match;
     let expected_reason = if flag_should_match {
         "condition_match"
@@ -5661,8 +5688,8 @@ async fn test_initial_property_population_respects_db_values(
         expected: json!({
             "errorsWhileComputingFlags": false,
             "flags": {
-                "initial-browser-flag": {
-                    "key": "initial-browser-flag",
+                "initial-property-flag": {
+                    "key": "initial-property-flag",
                     "enabled": expected_enabled,
                     "reason": {
                         "code": expected_reason
