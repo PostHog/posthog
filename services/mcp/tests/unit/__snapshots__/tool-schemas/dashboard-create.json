@@ -144,10 +144,7 @@
             "description": "* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
         },
         "tags": {
-            "description": "Tags for this dashboard. Send an empty list to remove all tags.",
-            "items": {
-                "type": "string"
-            },
+            "items": {},
             "type": "array"
         },
         "use_dashboard": {
