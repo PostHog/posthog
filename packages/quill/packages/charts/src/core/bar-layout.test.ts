@@ -12,7 +12,7 @@ import {
     roundOuterStackCaps,
 } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
-import { type BarScaleSet, computeStackData, createBarScales } from './scales'
+import { type BarScaleSet, computeDivergingStackData, computeStackData, createBarScales } from './scales'
 import type { ChartDimensions } from './types'
 
 // Compact plot area chosen so band/value scales produce round pixel values for snapshots.
@@ -159,6 +159,29 @@ describe('hog-charts bar-layout', () => {
                 layout: 'stacked',
                 stackedBand: stacks.get(series.key),
                 isTopOfStack,
+            })
+            expect(bars[0]?.corners).toEqual(expectedCorners)
+        })
+
+        it.each([
+            { desc: 'positive', key: 'pos', expectedCorners: { topLeft: true, topRight: true } },
+            { desc: 'negative', key: 'neg', expectedCorners: { bottomLeft: true, bottomRight: true } },
+        ])('rounds the cap away from the baseline for a $desc diverging segment', ({ key, expectedCorners }) => {
+            const pos = makeSeries({ key: 'pos', data: [10] })
+            const neg = makeSeries({ key: 'neg', data: [-5] })
+            const stacks = computeDivergingStackData([pos, neg], ['a'])
+            const stackedSeries = [pos, neg].flatMap((s) => [
+                { ...s, data: stacks.get(s.key)!.top },
+                { ...s, key: `${s.key}__bottom`, data: stacks.get(s.key)!.bottom },
+            ])
+            const scales = createBarScales([pos, neg], ['a'], dimensions, { barLayout: 'stacked', stackedSeries })
+            const series = key === 'pos' ? pos : neg
+            const bars = layoutOf({
+                series,
+                scales,
+                layout: 'stacked',
+                stackedBand: stacks.get(key),
+                isTopOfStack: true,
             })
             expect(bars[0]?.corners).toEqual(expectedCorners)
         })
