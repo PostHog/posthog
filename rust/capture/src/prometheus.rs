@@ -6,6 +6,11 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
 pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
 
+pub const CAPTURE_TIMESTAMP_PATH_TOTAL: &str = "capture_timestamp_path_total";
+pub const CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS: &str =
+    "capture_stored_vs_client_capture_seconds";
+pub const CAPTURE_EDGE_TO_NOW_SECONDS: &str = "capture_edge_to_now_seconds";
+
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
     counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
 }
@@ -26,6 +31,137 @@ pub fn report_internal_error_metrics(err_type: &'static str, stage_tag: &'static
 pub fn report_clock_skew(skew: chrono::Duration) {
     let skew_seconds = skew.num_milliseconds().saturating_abs() as f64 / 1000.0;
     metrics::histogram!("capture_client_clock_skew_seconds").record(skew_seconds);
+}
+
+/// Which branch of `parse_event_timestamp` set an event's stored timestamp. The
+/// branches do not share code, so a change to one leaves the others alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimestampPath {
+    Offset,
+    SentAtSkew,
+    TimestampRaw,
+    NowFallback,
+}
+
+impl TimestampPath {
+    /// Mirrors `common_types::timestamp::handle_timestamp`, where a present
+    /// `offset` overwrites whatever the skew branch produced.
+    pub fn resolve(has_offset: bool, measured_skew: bool, has_timestamp: bool) -> Self {
+        if has_offset {
+            Self::Offset
+        } else if measured_skew {
+            Self::SentAtSkew
+        } else if has_timestamp {
+            Self::TimestampRaw
+        } else {
+            Self::NowFallback
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Offset => "offset",
+            Self::SentAtSkew => "sent_at_skew",
+            Self::TimestampRaw => "timestamp_raw",
+            Self::NowFallback => "now_fallback",
+        }
+    }
+}
+
+/// Records the branch, and the gap between the stored timestamp and the device's
+/// own capture instant. That gap is delivery delay minus device clock offset,
+/// which a single request cannot separate.
+pub fn report_timestamp_path(
+    path: TimestampPath,
+    client_uuid: Option<uuid::Uuid>,
+    stored: chrono::DateTime<chrono::Utc>,
+) {
+    let path_tag = path.as_str();
+    counter!(CAPTURE_TIMESTAMP_PATH_TOTAL, "ts_path" => path_tag).increment(1);
+
+    let Some(captured_ms) = client_uuid.and_then(crate::utils::client_capture_millis) else {
+        return;
+    };
+    let delta_ms = stored.timestamp_millis() - captured_ms;
+    let direction = if delta_ms < 0 {
+        "stored_earlier"
+    } else {
+        "stored_later"
+    };
+    metrics::histogram!(
+        CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS,
+        "ts_path" => path_tag,
+        "direction" => direction,
+    )
+    .record(delta_ms.saturating_abs() as f64 / 1000.0);
+}
+
+/// Time from an upstream hop stamping the request to capture reading its clock.
+/// Both headers are set by infrastructure, not by the client. A negative delta
+/// means the two clocks disagree, so it is dropped, which biases the histogram high.
+pub fn report_edge_to_now(headers: &axum::http::HeaderMap, now: chrono::DateTime<chrono::Utc>) {
+    let now_ms = now.timestamp_millis();
+    if let Some(start_ms) = headers
+        .get("x-request-start")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_request_start_ms)
+    {
+        record_edge_delta("envoy", now_ms - start_ms);
+    }
+    if let Some(start_ms) = headers
+        .get("x-amzn-trace-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_amzn_trace_epoch_ms)
+    {
+        record_edge_delta("alb", now_ms - start_ms);
+    }
+}
+
+fn record_edge_delta(edge: &'static str, delta_ms: i64) {
+    if delta_ms < 0 {
+        return;
+    }
+    metrics::histogram!(CAPTURE_EDGE_TO_NOW_SECONDS, "edge" => edge)
+        .record(delta_ms as f64 / 1000.0);
+}
+
+/// Parses Envoy's `t=<seconds>.<millis>`. Integer arithmetic, because an f64
+/// seconds parse loses milliseconds at epoch magnitude.
+fn parse_request_start_ms(value: &str) -> Option<i64> {
+    let stripped = value.strip_prefix("t=").unwrap_or(value);
+    let (secs, frac) = match stripped.split_once('.') {
+        Some((s, f)) => (s, f),
+        None => (stripped, ""),
+    };
+    let secs: i64 = secs.parse().ok()?;
+    if secs < 0 {
+        return None;
+    }
+    let mut millis = 0i64;
+    if !frac.is_empty() {
+        if !frac.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let mut digits = frac.as_bytes().iter().take(3);
+        for place in [100, 10, 1] {
+            millis += i64::from(digits.next().map_or(0, |b| b - b'0')) * place;
+        }
+    }
+    secs.checked_mul(1_000)?.checked_add(millis)
+}
+
+/// Parses the ALB receive second from `Root=1-<hex epoch>-<hex id>`. Whole seconds
+/// is all AWS encodes, so this answers only whether the leg is seconds long.
+fn parse_amzn_trace_epoch_ms(value: &str) -> Option<i64> {
+    let root = value
+        .split(';')
+        .find_map(|part| part.trim().strip_prefix("Root="))?;
+    let mut fields = root.split('-');
+    if fields.next()? != "1" {
+        return None;
+    }
+    let secs = i64::from_str_radix(fields.next()?, 16).ok()?;
+    secs.checked_mul(1_000)
 }
 
 pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> PrometheusHandle {
@@ -107,6 +243,11 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     const CLOCK_SKEW_SECONDS: &[f64] = &[
         0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, 3600.0, 86400.0,
     ];
+
+    // Coarse on purpose, because every extra bucket multiplies by the label
+    // combinations. 150 is the largest offset that could plausibly be transit
+    // delay rather than a wrong clock.
+    const DISPLACEMENT_SECONDS: &[f64] = &[0.05, 0.25, 1.0, 5.0, 30.0, 150.0, 3600.0];
 
     // Kafka produce ack duration (milliseconds), measured app-side from
     // `send_result()` returning to broker ack / error / cancellation.
@@ -221,6 +362,118 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
             CLOCK_SKEW_SECONDS,
         )
         .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full(CAPTURE_STORED_VS_CLIENT_CAPTURE_SECONDS.to_string()),
+            DISPLACEMENT_SECONDS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full(CAPTURE_EDGE_TO_NOW_SECONDS.to_string()),
+            DISPLACEMENT_SECONDS,
+        )
+        .unwrap()
         .install_recorder()
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::{client_capture_millis, uuid_v7};
+    use uuid::Uuid;
+
+    #[test]
+    fn request_start_keeps_millisecond_resolution() {
+        // An f64 seconds parse rounds these away into the first bucket.
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.571"),
+            Some(1789599946571)
+        );
+        assert_eq!(
+            parse_request_start_ms("1789599946.571"),
+            Some(1789599946571)
+        );
+        assert_eq!(parse_request_start_ms("t=1789599946"), Some(1789599946000));
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.5"),
+            Some(1789599946500)
+        );
+        assert_eq!(
+            parse_request_start_ms("t=1789599946.571999"),
+            Some(1789599946571)
+        );
+    }
+
+    #[test]
+    fn request_start_rejects_rather_than_guesses() {
+        for bad in [
+            "",
+            "t=",
+            "t=abc",
+            "t=1789599946.5x1",
+            "t=-5.0",
+            "  t=1789599946.571",
+        ] {
+            assert_eq!(parse_request_start_ms(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn amzn_trace_id_yields_the_alb_receive_second() {
+        // 0x6aab20ca is the epoch second AWS encodes in the Root field.
+        assert_eq!(
+            parse_amzn_trace_epoch_ms("Root=1-6aab20ca-7499b34d351523a60de25e91"),
+            Some(1789599946000)
+        );
+        assert_eq!(
+            parse_amzn_trace_epoch_ms(
+                "Self=1-deadbeef-abc;Root=1-6aab20ca-7499b34d351523a60de25e91"
+            ),
+            Some(1789599946000)
+        );
+    }
+
+    #[test]
+    fn amzn_trace_id_rejects_other_shapes() {
+        for bad in [
+            "",
+            "Root=",
+            "Root=2-6aab20ca-7499b34d351523a60de25e91",
+            "Root=1-zzzzzzzz-7499b34d351523a60de25e91",
+            "Self=1-6aab20ca-7499b34d351523a60de25e91",
+        ] {
+            assert_eq!(parse_amzn_trace_epoch_ms(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn timestamp_path_follows_the_offset_override() {
+        // `offset` wins even when a skew was also measured.
+        assert_eq!(
+            TimestampPath::resolve(true, true, true),
+            TimestampPath::Offset
+        );
+        assert_eq!(
+            TimestampPath::resolve(false, true, true),
+            TimestampPath::SentAtSkew
+        );
+        assert_eq!(
+            TimestampPath::resolve(false, false, true),
+            TimestampPath::TimestampRaw
+        );
+        assert_eq!(
+            TimestampPath::resolve(false, false, false),
+            TimestampPath::NowFallback
+        );
+    }
+
+    #[test]
+    fn only_a_v7_uuid_reports_a_capture_instant() {
+        assert_eq!(
+            client_capture_millis(uuid_v7(1_700_000_000_123)),
+            Some(1_700_000_000_123)
+        );
+        assert_eq!(client_capture_millis(Uuid::new_v4()), None);
+        assert_eq!(client_capture_millis(Uuid::nil()), None);
+    }
 }
