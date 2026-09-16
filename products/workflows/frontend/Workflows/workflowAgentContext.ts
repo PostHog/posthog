@@ -23,16 +23,21 @@ const DESIGNING_EMAIL_TEMPLATES_SKILL = 'designing-email-templates'
 // as trusted `instructions` items. The skill bodies and tool schemas are not embedded: product skills
 // are installed in the agent's sandbox, and the exec MCP tool already exposes the workflows commands,
 // so naming them is enough to skip discovery.
-const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
+const TOOLING_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
     dismissGroup: SKILL_DISMISS_GROUP,
     value:
-        `The user has the PostHog workflow editor open. Load the ${BUILDING_WORKFLOWS_SKILL} skill before your ` +
+        `Load the ${BUILDING_WORKFLOWS_SKILL} skill before your ` +
         'first tool call; it covers the action/edge graph schema and the patch workflow. Act through the ' +
         'workflows MCP tools (the exec `workflows-*` commands: workflows-get, workflows-patch-graph, ' +
         'workflows-update, workflows-test-run, workflows-publish, workflows-logs, and the rest). Do not search ' +
         'for tools; use the exec `info <tool>` command when you need a full input schema.',
+}
+
+const PREAMBLE_CONTEXT_ITEM: AttachedContextItem = {
+    ...TOOLING_CONTEXT_ITEM,
+    value: `The user has the PostHog workflow editor open. ${TOOLING_CONTEXT_ITEM.value}`,
 }
 
 const EDITOR_STATE_CONTEXT_ITEM: AttachedContextItem = {
@@ -142,7 +147,7 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
  */
 export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
     return [
-        { ...PREAMBLE_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
+        { ...TOOLING_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
         { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
         DRAFT_FIRST_CONTEXT_ITEM,
     ]

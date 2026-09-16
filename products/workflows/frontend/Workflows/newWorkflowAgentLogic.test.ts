@@ -50,11 +50,12 @@ describe('newWorkflowAgentLogic', () => {
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                // Newest first, like the real list: a same-named older draft must not win over the new one.
+                // Ordered by update time, like the real list: a same-named older draft that was touched since
+                // must not win over the new one.
                 '/api/environments/:team_id/hog_flows/': {
                     results: [
-                        { id: WORKFLOW_ID, name: NAME },
-                        { id: OLDER_ID, name: NAME },
+                        { id: OLDER_ID, name: NAME, created_at: '2026-09-01T00:00:00Z' },
+                        { id: WORKFLOW_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' },
                     ],
                     count: 2,
                 },
@@ -115,12 +116,20 @@ describe('newWorkflowAgentLogic', () => {
     it.each([
         { name: 'the lookup fails', response: () => [500, { detail: 'boom' }] },
         { name: 'no workflow matches', response: () => [200, { results: [], count: 0 }] },
-    ])('says the draft could not be opened when $name', async ({ response }) => {
-        useMocks({ get: { '/api/environments/:team_id/hog_flows/': response } })
+        {
+            name: 'the create call sent no name',
+            overrides: { invocation: { input: { command: 'call workflows-create {}' } } },
+        },
+    ])('says the draft could not be opened when $name', async ({ response, overrides }) => {
+        if (response) {
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/': response } })
+        }
         const toast = jest.spyOn(lemonToast, 'error')
 
         await expectLogic(logic, () => {
-            toolStreamEventsLogic.actions.emitToolEvent(createEvent({}))
+            toolStreamEventsLogic.actions.emitToolEvent(
+                createEvent(overrides ? { invocation: { ...createEvent({}).invocation, ...overrides.invocation } } : {})
+            )
         }).toFinishAllListeners()
 
         expect(toast).toHaveBeenCalledTimes(1)

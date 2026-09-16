@@ -25,13 +25,19 @@ const CREATE_WORKFLOW_TOOL = 'workflows-create'
 /**
  * The id of the draft a `workflows-create` call just made. The call's output is not usable for this: a
  * workflow with rendered email HTML exceeds the harness's tool-result limit, and the frontend only sees
- * the "saved to file" notice. The list is newest-first, so the first workflow with the name the agent
- * sent is the one it created; without a usable name, the newest workflow is taken.
+ * the "saved to file" notice. Names are not unique and the list is ordered by update time, which a
+ * background refresh bumps, so among exact-name matches the most recently created one is taken. Without
+ * a usable name there is no safe guess, and the page does not hand off.
  */
 export async function findCreatedWorkflowId(name: unknown): Promise<string | null> {
     const search = typeof name === 'string' && name.trim() ? name.trim() : undefined
+    if (!search) {
+        return null
+    }
     const { results } = await api.hogFlows.getHogFlows({ search, limit: 5 })
-    const match = search ? results.find((workflow) => workflow.name === search) : results[0]
+    const match = results
+        .filter((workflow) => workflow.name === search)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
     return match?.id ?? null
 }
 
@@ -148,7 +154,8 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
                 // open it. Both leave the run on screen, so the thread continues either way.
                 workflowId = null
             }
-            if (cache.handedOff) {
+            // The composer can be cleared or re-sent while the lookup is in flight.
+            if (cache.handedOff || event.streamKey !== values.activeCreation?.streamKey) {
                 return
             }
             if (!workflowId) {

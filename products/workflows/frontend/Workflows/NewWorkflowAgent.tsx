@@ -36,21 +36,20 @@ export function NewWorkflowAgent(): JSX.Element {
         // While drafting, the runner takes its natural height so the cards sit right under the composer;
         // once a run starts it fills the page like the side panel.
         <div className="flex flex-col grow min-h-0" data-attr="new-workflow-agent">
-            {/* Same shape as the tree view's trial banner: the escape hatch rides the banner's action. */}
-            {!activeCreation && (
-                <LemonBanner
-                    type="ai"
-                    className="m-2 shrink-0"
-                    action={{
-                        children: 'Use the editor instead',
-                        onClick: openEditorFromAiComposer,
-                        'data-attr': 'new-workflow-agent-open-editor',
-                    }}
-                >
-                    We're trialling building workflows with PostHog AI. Describe what you want and it drafts the
-                    workflow for you to refine.
-                </LemonBanner>
-            )}
+            {/* Same shape as the tree view's trial banner: the escape hatch rides the banner's action, and it
+                stays up during a run so a turn that never creates the draft still leaves a way out. */}
+            <LemonBanner
+                type="ai"
+                className="m-2 shrink-0"
+                action={{
+                    children: 'Use the editor instead',
+                    onClick: openEditorFromAiComposer,
+                    'data-attr': 'new-workflow-agent-open-editor',
+                }}
+            >
+                We're trialling building workflows with PostHog AI. Describe what you want and it drafts the workflow
+                for you to refine.
+            </LemonBanner>
             <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0 mt-auto')}>
                 <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
             </div>
