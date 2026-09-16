@@ -21,12 +21,15 @@ from hogli_commands.doctor import (
     GitHealth,
     _binary_arches,
     _check_git_health,
+    _cleanup_docker,
     _cleanup_git,
     _collect_import_targets,
+    _collect_rust_target_dirs,
     _config_procs,
     _confirm_stack_teardown,
     _container_mounts,
     _copy_volume,
+    _docker_reclaimable,
     _find_service_container,
     _find_volume_mount,
     _format_kv_block,
@@ -38,7 +41,9 @@ from hogli_commands.doctor import (
     _git_main_worktree,
     _git_maintenance_registered,
     _is_excluded,
+    _nix_chunk_size,
     _normalize_arch,
+    _parse_docker_size,
     _phrocs_info,
     _phrocs_runtime_pairs,
     _phrocs_socket_path,
@@ -1838,3 +1843,88 @@ def test_housekeeping_scan_claims_git_dir_given_as_an_option_value(
     monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: Path("/somewhere/else/.git"))
 
     assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is True
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("0B", 0.0),
+        ("512B", 512.0),
+        ("26.5GB (78%)", 26.5 * 10**9),
+        ("1.05TB", 1.05 * 10**12),
+        ("9.7kB", 9700.0),
+        ("N/A", 0.0),
+        ("", 0.0),
+    ],
+)
+def test_parse_docker_size(value: str, expected: float) -> None:
+    assert _parse_docker_size(value) == pytest.approx(expected)
+
+
+def test_docker_reclaimable_counts_only_the_requested_types() -> None:
+    rows = [
+        {"Type": "Images", "Size": "33.9GB", "Reclaimable": "26.5GB (78%)"},
+        {"Type": "Containers", "Size": "1.2GB", "Reclaimable": "1.2GB (100%)"},
+        {"Type": "Local Volumes", "Size": "40GB", "Reclaimable": "40GB (100%)"},
+        {"Type": "Build Cache", "Size": "3GB", "Reclaimable": "3GB"},
+    ]
+
+    assert _docker_reclaimable(rows, ("Images", "Containers", "Build Cache")) == pytest.approx(30.7 * 10**9)
+    assert _docker_reclaimable(rows, ("Local Volumes",)) == pytest.approx(40 * 10**9)
+
+
+def test_cleanup_docker_leaves_volumes_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    commands: list[list[str]] = []
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        commands.append(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    _cleanup_docker(CleanupEstimate(total_size=0.0), Path("/repo"))
+
+    prunes = [cmd for cmd in commands if "prune" in cmd]
+    assert prunes == [["docker", "system", "prune", "-a", "-f"]]
+
+
+def test_nix_chunk_size_resumes_past_an_invalid_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # nix-store answers in argument order, then aborts on the first path that went
+    # invalid, so a batch holding one stale entry must not lose the sizes around it.
+    sizes = {"/nix/store/a": 100, "/nix/store/b": 200, "/nix/store/d": 400}
+
+    def fake_run(cmd: Sequence[str], **kwargs: object) -> SimpleNamespace:
+        answered = []
+        for path in cmd[3:]:
+            if path not in sizes:
+                return SimpleNamespace(
+                    returncode=1,
+                    stdout="".join(f"{size}\n" for size in answered),
+                    stderr=f"error: path '{path}' is not valid",
+                )
+            answered.append(sizes[path])
+        return SimpleNamespace(returncode=0, stdout="".join(f"{size}\n" for size in answered), stderr="")
+
+    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+
+    paths = ["/nix/store/a", "/nix/store/b", "/nix/store/c", "/nix/store/d"]
+    assert _nix_chunk_size(paths) == pytest.approx(700.0)
+
+
+def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The Flox env points CARGO_TARGET_DIR outside the checkout, so a repo-only
+    # scan reports the Rust artifacts as empty while they hold tens of GB.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared_target = tmp_path / "cargo-target"
+    (shared_target / "debug").mkdir(parents=True)
+    (shared_target / "debug" / "artifact.rlib").write_bytes(b"x" * 4096)
+
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(shared_target))
+
+    items = _collect_rust_target_dirs(repo)
+
+    assert [item.path for item in items] == [shared_target]
+    assert items[0].size == 4096
