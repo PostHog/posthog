@@ -2529,9 +2529,9 @@ export class SessionService {
       this.sessionLastUsedAt.delete(session.taskId);
     }
     if (!opts?.preserveResumeState) {
-      // Reconnect restores the model, billing and permission mode from these;
-      // only a permanent disconnect (archive, delete, fresh session) may drop
-      // them.
+      // Reconnect restores the model, billing and permission mode from these,
+      // so only a delete or a fresh session drops them. Archive keeps them
+      // (it passes preserveResumeState) because an undo resumes the same run.
       this.d.adapterStore.removeAdapter(taskRunId);
       this.d.billingStore.removeBilling(taskRunId);
       this.d.removePersistedConfigOptions(taskRunId);
@@ -2888,11 +2888,14 @@ export class SessionService {
     this.d.store.setSession(session);
   }
 
-  async disconnectFromTask(taskId: string): Promise<void> {
+  async disconnectFromTask(
+    taskId: string,
+    opts?: { preserveResumeState?: boolean },
+  ): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return;
 
-    await this.teardownSession(session.taskRunId);
+    await this.teardownSession(session.taskRunId, opts);
   }
 
   registerMountedTask(taskId: string): () => void {

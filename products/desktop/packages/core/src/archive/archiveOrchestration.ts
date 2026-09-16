@@ -39,7 +39,10 @@ export interface ArchiveOrchestrationDeps {
   stopCloudRun(taskId: string, runId?: string): Promise<boolean>;
   /** Answer nothing and close every prompt the task's session is holding. */
   cancelPendingPermissions(taskId: string): Promise<void>;
-  disconnectFromTask(taskId: string): Promise<void>;
+  disconnectFromTask(
+    taskId: string,
+    opts?: { preserveResumeState?: boolean },
+  ): Promise<void>;
   archive(taskId: string): Promise<void>;
   clearViewedState(taskId: string): void;
   logError(message: string, error: unknown): void;
@@ -119,7 +122,11 @@ export async function archiveTask(
     // bootstrap, so the task comes back asking a question from a list it has
     // been removed from, with nothing anywhere pointing at it.
     await deps.cancelPendingPermissions(taskId);
-    await deps.disconnectFromTask(taskId);
+    // Archive can be undone, and the same run resumes. Keep the run's resume
+    // state (billing, adapter, config) so a restore does not silently fall back
+    // to the global defaults. Deleting a task drops it through the same call
+    // without this flag.
+    await deps.disconnectFromTask(taskId, { preserveResumeState: true });
     await deps.archive(taskId);
     deps.clearTerminalStates(taskId);
     deps.clearViewedState(taskId);

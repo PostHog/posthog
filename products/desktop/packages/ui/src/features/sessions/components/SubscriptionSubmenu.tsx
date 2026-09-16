@@ -91,12 +91,19 @@ export function SubscriptionSubmenu({
       : subscription.subscriptionOn
         ? "own-subscription"
         : "posthog-gateway";
-  const wantsOwnSubscription =
+  // Effective billing (what the run actually bills) drives the label.
+  const billsOwnSubscription =
     scopedAccess !== undefined
       ? scopedAccess === "own-subscription"
       : subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
         "own-subscription";
-  const valueLabel = wantsOwnSubscription ? providerLabel : "PostHog";
+  const valueLabel = billsOwnSubscription ? providerLabel : "PostHog";
+  // Requested billing drives the login note: someone who picked the provider
+  // must see the prompt to log in even while the run still bills PostHog.
+  const wantsOwnSubscription =
+    scopedAccess !== undefined
+      ? scopedAccess === "own-subscription"
+      : subscription.subscriptionOn;
 
   return (
     <DropdownMenuSub>
@@ -118,8 +125,10 @@ export function SubscriptionSubmenu({
               subscription.setCloudSubscriptionOn?.(
                 next === "own-subscription",
               );
-            } else if (scopedAccess !== undefined) {
-              onScopedChange?.(access);
+            } else if (onScopedChange) {
+              // A per-conversation menu routes to the run, never the global
+              // default, even when the run has no resolved billing to echo yet.
+              onScopedChange(access);
             } else {
               applyModelAccess(adapter, access, subscription.loggedIn);
             }
