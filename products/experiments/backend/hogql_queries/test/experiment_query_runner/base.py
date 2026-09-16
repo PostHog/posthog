@@ -51,6 +51,14 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
+    def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
+        # The precomputed case of a ("direct", False) / ("precomputed", True) pair differs from
+        # the direct case only in the exposures CTE, which the preaggregation test files already
+        # snapshot. Both cases still run; only the duplicate SQL snapshot is skipped.
+        if self._testMethodName.endswith("precomputed"):
+            return
+        super().assertQueryMatchesSnapshot(query, params=params, replace_all_numbers=replace_all_numbers)
+
     def _setup_precomputation_test(self, use_precomputation: bool):
         """Initialize test for precomputation path (cleanup existing data)"""
         if use_precomputation:
