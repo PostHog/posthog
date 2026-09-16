@@ -62,6 +62,7 @@ from products.batch_exports.backend.temporal.destinations.utils import (
     get_manifest_key,
     get_object_key,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -77,6 +78,7 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 # Errors that any write to S3 can raise, whichever bucket it targets. The file download
 # export shares these, since it runs the same write against a PostHog-owned bucket.
 S3_WRITE_NON_RETRYABLE_ERROR_TYPES = (
+    "MissingRequiredInputsError",
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -219,7 +221,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     legacy_parquet_extension: bool = True
 
 
-def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, *, run_id: str | None = None) -> str:
+def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, file_name_prefix: str | None = None) -> str:
     return get_object_key(
         prefix=inputs.prefix,
         data_interval_start=inputs.data_interval_start,
@@ -230,7 +232,7 @@ def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0, *, run_
         legacy_parquet_extension=inputs.legacy_parquet_extension,
         file_number=file_number,
         include_file_number=bool(inputs.max_file_size_mb),
-        run_id=run_id,
+        file_name_prefix=file_name_prefix,
     )
 
 
@@ -602,7 +604,7 @@ async def s3_client(
 async def _resolve_credentials_from_integration(inputs: S3InsertInputs) -> ResolvedS3Credentials:
     """Resolve an export's S3 credentials from the Integration it links to."""
     if inputs.data_interval_end is None:
-        raise ValueError("Scheduled S3 exports require a data_interval_end")
+        raise MissingRequiredInputsError("Scheduled S3 exports require a data_interval_end")
     if inputs.integration_id is None:
         raise MissingIntegrationError(inputs.batch_export_id)
 
@@ -705,7 +707,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
 
 
 async def insert_into_s3_from_stage(
-    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials, *, run_id: str | None = None
+    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials, file_name_prefix: str | None = None
 ) -> S3BatchExportResult:
     """Write data staged in our internal S3 stage to a target S3 bucket.
 
@@ -734,7 +736,7 @@ async def insert_into_s3_from_stage(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
-        get_s3_key_from_inputs(inputs, run_id=run_id),
+        get_s3_key_from_inputs(inputs, file_name_prefix=file_name_prefix),
     )
 
     queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -795,7 +797,7 @@ async def insert_into_s3_from_stage(
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
             checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
-            run_id=run_id,
+            file_name_prefix=file_name_prefix,
         )
 
         result = await run_consumer_from_stage(
@@ -847,8 +849,7 @@ class ConcurrentS3Consumer(Consumer):
         legacy_parquet_extension: bool = True,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
-        *,
-        run_id: str | None = None,
+        file_name_prefix: str | None = None,
     ):
         super().__init__(model=batch_export_model.name if batch_export_model else "events")
 
@@ -858,7 +859,7 @@ class ConcurrentS3Consumer(Consumer):
 
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
-        self.run_id = run_id
+        self.file_name_prefix = file_name_prefix
         self.batch_export_model = batch_export_model
 
         self.checksum_algorithm = checksum_algorithm
@@ -905,8 +906,7 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
         checksum_algorithm: str | None = None,
-        *,
-        run_id: str | None = None,
+        file_name_prefix: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -926,7 +926,7 @@ class ConcurrentS3Consumer(Consumer):
             legacy_parquet_extension=s3_inputs.legacy_parquet_extension,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
-            run_id=run_id,
+            file_name_prefix=file_name_prefix,
         )
 
     async def finalize_file(self):
@@ -1132,7 +1132,7 @@ class ConcurrentS3Consumer(Consumer):
             legacy_parquet_extension=self.legacy_parquet_extension,
             file_number=self.current_file_index,
             include_file_number=bool(self.max_file_size_mb),
-            run_id=self.run_id,
+            file_name_prefix=self.file_name_prefix,
         )
 
     async def _start_new_file(self):
@@ -1248,7 +1248,7 @@ class ConcurrentS3Consumer(Consumer):
                 self.data_interval_start,
                 self.data_interval_end,
                 self.batch_export_model,
-                run_id=self.run_id,
+                file_name_prefix=self.file_name_prefix,
             )
             self.external_logger.info("Uploading manifest file '%s'", manifest_key)
             await self.upload_manifest_file(

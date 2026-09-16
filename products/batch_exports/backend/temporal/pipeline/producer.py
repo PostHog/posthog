@@ -12,6 +12,7 @@ from opentelemetry import trace
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.metrics import CumulativeTimer
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder, get_s3_client
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
@@ -109,7 +110,7 @@ class Producer:
         # TODO: after deployment, remove the fallback behaviour.
         if stage_folder is None:
             if data_interval_end is None:
-                raise ValueError("An explicit stage_folder is required without a data_interval_end")
+                raise MissingRequiredInputsError("An explicit stage_folder is required without a data_interval_end")
             stage_folder = get_base_s3_staging_folder(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,

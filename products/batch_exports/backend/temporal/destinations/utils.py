@@ -8,6 +8,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
@@ -66,14 +67,13 @@ def get_manifest_key(
     data_interval_start: str | None,
     data_interval_end: str | None,
     batch_export_model: BatchExportModel | None,
-    *,
-    run_id: str | None = None,
+    file_name_prefix: str | None = None,
 ) -> str:
     """Generate manifest file key."""
-    if run_id is not None and (data_interval_start is None or data_interval_end is None):
-        return posixpath.join(prefix, f"{run_id}_manifest.json")
+    if file_name_prefix is not None and (data_interval_start is None or data_interval_end is None):
+        return posixpath.join(prefix, f"{file_name_prefix}_manifest.json")
     if data_interval_end is None:
-        raise ValueError("A run_id is required to name an export without a data_interval_end")
+        raise MissingRequiredInputsError("Provide a filename prefix for an export without an end bound.")
     key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
     return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
@@ -105,17 +105,16 @@ def get_object_key(
     legacy_parquet_extension: bool = False,
     file_number: int = 0,
     include_file_number: bool = False,
-    *,
-    run_id: str | None = None,
+    file_name_prefix: str | None = None,
 ) -> str:
     """Generate object storage key for batch export files."""
-    if run_id is not None and (data_interval_start is None or data_interval_end is None):
+    if file_name_prefix is not None and (data_interval_start is None or data_interval_end is None):
         key_prefix = prefix
-        base_file_name = run_id
+        base_file_name = file_name_prefix
         include_file_number = True
     else:
         if data_interval_end is None:
-            raise ValueError("A run_id is required to name an export without a data_interval_end")
+            raise MissingRequiredInputsError("Provide a filename prefix for an export without an end bound.")
         key_prefix = get_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
         base_file_name = f"{data_interval_start}-{data_interval_end}"
 

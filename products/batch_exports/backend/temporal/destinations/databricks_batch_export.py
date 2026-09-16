@@ -193,7 +193,7 @@ class DatabricksIncompatibleSchemaError(DatabricksOperationError):
         )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
 

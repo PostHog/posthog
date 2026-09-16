@@ -103,13 +103,12 @@ def _get_config_for_interval(
         ValueError: If the interval is not one this function knows how to configure.
     """
     if interval is None:
-        if (
-            main_activity_timeout_seconds is None
-            or main_activity_timeout_seconds <= 0
-            or stage_activity_timeout_seconds is None
-            or stage_activity_timeout_seconds <= 0
-        ):
-            raise ValueError("Exports without an interval require positive activity timeouts")
+        assert (
+            main_activity_timeout_seconds is not None
+            and main_activity_timeout_seconds > 0
+            and stage_activity_timeout_seconds is not None
+            and stage_activity_timeout_seconds > 0
+        ), "Exports without an interval require positive activity timeouts"
         return IntervalConfig(
             main_start_to_close=max(dt.timedelta(seconds=main_activity_timeout_seconds), override_start_to_close),
             stage_start_to_close=dt.timedelta(seconds=stage_activity_timeout_seconds),
@@ -322,8 +321,10 @@ async def execute_batch_export_using_internal_stage(
     heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
     heartbeat_timeout = dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None
 
-    if interval is None and (model_name != "hogql" or not batch_export_inputs.on_demand):
-        raise ValueError("Only on-demand HogQL exports can omit the interval")
+    if interval is None:
+        assert model_name == "hogql" and batch_export_inputs.on_demand, (
+            "Only on-demand HogQL exports can omit the interval"
+        )
     interval_config = _get_config_for_interval(
         interval,
         dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0),

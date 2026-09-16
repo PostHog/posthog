@@ -17,7 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
-from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
+from products.batch_exports.backend.models.batch_export import BatchExportFileDownload, BatchExportRun
 from products.batch_exports.backend.service import (
     AWSCredentials,
     BatchExportInsertInputs,
@@ -38,6 +38,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     insert_into_s3_from_stage,
     s3_default_fields,
 )
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
@@ -249,16 +250,18 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
     prefix = FILE_DOWNLOAD_PREFIX.format(
         batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=inputs.batch_export.run_id
     )
-    run_id = None
+    file_name_prefix = None
     if inputs.batch_export.on_demand and (
         inputs.batch_export.data_interval_start is None or inputs.batch_export.data_interval_end is None
     ):
         run_id = inputs.batch_export.run_id
         if run_id is None:
-            raise ValueError("An on-demand file download requires a run_id")
+            raise MissingRequiredInputsError("An on-demand file download requires a run_id")
         prefix = FILE_DOWNLOAD_UNBOUNDED_PREFIX.format(
             batch_export_id=inputs.batch_export.batch_export_id, batch_export_run_id=run_id
         )
+        run = await BatchExportRun.objects.aget(id=run_id, batch_export_on_demand__team_id=inputs.batch_export.team_id)
+        file_name_prefix = f"export-{run.created_at.astimezone(dt.UTC):%Y-%m-%dT%H-%M-%SZ}"
 
     refresh_credentials = functools.partial(
         _get_temporary_credentials_for_multipart_upload,
@@ -297,7 +300,9 @@ async def export_to_file_download_bucket_with_temporary_credentials(inputs: Expo
             credentials=await refresh_credentials(),
             refresh_using=refresh_credentials,
         )
-        return await insert_into_s3_from_stage(s3_insert_inputs, resolved_credentials, run_id=run_id)
+        return await insert_into_s3_from_stage(
+            s3_insert_inputs, resolved_credentials, file_name_prefix=file_name_prefix
+        )
 
 
 @dataclasses.dataclass
@@ -337,8 +342,9 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
         incomplete_interval = inputs.data_interval_start is None or inputs.data_interval_end is None
         data_interval: DataInterval | None = None
         if on_demand and incomplete_interval:
-            if inputs.batch_export_model is None or inputs.batch_export_model.name != "hogql":
-                raise ValueError("Only on-demand HogQL exports can omit interval bounds")
+            assert inputs.batch_export_model is not None and inputs.batch_export_model.name == "hogql", (
+                "Only on-demand HogQL exports can omit interval bounds"
+            )
             interval = None
             data_interval_start = inputs.data_interval_start
             data_interval_end = inputs.data_interval_end
