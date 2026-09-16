@@ -421,11 +421,11 @@ tools:
         description: >
             Fire a schedule-triggered workflow once, right now, outside its cadence. The workflow must be active
             (workflows-enable) and have a 'schedule' trigger; a batch trigger dispatches with workflows-run-batch
-            instead, and other trigger types fire from their own source. Every call queues a new run, so do not
-            retry one that returned an invocation_id. Pass `variables` to override the workflow's variable defaults
-            for this run only. Returns the queued invocation_id; read it with workflows-get-invocation. For a Desktop
-            loop this is the "Run now" action: the run creates one task, which tasks-list shows under `hog_flow_id`.
-            To step through a workflow without side effects use workflows-test-run.
+            instead, and other trigger types fire from their own source. Every call queues a new run, so do not retry
+            one that returned an invocation_id. Pass `variables` to override the workflow's variable defaults for this
+            run only. Returns the queued invocation_id; read it with workflows-get-invocation. For a Desktop loop this
+            is the "Run now" action: the run creates one task, which tasks-list shows under `hog_flow_id`. To step
+            through a workflow without side effects use workflows-test-run.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
