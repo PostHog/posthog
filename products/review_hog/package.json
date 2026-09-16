@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-review-hog",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/reviewer/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/reviewer/tests eval/scripts/tests -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
