@@ -356,13 +356,45 @@ const EMPTY_REASON_CASES: EmptyReasonCase[] = [
 const NARROWING_ACTION_CASES: {
     narrowing: string
     experimentId: number
+    team?: Partial<TeamType>
     setup?: (logic: TabLogic) => void
+    reason: ExperimentReplayListEmptyReason
     action: ExperimentRecordingsNarrowingAction | null
 }[] = [
-    { narrowing: 'a filter added above', experimentId: 152, setup: addFilterBarFilter, action: 'clear_filters' },
-    { narrowing: 'a selected variant', experimentId: 153, setup: selectTestVariant, action: 'show_all_variants' },
-    { narrowing: 'the in-session scope', experimentId: 154, setup: narrowToInSession, action: 'all_sessions' },
-    { narrowing: 'nothing', experimentId: 155, action: null },
+    {
+        narrowing: 'a filter added above',
+        experimentId: 152,
+        setup: addFilterBarFilter,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'clear_filters',
+    },
+    {
+        narrowing: 'a selected variant',
+        experimentId: 153,
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'show_all_variants',
+    },
+    {
+        narrowing: 'the in-session scope',
+        experimentId: 154,
+        setup: narrowToInSession,
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        action: 'all_sessions',
+    },
+    { narrowing: 'nothing', experimentId: 155, reason: ExperimentReplayListEmptyReason.TooEarly, action: null },
+    {
+        // Replay off names its own cause, and its banner offers the settings link alone. The
+        // variant still narrows the tab, so reading the narrowing rather than the reason would
+        // report a button this viewer was never given, and every reason's click-through rate would
+        // be measured against renders that offered nothing.
+        narrowing: 'a selected variant under replay off',
+        experimentId: 156,
+        team: { session_recording_opt_in: false },
+        setup: selectTestVariant,
+        reason: ExperimentReplayListEmptyReason.ReplayDisabled,
+        action: null,
+    },
 ]
 
 describe('experimentReplayTabLogic', () => {
@@ -927,10 +959,10 @@ describe('experimentReplayTabLogic', () => {
     )
 
     it.each(NARROWING_ACTION_CASES)(
-        'answers a young run narrowed by $narrowing with $action',
-        async ({ experimentId, setup, action }) => {
+        'reports $action as the way out of a young run narrowed by $narrowing',
+        async ({ experimentId, team, setup, reason, action }) => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
             const young = experimentReplayTabLogic({
                 experiment: { ...EXPERIMENT, id: experimentId, start_date: daysAgo(1), end_date: null } as Experiment,
             })
@@ -941,11 +973,10 @@ describe('experimentReplayTabLogic', () => {
             young.actions.recordingsLoaded([])
             await expectLogic(young).toFinishAllListeners()
 
-            expect(young.values.listEmptyContext.narrowingAction).toBe(action)
-            // The banner reads the context, and the report reads it too, so a viewer who was given
-            // a way out and one who was counted as given it cannot come apart.
+            // The banner and the report both resolve the action from the reason, so a viewer who
+            // was handed a way out and a render counted as offering one cannot come apart.
             expect(listsRendered(captureSpy, experimentId)[0][1]).toMatchObject({
-                empty_reason: ExperimentReplayListEmptyReason.TooEarly,
+                empty_reason: reason,
                 narrowing_action: action,
             })
             young.unmount()

@@ -292,6 +292,36 @@ function narrowingAction(
 }
 
 /**
+ * The way out the empty state offers for a reason, null when that reason's banner offers none. The
+ * banner and the render report both read this, so a viewer who is handed a way out and a render
+ * counted as offering one cannot come apart.
+ *
+ * Too early borrows whatever narrows the list, because on a run that young the age of the run is
+ * the cause however the viewer narrowed it. The three narrowing reasons name their own way out,
+ * which is the one `narrowingAction` resolves, since the reasons and the narrowings are read in one
+ * order. Every other reason has nothing a narrowing can fix: replay is off, the window expired, the
+ * metric filter matched nothing or failed. A variant that still narrows the tab widens none of
+ * those, so none of them offers it.
+ */
+export function offeredNarrowingAction(
+    reason: ExperimentReplayListEmptyReason,
+    narrowing: ExperimentRecordingsNarrowingAction | null
+): ExperimentRecordingsNarrowingAction | null {
+    switch (reason) {
+        case ExperimentReplayListEmptyReason.TooEarly:
+            return narrowing
+        case ExperimentReplayListEmptyReason.FiltersNarrowed:
+            return 'clear_filters'
+        case ExperimentReplayListEmptyReason.VariantHasNone:
+            return 'show_all_variants'
+        case ExperimentReplayListEmptyReason.InSessionHasNone:
+            return 'all_sessions'
+        default:
+            return null
+    }
+}
+
+/**
  * The hide-viewed setting as the report names it. The setting is persisted, and a value stored
  * before it named whose recordings to hide is a plain `true`, which is why the option is read off
  * truthiness rather than matched value for value. `playerSettingsLogic` upgrades that `true` to
@@ -1868,7 +1898,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 ...values.filterContext,
                 result_count: recordings.length,
                 empty_reason: recordings.length === 0 ? values.listEmptyReason : null,
-                narrowing_action: recordings.length === 0 ? values.listEmptyContext.narrowingAction : null,
+                narrowing_action:
+                    recordings.length === 0
+                        ? offeredNarrowingAction(values.listEmptyReason, values.listEmptyContext.narrowingAction)
+                        : null,
                 days_since_start: daysSince(props.experiment.start_date),
                 days_since_end: daysSince(props.experiment.end_date),
                 retention_period: values.currentTeam?.session_recording_retention_period ?? null,

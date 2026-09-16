@@ -185,10 +185,13 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
     /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
     empty_reason: string | null
     /**
-     * The way out of the narrowing that the empty state offered, null when it offered none. Null on
-     * a list with rows too, for the same reason `empty_reason` is: a list with rows has no empty
-     * state. The values match `action` on `experiment recordings empty state action clicked`, so
-     * the two together size how often a viewer takes the way out against how often it is offered.
+     * The way out the empty state offered, null when its banner offered none. This follows
+     * `empty_reason` rather than the state of the tab: four reasons carry a way out of a narrowing,
+     * and the rest carry a link or nothing, so a variant that still narrows the list is not
+     * reported here when replay is off or the window expired. Null on a list with rows too, for the
+     * same reason `empty_reason` is. The values match `action` on `experiment recordings empty
+     * state action clicked`, so the two together size how often a viewer takes the way out against
+     * how often it is offered.
      */
     narrowing_action: string | null
     /** Null when the experiment has not launched. */
