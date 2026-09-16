@@ -165,11 +165,11 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Unit', 'Color customization by'],
+                        General: ['Annotations', 'Unit', 'Color customization by'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show annotations', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -179,16 +179,11 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Unit'],
+                        General: ['Annotations', 'Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
-                    displayItems: [
-                        'Show values on series',
-                        'Show as % of total',
-                        'Show annotations',
-                        'Show legendBottom',
-                    ],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -198,16 +193,11 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Unit'],
+                        General: ['Annotations', 'Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: [
-                        'Show values on series',
-                        'Show as % of total',
-                        'Show annotations',
-                        'Show legendBottom',
-                    ],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
                 },
             ],
             [

@@ -10,9 +10,11 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, setup-python-cached, setup-uv, and paths-filter mirror the canonical
-#   composites; any deltas are documented in each mirror's header). Keep the local
-#   action mirrors available in .depot/actions so Depot can resolve their manifests.
+#   setup-sqlx-cli, setup-python-cached, setup-uv, setup-turbo, and paths-filter mirror
+#   the canonical composites; any deltas are documented in each mirror's header). Every
+#   local action a depot workflow uses needs a mirror even when it is identical to
+#   canonical: Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so a missing
+#   mirror fails the step at setup with "action manifest not found".
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -21,7 +23,10 @@
 #   capture-test-selection job — turbo-discover still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here; canonical mints the
 #   telemetry token from the GH_APP_TELEMETRY_APP_ID org variable rather than the
-#   secret, which the shadow has no token step to mirror),
+#   secret, which the shadow has no token step to mirror. Canonical also makes that
+#   mint fail open, falls its consumers back to github.token, and narrows
+#   calculate-running-time to contents/actions read. The shadow has neither the step
+#   nor the job, so all three are depot-exempt),
 #   --store-durations write, test-selection verdict (so the guard skipping it when both
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
@@ -1043,7 +1048,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Needs pnpm from the step above.
             - name: Install turbo
-              uses: ./.github/actions/setup-turbo
+              uses: ./.depot/actions/setup-turbo
 
             - name: Install uv
               id: setup-uv
@@ -1198,6 +1203,10 @@ jobs:
               shell: bash
               run: |
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      export PYTEST_ADDOPTS="$PYTEST_ADDOPTS --force-reruns 1 --reruns-delay 1 -r fEsxXR"
+                  fi
                   overall=0
                   # The job checks out the PR head while this workflow runs merged with
                   # master. A head that predates the person-on-events default lacks the
@@ -2463,6 +2472,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
@@ -2495,9 +2509,7 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one
-                      # shard, and no --reruns anywhere, mirroring
-                      # canonical: retries mask the raw flake signal Trunk needs (the shadow
-                      # strips the quarantine gate itself).
+                      # shard. One pytest retry mirrors canonical's budget.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -2517,7 +2529,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
                           $PYTEST_ARGS
@@ -2542,7 +2554,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        -r fEsxX \
+                        "${RETRY_ARGS[@]}" -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
                         $PYTEST_ARGS
@@ -2591,6 +2603,11 @@ jobs:
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
+                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  RETRY_ARGS=()
+                  if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
+                      RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
+                  fi
                   # Pick the split algorithm and granularity at runtime (see Run Core tests).
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
@@ -2608,8 +2625,7 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no --reruns — see the core selected branch;
-                      # the full run also skips --reruns, mirroring canonical.
+                      # Selected mode uses the same single-retry budget as the full run.
                       # A selection wide enough to need more than one shard is split like a
                       # full run. Item granularity on purpose: the target list is already
                       # narrow, so pre-import file skipping saves nothing, and the per-segment
@@ -2622,7 +2638,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
@@ -2635,7 +2651,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          -r fEsxX \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   fi

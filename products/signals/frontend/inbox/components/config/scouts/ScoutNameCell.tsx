@@ -1,4 +1,4 @@
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
@@ -7,6 +7,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 
 import { ScoutGroupKey, scoutSubtitle } from '../../../utils/scoutGroups'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutWriteAccessTag } from './ScoutWriteAccessTag'
 
 const SUBTITLE_TONE_CLASS = {
@@ -35,11 +36,7 @@ export function ScoutNameCell({
                     {scoutDisplayName(config)}
                 </Link>
                 <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} compact={compact} />
-                {config.auto_pause_exempt && group === 'watching' && (
-                    <Tooltip title="Exempt from auto-pause — this scout is supposed to stay quiet">
-                        <LemonTag size="small">Quiet by design</LemonTag>
-                    </Tooltip>
-                )}
+                <ScoutExemptionBadge config={config} group={group} />
             </div>
             {subtitle && (
                 <span className={cn('line-clamp-1 text-[11.5px]', SUBTITLE_TONE_CLASS[subtitle.tone])}>

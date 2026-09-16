@@ -35,6 +35,7 @@ from products.alerts.backend.facade.temporal import (
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
 from products.alerts.backend.temporal import postgres
@@ -78,6 +79,13 @@ def postgres_cursor() -> Iterator[MagicMock]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_error", [False, True])
+@pytest.mark.parametrize(
+    "tick_workflow, tick_queue",
+    [
+        ("alerts-product-check-due", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE),
+        ("alerts-product-orchestrate", settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE),
+    ],
+)
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
     caplog: pytest.LogCaptureFixture,
@@ -86,6 +94,8 @@ async def test_each_tick_starts_independent_delivery(
     activity_logs,
     postgres_cursor: MagicMock,
     database_error: bool,
+    tick_workflow: str,
+    tick_queue: str,
 ) -> None:
     if database_error:
         postgres_cursor.execute.side_effect = OperationalError("sensitive connection details")
@@ -102,30 +112,62 @@ async def test_each_tick_starts_independent_delivery(
         if activity.info().attempt == 1:
             raise ApplicationError("sensitive retry exception")
 
-    async with Worker(
-        client,
-        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        workflows=EVALUATION_WORKFLOWS,
-        activities=EVALUATION_ACTIVITIES,
-        interceptors=[AlertsProductTelemetryInterceptor()],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with (
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+            workflows=SHARED_ORCHESTRATION_WORKFLOWS,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            workflows=EVALUATION_WORKFLOWS,
+            activities=EVALUATION_ACTIVITIES,
+            interceptors=[AlertsProductTelemetryInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
     ):
         for _ in range(2):
             parent = await client.start_workflow(
-                "alerts-product-check-due",
+                tick_workflow,
                 AlertsProductInputs(),
                 id=workflow_id,
-                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                task_queue=tick_queue,
                 execution_timeout=dt.timedelta(seconds=10),
             )
             assert await parent.result() is None
             history = await parent.fetch_history()
+            evaluation_run_id = parent.first_execution_run_id
+            if tick_workflow == "alerts-product-orchestrate":
+                assert not any(
+                    event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED for event in history.events
+                )
+                evaluations = [
+                    event.start_child_workflow_execution_initiated_event_attributes
+                    for event in history.events
+                    if event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                ]
+                assert len(evaluations) == 1
+                evaluation_event = evaluations[0]
+                assert evaluation_event.workflow_type.name == "alerts-product-check-due"
+                assert evaluation_event.task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
+                assert evaluation_event.workflow_execution_timeout.ToTimedelta() == dt.timedelta(seconds=40)
+                assert evaluation_event.retry_policy.maximum_attempts == 1
+                assert parent.first_execution_run_id is not None
+                assert parent.first_execution_run_id in evaluation_event.workflow_id
+                evaluation_handle = client.get_workflow_handle(evaluation_event.workflow_id)
+                evaluation_description = await evaluation_handle.describe()
+                assert evaluation_description.status == WorkflowExecutionStatus.COMPLETED
+                evaluation_run_id = evaluation_description.run_id
+                history = await evaluation_handle.fetch_history()
             scheduled = [
                 event.activity_task_scheduled_event_attributes
                 for event in history.events
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 1
             failure_count = sum(
                 event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED for event in history.events
@@ -139,8 +181,8 @@ async def test_each_tick_starts_independent_delivery(
             ]
             assert len(children) == 1
             child_id = children[0].workflow_execution.workflow_id
-            assert parent.first_execution_run_id is not None
-            assert parent.first_execution_run_id in child_id
+            assert evaluation_run_id is not None
+            assert evaluation_run_id in child_id
             assert children[0].workflow_type.name == "alerts-product-deliver"
             child_ids.add(child_id)
             child_description = await client.get_workflow_handle(child_id).describe()
@@ -168,6 +210,7 @@ async def test_each_tick_starts_independent_delivery(
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 3
 
     updates = sdk_metrics.retrieve_updates()
@@ -189,7 +232,7 @@ async def test_each_tick_starts_independent_delivery(
     assert len(spans_by_id) == len(spans)
     workflow_spans = [span for span in spans if span.name.startswith("RunWorkflow:")]
     activity_spans = [span for span in spans if span.name.startswith("RunActivity:")]
-    assert len(workflow_spans) == 4
+    assert len(workflow_spans) == (6 if tick_workflow == "alerts-product-orchestrate" else 4)
     assert len(activity_spans) == 6
     for delivery in (span for span in workflow_spans if span.name == "RunWorkflow:alerts-product-deliver"):
         assert delivery.parent is not None
@@ -201,6 +244,14 @@ async def test_each_tick_starts_independent_delivery(
         assert delivery.context.trace_id == child_start.context.trace_id == evaluation.context.trace_id
         assert evaluation.end_time is not None and delivery.start_time is not None
         assert evaluation.end_time <= delivery.start_time
+        if tick_workflow == "alerts-product-orchestrate":
+            assert evaluation.parent is not None
+            evaluation_start = spans_by_id[evaluation.parent.span_id]
+            assert evaluation_start.name == "StartChildWorkflow:alerts-product-check-due"
+            assert evaluation_start.parent is not None
+            orchestration = spans_by_id[evaluation_start.parent.span_id]
+            assert orchestration.name == "RunWorkflow:alerts-product-orchestrate"
+            assert evaluation.context.trace_id == evaluation_start.context.trace_id == orchestration.context.trace_id
     for attempt_span in activity_spans:
         assert attempt_span.parent is not None
         activity_start = spans_by_id[attempt_span.parent.span_id]
