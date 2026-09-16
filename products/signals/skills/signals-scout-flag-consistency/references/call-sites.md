@@ -16,9 +16,19 @@ Do not count it:
 - lockfiles, vendored dependencies, generated clients, build output, `__snapshots__`, minified bundles;
 - test fixtures, mocks, and flag overrides in test setup — they prove the test knows the key, not that production evaluates it;
 - comments, changelogs, migrations, documentation, and commented-out code;
-- a substring match inside a longer key. Search whole keys (`rg -F` with word boundaries where the key allows) — `checkout-v3` matches `checkout-v3-legacy` and the two are different flags.
+- a substring match inside a longer key. `checkout-v3` matches `checkout-v3-legacy` and the two are different flags, and `rg -w` does not separate them: a key may contain `-`, which is not a word character, so the word boundary falls inside the longer key. Bound on the flag-key charset instead — see *Searching the trees*.
 
 When a key reaches an evaluation call only through a variable, say so in the report and cite both lines. An indirect call site is still a call site; an unverified guess that one exists is not.
+
+## Searching the trees
+
+Search for the calls before the keys. The call shapes below are a small fixed set, so one pass for them over every tree is bounded however many keys the run carries, and each hit is already a call site.
+
+Fall back to a key search only for what that pass leaves unplaced, and bound it — a flag key can be a common word, since the flag API accepts any `^[A-Za-z0-9_-]+$` with no minimum length, so `a`, `id`, `test` and `beta` are all legal keys:
+
+- One boundary pattern per key, `(^|[^A-Za-z0-9_-])<key>([^A-Za-z0-9_-]|$)`, one per line in a patterns file. Keep it one pass over all trees rather than one pass per key. Not `-F`, and not `-w`.
+- Counts before lines: `rg -f patterns.txt -c -g '!**/{node_modules,vendor,dist,build,__snapshots__}/**' -g '!*.lock'` from the repositories root. A key running to thousands of hits is a common word rather than a flag — drop it and record that you did.
+- Lines for what survives: add `--line-number -m 20`. Say in the close-out which keys you dropped and which files hit the cap, so a later run knows the hit list was partial and an absence from it proves nothing.
 
 ## Evaluation modes
 
