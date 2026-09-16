@@ -8,10 +8,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { Playlist, PlaylistProps } from './Playlist'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 jest.mock('scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed', () => ({
     RecordingsUniversalFiltersEmbedButton: () => <div data-attr="mock-filters-embed-button" />,
+    RecordingsUniversalFiltersEmbed: () => <div data-attr="mock-filters-embed" />,
 }))
 
 jest.mock('scenes/notebooks/AddToNotebook/DraggableToNotebook', () => ({
@@ -45,10 +47,12 @@ describe('Playlist', () => {
         initKeaTests()
         logic = sessionRecordingsPlaylistLogic(logicProps)
         logic.mount()
+        playlistFiltersLogic.mount()
     })
 
     afterEach(() => {
         cleanup()
+        playlistFiltersLogic.unmount()
         logic.unmount()
         localStorage.clear()
     })
@@ -62,6 +66,17 @@ describe('Playlist', () => {
             </Provider>
         )
     }
+
+    it.each([{ expanded: true }, { expanded: false }])(
+        'renders the filters panel inside the playlist when expanded=$expanded',
+        ({ expanded }) => {
+            playlistFiltersLogic.actions.setIsFiltersExpanded(expanded)
+
+            renderPlaylist()
+
+            expect(!!screen.queryByTestId('mock-filters-embed')).toBe(expanded)
+        }
+    )
 
     it('does not show the selected sessions notice when no session_ids filter is set', () => {
         renderPlaylist()

@@ -240,6 +240,14 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadEntireRecording'])
             })
 
+            it('leaves the filters panel open when a recording is opened', async () => {
+                playlistFiltersLogic.actions.setIsFiltersExpanded(true)
+
+                await expectLogic(logic, () => logic.actions.setSelectedRecordingId('abc')).toFinishAllListeners()
+
+                expect(playlistFiltersLogic.values.isFiltersExpanded).toBe(true)
+            })
+
             it('returns the first session recording if none selected', () => {
                 expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toMatchValues({
                     selectedRecordingId: undefined,

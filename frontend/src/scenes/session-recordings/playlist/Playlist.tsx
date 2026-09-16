@@ -24,7 +24,10 @@ import { range } from 'lib/utils/arrays'
 import { pluralize } from 'lib/utils/strings'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import {
+    RecordingsUniversalFiltersEmbed,
+    RecordingsUniversalFiltersEmbedButton,
+} from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
@@ -230,6 +233,8 @@ export function Playlist({
     }
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
+    // Notebook embeds and collections have a fixed filter set, so neither gets the toggle or its panel.
+    const hasFiltersToggle = !notebookNode && type !== 'collection'
 
     const emptyState =
         type === 'collection' ? (
@@ -258,7 +263,7 @@ export function Playlist({
 
     return (
         <div className="flex flex-col min-w-60 h-full">
-            {!notebookNode && type !== 'collection' && (
+            {hasFiltersToggle && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton
@@ -330,6 +335,7 @@ export function Playlist({
                             </DraggableToNotebook>
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
+                        {hasFiltersToggle && <FiltersPanel />}
                         {selectedRecordingOutsideFilters && (
                             <LemonBanner type="warning" className="m-2">
                                 The recording you have open doesn't match the current filters. It stays in the list
@@ -380,6 +386,29 @@ export function Playlist({
                     </div>
                 </div>
             </div>
+        </div>
+    )
+}
+
+const FiltersPanel = (): JSX.Element | null => {
+    const { filters, totalFiltersCount, allowHogQLFilters, pinnedFilters } = useValues(sessionRecordingsPlaylistLogic)
+    const { setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+
+    if (!isFiltersExpanded) {
+        return null
+    }
+
+    return (
+        <div className="shrink-0 max-h-1/2 overflow-y-auto border-b">
+            <RecordingsUniversalFiltersEmbed
+                filters={filters}
+                setFilters={setFilters}
+                resetFilters={resetFilters}
+                totalFiltersCount={totalFiltersCount}
+                allowReplayHogQLFilters={allowHogQLFilters}
+                pinnedFilters={pinnedFilters}
+            />
         </div>
     )
 }

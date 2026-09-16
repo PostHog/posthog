@@ -15,10 +15,8 @@ import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
-import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const HedgehogDirector = pngHoggie(directorPng)
@@ -164,27 +162,20 @@ function PlayerWrapper({
     className?: string
 }): JSX.Element {
     const {
-        filters,
         visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
         exposureSkipExperimentId,
         activeSessionRecording,
-        allowHogQLFilters,
-        totalFiltersCount,
         nextSessionRecording,
-        pinnedFilters,
         sessionRecordingsResponseLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
-        useActions(sessionRecordingsPlaylistLogic)
-
-    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
+    const { setSelectedRecordingId, loadAllRecordings } = useActions(sessionRecordingsPlaylistLogic)
 
     const onPlayNextRecording = useCallback(() => {
-        if (nextSessionRecording?.id && !isFiltersExpanded) {
+        if (nextSessionRecording?.id) {
             setSelectedRecordingId(nextSessionRecording.id)
         }
-    }, [nextSessionRecording, setSelectedRecordingId, isFiltersExpanded])
+    }, [nextSessionRecording, setSelectedRecordingId])
 
     return (
         <div
@@ -193,20 +184,8 @@ function PlayerWrapper({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >
-            {isFiltersExpanded && (
-                <div className="h-full overflow-y-auto rounded border">
-                    <RecordingsUniversalFiltersEmbed
-                        resetFilters={resetFilters}
-                        filters={filters}
-                        setFilters={setFilters}
-                        totalFiltersCount={totalFiltersCount}
-                        allowReplayHogQLFilters={allowHogQLFilters}
-                        pinnedFilters={pinnedFilters}
-                    />
-                </div>
-            )}
             {showContent && activeSessionRecording ? (
-                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
+                <div className="h-full">
                     <SessionRecordingPlayer
                         playerKey={props.logicKey ?? 'playlist'}
                         sessionRecordingId={activeSessionRecording.id}

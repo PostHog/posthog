@@ -870,7 +870,7 @@ export const ReplayFiltersTab = ({
                     )}
                 </div>
             )}
-            <div className="flex items-center py-2 justify-between px-2">
+            <div className="flex flex-wrap items-center gap-2 py-2 justify-between px-2">
                 <AndOrFilterSelect
                     // Reflect the effective operand, not just the outer group: legacy saved filters can
                     // carry the match-any on the inner group while the outer stays AND. Toggling syncs
@@ -1012,7 +1012,7 @@ export const ReplayFiltersTab = ({
                 <>
                     <LemonDivider className="mt-4" />
 
-                    <div className="flex items-center py-2 justify-between px-2 gap-2">
+                    <div className="flex flex-wrap items-center py-2 justify-between px-2 gap-2">
                         {showFeedbackButton && (
                             <LemonButton
                                 id="replay-filters-feedback-button"

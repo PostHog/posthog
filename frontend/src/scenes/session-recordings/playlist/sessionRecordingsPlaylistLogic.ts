@@ -1729,9 +1729,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             setSelectedRecordingId: () => {
-                // Close filters when selecting a recording
-                actions.setIsFiltersExpanded(false)
-
                 notifyRecordingSelected()
 
                 const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
