@@ -3822,13 +3822,11 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
             "is_stale",
             "status",
             "created_via",
-            "source_type",
             "source_id",
             "created_by",
             "created_at",
             "resolved_at",
             "resolved_by",
-            "resolution_note",
             "applied_version",
         ]
         read_only_fields = fields
@@ -3877,10 +3875,6 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
             "The step this is about, when it is about one. Both the evidence and the outcome then read "
             "that step's metrics, so a change to one email in a sequence is not measured against the rest."
         ),
-    )
-    source_type = serializers.ChoiceField(
-        choices=WorkflowProposal.SourceType.choices,
-        help_text="What kind of producer authored this proposal.",
     )
     source_id = serializers.CharField(
         required=False,
@@ -3984,12 +3978,7 @@ class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
 
 
 class WorkflowProposalRejectRequestSerializer(serializers.Serializer):
-    resolution_note = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=1000,
-        help_text="Why the proposal was rejected. Read back by whoever tunes the agent that produced it.",
-    )
+    """Rejecting takes no body today. The serializer stays so a reason can be added without a new endpoint."""
 
 
 def _flatten_graph_errors(error: serializers.ValidationError) -> list[str]:
@@ -5490,7 +5479,6 @@ class HogFlowViewSet(
             evidence=params.get("evidence") or {},
             step_id=params.get("step_id") or None,
             base_version=params.get("base_version") or instance.version or 1,
-            source_type=params["source_type"],
             source_id=source_id,
             created_via=self._proposal_created_via(request),
             created_by=request.user if request.user.is_authenticated else None,
@@ -5511,7 +5499,7 @@ class HogFlowViewSet(
         self._report_workflow_action(
             "hog_flow_proposal_created",
             instance,
-            {"proposal_id": str(proposal.id), "source_type": proposal.source_type},
+            {"proposal_id": str(proposal.id)},
         )
         return Response(WorkflowProposalSerializer(proposal).data, status=status.HTTP_201_CREATED)
 
@@ -5727,8 +5715,7 @@ class HogFlowViewSet(
             locked_proposal.status = WorkflowProposal.Status.REJECTED
             locked_proposal.resolved_at = timezone.now()
             locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.resolution_note = param_serializer.validated_data.get("resolution_note") or ""
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by", "resolution_note"])
+            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
 
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal).data)

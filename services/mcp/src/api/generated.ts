@@ -64663,22 +64663,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `scout` - Scout
-     * * `responder` - Responder
-     * * `human` - Human
-     * * `stub` - Stub generator
-     */
-    export type WorkflowProposalSourceTypeEnum = typeof WorkflowProposalSourceTypeEnum[keyof typeof WorkflowProposalSourceTypeEnum];
-
-
-    export const WorkflowProposalSourceTypeEnum = {
-      Scout: 'scout',
-      Responder: 'responder',
-      Human: 'human',
-      Stub: 'stub',
-    } as const;
-
-    /**
      * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
      */
     export type WorkflowProposalContent = { [key: string]: unknown };
@@ -64715,13 +64699,6 @@ export namespace Schemas {
        * * `mcp` - MCP
        * * `self_driving` - Self-driving */
       readonly created_via: WorkflowProposalCreatedViaEnum;
-      /** What kind of producer authored the proposal.
-       *
-       * * `scout` - Scout
-       * * `responder` - Responder
-       * * `human` - Human
-       * * `stub` - Stub generator */
-      readonly source_type: WorkflowProposalSourceTypeEnum;
       /**
          * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
          * @nullable
@@ -64732,7 +64709,6 @@ export namespace Schemas {
       /** @nullable */
       readonly resolved_at: string | null;
       readonly resolved_by: UserBasic | null;
-      readonly resolution_note: string;
       /**
          * Workflow version the approved change went live as.
          * @nullable
@@ -94936,13 +94912,6 @@ export namespace Schemas {
          * @nullable
          */
       step_id?: string | null;
-      /** What kind of producer authored this proposal.
-       *
-       * * `scout` - Scout
-       * * `responder` - Responder
-       * * `human` - Human
-       * * `stub` - Stub generator */
-      source_type: WorkflowProposalSourceTypeEnum;
       /**
          * Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.
          * @maxLength 200
@@ -94985,14 +94954,6 @@ export namespace Schemas {
       after: WorkflowProposalVersionOutcome | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
-    }
-
-    export interface WorkflowProposalRejectRequest {
-      /**
-         * Why the proposal was rejected. Read back by whoever tunes the agent that produced it.
-         * @maxLength 1000
-         */
-      resolution_note?: string;
     }
 
     export interface WorkflowRunActivityPoint {

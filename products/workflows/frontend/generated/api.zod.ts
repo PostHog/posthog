@@ -2448,12 +2448,6 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest."
         ),
-    source_type: zod
-        .enum(['scout', 'responder', 'human', 'stub'])
-        .describe('\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator')
-        .describe(
-            'What kind of producer authored this proposal.\n\n\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator'
-        ),
     source_id: zod
         .string()
         .max(hogFlowsProposalsCreateBodySourceIdMax)
@@ -2478,16 +2472,6 @@ export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.'
         ),
-})
-
-export const hogFlowsProposalsRejectCreateBodyResolutionNoteMax = 1000
-
-export const HogFlowsProposalsRejectCreateBody = /* @__PURE__ */ zod.object({
-    resolution_note: zod
-        .string()
-        .max(hogFlowsProposalsRejectCreateBodyResolutionNoteMax)
-        .optional()
-        .describe('Why the proposal was rejected. Read back by whoever tunes the agent that produced it.'),
 })
 
 export const hogFlowsPublishCreateBodyConfirmDefault = false

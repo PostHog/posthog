@@ -1199,22 +1199,6 @@ export const WorkflowProposalCreatedViaEnumApi = {
 } as const
 
 /**
- * * `scout` - Scout
- * * `responder` - Responder
- * * `human` - Human
- * * `stub` - Stub generator
- */
-export type WorkflowProposalSourceTypeEnumApi =
-    (typeof WorkflowProposalSourceTypeEnumApi)[keyof typeof WorkflowProposalSourceTypeEnumApi]
-
-export const WorkflowProposalSourceTypeEnumApi = {
-    Scout: 'scout',
-    Responder: 'responder',
-    Human: 'human',
-    Stub: 'stub',
-} as const
-
-/**
  * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
  */
 export type WorkflowProposalApiContent = { [key: string]: unknown }
@@ -1251,13 +1235,6 @@ export interface WorkflowProposalApi {
      * * `mcp` - MCP
      * * `self_driving` - Self-driving */
     readonly created_via: WorkflowProposalCreatedViaEnumApi
-    /** What kind of producer authored the proposal.
-     *
-     * * `scout` - Scout
-     * * `responder` - Responder
-     * * `human` - Human
-     * * `stub` - Stub generator */
-    readonly source_type: WorkflowProposalSourceTypeEnumApi
     /**
      * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
      * @nullable
@@ -1268,7 +1245,6 @@ export interface WorkflowProposalApi {
     /** @nullable */
     readonly resolved_at: string | null
     readonly resolved_by: UserBasicApi | null
-    readonly resolution_note: string
     /**
      * Workflow version the approved change went live as.
      * @nullable
@@ -1315,13 +1291,6 @@ export interface WorkflowProposalCreateApi {
      * @nullable
      */
     step_id?: string | null
-    /** What kind of producer authored this proposal.
-     *
-     * * `scout` - Scout
-     * * `responder` - Responder
-     * * `human` - Human
-     * * `stub` - Stub generator */
-    source_type: WorkflowProposalSourceTypeEnumApi
     /**
      * Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.
      * @maxLength 200
@@ -1374,14 +1343,6 @@ export interface WorkflowProposalOutcomeApi {
     after: WorkflowProposalVersionOutcomeApi | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
-}
-
-export interface WorkflowProposalRejectRequestApi {
-    /**
-     * Why the proposal was rejected. Read back by whoever tunes the agent that produced it.
-     * @maxLength 1000
-     */
-    resolution_note?: string
 }
 
 export interface HogFlowPublishRequestApi {
