@@ -126,6 +126,14 @@ const OWN_BACKEND_FREE_TEXT_PATH_TEMPLATES = [
     pattern: /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/,
     replacement: "$1:id$2:id",
   },
+  {
+    // The tool name comes from the MCP server, so a custom server can put any
+    // text here. `tools/refresh/` is a fixed action rather than a tool name, so
+    // the lookahead keeps that route on its own path.
+    pattern:
+      /^(\/api\/environments\/)\d+(\/mcp_server_installations\/)[^/]+(\/tools\/)(?!refresh\/?$)[^/]+(\/?)$/,
+    replacement: "$1:id$2:id$3:id$4",
+  },
 ] as const;
 
 function templateOwnApiPath(pathname: string): string | undefined {

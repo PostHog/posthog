@@ -231,7 +231,7 @@ The network duration metric uses backend URLs from the shared region configurati
 This works before login and after logout.
 The analytics ingestion host does not select the backend.
 External or invalid URLs use `path: "external"`.
-Skill names and file paths use `:id` placeholders; other backend paths use the SDK's default templates.
+Skill names, skill file paths, and MCP tool names use `:id` placeholders; other backend paths use the SDK's default templates.
 
 ### Event Names
 

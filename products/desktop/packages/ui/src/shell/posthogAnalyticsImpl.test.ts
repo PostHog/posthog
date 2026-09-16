@@ -297,12 +297,28 @@ describe("networkMetricPath", () => {
       url: "https://us.posthog.com/api/environments/1/llm_skills/name/incident-runbook/files/docs/readme.md",
       expected: "/api/environments/:id/llm_skills/name/:id/files/:id",
     },
+    {
+      case: "an MCP tool name",
+      url: "https://us.posthog.com/api/environments/1/mcp_server_installations/0f8c2b1e-1111-4222-8333-444455556666/tools/lookup_customer_record/",
+      expected: "/api/environments/:id/mcp_server_installations/:id/tools/:id/",
+    },
   ])("templates $case on the app's own backend", async ({ url, expected }) => {
     const { networkMetricPath } = await loadAnalytics();
 
     const path = networkMetricPath({ url, method: "GET" });
 
     expect(path).toBe(expected);
+  });
+
+  it("leaves the fixed MCP tools refresh action untemplated", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath({
+      url: "https://us.posthog.com/api/environments/1/mcp_server_installations/0f8c2b1e-1111-4222-8333-444455556666/tools/refresh/",
+      method: "POST",
+    });
+
+    expect(path).toBeUndefined();
   });
 });
 
