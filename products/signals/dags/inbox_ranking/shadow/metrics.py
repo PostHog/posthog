@@ -71,10 +71,15 @@ RANDOM_SEED = 0
 # back to from a link or a notification.
 ATTRIBUTION_WINDOW = datetime.timedelta(minutes=30)
 
-# When a dt=D score becomes something a sweep could have served: the training job is scheduled at
-# 06:00 UTC the next morning, so a score is counterfactually available from D+1 06:00 and not
-# before. Comparing on snapshot day alone would let a list served at 03:00 use a model that had
-# not been fit yet.
+# When a dt=D score becomes something a sweep could have served: the training job is scheduled for
+# 06:00 UTC the next morning, so nothing before D+1 06:00 could have used it. Comparing on snapshot
+# day alone would let a list served at 03:00 use a model that had not been fit yet.
+#
+# This is a lower bound, not the write time. 06:00 is when the job starts and the scores asset is
+# the fourth in it, so the object lands later; a partition that failed and re-ran, or was
+# backfilled weeks afterwards, still reports this same instant. A list served in that gap joins
+# scores that did not exist yet, which is the backdating the rule exists to stop. Closing it needs
+# the object's real write time, and nothing records that today.
 SCORE_AVAILABLE_AFTER = datetime.timedelta(days=1, hours=6)
 
 # A list of one is ranked identically by every order, so it separates nothing and only adds weight
