@@ -292,8 +292,12 @@ function isStatistical(query: TrendsQuery): boolean {
     )
 }
 
+// Vertical bars get crowded once every bucket holds one bar per breakdown value.
+const BREAKDOWN_DEMOTED_DISPLAYS = [ChartDisplayType.ActionsUnstackedBar, ChartDisplayType.ActionsBar]
+
 function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDisplayType): ChartDisplayType[] {
     const boosted: ChartDisplayType[] = []
+    const demoted = query && hasBreakdownFilter(query.breakdownFilter) ? BREAKDOWN_DEMOTED_DISPLAYS : []
     if (query) {
         if (hasCountryContext(query)) {
             boosted.push(ChartDisplayType.WorldMap)
@@ -305,7 +309,8 @@ function rankRecommendations(query: TrendsQuery | null, currentDisplay: ChartDis
     if (DISPLAY_TYPES_TO_CATEGORIES[currentDisplay] === ChartDisplayCategory.TotalValue) {
         boosted.push(...PIE_DISPLAY_TYPES, ChartDisplayType.ActionsBarValue)
     }
-    return [...new Set([...boosted, ...DEFAULT_RECOMMENDATION_ORDER])]
+    const ranked = [...new Set([...boosted, ...DEFAULT_RECOMMENDATION_ORDER])]
+    return [...ranked.filter((display) => !demoted.includes(display)), ...demoted]
 }
 
 export function getChartAlternatives(

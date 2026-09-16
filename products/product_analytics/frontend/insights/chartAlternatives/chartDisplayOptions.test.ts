@@ -122,15 +122,15 @@ describe('getChartDisplayOptions', () => {
             ],
         },
         {
-            name: 'puts the world map first for a country breakdown and skips breakdown-dropping types',
+            name: 'puts the world map first for a country breakdown, skips breakdown-dropping types and demotes vertical bars',
             query: makeTrendsQuery({
                 breakdownFilter: { breakdowns: [{ property: '$geoip_country_code', type: 'event' }] },
             }),
             expected: [
                 ChartDisplayType.WorldMap,
-                ChartDisplayType.ActionsUnstackedBar,
                 ChartDisplayType.ActionsAreaGraph,
                 ChartDisplayType.ActionsBarValue,
+                ChartDisplayType.ActionsLineGraphCumulative,
             ],
         },
         {
