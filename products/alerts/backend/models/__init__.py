@@ -1,12 +1,12 @@
 from .alert import Alert, AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from .source_alert import SourceAlert, SourceAlertConfiguration
+from .wip_alert import WIPAlert, WIPAlertConfiguration
 
 __all__ = [
     "Alert",
     "AlertCheck",
     "AlertConfiguration",
     "AlertSubscription",
-    "SourceAlert",
-    "SourceAlertConfiguration",
+    "WIPAlert",
+    "WIPAlertConfiguration",
     "Threshold",
 ]

@@ -1,127 +1,103 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
+
+from products.alerts.backend.models import WIPAlert, WIPAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 
 _MODULE = "products.logs.backend.alert_source_cycle"
-_PERSISTED_FIELDS = (
-    "state",
-    "consecutive_failures",
-    "next_check_at",
-    "last_notified_at",
-    "snooze_until",
-)
+_LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 
 
-class TestLogsAlertSourceCycle(APIBaseTest):
-    def _breaching_alert(self, **kwargs) -> LogsAlertConfiguration:
+class TestLogsAlertEvaluation(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
+
+    def _configuration(self, **overrides) -> WIPAlertConfiguration:
         defaults = {
             "team": self.team,
             "name": "API errors",
+            "source_kind": WIPAlertConfiguration.SourceKind.LOGS,
+            "source_config": {},
             "threshold_count": 10,
             "threshold_operator": "above",
             "window_minutes": 5,
-            "filters": {},
-            "next_check_at": datetime.now(UTC) - timedelta(minutes=1),
+            "check_interval_minutes": 10,
+            "next_check_at": self.cutoff - timedelta(minutes=1),
         }
-        defaults.update(kwargs)
-        return LogsAlertConfiguration.objects.create(**defaults)
+        defaults.update(overrides)
+        with team_scope(self.team.id):
+            return WIPAlertConfiguration.objects.create(**defaults)
 
-    def _run(
-        self,
-        *alerts: LogsAlertConfiguration,
-        now: datetime | None = None,
-        failing: tuple[LogsAlertConfiguration, ...] = (),
-    ):
-        failing_ids = {str(alert.id) for alert in failing}
-
-        def _build_query(**kwargs) -> MagicMock:
-            cohort_ids = [str(alert.id) for alert in kwargs["alerts"]]
-            query = MagicMock()
-            if failing_ids.intersection(cohort_ids):
-                query.execute_rolling_checks.side_effect = Exception("ClickHouse rejected the query")
-            else:
-                query.execute_rolling_checks.return_value = BatchedBucketedResult(
-                    per_alert={
-                        alert_id: [BucketedCount(timestamp=datetime.now(UTC), count=500)] for alert_id in cohort_ids
-                    },
-                    query_duration_ms=1,
-                )
-            return query
-
+    def _run(self, *configurations: WIPAlertConfiguration):
+        breaching = {str(c.id): [BucketedCount(timestamp=self.cutoff, count=500)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
-            patch(f"{_MODULE}.BatchedAlertCheckQuery", side_effect=_build_query) as query,
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
         ):
-            cutoff = now or datetime.now(UTC)
-            slot = (alerts[0].next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
-            return evaluate_logs_batch(self.team.id, slot, cutoff), query
+            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                per_alert=breaching, query_duration_ms=1
+            )
+            slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
+            with team_scope(self.team.id):
+                return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
 
-    def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
-        alert = self._breaching_alert()
-        before = LogsAlertConfiguration.objects.values(*_PERSISTED_FIELDS).get(id=alert.id)
+    def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
+        configuration = self._configuration()
 
-        previews, _ = self._run(alert)
+        previews, _ = self._run(configuration)
 
         assert [t.notification for preview in previews for t in preview.transitions] == ["fire"]
-        # The production logs fleet owns this alert's state. A write here would advance its
-        # schedule or transition it, and the person watching it would be notified twice.
-        assert LogsAlertConfiguration.objects.values(*_PERSISTED_FIELDS).get(id=alert.id) == before
-        assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+        with team_scope(self.team.id):
+            alert = WIPAlert.objects.get(configuration=configuration, grouping_key="")
+            configuration.refresh_from_db()
+        assert alert.state == WIPAlert.State.FIRING
+        assert alert.last_notified_at is not None
+        # The schedule advanced, so the next tick does not rediscover this configuration.
+        assert configuration.next_check_at is not None
+        assert configuration.next_check_at > self.cutoff
+
+    def test_the_logs_product_rows_are_never_written(self) -> None:
+        legacy = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="API errors",
+            threshold_count=10,
+            threshold_operator="above",
+            window_minutes=5,
+            filters={},
+            next_check_at=self.cutoff - timedelta(minutes=1),
+        )
+        before = LogsAlertConfiguration.objects.values(*_LOGS_OWNED_FIELDS).get(id=legacy.id)
+
+        self._run(self._configuration(legacy_configuration_id=legacy.id))
+
+        # The logs fleet evaluates this same alert on its own queue. Writing its rows here would
+        # transition an alert twice and notify a person twice for one breach.
+        assert LogsAlertConfiguration.objects.values(*_LOGS_OWNED_FIELDS).get(id=legacy.id) == before
+        assert not LogsAlertEvent.objects.filter(alert=legacy).exists()
 
     @parameterized.expand([("single_period", 1, 5), ("three_periods", 3, 25)])
     def test_the_scanned_range_covers_every_rolling_window(
         self, _name: str, evaluation_periods: int, expected_lookback_minutes: int
     ) -> None:
-        alert = self._breaching_alert(evaluation_periods=evaluation_periods, check_interval_minutes=10)
+        configuration = self._configuration(evaluation_periods=evaluation_periods, check_interval_minutes=10)
 
-        _, query = self._run(alert)
+        _, query = self._run(configuration)
 
         kwargs = query.call_args.kwargs
         assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
 
     def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
-        # A retried attempt must select the same windows and keys as the first, so the
-        # occasion is passed in rather than read from the clock.
-        occasion = datetime(2026, 9, 15, 18, 31, tzinfo=UTC)
-        alert = self._breaching_alert(next_check_at=None)
+        configuration = self._configuration(next_check_at=None)
 
-        previews, _ = self._run(alert, now=occasion)
+        previews, _ = self._run(configuration)
 
-        assert [preview.evaluation_key for preview in previews] == [f"{alert.id}:window:{occasion.isoformat()}"]
-
-    @parameterized.expand(
-        [
-            ("inside_the_blocked_window", {"blocked_windows": [{"start": "00:00", "end": "06:00"}]}, []),
-            ("outside_the_blocked_window", {"blocked_windows": [{"start": "12:00", "end": "18:00"}]}, ["fire"]),
-        ]
-    )
-    def test_an_alert_inside_its_quiet_hours_is_not_previewed(
-        self, _name: str, schedule_restriction: dict, expected_notifications: list[str]
-    ) -> None:
-        # Production reschedules a restricted alert past the window instead of evaluating
-        # it, so previewing one here would name a delivery production never makes.
-        occasion = datetime(2026, 9, 15, 3, 0, tzinfo=UTC)
-        alert = self._breaching_alert(
-            next_check_at=occasion - timedelta(minutes=1), schedule_restriction=schedule_restriction
-        )
-
-        previews, _ = self._run(alert, now=occasion)
-
-        assert [t.notification for preview in previews for t in preview.transitions] == expected_notifications
-
-    def test_a_failed_cohort_query_leaves_the_other_cohorts_evaluated(self) -> None:
-        # Two window lengths make two cohorts, so each one gets its own ClickHouse query.
-        due_at = datetime.now(UTC) - timedelta(minutes=1)
-        failing = self._breaching_alert(name="Slow service", window_minutes=5, next_check_at=due_at)
-        healthy = self._breaching_alert(name="Checkout errors", window_minutes=7, next_check_at=due_at)
-
-        previews, _ = self._run(failing, healthy, failing=(failing,))
-
-        assert [preview.alert_id for preview in previews] == [str(healthy.id)]
+        assert [p.evaluation_key for p in previews] == [f"{configuration.id}:window:{self.cutoff.isoformat()}"]

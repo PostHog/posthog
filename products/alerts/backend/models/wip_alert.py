@@ -14,10 +14,10 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 
-class SourceAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
+class WIPAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     """What to evaluate, how often, and against what bound.
 
-    Evaluation-level state lives here rather than on `SourceAlert`, because a failed check
+    Evaluation-level state lives here rather than on `WIPAlert`, because a failed check
     fails the whole evaluation rather than one group of its results.
     """
 
@@ -57,10 +57,10 @@ class SourceAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
     legacy_configuration_id = models.UUIDField(null=True, blank=True, unique=True)
 
     class Meta:
-        indexes = [models.Index(fields=["next_check_at"], name="source_alert_config_due_idx")]
+        indexes = [models.Index(fields=["next_check_at"], name="wip_alert_config_due_idx")]
 
 
-class SourceAlert(TeamScopedRootMixin, UUIDTModel):
+class WIPAlert(TeamScopedRootMixin, UUIDTModel):
     """Runtime state for one instance of a configuration.
 
     `grouping_key` is empty until a source groups its results. The unique constraint is what
@@ -75,7 +75,7 @@ class SourceAlert(TeamScopedRootMixin, UUIDTModel):
         BROKEN = "broken", "Broken"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    configuration = models.ForeignKey(SourceAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
+    configuration = models.ForeignKey(WIPAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
 
     grouping_key = models.CharField(max_length=255, default="", db_default="")
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
@@ -84,5 +84,5 @@ class SourceAlert(TeamScopedRootMixin, UUIDTModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["configuration", "grouping_key"], name="source_alert_one_per_group")
+            models.UniqueConstraint(fields=["configuration", "grouping_key"], name="wip_alert_one_per_group")
         ]

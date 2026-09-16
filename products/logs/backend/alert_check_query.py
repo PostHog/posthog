@@ -41,9 +41,15 @@ class AlertQuerySubject(Protocol):
     windows and cadence is the caller's to resolve before it gets here.
     """
 
-    id: UUID
-    team_id: int
-    filters: dict[str, Any]
+    # Read-only, so a frozen dataclass satisfies this as readily as the model does.
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def filters(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)

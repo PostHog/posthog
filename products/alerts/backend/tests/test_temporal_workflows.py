@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Literal
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -14,6 +15,7 @@ from django.db import OperationalError
 import pytest_asyncio
 from opentelemetry import trace
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
@@ -30,6 +32,8 @@ from temporalio.exceptions import (
 from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+
+from posthog.models.scoping import team_scope
 
 from products.alerts.backend.facade.contracts import (
     AlertBatchKey,
@@ -49,6 +53,7 @@ from products.alerts.backend.facade.temporal import (
     AlertsProductTelemetryInterceptor,
 )
 from products.alerts.backend.logic import demand
+from products.alerts.backend.models import WIPAlertConfiguration
 from products.alerts.backend.temporal import postgres
 from products.alerts.backend.temporal.workflows import (
     AlertsProductEvaluateWorkflow,
@@ -422,54 +427,73 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
     start_delivery.assert_not_awaited()
 
 
-def _key(team_id: int, minute: int) -> AlertBatchKey:
-    return AlertBatchKey(
-        team_id=team_id, slot=dt.datetime(2026, 9, 16, 9 + minute // 60, minute % 60, tzinfo=dt.UTC).isoformat()
-    )
+class TestDemandDiscovery(APIBaseTest):
+    def _configuration(self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert"):
+        with team_scope(self.team.id):
+            return WIPAlertConfiguration.objects.create(
+                team=self.team,
+                name=name,
+                enabled=enabled,
+                source_kind=WIPAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                threshold_count=1,
+                threshold_operator="above",
+                window_minutes=5,
+                check_interval_minutes=5,
+                next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
+            )
 
+    def setUp(self) -> None:
+        super().setUp()
+        self.tick = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
 
-@pytest.mark.parametrize(
-    "cutoff_offset, expected_keys",
-    [
-        (-2, {}),
-        (-1, {SourceKind.LOGS: [_key(1, 59)]}),
-        (
-            0,
-            {
-                SourceKind.LOGS: [_key(1, 59), _key(1, 60)],
-                SourceKind.INSIGHT: [_key(2, 60)],
-            },
-        ),
-    ],
-)
-def test_discovery_filters_and_groups_due_configurations(
-    cutoff_offset: int, expected_keys: dict[SourceKind, list[AlertBatchKey]]
-) -> None:
-    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
-    configurations = demand._synthetic_configurations(tick_time)
-    cutoff = (tick_time + dt.timedelta(minutes=cutoff_offset)).isoformat()
-    with patch.object(demand, "_synthetic_configurations", return_value=configurations):
-        for _ in range(2):
-            assert demand.discover_demand(cutoff).batch_keys_by_source == expected_keys
+    def _key(self, minutes_ago: int) -> AlertBatchKey:
+        return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
 
+    def test_only_enabled_and_due_configurations_become_keys(self) -> None:
+        self._configuration(minutes_ago=1, name="due")
+        self._configuration(minutes_ago=-1, name="not yet due")
+        self._configuration(minutes_ago=1, enabled=False, name="disabled")
 
-@pytest.mark.parametrize("cutoff", ["invalid", "2026-09-16T10:00:00"])
-def test_discovery_rejects_invalid_cutoff(cutoff: str) -> None:
-    with pytest.raises(ValueError):
-        demand.discover_demand(cutoff)
+        discovered = demand.discover_demand(self.tick.isoformat())
 
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(1)]}
 
-def test_discovery_bounds_keys_per_source_and_counts_the_rest() -> None:
-    cutoff = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC).isoformat()
-    bounded = demand.discover_demand(cutoff, limit_per_source=1)
-    # The oldest due key survives the bound, so a key it leaves out grows more overdue and wins later.
-    assert bounded == AlertDemand(
-        batch_keys_by_source={SourceKind.LOGS: [_key(1, 59)], SourceKind.INSIGHT: [_key(2, 60)]},
-        omitted_by_source={SourceKind.LOGS: 1},
-    )
-    assert demand.discover_demand(cutoff).omitted_by_source == {}
-    with pytest.raises(ValueError):
-        demand.discover_demand(cutoff, limit_per_source=0)
+    def test_configurations_due_in_one_minute_share_one_key(self) -> None:
+        self._configuration(minutes_ago=1, name="first")
+        self._configuration(minutes_ago=1, name="second")
+        self._configuration(minutes_ago=2, name="older")
+
+        discovered = demand.discover_demand(self.tick.isoformat())
+
+        # Two configurations, one key: a key is a team and a minute, not an alert.
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(2), self._key(1)]}
+
+    def test_the_bound_keeps_the_oldest_due_keys_and_counts_the_rest(self) -> None:
+        self._configuration(minutes_ago=1, name="newer")
+        self._configuration(minutes_ago=5, name="oldest")
+
+        bounded = demand.discover_demand(self.tick.isoformat(), limit_per_source=1)
+
+        # Oldest first, so a key the bound leaves out grows more overdue and wins a later tick.
+        assert bounded.batch_keys_by_source == {SourceKind.LOGS: [self._key(5)]}
+        assert bounded.omitted_by_source == {SourceKind.LOGS: 1}
+
+    def test_a_configuration_never_checked_belongs_to_this_tick(self) -> None:
+        self._configuration(minutes_ago=None, name="never checked")
+
+        discovered = demand.discover_demand(self.tick.isoformat())
+
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(0)]}
+
+    @parameterized.expand([("invalid",), ("2026-09-16T10:00:00",)])
+    def test_discovery_rejects_invalid_cutoff(self, cutoff: str) -> None:
+        with pytest.raises(ValueError):
+            demand.discover_demand(cutoff)
+
+    def test_discovery_rejects_a_limit_below_one(self) -> None:
+        with pytest.raises(ValueError):
+            demand.discover_demand(self.tick.isoformat(), limit_per_source=0)
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
