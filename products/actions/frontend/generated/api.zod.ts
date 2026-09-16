@@ -373,7 +373,18 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()
@@ -796,7 +807,18 @@ export const ActionsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()
@@ -1221,7 +1243,18 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .nullish()
                         .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
-                    selector_regex: zod.string().nullable(),
+                    selector_regex: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Compiled regex the selector matches against the event elements chain. Null when no selector is set.'
+                        ),
+                    selector_warning: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.'
+                        ),
                     tag_name: zod
                         .string()
                         .nullish()

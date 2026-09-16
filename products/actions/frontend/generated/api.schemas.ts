@@ -450,8 +450,16 @@ export interface ActionStepJSONApi {
      * @nullable
      */
     selector?: string | null
-    /** @nullable */
+    /**
+     * Compiled regex the selector matches against the event elements chain. Null when no selector is set.
+     * @nullable
+     */
     readonly selector_regex: string | null
+    /**
+     * Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.
+     * @nullable
+     */
+    readonly selector_warning: string | null
     /**
      * HTML tag name to match (e.g. "button", "a", "input").
      * @nullable
