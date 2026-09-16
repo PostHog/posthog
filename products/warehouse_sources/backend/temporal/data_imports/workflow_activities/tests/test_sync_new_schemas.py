@@ -5,7 +5,7 @@ from unittest import mock
 
 from django.db import OperationalError
 
-from posthog.integration_secrets.errors import IntegrationServiceUnreachableError
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
@@ -150,18 +150,30 @@ def test_undecrypted_integration_secret_error_is_skipped():
     _run_activity(source_mock)
 
 
-def test_integration_service_unreachable_error_is_retried_without_reporting():
-    # An unreachable integration service is transient and never the customer's fault, so
-    # discovery must not disable the source (would need `handle_non_retryable_error`) nor mint
-    # an error tracking issue for it (reportable = False) — it must re-raise as
-    # NonReportableError so the workflow's retry policy picks it back up.
+@pytest.mark.parametrize(
+    "error,expect_capture",
+    [
+        (IntegrationServiceUnreachableError("connect timeout"), False),
+        (SecretMissingError("some_key"), True),
+    ],
+    ids=["non_reportable_service_unreachable", "reportable_secret_missing"],
+)
+def test_integration_secrets_failure_is_retried_and_reported_by_reportable(error, expect_capture):
+    # An integration-service failure is never the customer's fault, so discovery must not disable
+    # the source (would need `handle_non_retryable_error`) — it must re-raise as NonReportableError
+    # so the workflow's retry policy picks it back up. `reportable` alone decides whether a person
+    # hears about it: capturing an unreachable service opens an issue per credential read for what
+    # its own availability alerting already covers. Assert the capture, because asserting the raise
+    # alone passes even when everything is captured.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = IntegrationServiceUnreachableError("connect timeout")
+    source_mock.get_schemas.side_effect = error
     source_mock.get_non_retryable_errors.return_value = {}
 
-    with pytest.raises(NonReportableError):
+    with mock.patch.object(module, "capture_exception") as capture, pytest.raises(NonReportableError):
         _run_activity(source_mock)
+
+    assert capture.called is expect_capture
 
 
 def test_discovery_uses_source_pinned_api_version():
