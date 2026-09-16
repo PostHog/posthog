@@ -793,7 +793,16 @@ class TestScoutReportAPI(APIBaseTest):
         decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
         assert decision is not None and json.loads(decision.content)["supersede"] is False
 
-    @parameterized.expand([("lookup_failed",), ("report_changed",), ("no_predecessor",)])
+    @parameterized.expand(
+        [
+            ("lookup_failed",),
+            ("report_changed",),
+            ("no_predecessor",),
+            # A pass rewrites the content on its way out of IN_PROGRESS without moving any counter
+            # the decision is fenced on, so a claim recorded during it would outlive the content.
+            ("report_in_progress",),
+        ]
+    )
     def test_supersede_rejection_preserves_content_for_retry(self, failure: str) -> None:
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
@@ -805,6 +814,8 @@ class TestScoutReportAPI(APIBaseTest):
             github.get_pull_request.return_value = {"success": False, "status_code": 502}
         elif failure == "no_predecessor":
             github.get_pull_request.return_value = {**verified, "state": "closed"}
+        elif failure == "report_in_progress":
+            SignalReport.objects.filter(id=report_id).update(status=SignalReport.Status.IN_PROGRESS)
         else:
 
             def change_during_lookup(*_args):
@@ -821,6 +832,7 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_not_awaited()
         github.get_pull_request.side_effect = None
         github.get_pull_request.return_value = verified
+        SignalReport.objects.filter(id=report_id).update(status=SignalReport.Status.READY)
         with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
             accepted = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
         assert accepted.status_code == status.HTTP_200_OK, accepted.json()

@@ -645,6 +645,13 @@ def record_implementation_decision(
     )
     if supersede and (not context_matches or not implementation_context.candidates):
         raise InvalidScoutReportError("The implementation context changed before the edit was saved. Retry the edit.")
+    # A research pass writes the report's title and summary as it leaves IN_PROGRESS, and that write
+    # moves none of the fields `decision_matches_report` compares. A claim recorded before it would
+    # still read as current afterwards, against content the scout never assessed.
+    if supersede and report.status != SignalReport.Status.READY:
+        raise InvalidScoutReportError(
+            "The report's content is not settled yet. Retry the edit once the report is ready."
+        )
     SignalReportArtefact.append_status(
         team_id=team_id,
         report_id=report_id,
