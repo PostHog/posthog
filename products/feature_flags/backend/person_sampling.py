@@ -20,8 +20,13 @@ SAMPLE_MODULUS = 64
 
 # Below this many sampled matches the extrapolation is too noisy, so rerun exact. The relative
 # error of the estimate is about sqrt(63 / matched_persons), so 10,000 sampled matches
-# (~640k matched persons) keeps the worst case near 3%. The exact query is usually cheap in
-# that regime: few matching persons means the id prefilter keeps the dedup aggregation small.
+# (~640k matched persons) keeps the worst case near 3%.
+#
+# The threshold reads the match count, not the table size, so a large team whose condition
+# matches few persons reruns exact. That rerun reads the whole table, but it does not rebuild
+# the shape this sampling exists to avoid: the id prefilter holds the dedup to the matched
+# candidate set, and count_settings adds in-order aggregation and a spill threshold. The cost
+# is scan time instead of a memory-limit error.
 # Caveat: the prefilter matches any historical row version, so a churny property (many persons
 # matched once, few match now) can make the exact rerun carry a candidate set far larger than
 # the current match count suggests.

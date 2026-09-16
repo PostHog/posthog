@@ -62,10 +62,12 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
     Person blast radius whose peak query memory does not grow with the size of the person table.
 
     The exact counts dedup the person table with a hash GROUP BY that holds every matched
-    person in memory, and HogQL queries cannot spill to disk, so on a large team both counts
-    cross the per-query memory limit and the caller gets an error instead of a number. These
-    counts read a sample of the persons and extrapolate, and fall back to an exact, streaming
-    count when the sample holds too few matches to extrapolate from.
+    person in memory, and HogQL's default settings set no spill threshold, so on a large team
+    both counts cross the per-query memory limit and the caller gets an error instead of a
+    number. These counts read a sample of the persons and extrapolate, and fall back to an
+    exact count when the sample holds too few matches to extrapolate from. That fallback stays
+    bounded because count_settings overrides those defaults with in-order aggregation and a
+    spill threshold.
     """
     # One database build shared by both counts; each execute_hogql_query call would otherwise
     # rebuild it, and the build cost scales with the team's warehouse size.

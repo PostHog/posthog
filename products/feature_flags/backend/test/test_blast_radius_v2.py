@@ -1,12 +1,17 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
+
+from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
     get_person_blast_radius_v2,
     get_user_blast_radius,
+    use_blast_radius_query_v2,
 )
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
@@ -85,3 +90,23 @@ class TestBlastRadiusQueryV2(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["affected"] == (6400 if expects_v2 else 4)
         assert sampled.called is expects_v2
+
+
+class TestBlastRadiusGate(SimpleTestCase):
+    def test_the_gate_evaluates_locally_and_captures_nothing(self):
+        with patch(
+            "products.feature_flags.backend.user_blast_radius.feature_enabled_or_false", return_value=True
+        ) as feature_enabled:
+            assert use_blast_radius_query_v2(Team(pk=42)) is True
+
+        kwargs = feature_enabled.call_args.kwargs
+        # A remote evaluation would put a flags fetch in front of the sizing request the
+        # release-conditions editor sends per condition group, and an event capture would
+        # bill each of those requests as product usage.
+        assert kwargs["only_evaluate_locally"] is True
+        assert kwargs["send_feature_flag_events"] is False
+        # The flag targets the project group, and local evaluation can only resolve that
+        # condition from the ids carried on the call. Without them the gate reads False
+        # for every team, whatever the rollout says.
+        assert kwargs["groups"] == {"project": "42"}
+        assert kwargs["group_properties"] == {"project": {"id": "42"}}
