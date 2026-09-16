@@ -16,7 +16,8 @@ merge into one segment. The evaluation is a fixed precedence, most blocking firs
    reviewer's latest verdict requests changes, approved when none does, else waiting for review.
 
 A commit's check state per workflow is its latest attempt: a re-run in flight reads as running,
-not red, the same way GitHub shows it.
+not red, the same way GitHub shows it. A run that exists but has not started yet also reads as
+running, because the wait for a runner is CI time, not review time.
 """
 
 import bisect
@@ -190,6 +191,7 @@ class PRTimelineBuilder:
     def _change_points(self) -> list[datetime]:
         points: list[datetime] = [*self._push_times]
         for attempt in self._pr.attempts:
+            points.append(attempt.pushed_at)
             points.append(attempt.started_at)
             if attempt.completed_at is not None:
                 points.append(attempt.completed_at)
@@ -233,12 +235,16 @@ class PRTimelineBuilder:
 
     @staticmethod
     def _check_state(push: _Push, at: datetime) -> tuple[list[RunAttempt], bool]:
-        """The head commit's failed latest attempts and whether any latest attempt still runs."""
+        """The head commit's failed latest attempts and whether any latest attempt still runs or waits to start."""
         failed: list[RunAttempt] = []
         running = False
         for attempts in push.attempts_by_workflow.values():
             started = [attempt for attempt in attempts if attempt.started_at <= at]
             if not started:
+                # Only a first attempt proves a queue wait: every attempt of a run carries the run's
+                # creation time, so a re-run's would stretch back over the stretch it was red.
+                if any(attempt.attempt == 1 and attempt.pushed_at <= at for attempt in attempts):
+                    running = True
                 continue
             latest = started[-1]
             if latest.completed_at is None or latest.completed_at > at:

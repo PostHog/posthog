@@ -30,6 +30,10 @@ export interface LeadTimeBoxPlotProps {
     formatSeconds: (seconds: number) => string
     /** Draw the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
     excludeOutliers?: boolean
+    /** List the buckets down the side with the time axis along the bottom. Suits a few buckets. */
+    horizontal?: boolean
+    /** Put the time axis on a log scale, so minutes and days both stay readable on one axis. */
+    logScale?: boolean
     dataAttr: string
     className?: string
 }
@@ -38,6 +42,9 @@ export interface LeadTimeBoxPlotProps {
 interface BucketMeta {
     counts: number[]
 }
+
+/** The six numbers a box draws, for the checks that have to cover all of them. */
+const BOX_STATS = ['min', 'p25', 'median', 'mean', 'p75', 'max'] as const
 
 function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum | null {
     if (
@@ -68,7 +75,7 @@ function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum 
  * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
  * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
  * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Health
- * tab stacks three so the stages compare bucket by bucket.
+ * tab stacks three vertical ones so the stages compare bucket by bucket.
  */
 export function LeadTimeBoxPlot({
     seriesKey,
@@ -76,6 +83,8 @@ export function LeadTimeBoxPlot({
     buckets,
     formatSeconds,
     excludeOutliers = false,
+    horizontal = false,
+    logScale = false,
     dataAttr,
     className,
 }: LeadTimeBoxPlotProps): JSX.Element {
@@ -92,6 +101,20 @@ export function LeadTimeBoxPlot({
         ],
         [seriesKey, seriesLabel, buckets, excludeOutliers]
     )
+    const hasZeroDuration = useMemo(
+        () => series[0].data.some((datum) => datum != null && BOX_STATS.some((stat) => datum[stat] <= 0)),
+        [series]
+    )
+    const config = useMemo(
+        () => ({
+            yTickFormatter: formatSeconds,
+            axisOrientation: horizontal ? ('horizontal' as const) : ('vertical' as const),
+            // A log axis has no zero: the scale clamps a zero-second stat onto the axis floor, where
+            // it would read as a real duration. Such a bucket falls back to the linear axis.
+            yScaleType: logScale && !hasZeroDuration ? ('log' as const) : ('linear' as const),
+        }),
+        [formatSeconds, horizontal, logScale, hasZeroDuration]
+    )
     return (
         // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
         // in a plain block parent the canvas measures 0px tall and paints nothing.
@@ -100,7 +123,7 @@ export function LeadTimeBoxPlot({
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={{ yTickFormatter: formatSeconds }}
+                config={config}
                 dataAttr={dataAttr}
                 tooltip={(ctx) => (
                     <BucketTooltip

@@ -29,12 +29,13 @@ import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/se
 
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 import { MlPrivacyBatchController } from './privacy/batch-controller'
-import { isSupportedMlSessionId } from './session-identifier-format'
+import { mlSessionIdDropReason } from './session-identifier-format'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
     anonymizeMaxConcurrency: number
     privacy?: MlPrivacyBatchController
+    nowMs?: () => number
 }
 
 /** Enables the image-collection lane: inlined images become refs, originals go to the scrub topic. */
@@ -68,11 +69,12 @@ export interface MlMirrorCollection {
     collectUrls: boolean
 }
 
-function createMlSessionIdFilterStep<T extends { headers: SessionReplayHeaders }>(): ProcessingStep<T, T> {
+function createMlSessionIdFilterStep<T extends { headers: SessionReplayHeaders }>(
+    nowMs: () => number
+): ProcessingStep<T, T> {
     return function filterMlSessionId(input) {
-        return Promise.resolve(
-            isSupportedMlSessionId(input.headers.session_id) ? ok(input) : drop('session_id_not_uuid_v7')
-        )
+        const reason = mlSessionIdDropReason(input.headers.session_id, nowMs())
+        return Promise.resolve(reason ? drop(reason) : ok(input))
     }
 }
 
@@ -113,7 +115,7 @@ export function createMlMirrorReplayPipeline(
                         b
                             .sequentially((b) =>
                                 addSessionReplayPreprocessing(b, config)
-                                    .pipe(createMlSessionIdFilterStep())
+                                    .pipe(createMlSessionIdFilterStep(mlOptions.nowMs ?? Date.now))
                                     // Mirror only data from orgs that opted into AI training.
                                     .pipe(createAiTrainingOptInFilterStep())
                             )
