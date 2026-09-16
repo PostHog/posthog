@@ -70,7 +70,6 @@ def snowflake_config(database, schema) -> dict[str, str | None]:
 
 @pytest.fixture
 def snowflake_export_config(snowflake_config) -> dict[str, str | None]:
-    """The destination config of a Snowflake export: everything that is not a credential."""
     return {key: snowflake_config[key] for key in ("warehouse", "database", "schema", "role")}
 
 
