@@ -3,6 +3,11 @@
 Every table in a data warehouse source needs a `sync_type`. The choice determines how data flows on every sync, how
 much it costs, how fresh the data is, and what shape it has after import.
 
+Leave `sync_type` out of a table you enable and PostHog uses the cursor the connector declares for it, when the
+connector declares one. That fallback covers clients that cannot run schema discovery and so cannot name a cursor
+field. SQL database sources declare no cursor, because the candidates are the user's own columns. An enabled table
+left without a method imports nothing, so pick the type yourself whenever you ran db-schema.
+
 ## Contents
 
 - The five sync types
