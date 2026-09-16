@@ -18,6 +18,7 @@ import (
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/completion"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/ratelimit"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/validation"
 )
 
@@ -60,12 +61,14 @@ type completionResponse struct {
 }
 
 type validationRequest struct {
-	Query string `json:"query"`
+	Query            string                `json:"query"`
+	PositionEncoding textposition.Encoding `json:"positionEncoding,omitempty"`
 }
 
 type validationResponse struct {
 	validation.Result
-	CatalogRevision string `json:"catalogRevision"`
+	CatalogRevision  string                `json:"catalogRevision"`
+	PositionEncoding textposition.Encoding `json:"positionEncoding"`
 }
 
 type catalogUpdate struct {
@@ -366,7 +369,17 @@ func (s *server) validate(w http.ResponseWriter, r *http.Request, authorization 
 		return
 	}
 	setRequestResult(r, "catalog_hit")
-	writeJSON(w, http.StatusOK, validationResponse{Result: validation.Validate(current, input.Query), CatalogRevision: revision})
+	positionEncoding := input.PositionEncoding
+	if positionEncoding == "" {
+		positionEncoding = textposition.UTF8
+	}
+	result, err := validation.ValidateWithEncoding(current, input.Query, positionEncoding)
+	if err != nil {
+		setRequestResult(r, "invalid_query")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, validationResponse{Result: result, CatalogRevision: revision, PositionEncoding: positionEncoding})
 }
 
 func (s *server) health(w http.ResponseWriter, _ *http.Request) {

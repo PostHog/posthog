@@ -112,6 +112,42 @@ func TestCompletesFieldsForAlias(t *testing.T) {
 	}
 }
 
+func TestCompletionQuotesIdentifierInsertionText(t *testing.T) {
+	schema := catalog.Prepare(&catalog.Catalog{Tables: map[string]catalog.Table{
+		"order-items": {Name: "order-items", Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+		"orders": {Name: "orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
+			"billing address": {Name: "billing address", Type: "string"},
+			"order-total":     {Name: "order-total", Type: "float"},
+			"tick`value":      {Name: "tick`value", Type: "string"},
+		}},
+	}, Properties: map[string][]catalog.Property{}})
+
+	tableResult, err := Complete(schema, "SELECT * FROM order", len("SELECT * FROM order"), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldResult, err := Complete(schema, "SELECT o. FROM orders AS o", len("SELECT o."), PositionEncodingUTF8, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		result     Result
+		label      string
+		insertText string
+	}{
+		{result: tableResult, label: "order-items", insertText: "`order-items`"},
+		{result: fieldResult, label: "billing address", insertText: "`billing address`"},
+		{result: fieldResult, label: "order-total", insertText: "`order-total`"},
+		{result: fieldResult, label: "tick`value", insertText: "`tick``value`"},
+	} {
+		suggestion, ok := findSuggestion(test.result.Suggestions, test.label)
+		if !ok || suggestion.InsertText != test.insertText {
+			t.Fatalf("suggestion %q = %#v, want insert text %q", test.label, suggestion, test.insertText)
+		}
+	}
+}
+
 func TestCompletesFieldsForMixedCaseTableReference(t *testing.T) {
 	query := "SELECT Orders. FROM Orders"
 	result, err := Complete(testCatalog(), query, len("SELECT Orders."), PositionEncodingUTF8, "")

@@ -13,6 +13,7 @@ import (
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 )
 
 type Suggestion struct {
@@ -212,6 +213,26 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 		})
 	}
 	return result(diagnostics, referencedTableNames, started)
+}
+
+func ValidateWithEncoding(schema *catalog.PreparedCatalog, query string, encoding textposition.Encoding) (Result, error) {
+	if !encoding.Valid() {
+		return Result{}, fmt.Errorf("unsupported position encoding %q", encoding)
+	}
+	result := Validate(schema, query)
+	for index := range result.Diagnostics {
+		start, err := textposition.FromByteOffset(query, result.Diagnostics[index].Start, encoding)
+		if err != nil {
+			return Result{}, err
+		}
+		end, err := textposition.FromByteOffset(query, result.Diagnostics[index].End, encoding)
+		if err != nil {
+			return Result{}, err
+		}
+		result.Diagnostics[index].Start = start
+		result.Diagnostics[index].End = end
+	}
+	return result, nil
 }
 
 func queryScopes(statement clickhouse.Expr, budget *projectionBudget) []*queryScope {

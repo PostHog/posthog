@@ -48,8 +48,10 @@ curl -sS -X POST http://localhost:8091/teams/2/users/1/validate \
   -d '{"query":"SELECT events.properties.$geo_cty FROM events"}'
 ```
 
-`position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the default) or
-`utf-16`; editor clients such as Monaco should send `utf-16`. The response echoes the selected encoding.
+Autocomplete `position` is optional and defaults to the end of the query. Set `positionEncoding` to `utf-8` (the
+default) or `utf-16`; editor clients such as Monaco should send `utf-16`. Validation accepts the same setting and uses
+it for diagnostic positions. Both responses echo the selected encoding. Suggestion labels preserve catalog names,
+while `insertText` quotes identifiers that contain spaces or special characters.
 `durationMicros` covers only the
 in-memory completion path; network and JSON decoding are intentionally excluded. Responses contain at most 25
 suggestions, the total match count, and an opaque `nextCursor` when another page exists. Send the same query and

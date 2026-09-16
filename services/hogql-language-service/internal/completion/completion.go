@@ -14,6 +14,7 @@ import (
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/propertyresolver"
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/querylimits"
+	"github.com/PostHog/posthog/services/hogql-language-service/internal/textposition"
 )
 
 type Suggestion struct {
@@ -33,11 +34,11 @@ type Result struct {
 
 const PageSize = 25
 
-type PositionEncoding string
+type PositionEncoding = textposition.Encoding
 
 const (
-	PositionEncodingUTF8  PositionEncoding = "utf-8"
-	PositionEncodingUTF16 PositionEncoding = "utf-16"
+	PositionEncodingUTF8  = textposition.UTF8
+	PositionEncodingUTF16 = textposition.UTF16
 )
 
 var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS", "CASE", "NULL", "TRUE", "FALSE", "NOT"}
@@ -46,6 +47,19 @@ var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMI
 var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
 var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
+var simpleHogQLIdentifier = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*$`)
+var hogQLIdentifierEscaper = strings.NewReplacer(
+	"\\", "\\\\",
+	"`", "``",
+	"\b", "\\b",
+	"\f", "\\f",
+	"\r", "\\r",
+	"\n", "\\n",
+	"\t", "\\t",
+	"\x00", "\\0",
+	"\a", "\\a",
+	"\v", "\\v",
+)
 
 func Complete(schema *catalog.PreparedCatalog, query string, position int, positionEncoding PositionEncoding, cursor string) (Result, error) {
 	if err := querylimits.Validate(query); err != nil {
@@ -55,15 +69,9 @@ func Complete(schema *catalog.PreparedCatalog, query string, position int, posit
 	if err != nil {
 		return Result{}, err
 	}
-	switch positionEncoding {
-	case PositionEncodingUTF8:
-		if position < 0 || position > len(query) {
-			position = len(query)
-		}
-	case PositionEncodingUTF16:
-		position = utf16OffsetToByteOffset(query, position)
-	default:
-		return Result{}, fmt.Errorf("unsupported position encoding %q", positionEncoding)
+	position, err = textposition.ToByteOffset(query, position, positionEncoding)
+	if err != nil {
+		return Result{}, err
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
 	if len(prefix) > querylimits.MaxSuggestionInputBytes {
@@ -162,7 +170,7 @@ func indexedResult(entries []catalog.Entry, kind string, offset int, parseErr er
 	rank := strconv.Itoa(suggestionRank(kind)) + "-"
 	for index, entry := range entries[offset:end] {
 		result.Suggestions[index] = Suggestion{
-			Label: entry.Name, Kind: kind, Detail: entry.Type, SortText: rank + strings.ToLower(entry.Name),
+			Label: entry.Name, Kind: kind, Detail: entry.Type, InsertText: suggestionInsertText(kind, entry.Name), SortText: rank + strings.ToLower(entry.Name),
 		}
 	}
 	if end < len(entries) {
@@ -175,24 +183,8 @@ func indexedResult(entries []catalog.Entry, kind string, offset int, parseErr er
 }
 
 func utf16OffsetToByteOffset(value string, offset int) int {
-	if offset < 0 {
-		return len(value)
-	}
-	utf16Offset := 0
-	for byteOffset, character := range value {
-		if utf16Offset >= offset {
-			return byteOffset
-		}
-		characterWidth := 1
-		if character > 0xFFFF {
-			characterWidth = 2
-		}
-		if utf16Offset+characterWidth > offset {
-			return byteOffset
-		}
-		utf16Offset += characterWidth
-	}
-	return len(value)
+	byteOffset, _ := textposition.ToByteOffset(value, offset, PositionEncodingUTF16)
+	return byteOffset
 }
 
 func propertyContext(input string, bindings map[string]string) (string, string, bool) {
@@ -250,9 +242,34 @@ func fallbackBindings(query string, schema *catalog.PreparedCatalog) map[string]
 
 func appendFields(out []Suggestion, table *catalog.PreparedTable, lowerPrefix string) []Suggestion {
 	for _, field := range table.Fields.Prefix(lowerPrefix) {
-		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type})
+		out = append(out, Suggestion{Label: field.Name, Kind: "field", Detail: field.Type, InsertText: suggestionInsertText("field", field.Name)})
 	}
 	return out
+}
+
+func suggestionInsertText(kind, name string) string {
+	insertText := name
+	switch kind {
+	case "field", "property":
+		insertText = quoteHogQLIdentifier(name)
+	case "table":
+		parts := strings.Split(name, ".")
+		for index := range parts {
+			parts[index] = quoteHogQLIdentifier(parts[index])
+		}
+		insertText = strings.Join(parts, ".")
+	}
+	if insertText == name {
+		return ""
+	}
+	return insertText
+}
+
+func quoteHogQLIdentifier(name string) string {
+	if simpleHogQLIdentifier.MatchString(name) {
+		return name
+	}
+	return "`" + hogQLIdentifierEscaper.Replace(name) + "`"
 }
 
 func appendFunctions(out []Suggestion, lowerPrefix string) []Suggestion {
