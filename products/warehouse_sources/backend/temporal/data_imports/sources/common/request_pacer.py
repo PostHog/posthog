@@ -1,10 +1,27 @@
 import time
 import threading
+import contextvars
 from collections.abc import Callable
-from typing import Optional
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Optional, ParamSpec, TypeVar
+
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 # How long a 429 keeps the pool at a reduced rate when the vendor sends no Retry-After.
 RATE_LIMIT_HOLD_SECONDS = 30.0
+
+
+def submit_with_context(
+    pool: ThreadPoolExecutor, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
+) -> Future[_T]:
+    """Run `fn` on the pool inside a copy of the caller's context.
+
+    Pool threads start with an empty context, which would strip the team and job labels that the
+    HTTP observer and structlog read from contextvars.
+    """
+    ctx = contextvars.copy_context()
+    return pool.submit(lambda: ctx.run(fn, *args, **kwargs))
 
 
 class RequestPacer:

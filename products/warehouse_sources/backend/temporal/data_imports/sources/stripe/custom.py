@@ -1,14 +1,16 @@
 import threading
-import contextvars
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, ParamSpec, TypeVar
 
 import stripe as stripe_lib
 from stripe import Invoice, InvoiceLineItem, InvoiceService, ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import RequestPacer
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import (
+    RequestPacer,
+    submit_with_context,
+)
 
 # Stripe's test-mode read limit is 25 requests/s and the live-mode limit is 100. Five workers stay
 # under both, and the page fetch is the longer leg of an iteration, so more would not shorten a sweep.
@@ -23,16 +25,6 @@ _T = TypeVar("_T")
 # Receives the Retry-After seconds from a 429, or None when Stripe sent none.
 RateLimitCallback = Callable[[Optional[float]], None]
 ClientFactory = Callable[[RateLimitCallback], StripeClient]
-
-
-def _submit(pool: ThreadPoolExecutor, fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> Future[_T]:
-    """Run `fn` on the pool inside a copy of the caller's context.
-
-    Pool threads start with an empty context, which would strip the team and job labels that the
-    HTTP observer and structlog read from contextvars.
-    """
-    ctx = contextvars.copy_context()
-    return pool.submit(lambda: ctx.run(fn, *args, **kwargs))
 
 
 class InvoiceListWithAllLines:
@@ -73,9 +65,11 @@ class InvoiceListWithAllLines:
         pool = ThreadPoolExecutor(max_workers=self._concurrency + 1, thread_name_prefix="stripe-invoice-lines")
         try:
             while not page.is_empty:
-                next_page = _submit(pool, page.next_page)
+                next_page = submit_with_context(pool, page.next_page)
                 line_futures = [
-                    _submit(pool, self._fetch_lines, invoice.id) if invoice.lines.has_more and invoice.id else None
+                    submit_with_context(pool, self._fetch_lines, invoice.id)
+                    if invoice.lines.has_more and invoice.id
+                    else None
                     for invoice in page.data
                 ]
 
