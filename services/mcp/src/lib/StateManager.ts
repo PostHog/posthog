@@ -31,7 +31,7 @@ type OrgEntitlementFields = {
  * every later project-scoped call 404s too. Rejecting it turns that dead end
  * into `MissingProjectContextError`, which tells the agent how to pick a project.
  */
-function isUsableProjectId(projectId: number | string): boolean {
+export function isUsableProjectId(projectId: number | string): boolean {
     return /^\d+$/.test(String(projectId)) && Number(projectId) > 0
 }
 

@@ -11,6 +11,7 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
+import { isUsableProjectId } from '@/lib/StateManager'
 import type { McpMode } from '@/lib/utils'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import {
@@ -279,7 +280,10 @@ export class RequestStateResolver {
         const flagGatedTools = useSingleExec ? getFlagGatedTools(filterOptions) : []
 
         const [groupTypes, metadata, metadataCompact] = await Promise.all([
-            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+            // This local holds whatever the request started with, and only `getProjectId`
+            // re-resolves an unusable id. Check it here too, rather than send a fetch that
+            // can only 404 and be recorded as an exception.
+            cachedProjectId && isUsableProjectId(cachedProjectId) && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore, mockApiKey } = vi.hoisted(() => ({
+const { mockSessionStore, mockTokenStore, mockApiKey, mockGetOrFetchGroupTypes } = vi.hoisted(() => ({
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: { scopes: ['*'], scoped_teams: [] },
+    mockGetOrFetchGroupTypes: vi.fn(async () => undefined),
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -66,7 +67,7 @@ vi.mock('@/hono/request-context', () => {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
                         getApiKey: vi.fn(async () => mockApiKey),
                         getAiConsentGiven: vi.fn(async () => undefined),
-                        getOrFetchGroupTypes: vi.fn(async () => undefined),
+                        getOrFetchGroupTypes: mockGetOrFetchGroupTypes,
                         getEnvironmentPrompt: vi.fn(async () => undefined),
                         getAvailableFeatures: vi.fn(async () => undefined),
                     },
@@ -126,6 +127,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockSessionStore.clear()
         mockTokenStore.clear()
         mockApiKey.scopes = ['*']
+        mockGetOrFetchGroupTypes.mockClear()
     })
 
     it.each([
@@ -415,6 +417,19 @@ describe('RequestStateResolver MCP client contexts', () => {
 
         expect(result.useSingleExec).toBe(true)
         expect(result.gatewayToolsEnabled).toBe(enabled)
+    })
+
+    it.each([
+        ['a cached project id', '4242', 1],
+        // A session poisoned before this check existed still holds a non-team id here, and
+        // the group-types fetch is the one call that does not re-resolve it.
+        ['a cached project id that is not a team id', 'NaN', 0],
+    ] as const)('fetches group types for %s', async (_label, cached, calls) => {
+        mockTokenStore.set('projectId', cached)
+
+        await makeResolver().resolve(makeProps({ projectId: undefined }))
+
+        expect(mockGetOrFetchGroupTypes).toHaveBeenCalledTimes(calls)
     })
 
     it.each([
