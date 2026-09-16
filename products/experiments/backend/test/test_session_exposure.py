@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
+from posthog.models import EventDefinition, EventProperty
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -145,11 +145,15 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         )
 
     def _observe_event(self, event: str, *, session_linked: bool) -> None:
-        # Taxonomy writes one row per (event, property) pair, so the `$browser` row is what marks an
-        # event as observed at all. Without it the event reads as one nothing is known about yet,
-        # which is a different verdict from one captured only server-side.
-        EventProperty.objects.get_or_create(
-            team=self.team, project_id=self.team.project_id, event=event, property="$browser"
+        # Ingestion claims `last_seen_at` the first time it sees the event, so that is what marks the
+        # event observed at all. No `EventProperty` row goes with it: a capture carrying only the
+        # `$feature/<key>` variant property leaves none, and such an event still has to read as
+        # observed rather than as one nothing is known about yet.
+        EventDefinition.objects.get_or_create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=event,
+            defaults={"last_seen_at": datetime(2026, 1, 2, tzinfo=UTC)},
         )
         if session_linked:
             EventProperty.objects.get_or_create(
@@ -265,6 +269,9 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         assert semantics.session_exposure is None
 
     def test_unavailable_for_a_never_session_linked_custom_event(self) -> None:
+        # The observed custom event carries no `EventProperty` row at all, the shape a capture with
+        # only the required `$feature/<key>` property leaves. It must still refuse as unmatchable
+        # rather than as not observed yet, or the tab tells a live experiment to check back forever.
         experiment = self._experiment(
             exposure_criteria={
                 "exposure_config": {
