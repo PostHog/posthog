@@ -16,6 +16,13 @@ has no reaper at all, so it strands until someone intervenes by hand.
 Staleness alone does not decide anything here: it is a cheap pre-filter that bounds how many
 Temporal calls the sweep makes. Temporal is the authority on whether the orchestrator is
 alive, so a run is only failed once its workflow is proven gone.
+
+Recovery is bounded, not prompt. A run becomes a candidate ``STALE_AFTER`` its last row
+write, and only the next sweep sees it, so a stranded run fails up to the staleness window
+plus one sweep interval after its workflow died, which is about 2 hours 45 minutes. A
+shorter window would recover sooner but spend the batch differently: candidates are capped
+at ``RECONCILE_BATCH_SIZE`` and ordered by ``updated_at`` ascending, so a window inside the
+inactivity cap fills the batch with live-but-quiet runs and delays the dead runs behind them.
 """
 
 from datetime import datetime, timedelta
@@ -36,8 +43,11 @@ logger = structlog.get_logger(__name__)
 
 # A live run bumps `updated_at` (auto_now) well inside its inactivity window, so a run
 # untouched for longer than the largest window plus a buffer is worth asking Temporal about.
-# Mirrors the loop reaper's `LOOP_RUN_STALE_SECONDS` reasoning, and is kept clear of
-# `MAX_INACTIVITY_TIMEOUT_SECONDS` so a run sitting right at the cap is never a candidate.
+# The window is not what keeps a live run safe, because Temporal gives the verdict. It keeps
+# live-but-quiet runs out of the capped batch, so the Temporal budget goes to the runs that
+# are plausibly gone. Same value as the loop reaper's `LOOP_RUN_STALE_SECONDS`, which needs
+# it clear of `MAX_INACTIVITY_TIMEOUT_SECONDS` for a reason this sweep does not share: that
+# reaper decides on the clock alone.
 STALE_AFTER = timedelta(seconds=MAX_INACTIVITY_TIMEOUT_SECONDS + 30 * 60)  # 2.5 hours
 
 # Each candidate costs one Temporal round trip and the Celery task has a 110s soft limit, so
