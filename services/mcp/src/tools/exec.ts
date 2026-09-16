@@ -205,6 +205,14 @@ export interface ExecToolOptions {
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
     /**
+     * Reports a command failure the batch rendered in place, and returns the person
+     * and session a captured exception belongs to. The handler returns normally for
+     * such a failure, so without this the canonical event records the whole request
+     * as a success and no error counter moves — the same channel a recovered inner
+     * call uses to stay visible.
+     */
+    reportCommandFailure?: (error: unknown) => Promise<{ distinctId?: string; sessionUuid?: string }>
+    /**
      * Tools a feature flag removed from this connection's catalog. Lets a call to
      * a retired name name its successor instead of reading as an unknown tool.
      */
@@ -482,7 +490,8 @@ function unsupportedBatchMessage(commands: string[]): string | undefined {
  *  are still worth returning. */
 async function runBatchedCommands(
     commands: string[],
-    runCommand: (command: string) => Promise<unknown>
+    runCommand: (command: string) => Promise<unknown>,
+    reportFailure: ExecToolOptions['reportCommandFailure']
 ): Promise<{ output: string; errorCount: number }> {
     const sections: string[] = []
     let used = 0
@@ -493,10 +502,14 @@ async function runBatchedCommands(
             body = formatResponse(await runCommand(command))
         } catch (error) {
             errorCount += 1
-            // The same formatter the single-command path reaches through the
-            // executor's catch, so a batched failure keeps its recovery hints
-            // and still reaches error tracking.
-            body = handleToolError(error, 'exec')
+            // Handed to the host first, because the handler returns normally from
+            // here and nothing downstream would otherwise classify or count this
+            // failure. Then the same formatter the single-command path reaches
+            // through the executor's catch, with the identity it attributes a
+            // capture to, so a batched failure keeps its recovery hints and lands
+            // in error tracking the same way.
+            const identity = await reportFailure?.(error)
+            body = handleToolError(error, 'exec', identity?.distinctId, identity?.sessionUuid)
                 .content.map((part) => (part.type === 'text' ? part.text : ''))
                 .join('')
         }
@@ -536,8 +549,10 @@ function withCommandBatching(tool: Tool<ExecSchema>, options: ExecToolOptions): 
                 options.trackCommand?.({ exec_verb: BATCH_VERB })
                 throw new ExecCommandError(unsupported, 'batched_command')
             }
-            const { output, errorCount } = await runBatchedCommands(batched, (command) =>
-                tool.handler(context, { command })
+            const { output, errorCount } = await runBatchedCommands(
+                batched,
+                (command) => tool.handler(context, { command }),
+                options.reportCommandFailure
             )
             // The executor merges these last-write-wins, so this has to land after
             // the per-command reports — otherwise the whole batch is filed under

@@ -702,6 +702,16 @@ export class ToolExecutor {
                 trackCommand: (meta) => {
                     execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
                 },
+                // A batch renders every failure in place and returns normally, so this
+                // is the only route a batched failure has onto the canonical event.
+                // The first one wins: the event carries one classification.
+                reportCommandFailure: async (error) => {
+                    execMetrics.innerFailure ??= { error }
+                    return {
+                        distinctId: state.distinctId,
+                        sessionUuid: await state.reqCtx.getEffectiveSessionUuid(state.requestContext),
+                    }
+                },
             }
         )
 

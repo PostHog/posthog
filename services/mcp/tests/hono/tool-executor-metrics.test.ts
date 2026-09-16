@@ -579,6 +579,24 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
+        // A batch renders each failure in place and returns normally, so the request
+        // reads as a clean success unless the failure is reported. Then the reason
+        // an agent's batched command failed leaves no trace in the counters at all.
+        it('records a failure inside a batch as a failed call', async () => {
+            const response: any = await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'info docs-search\ninfo nonexistent-tool-xyz' } },
+                execState()
+            )
+
+            expect(response.isError).toBeFalsy()
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[2]).toBe(true)
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: 'unknown_tool',
+            })
+        })
+
         it('classifies a scope-gated tool as permission, not validation', async () => {
             // The agent can't fix this by sending different input — the connection has
             // to be reauthorized, which is what the permission-rate alert watches for.
