@@ -666,7 +666,6 @@ const TRIPWIRE_RULES = [
     ['bin/deploy-hobby', HOBBY],
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
-    ['bin/migrate-session-recordings-hobby', HOBBY],
     // Called by the hobby storage-migration scripts above, so it has to share
     // their lane.
     ['bin/migrate-minio-to-seaweedfs', HOBBY],
