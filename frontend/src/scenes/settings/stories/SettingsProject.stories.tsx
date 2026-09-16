@@ -3,13 +3,14 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -45,11 +46,16 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/projects/:id/tags': ['eu-region', 'production'],
             },
             patch: {
-                '/api/projects/:id': async ({ request }) => {
-                    // bounce the setting back as is
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) }
-                    return [200, newTeamSettings]
-                },
+                // bounce the setting back as is. `updateCurrentTeam` patches the environment for
+                // everything except a bare project rename, so both routes need a handler.
+                '/api/projects/:id': async ({ request }) => [
+                    200,
+                    { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) },
+                ],
+                '/api/environments/:id': async ({ request }) => [
+                    200,
+                    { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as object) },
+                ],
             },
         }),
     ],
@@ -126,4 +132,35 @@ export const SettingsProjectLogsReadOnly: Story = {
         router.actions.push(urls.settings(sectionId))
         return <App />
     },
+}
+
+export const SettingsProjectLogsJsonParsing: Story = {
+    ...SettingsProjectLogs,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.LOGS_SETTINGS_JSON, FEATURE_FLAGS.LOGS_JSON_ATTRIBUTE_PARSING],
+    },
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        if (!appContext) {
+            return
+        }
+        const originalAccess = appContext.resource_access_control
+        appContext.resource_access_control = {
+            ...originalAccess,
+            [AccessControlResourceType.Logs]: AccessControlLevel.Manager,
+        }
+        return () => {
+            appContext.resource_access_control = originalAccess
+        }
+    },
+}
+
+export const SettingsProjectLogsJsonParsingReadOnly: Story = {
+    ...SettingsProjectLogsJsonParsing,
+    render: SettingsProjectLogsReadOnly.render,
+}
+
+export const SettingsProjectLogsJsonParsingFlagOff: Story = {
+    ...SettingsProjectLogsJsonParsing,
+    parameters: { featureFlags: [FEATURE_FLAGS.LOGS_SETTINGS_JSON] },
 }
