@@ -132,6 +132,7 @@ export function deriveInitialConfig(
   });
 }
 
+/** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
 export type PreferredRunDefaults = Pick<
   TaskRunDefaults,
   "runtime_adapter" | "model" | "reasoning_effort"

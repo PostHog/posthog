@@ -33,6 +33,7 @@ function effortLabel(effort: string): string {
   );
 }
 
+/** A stored triple as prose, or a note that the level is unset. */
 function describe(preferences: TaskRunPreferences, emptyLabel: string): string {
   if (!preferences.model) return emptyLabel;
   const model =
@@ -68,6 +69,7 @@ function MyDefaultPicker({
     shown.runtime_adapter === "codex" ? "codex" : "claude";
   const storedHarness: AgentHarness =
     shown.runtime === PI_RUNTIME ? "pi" : storedAdapter;
+  // A harness choice lives here until a model pick on it completes the triple.
   // Saving an all-null pair on the switch would both clear an existing personal
   // default and flip `shown` back to the inherited row, snapping the control
   // to the old harness under the cursor.
@@ -82,6 +84,7 @@ function MyDefaultPicker({
   }, [pendingHarness, storedHarness]);
   // Resetting the personal default (from the row below) flips the stored model
   // from a value to null. That is not a harness switch, so the effect above
+  // won't match its adapter — drop any pending browse here too, or the control
   // stays stuck on the previewed harness with no in-page way back, contradicting
   // the summary line and losing the "Default ·" marker.
   const prevPersonalModel = useRef(preferences.model);
@@ -101,10 +104,14 @@ function MyDefaultPicker({
 
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
+  // Reflect the stored triple into the fetched options, so the pill names the preference
+  // rather than whatever the last preview session happened to select.
   const seeded = useRef<string | null>(null);
   const seedKey = `${adapter}:${shown.model ?? ""}:${shown.reasoning_effort ?? ""}`;
   useEffect(() => {
     if (isLoading || seeded.current === seedKey) return;
+    // The stored triple belongs to another harness while a switch is pending;
+    // seeding its model into this harness's options would show a phantom pick.
     if (pendingHarness || isPi) return;
     seeded.current = seedKey;
     if (shown.model && modelOption) {
@@ -126,6 +133,8 @@ function MyDefaultPicker({
   ]);
 
   const handleHarnessChange = (next: AgentHarness) => {
+    // Nothing is saved yet: the next model pick on this harness supplies
+    // the pair and carries the adapter with it.
     seeded.current = null;
     setPendingHarness(next);
   };
@@ -146,6 +155,7 @@ function MyDefaultPicker({
     if (thoughtOption) setConfigOption(thoughtOption.id, effort);
     // An effort alone is not a preference: it needs the model it was judged
     // against. Read that from the harness's seated option, not the stored
+    // triple — mid-switch shown.model still names the previous harness's model,
     // and pairing it with the new adapter saves a preference no surface applies.
     const model =
       modelOption?.type === "select" ? modelOption.currentValue : undefined;
@@ -222,9 +232,13 @@ function MyDefaultPicker({
           thoughtOption={thoughtOption}
           adapter={adapter}
           anchor={anchorRef}
+          // Mid-switch the pill shows the new harness's own default, which is a
+          // browse, not the inherited project default — no "Default ·" marker.
           isDefaultSelection={isInherited && !pendingHarness}
           onModelChange={handleModelChange}
           onChange={handleEffortChange}
+          // A slider notch changes model and effort at once. Save them as one
+          // preference so the effort can't land on the previously-shown model.
           onNotchSelect={({ model, effort }) => {
             if (modelOption) setConfigOption(modelOption.id, model);
             if (thoughtOption) setConfigOption(thoughtOption.id, effort);
