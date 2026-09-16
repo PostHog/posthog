@@ -302,11 +302,16 @@ def _fanout_list_pages(access_key: str, config: BunnyEndpointConfig) -> Iterator
 
 
 def _log_pages(
-    access_key: str, config: BunnyEndpointConfig, date_from: str, date_to: str
+    access_key: str, config: BunnyEndpointConfig, db_incremental_field_last_value: Any, date_to: str
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk the CDN access logs of every pull zone that has logging turned on."""
-    params = _request_params(config, date_from, date_to)
     for call in _endpoint_calls(access_key, config):
+        # Recomputed per zone rather than once for the whole walk: a fan-out across many zones
+        # can take longer than `LOG_WINDOW_MARGIN` allows, and the API rejects a `from` that has
+        # since aged past the retention window it was computed against. `to` stays fixed (see
+        # `_log_date_to`) since only the window START can expire this way.
+        date_from = _log_date_from(db_incremental_field_last_value)
+        params = _request_params(config, date_from, date_to)
         try:
             for page in call.client.paginate(
                 call.path,
@@ -383,9 +388,10 @@ def bunny_source(
         return _source_response(config, lambda: _chart_pages(access_key, config, timestamp_column, date_from))
 
     if config.logging_api:
-        date_from = _log_date_from(db_incremental_field_last_value)
         date_to = _log_date_to()
-        return _source_response(config, lambda: _log_pages(access_key, config, date_from, date_to))
+        return _source_response(
+            config, lambda: _log_pages(access_key, config, db_incremental_field_last_value, date_to)
+        )
 
     if config.parent is not None:
         return _source_response(config, lambda: _fanout_list_pages(access_key, config))

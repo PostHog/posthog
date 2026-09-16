@@ -35,6 +35,9 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 BUNNY_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny.make_tracked_session"
 )
+# `datetime.now` can't be patched on the real (C-level) class, so the module's own reference to
+# `datetime` is replaced instead.
+BUNNY_DATETIME_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.bunny.bunny.datetime"
 
 
 def _response(
@@ -718,3 +721,31 @@ class TestPullZoneLogs:
 
         asked = datetime.strptime(sent[1].params["from"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
         assert abs((now - expected_age) - asked) < timedelta(minutes=1)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BUNNY_DATETIME_PATCH)
+    def test_from_is_reclamped_per_zone_but_to_stays_fixed(self, MockDatetime, MockSession) -> None:
+        # A fan-out across many zones can take longer than `LOG_WINDOW_MARGIN` allows. `from`
+        # must be recomputed against "now" at each zone so a later zone's request still falls
+        # inside the retention window; `to` must not, or the window it walks would grow.
+        session = MockSession.return_value
+        sent = _wire(
+            session,
+            [
+                _response([{"Id": 3}, {"Id": 4}], has_more=False),
+                _log_response([]),
+                _log_response([]),
+            ],
+        )
+
+        base = datetime(2024, 5, 2, 0, 0, 0, tzinfo=UTC)
+        # Call order: `_log_date_to` once, then `_log_date_from` once per zone. The second
+        # zone's "now" is far enough ahead to move its retention edge.
+        MockDatetime.now.side_effect = [base, base, base + LOG_WINDOW_MARGIN + timedelta(minutes=10)]
+
+        _rows(_source(_make_manager(), endpoint="pull_zone_logs"))
+
+        first_from = datetime.strptime(sent[1].params["from"], "%Y-%m-%dT%H:%M:%SZ")
+        second_from = datetime.strptime(sent[2].params["from"], "%Y-%m-%dT%H:%M:%SZ")
+        assert second_from > first_from
+        assert sent[1].params["to"] == sent[2].params["to"]
