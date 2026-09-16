@@ -679,7 +679,9 @@ export interface experimentReplayTabLogicMeta {
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
+            filtersCustomized: boolean,
             effectiveVariantKey: string | null,
+            effectiveExposureScope: ExperimentReplayExposureScope,
             scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
