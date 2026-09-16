@@ -157,6 +157,14 @@ class SpendRow:
         return max(0.0, self.input_tokens - self.cache_read - self.cache_write)
 
 
+@frozen
+class BucketKey:
+    """One (model × stage) cell of the spend table."""
+
+    model: str
+    stage: str
+
+
 @dataclass(frozen=False)
 class BucketTally:
     """Token and cost accumulator for one (model × stage) bucket.
@@ -165,6 +173,7 @@ class BucketTally:
     never mixes a partial back-calc with a complete one.
     """
 
+    key: BucketKey
     gens: int = 0
     fresh_in: float = 0.0
     cache_write: float = 0.0
@@ -179,6 +188,7 @@ class BucketTally:
 class UnitSession:
     """First gen of one sandbox unit, plus every model the unit's session went on to use."""
 
+    run_id: str
     first_gen_at: datetime
     stage: str
     step: str
@@ -256,7 +266,7 @@ class SpendTally:
     """Folds `$ai_generation` rows into (model × stage) buckets and per-unit sessions."""
 
     def __init__(self) -> None:
-        self.buckets: dict[tuple[str, str], BucketTally] = {}
+        self.buckets: dict[BucketKey, BucketTally] = {}
         self.units: dict[str, UnitSession] = {}
         self.gw_missing = 0
         self.naive_usd = 0.0
@@ -265,7 +275,10 @@ class SpendTally:
 
     def add(self, row: SpendRow) -> None:
         stage = _stage_of(row.task_title, row.ai_stage)
-        bucket = self.buckets.setdefault((row.model or "(unknown)", stage), BucketTally())
+        key = BucketKey(model=row.model or "(unknown)", stage=stage)
+        bucket = self.buckets.get(key)
+        if bucket is None:
+            bucket = self.buckets[key] = BucketTally(key=key)
         self._add_tokens(bucket, row)
         self._add_costs(bucket, row)
         self._track_unit(row, stage)
@@ -324,6 +337,7 @@ class SpendTally:
             return
         step = _SANDBOX_STEP.match(row.task_title or "")
         self.units[row.task_run_id] = UnitSession(
+            run_id=row.task_run_id,
             first_gen_at=row.timestamp,
             stage=stage,
             step=step.group(1) if step else "",
@@ -332,12 +346,12 @@ class SpendTally:
             models={row.model},
         )
 
-    def ordered_buckets(self) -> list[tuple[tuple[str, str], BucketTally]]:
+    def ordered_buckets(self) -> list[BucketTally]:
         """Buckets by descending gateway spend — the expensive ones read first."""
-        return sorted(self.buckets.items(), key=lambda item: -item[1].gw_usd)
+        return sorted(self.buckets.values(), key=lambda bucket: -bucket.gw_usd)
 
-    def ordered_units(self) -> list[tuple[str, UnitSession]]:
-        return sorted(self.units.items(), key=lambda item: item[1].first_gen_at)
+    def ordered_units(self) -> list[UnitSession]:
+        return sorted(self.units.values(), key=lambda unit: unit.first_gen_at)
 
     def totals(self) -> SpendTotals:
         # Walks the rendered bucket order so the unpriced-model notes read in the same order as
@@ -346,7 +360,7 @@ class SpendTally:
         fresh_in = cache_write = cache_read = output = 0.0
         true_total = gw_total = 0.0
         unpriced: dict[str, UnpricedModel] = {}
-        for (model, _stage), bucket in self.ordered_buckets():
+        for bucket in self.ordered_buckets():
             gens += bucket.gens
             fresh_in += bucket.fresh_in
             cache_write += bucket.cache_write
@@ -355,7 +369,7 @@ class SpendTally:
             long_ctx += bucket.long_ctx_gens
             gw_total += bucket.gw_usd
             if bucket.true_usd is None:
-                entry = unpriced.setdefault(model, UnpricedModel())
+                entry = unpriced.setdefault(bucket.key.model, UnpricedModel())
                 entry.gens += bucket.gens
                 entry.gw_usd += bucket.gw_usd
             else:
@@ -408,9 +422,9 @@ class SpendReport:
             "| model | stage | gens | fresh in | cache write | cache read | output | >200K gens | true $ | gw $ |",
             "| ----- | ----- | ---- | -------- | ----------- | ---------- | ------ | ---------- | ------ | ---- |",
         ]
-        for (model, stage), b in self._tally.ordered_buckets():
+        for b in self._tally.ordered_buckets():
             lines.append(
-                f"| {model} | {stage} | {b.gens} | {_fmt_tok(b.fresh_in)} | {_fmt_tok(b.cache_write)} "
+                f"| {b.key.model} | {b.key.stage} | {b.gens} | {_fmt_tok(b.fresh_in)} | {_fmt_tok(b.cache_write)} "
                 f"| {_fmt_tok(b.cache_read)} | {_fmt_tok(b.output)} | {b.long_ctx_gens} "
                 f"| {_fmt_usd(b.true_usd)} | {_fmt_usd(b.gw_usd)} |"
             )
@@ -494,29 +508,29 @@ class SpendReport:
         units = self._tally.ordered_units()
         if not units:
             return []
-        hits = sum(1 for _run_id, u in units if u.cache_read > 0)
+        hits = sum(1 for u in units if u.cache_read > 0)
         lines = [
             "### Turn-1 cache reads per sandbox unit (cross-sandbox sharing tripwire)\n",
             "| unit | step | first gen | t1 cache read | t1 cache write | models |",
             "| ---- | ---- | --------- | ------------- | -------------- | ------ |",
         ]
-        for run_id, u in units:
+        for u in units:
             models = ", ".join(sorted(u.models)) + (" ⚠️SWITCHED" if u.switched_model else "")
             lines.append(
-                f"| …{run_id[-8:]} | {u.step or u.stage} | {u.first_gen_at:%H:%M:%S} | {_fmt_tok(u.cache_read)} "
+                f"| …{u.run_id[-8:]} | {u.step or u.stage} | {u.first_gen_at:%H:%M:%S} | {_fmt_tok(u.cache_read)} "
                 f"| {_fmt_tok(u.cache_write)} | {models} |"
             )
         lines.append("")
         lines.append(
             f"- units with turn-1 cache_read > 0: **{hits}/{len(units)}** (report the distribution, not a median)."
         )
-        switched = [run_id for run_id, u in units if u.switched_model]
+        switched = [u.run_id for u in units if u.switched_model]
         if switched:
             lines.append(
                 f"- ⚠️ {len(switched)} unit(s) switched models mid-session (overload rescue?) — "
                 "cache sharing and cost pinning are broken for them: " + ", ".join(f"…{r[-8:]}" for r in switched)
             )
-        lines += self._fork_collision_notes([u for _run_id, u in units])
+        lines += self._fork_collision_notes(units)
         lines.append("")
         return lines
 
