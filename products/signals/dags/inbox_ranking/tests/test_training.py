@@ -1046,8 +1046,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "horizon_days",
         "scoring_partition",
         "pool",
-        "model_role",
     }
+    assert by_event["inbox_ranking_holdout_calibration"][0]["properties"]["model_role"] == CANDIDATE_ROLE
     report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
     assert {
         "report_id": "a",

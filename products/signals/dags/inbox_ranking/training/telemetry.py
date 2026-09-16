@@ -21,7 +21,7 @@ from posthog.ph_client import get_client
 
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
-from products.signals.dags.inbox_ranking.training.unseen import HeadGrade
+from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
 # runs get their own id so they never blend into the prod series.
@@ -181,11 +181,19 @@ def holdout_calibration_events(
     *, partition_key: str, run_id: str, model_name: str, rows: Sequence[Mapping[str, Any]]
 ) -> list[TrainingEvent]:
     """The same read on the candidate's holdout. The properties match the unseen event, so one
-    insight holds both lines and the gap between them is the holdout optimism."""
+    insight holds both lines and the gap between them is the holdout optimism. The role is stamped
+    rather than grouped on: a run grades only the candidate it just fit, and without it a chart
+    filtered to the candidate keeps the unseen line and drops this one."""
     return [
         TrainingEvent(
             event=HOLDOUT_CALIBRATION_EVENT,
-            properties={"model_name": model_name, "model_version": partition_key, "run_id": run_id, **row},
+            properties={
+                "model_name": model_name,
+                "model_version": partition_key,
+                "model_role": CANDIDATE_ROLE,
+                "run_id": run_id,
+                **row,
+            },
         )
         for row in rows
     ]
