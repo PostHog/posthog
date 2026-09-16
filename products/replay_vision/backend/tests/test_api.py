@@ -3650,14 +3650,15 @@ class TestObservationSearchAction(_VisionAPITestCase):
     # `requests` exceptions — an `httpx` mock here would exercise a handler that can never fire.
     @parameterized.expand(
         [
-            ("unreachable", requests.ConnectionError),
-            ("slow", requests.Timeout),
+            ("unreachable", requests.ConnectionError("embedding service down")),
+            ("slow", requests.Timeout("embedding service down")),
+            ("failing", requests.HTTPError("boom", response=MagicMock(status_code=502))),
         ]
     )
-    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
+    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception: Exception) -> None:
         with patch(
             "products.replay_vision.backend.search.generate_embedding",
-            side_effect=exception_class("embedding service down"),
+            side_effect=exception,
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 503)
