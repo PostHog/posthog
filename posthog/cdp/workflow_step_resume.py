@@ -100,9 +100,14 @@ def emit_workflow_step_resume(
 
 
 # Backoff runs about twelve minutes end to end, well inside the parked step's deadline.
+# acks_late: a countdown message acked on receipt sits in one worker's memory for its whole window
+# and dies with it, losing the only wake. Redelivery re-stamps the same result, or reads as stale
+# once the step advanced, so the duplicate it trades into is harmless.
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
+    acks_late=True,
+    reject_on_worker_lost=True,
     max_retries=12,
     autoretry_for=(requests.RequestException,),
     retry_backoff=True,

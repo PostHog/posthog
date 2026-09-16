@@ -139,6 +139,11 @@ def test_the_delivery_task_falls_back_to_kafka_when_its_worker_has_no_key() -> N
     assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
 
 
+def test_the_delivery_task_outlives_the_loss_of_its_worker() -> None:
+    assert deliver_workflow_step_resume.acks_late is True
+    assert deliver_workflow_step_resume.reject_on_worker_lost is True
+
+
 def test_the_delivery_task_retries_for_about_twelve_minutes() -> None:
     task = deliver_workflow_step_resume
     delays = [
