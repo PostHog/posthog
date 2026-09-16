@@ -46,18 +46,6 @@ COHORT_ID = 77
 RUN_FOR_REAL = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": False}}}}
 
 
-@pytest.fixture
-def persons_database() -> Iterator[psycopg2.extensions.connection]:
-    conn = psycopg2.connect(persons_db_url(writer=True))
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(f"TRUNCATE {PG_CLEANUP_QUEUE_TABLE}")
-        conn.commit()
-        yield conn
-    finally:
-        conn.close()
-
-
 def run_job(cluster: ClickhouseCluster, persons_database, run_config=RUN_FOR_REAL, raise_on_error=True, instance=None):
     return clickhouse_deletion_sweep_job.execute_in_process(
         run_config=run_config,
