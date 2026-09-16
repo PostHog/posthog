@@ -14,6 +14,13 @@ scoring moment before D, so an outcome already visible at D is a future positive
 being built, not a past one. The labels of day D are therefore read as the defaults for a report
 born on D. Most outcomes land on the birth day, so this is where the positives are.
 
+These birth-day rows carry a hindsight the other rows do not. The state snapshot reads
+`signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours
+after day D ends, and only `priority` and `actionability` are cut at the snapshot. A birth-day
+outcome therefore happened before its own feature read, so both the holdout AUC and the newborn
+unseen grade read optimistically on these rows. What removes it is the scoring sweep's timestamped
+score log becoming this table's source, not censoring the positives again.
+
 Rows of one report are near-duplicates, so the holdout is cut BY REPORT (report_created_at),
 never by row. Label-only rows (EU reports, hard-deleted rows) carry no state and are skipped.
 A snapshot is assembled over the state spine (`assemble_snapshot`): a report with no label event
