@@ -51,12 +51,12 @@ class SignalFinding(BaseModel, frozen=True):
     start_time: int = Field(
         ge=0,
         description=(
-            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
-            "video footer at that moment (`REC_T` is seconds since the recording started)."
+            "When the issue starts, in whole seconds of video time counted from the start of the video file — the "
+            "same scale you cite moments in, not the footer's `REC_T`."
         ),
     )
     end_time: int = Field(
-        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+        ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
         description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
@@ -67,7 +67,7 @@ class SignalFinding(BaseModel, frozen=True):
             "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
             "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
             "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Plain "
-            "prose with no timestamp references — no `(t …)` markers, no `REC_T`, no 'at N seconds', no event IDs; "
+            "prose with no timestamp references — no `(t …)` markers, no timestamps, no 'at N seconds', no event IDs; "
             "the timing lives in `start_time`/`end_time`."
         )
     )
@@ -132,6 +132,36 @@ def confidence_field() -> Any:
     return Field(ge=0, le=1, description=_CONFIDENCE_DESCRIPTION)
 
 
+_NOTABILITY_REASON_DESCRIPTION = (
+    "One sentence a product team would read to decide whether to watch this session, naming the concrete moment "
+    "that makes it worth their time. Write it even when nothing stands out, saying so plainly."
+)
+_NOTABILITY_DESCRIPTION = (
+    "How much a product team would benefit from watching this session, 0.0 to 1.0 with one decimal. "
+    "Apply the notability calibration rules from the system prompt."
+)
+
+
+def notability_reason_field() -> Any:
+    """`notability_reason` field for LLM-response schemas. Declared before `notability` so the model names the
+    moment before scoring it.
+
+    Optional on purpose: this rides every scan in the product, and a required field would turn a model that
+    skipped it into a failed, already-paid observation. Readers fall back when it is absent.
+    """
+    return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
+
+
+def notability_field() -> Any:
+    """`notability` field for LLM-response schemas.
+
+    Judges the session on its own merits — friction, failure, confusion, surprise — rather than on the scanner's
+    question, so a scan whose own answer is a non-event can still flag a session worth watching. Optional for the
+    same reason as `notability_reason`.
+    """
+    return Field(default=None, ge=0, le=1, description=_NOTABILITY_DESCRIPTION)
+
+
 @frozen
 class EmbeddingDocument:
     """One embedding row's identity and text: `rendering` names which field of the output it came from."""
@@ -144,6 +174,11 @@ class BaseScannerOutput(BaseModel, frozen=True):
     """Final output shape emitted as `$recording_observed` event properties (flattened with `scanner_output_*` keys)."""
 
     confidence: float = confidence_field()
+    # Optional because observations scanned before notability shipped have neither field; readers must treat
+    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics. Uses the
+    # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
+    notability: float | None = notability_field()
+    notability_reason: str | None = notability_reason_field()
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
@@ -160,8 +195,8 @@ class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
-    names it `summary`); the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
+    side mission, when enabled, is always the final turn.
     """
 
     prompt: str
@@ -169,7 +204,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
-    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()

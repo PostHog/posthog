@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -17,9 +18,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     BypassEnvProxy,
@@ -168,7 +166,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            name=ExternalDataSourceType.CLICKHOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             releaseStatus=ReleaseStatus.GA,

@@ -55,7 +55,11 @@ describe('model breakdown', () => {
                 },
             ],
         }
-        const query = buildModelExplorationQuery(filters)
+        const visualization = buildModelExplorationQuery(filters)
+
+        expect(visualization.kind).toBe(NodeKind.InsightVizNode)
+        const query = visualization.source
+        expect(query.kind).toBe(NodeKind.TrendsQuery)
 
         expect(query).toMatchObject(filters)
         expect(query.series).toEqual([{ kind: NodeKind.EventsNode, event: '$mcp_tool_call', math: 'total' }])

@@ -999,12 +999,15 @@ const ExternalDataSourcesWizardSchema = () => {
     })
 }
 
-const externalDataSourcesWizard = (): ToolBase<ReturnType<typeof ExternalDataSourcesWizardSchema>, unknown> => ({
+const externalDataSourcesWizard = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesWizardSchema>,
+    Schemas.SourceConfigMapResponse
+> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesWizardSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SourceConfigMapResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
             query: {

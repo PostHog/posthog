@@ -39,6 +39,7 @@ const ERROR_SCENES: string[] = [
     Scene.Error404,
     Scene.ErrorNetwork,
     Scene.ErrorProjectUnavailable,
+    Scene.ErrorProjectAccessDenied,
     Scene.ErrorAccessDenied,
 ]
 

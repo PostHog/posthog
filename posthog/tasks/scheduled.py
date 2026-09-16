@@ -128,7 +128,11 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
-from products.visual_review.backend.facade.tasks import send_visual_review_debt_digests, sweep_visual_review_retention
+from products.visual_review.backend.facade.tasks import (
+    send_visual_review_debt_digests,
+    sweep_visual_review_artifacts,
+    sweep_visual_review_runs,
+)
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
@@ -1082,8 +1086,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="2", minute="23"),
-        sweep_visual_review_retention.s(),
-        name="sweep visual review retention",
+        sweep_visual_review_runs.s(),
+        name="sweep visual review runs",
+    )
+
+    # An hour after the run sweep, which frees most of the artifacts this sweep deletes.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="23"),
+        sweep_visual_review_artifacts.s(),
+        name="sweep visual review artifacts",
     )
 
     add_periodic_task_with_expiry(

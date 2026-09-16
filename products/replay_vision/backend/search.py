@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from django.core.cache import cache
 from django.db.models import F
 
+import requests
 from asgiref.sync import sync_to_async
 
 from posthog.hogql import ast
@@ -59,6 +60,8 @@ _MATCHED_CONTENT_MAX_CHARS = 1500
 # worker round trip.
 _QUERY_VECTOR_CACHE_TTL_S = 3600
 # Bound the synchronous embedding call: it pins a request thread, and a searcher will not wait longer.
+# requests applies this per read rather than to the whole response, so a worker that dribbles its body
+# out can still outlast it.
 _EMBEDDING_TIMEOUT_S = 10.0
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
@@ -333,6 +336,17 @@ def search_observations(
 def _query_vector_cache_key(text: str) -> str:
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return f"replay_vision:query_vector:{OBSERVATION_EMBEDDING_MODEL.value}:{digest}"
+
+
+def is_transient_embedding_error(error: Exception) -> bool:
+    """True for an embedding failure that a later call can clear, which is what a caller offers a retry for.
+
+    `ChunkedEncodingError` is what requests raises when the response body stops part way, so a worker that
+    dies mid-transfer belongs with the other transport failures despite the name. A 5xx is the worker itself
+    failing, so it joins them. A 4xx is a bad request, and a repeat of it is rejected the same way."""
+    if isinstance(error, requests.ConnectionError | requests.Timeout | requests.exceptions.ChunkedEncodingError):
+        return True
+    return isinstance(error, requests.HTTPError) and getattr(error.response, "status_code", 0) >= 500
 
 
 def query_vector_for(team: Team, text: str) -> list[float]:
