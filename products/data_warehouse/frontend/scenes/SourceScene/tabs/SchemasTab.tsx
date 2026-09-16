@@ -501,7 +501,7 @@ function ManagedSchemaTable({
                             )
                         }
                         if (schemaHasNoTableYet(schema)) {
-                            return <NoTableYetLabel sourceType={source?.source_type} />
+                            return <NoTableYetLabel sourceType={source?.source_type} schemaName={schema.name} />
                         }
                         return <span className="text-muted">—</span>
                     },

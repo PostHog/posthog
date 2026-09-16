@@ -304,7 +304,7 @@ function DetailsSection({
                             <code>{syncedTableName}</code>
                         </Link>
                     ) : schemaHasNoTableYet(schema) ? (
-                        <NoTableYetLabel sourceType={source?.source_type} />
+                        <NoTableYetLabel sourceType={source?.source_type} schemaName={schema.name} />
                     ) : (
                         <span className="text-muted">Not yet synced</span>
                     )}
