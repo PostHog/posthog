@@ -36,6 +36,7 @@ import type { SignalReportPullRequestApi } from 'products/signals/frontend/gener
 import { PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
+import { pullRequestIdentity } from '../../utils/reportPresentation'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalCardDisclosureProvider } from '../signalCards/SignalCardShell'
 import { ArtefactCommit } from './ArtefactCommit'
@@ -483,7 +484,7 @@ function renderArtefactBody({
 }): JSX.Element | null {
     const content = artefact.content
     const renderPullRequest = (url: string, outcome?: 'closed' | 'already_closed' | 'skipped'): JSX.Element => {
-        const pr = knownPullRequests.get(url)
+        const pr = knownPullRequests.get(pullRequestIdentity(url) ?? url)
         const taskId = pr?.attached_by?.task_id
         return (
             <ArtefactPullRequest
@@ -723,7 +724,7 @@ export function ArtefactLogList({
         return null
     }
     const ordered = selectVisibleReportActivity(artefacts).sort((a, b) => b.created_at.localeCompare(a.created_at))
-    const knownPullRequests = new Map(pullRequests?.map((pr) => [pr.url, pr]))
+    const knownPullRequests = new Map(pullRequests?.map((pr) => [pullRequestIdentity(pr.url) ?? pr.url, pr]))
     if (ordered.length === 0) {
         return null
     }

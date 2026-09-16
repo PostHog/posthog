@@ -27,7 +27,7 @@ const meta: Meta<typeof ArtefactLogList> = {
         ]),
         pullRequests: [predecessor, retained, replacement].map((url, index) => ({
             id: `pr-${index}`,
-            url,
+            url: url.replace('/exampleorg/', '/ExampleOrg/'),
             state: index === 0 ? 'closed' : index === 1 ? 'unknown' : 'open',
             merged: false,
             claim_id: null,

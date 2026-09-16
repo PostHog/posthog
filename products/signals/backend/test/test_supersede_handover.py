@@ -27,7 +27,8 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment, SignalReportTask
+from products.signals.backend.replacement_recovery import ReplacementRecovery
 from products.signals.backend.report_assignments import create_claim, release_claim, update_assignments_for_pull_request
 from products.signals.backend.report_claims import ReportClaim, get_active_claim
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
@@ -42,7 +43,11 @@ from products.signals.backend.supersession import (
     reconcile_replacement,
     research_implementation_context,
 )
-from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.task_run_artefacts import (
+    ReportTaskCapExceeded,
+    enforce_report_implementation_rerun_cap,
+    record_implementation_task,
+)
 from products.tasks.backend.models import Task, TaskRun
 
 OLD_PR = "https://github.com/example/repo/pull/1"
@@ -185,7 +190,9 @@ class TestSupersedeHandover(BaseTest):
                 for _ in range(2)
             ]
             assert outcomes == [True, False]
-        return SignalReportArtefact.objects.get(report=self.report, type="implementation_replacement")
+        return SignalReportArtefact.objects.filter(report=self.report, type="implementation_replacement").latest(
+            "created_at"
+        )
 
     @parameterized.expand([("expired",), ("replaced",), ("current",)])
     def test_dispatch_lease_fences_task_creation(self, lease: str) -> None:
@@ -579,3 +586,205 @@ class TestSupersedeHandover(BaseTest):
                 implementation_decision=decision,
             )
         create.assert_not_called()
+
+    @parameterized.expand([("completed",), ("failed",), ("needs_attention",), ("pending",)])
+    def test_latest_replacement_can_continue_without_closing_predecessors(self, outcome: str) -> None:
+        self.implementation_run.output = {"pr_url": OLD_PR}
+        self.implementation_run.save(update_fields=["output"])
+        replacement = self.start_replacement()
+        if outcome != "pending":
+            run = self.complete(replacement)
+            if outcome == "failed":
+                run.status = "failed"
+                run.save(update_fields=["status"])
+            elif outcome == "needs_attention":
+                self.prs[1]["head_sha"] = "human-update"
+            reconcile_replacement(self.team.id, str(replacement.id))
+        self.github.close_pull_request.reset_mock()
+        with transaction.atomic():
+            enforce_report_implementation_rerun_cap(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                task_id=str(replacement.task_id),
+                manual_continuation=True,
+            )
+        assert self.current_claim().actor_task_id == replacement.task_id
+        assert self.handover(replacement).status == ("needs_attention" if outcome == "pending" else outcome)
+        self.complete(replacement)
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        self.github.close_pull_request.assert_not_called()
+
+    @parameterized.expand([("active",), ("manual",), ("unrelated",), ("human_claim",), ("older_replacement",)])
+    def test_replacement_continuation_preserves_other_work(self, blocker: str) -> None:
+        self.implementation_run.output = {"pr_url": OLD_PR}
+        self.implementation_run.save(update_fields=["output"])
+        replacement = self.start_replacement()
+        run = self.complete(replacement)
+        reconcile_replacement(self.team.id, str(replacement.id))
+        if blocker in {"active", "manual"}:
+            TaskRun.objects.create(
+                team=self.team,
+                task=self.task,
+                environment="cloud",
+                status="in_progress" if blocker == "active" else "completed",
+                output={"pr_url": OLD_PR},
+            )
+        elif blocker == "unrelated":
+            task = Task.objects.create(team=self.team, signal_report=self.report, origin_product="signal_report")
+            SignalReportTask.objects.create(
+                team=self.team, report=self.report, task=task, relationship="implementation"
+            )
+        elif blocker == "human_claim":
+            release_claim(self.current_claim(), ArtefactAttribution.system())
+            create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
+        else:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=self.report,
+                type="implementation_replacement",
+                task=self.task,
+                content=replacement.content,
+            )
+        with transaction.atomic(), self.assertRaises(ReportTaskCapExceeded):
+            enforce_report_implementation_rerun_cap(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                task_id=str(run.task_id),
+            )
+
+    @parameterized.expand([("automatic", True), ("manual", False), ("active", False), ("human", False)])
+    def test_later_pass_can_replace_retained_predecessor(self, owner: str, allowed: bool) -> None:
+        replacement = self.start_replacement()
+        run = self.complete(replacement)
+        reconcile_replacement(self.team.id, str(replacement.id))
+        if owner in {"manual", "active"}:
+            TaskRun.objects.create(
+                team=self.team,
+                task_id=run.task_id,
+                environment="cloud",
+                status="completed" if owner == "manual" else "in_progress",
+                output={"pr_url": NEW_PR},
+            )
+        elif owner == "human":
+            release_claim(self.current_claim(), ArtefactAttribution.system())
+            create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
+        self.report.refresh_from_db()
+        self.report.run_count += 1
+        self.report.last_run_at = timezone.now()
+        self.report.save(update_fields=["run_count", "last_run_at"])
+        context = research_implementation_context(self.team.id, str(self.report.id))
+        targets = [target for target in context.candidates if target.pr_url == KEPT_PR]
+        assert len(targets) == 1
+        decision = ImplementationDecision(
+            supersede=True,
+            reason="The retained fix now needs a different approach.",
+            targets=targets,
+            research_run_count=context.run_count,
+            research_started_at=context.started_at,
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=decision,
+            attribution=ArtefactAttribution.system(),
+        )
+        assert _resolve_supersede(self.report, decision).allowed is allowed
+        if allowed:
+            next_replacement = self.start_replacement(decision)
+            with transaction.atomic():
+                enforce_report_implementation_rerun_cap(
+                    team_id=self.team.id, report_id=str(self.report.id), task_id=str(next_replacement.task_id)
+                )
+            with transaction.atomic(), self.assertRaises(ReportTaskCapExceeded):
+                enforce_report_implementation_rerun_cap(
+                    team_id=self.team.id, report_id=str(self.report.id), task_id=str(replacement.task_id)
+                )
+
+    @parameterized.expand([("completed",), ("failed",)])
+    def test_sweep_recovers_lost_completion_notification(self, status: str) -> None:
+        replacement = self.start_replacement()
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        with patch(
+            "products.signals.backend.tasks.reconcile_implementation_replacement.delay",
+            side_effect=RuntimeError("broker unavailable"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                run = self.complete(replacement)
+                run.status = status
+                run.save(update_fields=["status"])
+        assert pending_replacement(self.team.id, str(self.report.id)) is not None
+        with patch("products.signals.backend.tasks.reconcile_implementation_replacement.delay") as enqueue:
+            ReplacementRecovery().enqueue_page()
+        enqueue.assert_called_once_with(self.team.id, str(replacement.id))
+        reconcile_replacement(*enqueue.call_args.args)
+        assert self.handover(replacement).status == status
+        if status == "failed":
+            assert get_active_claim(team_id=self.team.id, report_id=self.report.id) is None
+            self.github.close_pull_request.assert_not_called()
+        else:
+            self.github.close_pull_request.assert_called_once_with("example/repo", 1)
+
+    @parameterized.expand(
+        [
+            ("expired", True),
+            ("active", False),
+            ("completed", False),
+            ("needs_attention", False),
+            ("failed", False),
+            ("cancelled", False),
+            ("malformed", False),
+        ]
+    )
+    def test_sweep_respects_handover_state(self, status: str, enqueued: bool) -> None:
+        replacement = self.start_replacement()
+        progress = ImplementationHandover(
+            replacement_id=replacement.id,
+            status="processing",
+            worker_token=uuid4(),
+            lease_until=timezone.now() + timedelta(minutes=5),
+        )
+        if status == "expired":
+            progress.lease_until = timezone.now() - timedelta(seconds=1)
+        elif status not in {"active", "malformed"}:
+            progress = ImplementationHandover.model_validate({**progress.model_dump(), "status": status})
+        append_handover(replacement, progress)
+        if status == "malformed":
+            SignalReportArtefact.objects.filter(report=self.report, type="implementation_handover").update(
+                content="invalid"
+            )
+        with patch("products.signals.backend.tasks.reconcile_implementation_replacement.delay") as enqueue:
+            ReplacementRecovery().enqueue_page()
+        assert enqueue.called is enqueued
+
+    def test_sweep_paginates_past_terminal_and_malformed_records(self) -> None:
+        replacement = self.start_replacement()
+        second_task = Task.objects.create(team=self.team)
+        second = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            task=second_task,
+            type="implementation_replacement",
+            content="invalid",
+        )
+        third_task = Task.objects.create(team=self.team)
+        third = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            task=third_task,
+            type="implementation_replacement",
+            content=replacement.content,
+        )
+        progress = ImplementationHandover(replacement_id=replacement.id, status="completed")
+        append_handover(replacement, progress)
+        with (
+            patch("products.signals.backend.replacement_recovery.REPLACEMENT_SWEEP_BATCH_SIZE", 1),
+            patch("products.signals.backend.tasks.sweep_implementation_replacements.delay") as next_page,
+            patch("products.signals.backend.tasks.reconcile_implementation_replacement.delay") as enqueue,
+        ):
+            recovery = ReplacementRecovery()
+            recovery.enqueue_page()
+            next_page.assert_called_once_with(str(replacement.id), str(third.id))
+            recovery.enqueue_page(*next_page.call_args.args)
+            next_page.assert_called_with(str(second.id), str(third.id))
+            recovery.enqueue_page(*next_page.call_args.args)
+            enqueue.assert_called_once_with(self.team.id, str(third.id))

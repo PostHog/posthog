@@ -7730,6 +7730,14 @@ def run_task(
                     # A previous activation attempt may have moved these out of staging before delivery failed.
                     _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
+                    if report_id_for_slot_check is not None:
+                        with transaction.atomic():
+                            enforce_report_implementation_rerun_cap(
+                                team_id=team_id,
+                                report_id=report_id_for_slot_check,
+                                task_id=str(task.id),
+                                manual_continuation=True,
+                            )
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
                             warm_run,
@@ -7980,7 +7988,7 @@ def run_task(
             task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id)
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
-                    team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
+                    team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id), manual_continuation=True
                 )
     except InvalidTaskOriginError as error:
         return contracts.TaskRunResult(

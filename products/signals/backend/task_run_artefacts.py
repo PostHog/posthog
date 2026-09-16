@@ -14,7 +14,7 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from enum import StrEnum
 
 from django.db import transaction
@@ -191,7 +191,7 @@ def _runs_claim_implementation_slot(
 
 
 def _implementation_slot_claim(
-    *, team_id: int, report_id: str, exclude_task_id: str | None = None
+    *, team_id: int, report_id: str, exclude_task_id: str | None = None, preceding_task_ids: Collection[str] = ()
 ) -> _ImplementationSlotClaim | None:
     """Why the report's one implementation slot is still claimed, or `None` when it is free.
 
@@ -206,6 +206,7 @@ def _implementation_slot_claim(
     ).exclude(task__deleted=True)
     if exclude_task_id is not None:
         claimants = claimants.exclude(task_id=exclude_task_id)
+    claimants = claimants.exclude(task_id__in=preceding_task_ids)
     rows = claimants.values_list("task_id", "task__runs__status", "task__runs__output__pr_url")
     runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
     for task_id, status, pr_url in rows:
@@ -275,7 +276,9 @@ def is_report_implementation_task(*, team_id: int, report_id: str, task_id: str)
     ).exists()
 
 
-def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
+def enforce_report_implementation_rerun_cap(
+    *, team_id: int, report_id: str, task_id: str, manual_continuation: bool = False
+) -> None:
     """Re-check the one-live-implementation slot before starting another run of an existing task.
 
     `enforce_report_task_cap` guards task *creation*, but a task outlives its runs. An
@@ -309,10 +312,28 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
         )
-    claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
+    from products.signals.backend.implementation_ownership import (
+        ImplementationOwnership,  # noqa: PLC0415 - keeps the tasks facade off startup
+    )
+    from products.signals.backend.supersession import (
+        stop_handover_for_manual_continuation,  # noqa: PLC0415 - breaks the PR reader import cycle
+    )
+
+    ownership = ImplementationOwnership(team_id, report_id)
+    if ownership.is_replaced_task(task_id):
+        raise ReportTaskCapExceeded(
+            kind=TASK_RUN_TYPE_IMPLEMENTATION,
+            detail="This implementation has a replacement. Open the latest replacement task to continue.",
+        )
+    preceding_task_ids = ownership.preceding_task_ids(task_id)
+    claim = _implementation_slot_claim(
+        team_id=team_id, report_id=report_id, exclude_task_id=task_id, preceding_task_ids=preceding_task_ids
+    )
     if claim is not None:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
     claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    if manual_continuation:
+        stop_handover_for_manual_continuation(team_id, report_id, task_id)
 
 
 def record_implementation_task(

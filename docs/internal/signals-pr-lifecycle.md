@@ -44,3 +44,13 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+## Automatic PR replacements
+
+Research can replace a selected subset of obsolete PRs from verified automatic implementation runs. A completed automatic owner can transfer its claim even when its own PR is retained, so a later pass can replace another retained predecessor. Human claims, active runs, and manual continuations prevent automatic claim transfer.
+
+Users can retry or continue the latest replacement task, including after failure or incomplete handover. Historical automatic implementations in its replacement history do not consume another run slot. Unrelated work and later manual runs still block the slot. Continuing a task with pending handover changes the handover to `needs_attention` before dispatching the user run. Earlier PRs stay open for manual review, and terminal handovers are not restarted.
+
+Immediate callbacks schedule handover after run or report changes. A five-minute recovery sweep also checks persisted replacement records in pages of 500, without an age cutoff. It skips terminal handovers and active worker leases, and retries missing or expired processing records through the same bounded reconciliation task. A partial index limits the scan to replacement records. Recovery logs report scanned records, successful dispatches, and dispatch failures; malformed records are logged and skipped.
+
+PR activity matches metadata by case-insensitive repository identity and PR number. Links retain their original URL, while closure outcomes remain separate from the latest known GitHub state.
