@@ -54,14 +54,14 @@ _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_ticket
 # one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
-    # Hidden backing tables that hold no `access_scope` of their own, because their rows key off
-    # neither the parent object nor a foreign key to it: `_ticket_assignee_roles` holds the roles
-    # this team's ticket assignments point at, and `_task_public_channels` the spaces
-    # `system.tasks` filters on. Their data still follows the parent's scope, so a query that
-    # names one must partition on it. Gating them in the schema instead would deny them to a
-    # caller who reaches the parent through object-level grants alone, and the parent's predicate
-    # and lazy join must still resolve them for that caller.
+    # These predicates resolve scoped parents at execution, after a cache hit would return.
+    # Keep row filtering on the parent so its creator exemption also applies to junction rows.
+    "system._account_tagged_items": frozenset({"account"}),
+    "system._account_resource_notebooks": frozenset({"account"}),
+    "system._ticket_tagged_items": frozenset({"ticket"}),
+    "system._ticket_assignments": frozenset({"ticket"}),
     "system._ticket_assignee_roles": frozenset({"ticket"}),
+    # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
 }

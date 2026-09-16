@@ -38,8 +38,9 @@ class TestSyncSavedQueryToDag(BaseTest):
         [
             (
                 "account_summary",
-                "SELECT id, feature_requests.count, email_threads.count FROM system.accounts",
+                "SELECT id, feature_requests.count, email_threads.count, tags.names, notebooks.count FROM system.accounts",
             ),
+            ("ticket_summary", "SELECT id, tags.names, assignee.role_name FROM system.support_tickets"),
             ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
         ]
     )

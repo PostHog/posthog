@@ -85,9 +85,6 @@ class TestQueriedAccessControlledResources(BaseTest):
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
-            # The hidden tables that back the account and ticket lazy joins hold that data directly,
-            # so naming one must partition on the parent's scope. A cache hit skips the schema
-            # check, so an unpartitioned entry serves a denied caller the account or ticket rows.
             ("account_tagged_items", "select * from system._account_tagged_items", {"account"}),
             ("account_resource_notebooks", "select * from system._account_resource_notebooks", {"account"}),
             ("ticket_tagged_items", "select * from system._ticket_tagged_items", {"ticket"}),
@@ -315,10 +312,6 @@ class TestQueriedAccessControlledResources(BaseTest):
 
 
 class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
-    """A hidden system table exists only to back a scoped parent, so a query that names one
-    directly must still partition the cache. With no scope its fingerprint is empty, every caller
-    shares one entry, and the hit serves the parent's rows past the schema check."""
-
     def test_every_hidden_system_table_partitions_the_cache(self) -> None:
         unpartitioned = sorted(
             name
@@ -330,6 +323,6 @@ class TestHiddenSystemTableCachePartitioning(SimpleTestCase):
         )
         assert not unpartitioned, (
             f"Hidden system tables with no cache partitioning: {unpartitioned}. Declare the "
-            f"`access_scope` the table's rows sit under, or, when its rows key off neither the "
-            f"parent object nor a foreign key to it, add it to _TRANSITIVE_SYSTEM_TABLE_SCOPES."
+            f"`access_scope` the table's rows sit under, or add the scopes its predicates depend "
+            f"on to _TRANSITIVE_SYSTEM_TABLE_SCOPES."
         )

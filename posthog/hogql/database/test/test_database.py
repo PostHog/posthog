@@ -4488,7 +4488,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("qualified", "system.accounts"),
-            ("unscoped", "tags"),
+            ("unscoped", "_account_tagged_items"),
             ("unknown", "not_a_system_table"),
         ]
     )
