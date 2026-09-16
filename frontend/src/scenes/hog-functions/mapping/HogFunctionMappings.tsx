@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { memo, useEffect, useState } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconFilter, IconPlus } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconEllipsis, IconFilter, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,9 +20,16 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    EntityTypes,
+    FilterType,
+    HogFunctionConfigurationType,
+    HogFunctionMappingType,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -84,54 +91,124 @@ export function HogFunctionMapping({
     mapping,
     onChange,
     parentConfiguration,
+    aiActive = false,
 }: {
     index: number
     mapping: HogFunctionMappingType
     onChange: (mapping: HogFunctionMappingType | null) => void
     parentConfiguration: Pick<HogFunctionConfigurationType, 'inputs_schema' | 'inputs'>
+    aiActive?: boolean
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const { reportAIFiltersPrompted, reportAIFiltersAccepted, reportAIFiltersRejected, reportAIFiltersPromptOpen } =
+        useActions(hogFunctionConfigurationLogic)
+    const [oldFilters, setOldFilters] = useState<CyclotronJobFiltersType | null>(null)
+    const [newFilters, setNewFilters] = useState<CyclotronJobFiltersType | null>(null)
     const hideEventFilter = mapping.use_all_events_by_default === true
+    const currentFilters = newFilters ?? mapping.filters ?? {}
+
+    const clearSuggestedFilters = (): void => {
+        setOldFilters(null)
+        setNewFilters(null)
+    }
 
     return (
         <>
             <div className="p-3 pl-10 deprecated-space-y-2">
                 {!hideEventFilter && (
-                    <>
-                        <LemonLabel>Match events and actions</LemonLabel>
-                        <ActionFilter
-                            filters={mapping.filters ?? ({} as any)}
-                            setFilters={(f: any) => onChange({ ...mapping, filters: f })}
-                            typeKey={`match-group-${index}`}
-                            mathAvailability={MathAvailability.None}
-                            hideRename
-                            hideDuplicate
-                            showNestedArrow={false}
-                            actionsTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Events,
-                                TaxonomicFilterGroupType.Actions,
-                            ]}
-                            propertiesTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.Elements,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                                ...groupsTaxonomicTypes,
-                            ]}
-                            propertyFiltersPopover
-                            addFilterDefaultOptions={{
-                                id: '$pageview',
-                                name: '$pageview',
-                                type: EntityTypes.EVENTS,
-                            }}
-                            buttonProps={{
-                                type: 'secondary',
-                            }}
-                            buttonCopy="Add event matcher"
-                        />
-                    </>
+                    <MaxTool
+                        identifier="create_hog_function_filters"
+                        active={aiActive}
+                        context={{
+                            current_filters: JSON.stringify(mapping.filters ?? {}),
+                            function_type: 'destination',
+                        }}
+                        contextDescription={{
+                            text: `${mapping.name} mapping filters`,
+                            icon: <IconFilter />,
+                        }}
+                        callback={(toolOutput: string) => {
+                            setOldFilters(mapping.filters ?? {})
+                            setNewFilters(JSON.parse(toolOutput))
+                            reportAIFiltersPrompted()
+                        }}
+                        onMaxOpen={reportAIFiltersPromptOpen}
+                        introOverride={{
+                            headline: `Which events should trigger ${mapping.name}?`,
+                            description: 'I can update the event and action matchers for this mapping.',
+                        }}
+                    >
+                        <div className="deprecated-space-y-2">
+                            <LemonLabel>Match events and actions</LemonLabel>
+                            <ActionFilter
+                                filters={currentFilters}
+                                setFilters={(filters: FilterType) => {
+                                    clearSuggestedFilters()
+                                    onChange({ ...mapping, filters: filters as CyclotronJobFiltersType })
+                                }}
+                                typeKey={`match-group-${index}`}
+                                mathAvailability={MathAvailability.None}
+                                hideRename
+                                hideDuplicate
+                                showNestedArrow={false}
+                                actionsTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.Events,
+                                    TaxonomicFilterGroupType.Actions,
+                                ]}
+                                propertiesTaxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.EventProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                    TaxonomicFilterGroupType.Elements,
+                                    TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.HogQLExpression,
+                                    ...groupsTaxonomicTypes,
+                                ]}
+                                propertyFiltersPopover
+                                addFilterDefaultOptions={{
+                                    id: '$pageview',
+                                    name: '$pageview',
+                                    type: EntityTypes.EVENTS,
+                                }}
+                                buttonProps={{
+                                    type: 'secondary',
+                                }}
+                                buttonCopy="Add event matcher"
+                            />
+                            {oldFilters && newFilters ? (
+                                <div className="flex gap-2 items-center p-2 rounded border border-dashed bg-surface-secondary">
+                                    <div className="flex-1 text-center">
+                                        <span className="text-sm font-medium">Suggested by PostHog AI</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <LemonButton
+                                            status="danger"
+                                            icon={<IconX />}
+                                            onClick={() => {
+                                                reportAIFiltersRejected()
+                                                clearSuggestedFilters()
+                                            }}
+                                            size="small"
+                                        >
+                                            Reject
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="tertiary"
+                                            icon={<IconCheck color="var(--success)" />}
+                                            onClick={() => {
+                                                onChange({ ...mapping, filters: newFilters })
+                                                reportAIFiltersAccepted()
+                                                clearSuggestedFilters()
+                                            }}
+                                            size="small"
+                                        >
+                                            Accept
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </MaxTool>
                 )}
                 <Group name={['mappings', index]}>
                     <CyclotronJobInputs
@@ -185,11 +262,13 @@ export function HogFunctionMapping({
 export function HogFunctionMappings(): JSX.Element | null {
     const { useMapping, mappingTemplates, configuration } = useValues(hogFunctionConfigurationLogic)
     const [activeKeys, setActiveKeys] = useState<number[]>([])
+    const [aiMappingIndex, setAIMappingIndex] = useState<number | null>(null)
 
     // If there is only one mapping template, then we start it expanded
     useEffect(() => {
         if (configuration.mappings?.length === 1) {
             setActiveKeys([0])
+            setAIMappingIndex(0)
         }
     }, [configuration.mappings?.length])
 
@@ -304,7 +383,13 @@ export function HogFunctionMappings(): JSX.Element | null {
                                         multiple
                                         embedded
                                         activeKeys={activeKeys}
-                                        onChange={(activeKeys) => setActiveKeys(activeKeys)}
+                                        onChange={(nextActiveKeys) => {
+                                            const newlyOpenedKey = nextActiveKeys.find(
+                                                (key) => !activeKeys.includes(key)
+                                            )
+                                            setActiveKeys(nextActiveKeys)
+                                            setAIMappingIndex(newlyOpenedKey ?? nextActiveKeys.at(-1) ?? null)
+                                        }}
                                         panels={mappingsValue.map(
                                             (mapping, index): LemonCollapsePanel<number> => ({
                                                 key: index,
@@ -341,6 +426,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         key={index}
                                                         index={index}
                                                         mapping={mapping}
+                                                        aiActive={index === aiMappingIndex}
                                                         onChange={(mapping) => {
                                                             if (!mapping) {
                                                                 onChange(mappingsValue.filter((_, i) => i !== index))
