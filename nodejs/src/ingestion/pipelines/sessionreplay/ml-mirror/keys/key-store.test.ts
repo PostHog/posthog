@@ -27,7 +27,6 @@ import { MlKafkaTransport, mlKafkaRecord } from './transport'
 
 const session: MlSessionIdentity = {
     teamId: 7,
-    organizationId: 'organization-test',
     sessionId: '01994569-4380-7000-8000-000000000007',
 }
 const table = 'ml-keys-test'
@@ -290,23 +289,37 @@ describe('ML session key batches', () => {
         expect((await reader.read(locations)).size).toBe(0)
     })
 
-    it('keeps using a key whose row names the organization the team used to belong to', async () => {
+    it('wraps new keys without an organization and stores none on the row', async () => {
+        const batch = await store.prepare([session])
+        await batch.commit()
+        const generates = kmsSend.mock.calls
+            .map(([command]) => command)
+            .filter((c) => c instanceof GenerateDataKeyCommand)
+        expect(generates).toHaveLength(2)
+        for (const command of generates) {
+            expect(command.input.EncryptionContext).not.toHaveProperty('organization_id')
+        }
+        const stored = boundary.items.get(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))!
+        expect(stored).not.toHaveProperty('organization_id')
+    })
+
+    it('unwraps a key stored under the organization it was wrapped with', async () => {
         const first = await store.prepare([session])
         await first.commit()
         const location = tableKeyString(sessionKeyId(session.teamId, session.sessionId))
-        const stored = boundary.items.get(location)!
-        const moved = { ...session, organizationId: 'organization-new' }
+        const legacy: DynamoItem = { ...boundary.items.get(location)!, organization_id: { S: 'organization-legacy' } }
+        boundary.items.set(location, legacy)
         encryption.clear()
-        const next = await store.prepare([moved])
-        const keys = next.get(moved.teamId, moved.sessionId)!
-        expect(keys.session.wrapped).toEqual(Buffer.from(stored.wrapped_key!.B!))
-        expect(keys.session.identity.organizationId).toBe(session.organizationId)
+        const next = await store.prepare([session])
+        const keys = next.get(session.teamId, session.sessionId)!
+        expect(keys.session.wrapped).toEqual(Buffer.from(legacy.wrapped_key!.B!))
+        expect(keys.session.identity.organizationId).toBe('organization-legacy')
         const unwrap = kmsSend.mock.calls
             .map(([command]) => command)
-            .find((command) => command instanceof DecryptCommand)
-        expect(unwrap?.input.EncryptionContext?.organization_id).toBe(session.organizationId)
+            .find((command) => command instanceof DecryptCommand && command.input.EncryptionContext?.session_id)
+        expect(unwrap?.input.EncryptionContext?.organization_id).toBe('organization-legacy')
         await next.commit()
-        expect(boundary.items.get(location)).toEqual(stored)
+        expect(boundary.items.get(location)).toEqual(legacy)
     })
 
     it('drops the sessions behind a stored key that has no wrapped key and no tombstone', async () => {
