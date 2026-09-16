@@ -1,3 +1,4 @@
+import { DISPLAY_TYPES_TO_CATEGORIES } from 'lib/constants'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
@@ -31,7 +32,7 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayCategory, ChartDisplayType } from '~/types'
 
 import {
     isFunnelWithEnoughSteps,
@@ -366,4 +367,30 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     }
 
     return cleanedQuery
+}
+
+// A stale result rendered under a chart family it was not computed for shows nothing or a 0, so it is not renderable.
+export const trendsResultsMatchDisplay = (results: unknown[], display: ChartDisplayType): boolean => {
+    const first = results[0] as
+        | { data?: unknown; aggregated_value?: unknown; calendar_heatmap_data?: unknown; median?: unknown }
+        | undefined
+    if (!first) {
+        return true
+    }
+    if (first.calendar_heatmap_data) {
+        return display === ChartDisplayType.CalendarHeatmap
+    }
+    if (typeof first.median === 'number' && !Array.isArray(first.data)) {
+        return display === ChartDisplayType.BoxPlot
+    }
+    if (display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.BoxPlot) {
+        return false
+    }
+    if (Array.isArray(first.data) && first.data.length > 0) {
+        return DISPLAY_TYPES_TO_CATEGORIES[display] !== ChartDisplayCategory.TotalValue
+    }
+    if (first.aggregated_value != null) {
+        return DISPLAY_TYPES_TO_CATEGORIES[display] === ChartDisplayCategory.TotalValue
+    }
+    return true
 }
