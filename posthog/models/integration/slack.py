@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 
 from django.http import HttpRequest
 
+import structlog
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework.request import Request
 from slack_sdk.errors import SlackApiError
 
@@ -26,6 +28,13 @@ from posthog.models.instance_setting import get_instance_settings
 from . import model
 
 tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
+
+slack_listing_truncated_counter = Counter(
+    "slack_listing_truncated",
+    "Slack listings that hit a safety cap and dropped the remainder, by listing kind",
+    labelnames=["kind"],
+)
 
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
@@ -39,7 +48,16 @@ SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
 
-SLACK_CHANNELS_MAX_PAGES = 10
+# Slack returns fewer items than the requested limit whenever it likes, so a page count is not a
+# channel count. Cap the collected items instead, and keep the page cap only as a runaway guard.
+SLACK_CHANNELS_MAX_ITEMS = 50000
+
+SLACK_CHANNELS_MAX_PAGES = 500
+
+# conversations.members returns at most 1000 ids per call, whatever limit is asked for.
+SLACK_MEMBERS_PAGE_SIZE = 1000
+
+SLACK_MEMBERS_MAX_PAGES = 500
 
 
 class SlackIntegration:
@@ -101,16 +119,32 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
+    def _is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
+        """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
+        member past the first page needs the cursor followed rather than a bigger limit."""
+        cursor = None
+        pages = 0
+
+        while pages < SLACK_MEMBERS_MAX_PAGES:
+            pages += 1
+            res = self.client.conversations_members(channel=channel_id, limit=SLACK_MEMBERS_PAGE_SIZE, cursor=cursor)
+            if authed_user in res["members"]:
+                return True
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                return False
+
+        self._record_truncation("channel_members", collected=pages * SLACK_MEMBERS_PAGE_SIZE, pages=pages)
+        return False
+
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:
         try:
             response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
 
-            if not isMember:
+            if not self._is_channel_member(channel_id, authed_user):
                 return None
 
             isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
@@ -130,21 +164,28 @@ class SlackIntegration:
 
     def list_users(self) -> list[dict]:
         """Human workspace members the bot can DM, as raw Slack member payloads."""
-        max_page = SLACK_CHANNELS_MAX_PAGES
         users: list[dict] = []
         cursor = None
+        pages = 0
+        fetched = 0
 
-        while max_page > 0:
-            max_page -= 1
+        while pages < SLACK_CHANNELS_MAX_PAGES:
+            pages += 1
             res = self.client.users_list(limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor)
+            fetched += len(res["members"])
             users.extend(
                 member
                 for member in res["members"]
                 if self._belongs_to_workspace(member) and self._is_dmable_user(member)
             )
-            cursor = res["response_metadata"]["next_cursor"]
-            if not cursor:
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            # Cap on members fetched, not members kept, so a workspace full of bots and guests
+            # cannot page forever.
+            if not cursor or fetched >= SLACK_CHANNELS_MAX_ITEMS:
                 break
+
+        if cursor:
+            self._record_truncation("users", collected=fetched, pages=pages)
 
         return users
 
@@ -194,12 +235,12 @@ class SlackIntegration:
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
     ) -> list[dict]:
-        max_page = SLACK_CHANNELS_MAX_PAGES
-        channels = []
+        channels: list[dict] = []
         cursor = None
+        pages = 0
 
-        while max_page > 0:
-            max_page -= 1
+        while pages < SLACK_CHANNELS_MAX_PAGES:
+            pages += 1
             if type == "public_channel":
                 res = self.client.conversations_list(
                     exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
@@ -219,11 +260,31 @@ class SlackIntegration:
                         channel["is_private_without_access"] = True
 
             channels.extend(res["channels"])
-            cursor = res["response_metadata"]["next_cursor"]
-            if not cursor:
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
+            if not cursor or len(channels) >= SLACK_CHANNELS_MAX_ITEMS:
                 break
 
+        if cursor:
+            self._record_truncation(f"channels_{type}", collected=len(channels), pages=pages)
+
         return channels
+
+    def _record_truncation(self, kind: str, *, collected: int, pages: int) -> None:
+        """A cap stopped a listing with more to fetch, so the caller is holding a partial list.
+
+        Nothing downstream can tell a partial list from a complete one, and a channel missing from
+        it reads to the user as "the app is not in that channel". Leave a trail so the next report
+        is answerable from our own data.
+        """
+        slack_listing_truncated_counter.labels(kind=kind).inc()
+        logger.warning(
+            "slack_listing_truncated",
+            kind=kind,
+            integration_id=self.integration.id,
+            team_id=self.integration.team_id,
+            collected=collected,
+            pages=pages,
+        )
 
     @classmethod
     def validate_request(cls, request: HttpRequest | Request):

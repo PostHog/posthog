@@ -127,6 +127,60 @@ class TestSlackIntegration:
         assert channels[3]["name"] == "d_private_channel"
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_list_channels_follows_the_cursor_past_ten_pages(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # Slack returns fewer channels than the requested limit whenever it likes, so a workspace
+        # needs more pages than its channel count suggests. A page-count cap drops the remainder
+        # with no error, and the channel it drops reads to the user as "the app is not in it".
+        pages = 15
+
+        def conversations_list(cursor=None, **kwargs):
+            page = int(cursor or 0)
+            return {
+                "channels": [
+                    {"id": f"C{page}", "name": f"channel_{page:02d}", "is_private": False, "is_ext_shared": False}
+                ],
+                "response_metadata": {"next_cursor": str(page + 1) if page + 1 < pages else ""},
+            }
+
+        mock_client.conversations_list.side_effect = conversations_list
+        mock_client.users_conversations.return_value = {"channels": [], "response_metadata": {"next_cursor": ""}}
+
+        channels = SlackIntegration(self.integration).list_channels(True, "test_user_id")
+
+        assert len(channels) == pages
+        assert channels[-1]["name"] == "channel_14"
+
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_channel_by_id_finds_a_member_past_the_first_page(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        # conversations.members returns at most 1000 ids per call whatever limit is asked for, so a
+        # bigger limit does not reach member 1001. Without following the cursor the connecting user
+        # reads as a non-member and the channel resolves to nothing.
+        mock_client.conversations_info.return_value = {
+            "channel": {
+                "id": "C123",
+                "name": "big_channel",
+                "is_private": False,
+                "is_ext_shared": False,
+                "num_members": 1500,
+            }
+        }
+        mock_client.conversations_members.side_effect = [
+            {"members": [f"U{i}" for i in range(1000)], "response_metadata": {"next_cursor": "1000"}},
+            {"members": ["test_user_id"], "response_metadata": {"next_cursor": ""}},
+        ]
+
+        channel = SlackIntegration(self.integration).get_channel_by_id("C123", True, "test_user_id")
+
+        assert channel is not None
+        assert channel["id"] == "C123"
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_list_users_excludes_ineligible_members(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -245,13 +299,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -268,13 +325,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": True, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -291,13 +351,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", True, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
@@ -314,13 +377,16 @@ class TestSlackIntegration:
             "channel": {"id": "C123", "name": "general", "is_private": False, "is_ext_shared": False, "num_members": 10}
         }
 
-        mock_client.conversations_members.return_value = {"members": ["test_user_id", "U2", "U3"]}
+        mock_client.conversations_members.return_value = {
+            "members": ["test_user_id", "U2", "U3"],
+            "response_metadata": {"next_cursor": ""},
+        }
 
         slack = SlackIntegration(self.integration)
         channel = slack.get_channel_by_id("C123", False, "test_user_id")
 
         mock_client.conversations_info.assert_called_once_with(channel="C123", include_num_members=True)
-        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=11)
+        mock_client.conversations_members.assert_called_once_with(channel="C123", limit=1000, cursor=None)
 
         assert channel is not None
         assert channel["id"] == "C123"
