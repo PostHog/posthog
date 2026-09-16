@@ -4298,6 +4298,15 @@ export type AccountsSupportTicketMessagesListParams = {
     offset?: number
 }
 
+export type AccountsByExternalIdRetrieveParams = {
+    /**
+     * Exact external account identifier. Leading and trailing whitespace is significant.
+     * @minLength 1
+     * @maxLength 400
+     */
+    external_id: string
+}
+
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.

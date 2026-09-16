@@ -65,6 +65,7 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
@@ -1714,6 +1715,31 @@ class AccountViewSet(
             account = api.get_account_for_view(
                 team_id=self.team_id,
                 account_id=self.kwargs["pk"],
+                user_access_control=self.user_access_control,
+                required_level=_object_required_level(request, write=False),
+            )
+        except api.Account_DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        return Response(AccountSerializer(instance=account).data)
+
+    @validated_request(
+        query_serializer=AccountByExternalIdQuerySerializer,
+        operation_id="accounts_by_external_id_retrieve",
+        responses={200: OpenApiResponse(response=AccountSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def by_external_id(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        try:
+            account = api.get_account_for_view_by_external_id(
+                team_id=self.team_id,
+                external_id=request.validated_query_data["external_id"],
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=False),
             )

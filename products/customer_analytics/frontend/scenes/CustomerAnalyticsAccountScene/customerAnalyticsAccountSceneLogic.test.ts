@@ -11,26 +11,37 @@ import { initKeaTests } from '~/test/init'
 
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
 import {
+    accountsByExternalIdRetrieve,
     accountsPartialUpdate,
     accountsPresenceCreate,
     accountsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { scene } from './CustomerAnalyticsAccountScene'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
+import {
+    parseExternalAccountPath,
+    shouldRenderLegacyCustomerAnalyticsScene,
+} from './customerAnalyticsAccountSceneUtils'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
+    accountsByExternalIdRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
     accountsPresenceCreate: jest.fn(),
     accountsRetrieve: jest.fn(),
 }))
 
+const mockAccountsByExternalIdRetrieve = accountsByExternalIdRetrieve as jest.MockedFunction<
+    typeof accountsByExternalIdRetrieve
+>
 const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 const mockAccountsPresenceCreate = accountsPresenceCreate as jest.MockedFunction<typeof accountsPresenceCreate>
 const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 
 const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+const PROJECT_ID = 999
 const account: AccountApi = {
     id: ACCOUNT_ID,
     name: 'Test account',
@@ -70,6 +81,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]: true,
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
         })
@@ -77,7 +89,12 @@ describe('customerAnalyticsAccountSceneLogic', () => {
     })
 
     function mountLogic(): void {
-        logic = customerAnalyticsAccountSceneLogic({ accountId: ACCOUNT_ID })
+        logic = customerAnalyticsAccountSceneLogic({ accountId: ACCOUNT_ID, projectId: PROJECT_ID })
+        logic.mount()
+    }
+
+    function mountExternalIdLogic(externalId: string): void {
+        logic = customerAnalyticsAccountSceneLogic({ externalId, projectId: PROJECT_ID })
         logic.mount()
     }
 
@@ -98,6 +115,31 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
     })
 
+    it('loads a UUID account while the account scene flag is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+        })
+        mockAccountsRetrieve.mockResolvedValue(account)
+
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAccountsRetrieve).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
+    })
+
+    it('loads a UUID account before feature flags resolve', async () => {
+        featureFlagLogic.unmount()
+        initKeaTests()
+        router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
+        mockAccountsRetrieve.mockResolvedValue(account)
+        expect(featureFlagLogic.values.receivedFeatureFlags).toBe(false)
+
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAccountsRetrieve).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
+    })
+
     it('heartbeats account presence immediately, polls every 30 seconds, and clears it on failure', async () => {
         jest.useFakeTimers()
         const captureException = jest.spyOn(posthog, 'captureException')
@@ -110,7 +152,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             await Promise.resolve()
             await Promise.resolve()
 
-            expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(logic.values.currentTeamId), ACCOUNT_ID)
+            expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
             expect(logic.values.accountPresenceViewers).toEqual(viewers)
 
             jest.advanceTimersByTime(30_000)
@@ -149,7 +191,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
         mountLogic()
         await staleRequestStarted.promise
-        logic.actions.loadAccountPresence()
+        logic.actions.loadAccountPresence(ACCOUNT_ID)
         await latestRequestStarted.promise
 
         latestRequest.resolve(latestViewers)
@@ -172,6 +214,17 @@ describe('customerAnalyticsAccountSceneLogic', () => {
 
         expect(logic.values.isAccountMissing).toBe(true)
         expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('finishes an invalid route without loading an account', async () => {
+        logic = customerAnalyticsAccountSceneLogic({ invalidRoute: true, projectId: PROJECT_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.accountLoading).toBe(false)
+        expect(logic.values.isAccountMissing).toBe(true)
+        expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+        expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
     })
 
     it('reports unexpected load failures', async () => {
@@ -229,7 +282,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(logic.values.account?.tags).toEqual(['priority'])
             expect(logic.values.tagsSaving).toBe(true)
             await expectLogic(logic).toFinishAllListeners()
-            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(logic.values.currentTeamId), ACCOUNT_ID, {
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
                 tags: ['priority'],
             })
             expect(logic.values.account).toEqual(updatedAccount)
@@ -286,6 +339,168 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                 expect(mockAccountsRetrieve).not.toHaveBeenCalled()
             }
         )
+    })
+
+    describe('external ID routes', () => {
+        it('does not render the legacy scene for an external route while flags are unresolved', () => {
+            expect(
+                shouldRenderLegacyCustomerAnalyticsScene(
+                    urls.customerAnalyticsAccountByExternalId('unresolved account'),
+                    false
+                )
+            ).toBe(false)
+            expect(shouldRenderLegacyCustomerAnalyticsScene(urls.customerAnalyticsAccount(ACCOUNT_ID), false)).toBe(
+                true
+            )
+        })
+
+        it.each([
+            'spaces %2F slash / ? # + Unicode 漢字',
+            'literal %2F sequence',
+            ' leading and trailing spaces ',
+            ' ',
+        ])('decodes the external ID exactly once: %s', (externalId) => {
+            const pathname = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
+
+            expect(parseExternalAccountPath(pathname)).toEqual({ externalId, tab: 'usage' })
+        })
+
+        it.each([
+            '/customer_analytics/accounts/by-external-id/%',
+            '/customer_analytics/accounts/by-external-id/',
+            '/customer_analytics/accounts/by-external-id/account/usage/extra',
+        ])('rejects malformed external account paths: %s', (pathname) => {
+            expect(parseExternalAccountPath(pathname)).toBeNull()
+        })
+
+        it('loads by external ID, preserves the encoded URL, and routes tabs through kea-router', async () => {
+            const externalId = 'spaces %2F slash / ? # + Unicode 漢字'
+            const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
+            const searchParams = { source: 'account-link' }
+            const hashParams = { view: { search: 'example' } }
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+
+            router.actions.push(externalUrl, searchParams, hashParams)
+            expect(
+                scene.paramsToProps?.({ params: { _: externalId }, searchParams: {}, hashParams: {} })
+            ).toMatchObject({ externalId })
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledTimes(1)
+            expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledWith(String(PROJECT_ID), {
+                external_id: externalId,
+            })
+            expect(mockAccountsRetrieve).not.toHaveBeenCalled()
+            expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID)
+            expect(logic.values.activeTab).toBe('usage')
+            expect(router.values.location.pathname).toBe(urls.currentProject(externalUrl))
+
+            logic.actions.setActiveTab('users')
+
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccountByExternalId(externalId, 'users'))
+            )
+            expect(router.values.currentLocation.searchParams).toEqual(searchParams)
+            expect(router.values.currentLocation.hashParams).toEqual(hashParams)
+        })
+
+        it('uses the resolved account ID for external account mutations', async () => {
+            const externalId = 'external account'
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+            mockAccountsPartialUpdate.mockResolvedValue({ ...account, tags: ['priority'] })
+
+            router.actions.push(urls.customerAnalyticsAccountByExternalId(externalId))
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.updateTags(['priority'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                tags: ['priority'],
+            })
+        })
+
+        it('does not load an external ID when customer analytics is unavailable', async () => {
+            const externalId = 'unavailable account'
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
+            })
+
+            router.actions.push(urls.customerAnalyticsAccountByExternalId(externalId))
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
+            expect(mockAccountsPresenceCreate).not.toHaveBeenCalled()
+        })
+
+        it('resolves an external account when customer analytics access arrives', async () => {
+            const externalId = 'deferred external account'
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
+            })
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+
+            router.actions.push(urls.customerAnalyticsAccountByExternalId(externalId))
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockAccountsByExternalIdRetrieve).not.toHaveBeenCalled()
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsByExternalIdRetrieve).toHaveBeenCalledWith(String(PROJECT_ID), {
+                external_id: externalId,
+            })
+        })
+
+        it('redirects to the UUID detail route only when the detail scene flag is disabled', async () => {
+            const externalId = 'legacy account'
+            const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId, 'usage')
+            const searchParams = { source: 'account-link' }
+            const hashParams = { view: { search: 'example' } }
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+            })
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+
+            router.actions.push(externalUrl, searchParams, hashParams)
+            mountExternalIdLogic(externalId)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(
+                urls.currentProject(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
+            )
+            expect(router.values.currentLocation.searchParams).toEqual(searchParams)
+            expect(router.values.currentLocation.hashParams).toEqual(hashParams)
+            expect(mockAccountsPresenceCreate).not.toHaveBeenCalled()
+        })
+
+        it('ignores an external lookup that resolves after navigation', async () => {
+            const externalId = 'stale account'
+            const externalUrl = urls.customerAnalyticsAccountByExternalId(externalId)
+            const lookup = createDeferred<AccountApi>()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true,
+            })
+            mockAccountsByExternalIdRetrieve.mockReturnValueOnce(lookup.promise)
+
+            router.actions.push(externalUrl)
+            mountExternalIdLogic(externalId)
+            logic.unmount()
+            router.actions.push(urls.customerAnalyticsAccounts())
+
+            lookup.resolve(account)
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(router.values.location.pathname).toBe(urls.currentProject(urls.customerAnalyticsAccounts()))
+        })
     })
 
     describe('tab routing', () => {
