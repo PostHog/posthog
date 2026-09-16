@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -114,6 +115,56 @@ describe('alertsLogic', () => {
             })
 
         logic.unmount()
+    })
+
+    describe('leaving the tab mid-request', () => {
+        it('does not report an error when the alerts request resolves after the user leaves', async () => {
+            const captureSpy = jest.spyOn(posthog, 'captureException')
+            let resolveList: (value: { results: AlertType[]; count: number }) => void = () => {}
+            listSpy.mockReturnValue(
+                new Promise((resolve) => {
+                    resolveList = resolve
+                })
+            )
+
+            const logic = alertsLogic()
+            logic.mount()
+            logic.unmount()
+            resolveList({ results: [alert], count: 1 })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(captureSpy).not.toHaveBeenCalled()
+            captureSpy.mockRestore()
+        })
+
+        it('keeps a stale load from the previous visit off the new mount', async () => {
+            let resolveFirstList: (value: { results: AlertType[]; count: number }) => void = () => {}
+            const staleAlert = { ...alert, id: 'stale', name: 'Stale visit' }
+            const freshAlert = { ...alert, id: 'fresh', name: 'Fresh visit' }
+            listSpy.mockReset()
+            listSpy
+                .mockReturnValueOnce(
+                    new Promise((resolve) => {
+                        resolveFirstList = resolve
+                    })
+                )
+                .mockResolvedValue({ results: [freshAlert], count: 1 })
+
+            // Coming back builds on the same cache, so the logic is live again when the first
+            // visit's request finally resolves.
+            const logic = alertsLogic()
+            logic.mount()
+            logic.unmount()
+            logic.mount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            resolveFirstList({ results: [staleAlert], count: 1 })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.alertsResponse).toEqual({ results: [freshAlert], count: 1 })
+
+            logic.unmount()
+        })
     })
 
     it('counts only enabled destinations for alerts on the current page', async () => {
