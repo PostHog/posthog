@@ -42,6 +42,8 @@ class SourceDispatchInputs:
     source: SourceKind
     page: int
     configuration_ids: list[str]
+    # Defaulted so a run started before this field existed still replays.
+    cutoff: str = ""
 
 
 @frozen
@@ -51,6 +53,37 @@ class SourceDispatchReport:
     dispatched: int
     remaining_ids: list[str]
     evaluation_workflow_id: str | None
+
+
+@frozen
+class SourceEvaluationInputs:
+    """What a source's own evaluation workflow receives from its dispatcher."""
+
+    source: SourceKind
+    cutoff: str
+    configuration_ids: list[str]
+
+
+@frozen
+class GroupTransition:
+    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
+    so delivery reads a list of one today and a list of N when fan-out ships."""
+
+    grouping_key: str
+    notification: str
+    value: float | None = None
+
+
+@frozen
+class AlertDeliveryPreview:
+    """What delivery would send. The PoC records it instead of contacting a destination."""
+
+    source: SourceKind
+    alert_id: str
+    alert_name: str
+    evaluation_key: str
+    destination_names: tuple[str, ...]
+    transitions: tuple[GroupTransition, ...]
 
 
 @frozen
