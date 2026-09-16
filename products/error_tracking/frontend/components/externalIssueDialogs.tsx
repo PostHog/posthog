@@ -16,11 +16,11 @@ import {
 import { ErrorTrackingIntegration, ErrorTrackingIntegrationKind, PROVIDER_LABELS } from './errorTrackingIntegrations'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
 
-type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
+type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void | Promise<void>
 type onSubmitLinkType = (
     integrationId: number,
     externalContext: ErrorTrackingExternalIssueResultApiExternalContext
-) => void
+) => void | Promise<void>
 
 const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
 
@@ -64,7 +64,7 @@ export function openLinkIssueDialog(integration: ErrorTrackingIntegration, onSub
         },
         onSubmit: ({ externalIssue }) => {
             if (externalIssue) {
-                onSubmit(integration.id, { ...externalIssue.external_context, title: externalIssue.title })
+                return onSubmit(integration.id, { ...externalIssue.external_context, title: externalIssue.title })
             }
         },
     })
@@ -110,7 +110,7 @@ function createGitHubIssueForm(
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
         onSubmit: ({ title, body, repositories }) => {
-            onSubmit(integration.id, { repository: repositories[0], title, body })
+            return onSubmit(integration.id, { repository: repositories[0], title, body })
         },
     })
 }
@@ -143,7 +143,7 @@ function createGitLabIssueForm(
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
         onSubmit: ({ title, body }) => {
-            onSubmit(integration.id, { title, body })
+            return onSubmit(integration.id, { title, body })
         },
     })
 }
@@ -179,7 +179,7 @@ function createLinearIssueForm(
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
         onSubmit: ({ title, description, teamIds }) => {
-            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+            return onSubmit(integration.id, { team_id: teamIds[0], title, description })
         },
     })
 }
@@ -216,7 +216,7 @@ function createJiraIssueForm(
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
         onSubmit: ({ title, description, projectKeys }) => {
-            onSubmit(integration.id, { project_key: projectKeys[0], title, description })
+            return onSubmit(integration.id, { project_key: projectKeys[0], title, description })
         },
     })
 }

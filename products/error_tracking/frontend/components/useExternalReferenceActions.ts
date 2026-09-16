@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
@@ -23,7 +23,9 @@ export interface ExternalReferenceActions {
 
 export function useExternalReferenceActions(source: ExternalReferenceSource): ExternalReferenceActions {
     const { issue, issueLoading, issueFingerprints } = useValues(errorTrackingIssueSceneLogic)
-    const { createExternalReference, linkExternalReference } = useActions(errorTrackingIssueSceneLogic)
+    // Awaitable so the dialogs can hold their submit button in a loading state until the
+    // provider request settles, rather than closing while it is still in flight.
+    const { createExternalReference, linkExternalReference } = useAsyncActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     return {
