@@ -383,6 +383,37 @@ describe('hogFunctionConfigurationLogic', () => {
             })
         })
 
+        it('matches every event when a mapping has no event or action matchers', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'Mapping with removed matchers',
+                        include_by_default: true,
+                        filters: {},
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'removed-matchers' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
         it('matches every event across mixed mappings while preserving global properties', async () => {
             const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
                 { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
