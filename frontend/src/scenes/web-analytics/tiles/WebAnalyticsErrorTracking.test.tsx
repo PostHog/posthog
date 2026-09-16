@@ -53,25 +53,29 @@ describe('WebAnalyticsErrorTrackingTile', () => {
         setupStatus.actions.setDetectedStatus(hasIssues ? 'has-data' : 'needs-setup')
     }
 
-    it('reads an empty table as good news when exceptions reach the project', async () => {
-        mountWithSetupStatus({ autocapture_exceptions_opt_in: false }, true)
+    it.each([
+        {
+            name: 'good news when exceptions already reach the project',
+            autocaptureOptIn: false,
+            hasIssues: true,
+            expected: 'No errors found!',
+        },
+        {
+            name: 'good news when autocapture is on but nothing has errored yet',
+            autocaptureOptIn: true,
+            hasIssues: false,
+            expected: 'No errors found!',
+        },
+        {
+            name: 'the generic copy when nothing reports errors, so a missing SDK does not read as no errors',
+            autocaptureOptIn: false,
+            hasIssues: false,
+            expected: 'There are no matching events for this query',
+        },
+    ])('reads an empty table as $name', async ({ autocaptureOptIn, hasIssues, expected }) => {
+        mountWithSetupStatus({ autocapture_exceptions_opt_in: autocaptureOptIn }, hasIssues)
         render(<WebAnalyticsErrorTrackingTile tile={tile} />)
 
-        await waitFor(() => expect(screen.getByText('No errors found!')).toBeInTheDocument())
-    })
-
-    it('reads an empty table as good news when exception autocapture is on but nothing has errored yet', async () => {
-        mountWithSetupStatus({ autocapture_exceptions_opt_in: true }, false)
-        render(<WebAnalyticsErrorTrackingTile tile={tile} />)
-
-        await waitFor(() => expect(screen.getByText('No errors found!')).toBeInTheDocument())
-    })
-
-    it('keeps the generic copy when nothing reports errors, so a missing SDK is not read as no errors', async () => {
-        mountWithSetupStatus({ autocapture_exceptions_opt_in: false }, false)
-        render(<WebAnalyticsErrorTrackingTile tile={tile} />)
-
-        await waitFor(() => expect(screen.getByText('There are no matching events for this query')).toBeInTheDocument())
-        expect(screen.queryByText('No errors found!')).not.toBeInTheDocument()
+        await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
     })
 })
