@@ -3,7 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/canvas/api'
-import { CanvasStateKeysOnlySchema, CanvasStateReadLimitSchema } from '@/schema/tool-inputs'
+import {
+    CanvasStateKeysOnlySchema,
+    CanvasStateReadLimitSchema,
+    validateCanvasStateValueContinuation,
+} from '@/schema/tool-inputs'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CanvasBuildsRetrieveSchema = () => {
@@ -568,9 +572,9 @@ const canvasStateSet = (): ToolBase<ReturnType<typeof CanvasStateSetSchema>, Sch
 const CanvasStateValueRetrieveSchema = () => {
     const CanvasesStateValueRetrieveParams = orvalSchemas.CanvasesStateValueRetrieveParams()
     const CanvasesStateValueRetrieveQueryParams = orvalSchemas.CanvasesStateValueRetrieveQueryParams()
-    return CanvasesStateValueRetrieveParams.omit({ project_id: true }).extend(
-        CanvasesStateValueRetrieveQueryParams.shape
-    )
+    return CanvasesStateValueRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesStateValueRetrieveQueryParams.shape)
+        .superRefine(validateCanvasStateValueContinuation)
 }
 
 const canvasStateValueRetrieve = (): ToolBase<

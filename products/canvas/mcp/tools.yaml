@@ -401,6 +401,8 @@ tools:
             revision until complete is true. Join value_json chunks in order before parsing the JSON. If the value
             changes, the read returns 409; discard earlier chunks and restart at zero. A 404 means no readable value for
             that scope and key, not a need for broader permissions.
+        validators:
+            - validateCanvasStateValueContinuation
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
