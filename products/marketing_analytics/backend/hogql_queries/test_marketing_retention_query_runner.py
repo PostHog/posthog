@@ -137,6 +137,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
             (row.acquired, row.eligible7d, row.returned7d, row.eligible30d, row.returned30d), (3, 3, 1, 3, 2)
         )
         self.assertEqual(row.returners, 2)
+        assert row.medianReturnDays is not None
         self.assertAlmostEqual(row.medianReturnDays, 11)
         tail = rows["other-source" if limit == 20 else BREAKDOWN_OTHER_STRING_LABEL]
         self.assertEqual((tail.returned7d, tail.returned30d, tail.medianReturnDays), (0, 1, 30))
@@ -170,6 +171,26 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         no_return = next(row for row in response.summary or [] if row.breakdownValue == "new-source")
         self.assertEqual((no_return.eligible7d, no_return.eligible30d, no_return.returners), (0, 0, 0))
         self.assertIsNone(no_return.medianReturnDays)
+
+    @parameterized.expand(
+        [
+            ("relative_week", "-7d", "2023-02-19T12:00:00Z", "2023-02-20T12:00:00Z"),
+            ("calendar_month", "mStart", "2023-01-31T12:00:00Z", "2023-02-01T12:00:00Z"),
+        ]
+    )
+    @time_machine.travel("2023-03-06T12:00:00Z", tick=False)
+    def test_summary_previous_period_boundaries(self, _name: str, date_from: str, outside: str, inside: str) -> None:
+        for person, timestamp in [("outside", outside), ("inside", inside)]:
+            create_person(team=self.team, distinct_ids=[person])
+            self._session(person, timestamp, utm_source="newsletter")
+        flush_persons_and_events()
+        query = self._query(date_from=date_from)
+        query.dateRange = DateRange(date_from=date_from)
+        query.summary = True
+        query.comparePreviousPeriod = True
+        response = MarketingAnalyticsRetentionQueryRunner(query=query, team=self.team).calculate()
+        previous = [row for row in response.summary or [] if row.previous]
+        self.assertEqual([(row.breakdownValue, row.acquired) for row in previous], [("newsletter", 1)])
 
     @staticmethod
     def _rows_by_value(response) -> dict[str, list]:

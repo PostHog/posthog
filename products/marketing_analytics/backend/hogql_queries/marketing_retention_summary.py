@@ -1,12 +1,13 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from posthog.schema import DateRange
+from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 if TYPE_CHECKING:
     from .marketing_retention_query_runner import MarketingAnalyticsRetentionQueryRunner
@@ -16,8 +17,13 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
     periods = [runner]
     date_range = runner.query_date_range
     if runner.query.comparePreviousPeriod:
-        end = date_range.date_from() - timedelta(microseconds=1)
-        start = end - (date_range.date_to() - date_range.date_from())
+        previous_range = QueryPreviousPeriodDateRange(
+            date_range=runner.query.dateRange,
+            team=runner.team,
+            interval=IntervalType.DAY,
+            now=date_range.now_with_timezone,
+        )
+        start, end = previous_range.date_from(), previous_range.date_to()
         periods.append(
             type(runner)(
                 query=runner.query.model_copy(

@@ -10,11 +10,11 @@ Each return rate divides returning users by acquired users who completed the ful
 
 Days to return is the median elapsed time to the second session among observed returners within 30 days. Recent users with incomplete windows participate in this median, so it may change as they return. The median uses the shared comparison arrow and tooltip, with neutral colors and displays a dash when no return is observed. Compare rates within a column: the 7-day and 30-day denominators can differ.
 
-Comparison is enabled by default and can be disabled with the comparison selector in the toolbar. The previous acquisition period has equal duration and immediately precedes the selected period. Each period uses its own new-user lookback. Missing previous data does not produce a change indicator.
+Comparison is enabled by default and can be disabled with the comparison selector in the toolbar. The previous acquisition period uses the shared date comparison rules, including relative ranges and calendar periods. Each period uses its own new-user lookback. Missing previous data does not produce a change indicator.
 
 ## Query and compatibility
 
-Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. Sources are ranked by current acquisition volume; the tail is folded before computing the median. Acquired-user shares include the folded Other row.
+Summary mode adds optional fields to the existing retention query and response. Callers that omit summary mode retain the cohort response. The summary materializes acquisition and per-person return results within one query, including comparison. The table defaults to current acquisition volume, and sources are selected by that volume; the tail is folded before computing the median. Acquired-user shares include the folded Other row.
 
 The cohort renderer and query mode remain in code temporarily. A separate draft can remove the unused frontend while retaining the backend contract for existing query callers. That cleanup must be reviewed independently.
 

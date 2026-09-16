@@ -5,6 +5,13 @@ import { RetentionReturnTable } from './RetentionReturnTable'
 const meta: Meta<typeof RetentionReturnTable> = {
     title: 'Marketing analytics/Retention return table',
     component: RetentionReturnTable,
+    decorators: [
+        (Story) => (
+            <div className="w-[1100px] max-w-full">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         dimensionLabel: 'Source',
         loading: false,
@@ -64,11 +71,14 @@ export const Default: Story = {}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
-            <div className="max-w-lg">
+            <div className="w-[512px] max-w-full">
                 <Story />
             </div>
         ),
     ],
 }
-export const Loading: Story = { args: { loading: true, rows: [] } }
+export const Loading: Story = {
+    args: { loading: true, rows: [] },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
 export const Empty: Story = { args: { rows: [] } }

@@ -148,7 +148,7 @@ export function RetentionReturnTable({
                 dataSource={loading ? [] : data}
                 loading={loading}
                 rowKey="breakdownValue"
-                defaultSorting={{ columnKey: 'return7', order: -1 }}
+                defaultSorting={{ columnKey: 'acquired', order: -1 }}
                 firstColumnSticky
                 size="small"
                 emptyState='No users match this acquisition period. Widen the date range or turn off "Only new users".'
