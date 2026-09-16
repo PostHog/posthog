@@ -1198,13 +1198,13 @@ describe('Experiments', { concurrent: false }, () => {
             // Update minimum detectable effect
             const updateResult = await updateTool.handler(context, {
                 id: experiment.id,
-                parameters: {
+                running_time_calculation: {
                     minimum_detectable_effect: 25,
                 },
             } as any)
             const updatedExperiment = parseToolResponse(updateResult)
 
-            expect(updatedExperiment.parameters?.minimum_detectable_effect).toBe(25)
+            expect(updatedExperiment.running_time_calculation?.minimum_detectable_effect).toBe(25)
         })
 
         it('should handle invalid experiment ID', async () => {
