@@ -3535,7 +3535,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportInsightViewed: ({ insightModel, query, isFirstLoad, delay }) => {
-            const recentOpen = values.lastOpenedInsights[insightModel.short_id]
+            const recentOpen = insightModel.short_id ? values.lastOpenedInsights[insightModel.short_id] : undefined
             const openedFrom =
                 recentOpen && Date.now() - recentOpen.openedAt < 15_000 ? recentOpen.openedFrom : 'direct_or_unknown'
             const payload: Record<string, any> = {
