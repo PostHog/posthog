@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
+from contextlib import nullcontext
 from typing import Literal
 
 import pytest
@@ -17,6 +18,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
     ActivityError,
@@ -30,16 +32,23 @@ from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from products.alerts.backend.facade.contracts import AlertDemand, DemandDiscoveryInputs, SourceKind
 from products.alerts.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
+from products.alerts.backend.logic import demand
 from products.alerts.backend.temporal import postgres
-from products.alerts.backend.temporal.workflows import AlertsProductCheckDueWorkflow, AlertsProductInputs
+from products.alerts.backend.temporal.workflows import (
+    AlertsProductCheckDueWorkflow,
+    AlertsProductInputs,
+    AlertsProductOrchestrateWorkflow,
+)
 
 
 @workflow.defn(name="test-alerts-product-close-after-child-start")
@@ -80,10 +89,11 @@ def postgres_cursor() -> Iterator[MagicMock]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_error", [False, True])
 @pytest.mark.parametrize(
-    "tick_workflow, tick_queue",
+    "tick_workflow, tick_queue, demand_enabled",
     [
-        ("alerts-product-check-due", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE),
-        ("alerts-product-orchestrate", settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE),
+        ("alerts-product-check-due", settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, False),
+        ("alerts-product-orchestrate", settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE, True),
+        ("alerts-product-orchestrate", settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE, False),
     ],
 )
 async def test_each_tick_starts_independent_delivery(
@@ -96,6 +106,7 @@ async def test_each_tick_starts_independent_delivery(
     database_error: bool,
     tick_workflow: str,
     tick_queue: str,
+    demand_enabled: bool,
 ) -> None:
     if database_error:
         postgres_cursor.execute.side_effect = OperationalError("sensitive connection details")
@@ -117,6 +128,7 @@ async def test_each_tick_starts_independent_delivery(
             client,
             task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
             workflows=SHARED_ORCHESTRATION_WORKFLOWS,
+            activities=SHARED_ORCHESTRATION_ACTIVITIES,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
         Worker(
@@ -129,20 +141,45 @@ async def test_each_tick_starts_independent_delivery(
         ),
     ):
         for _ in range(2):
-            parent = await client.start_workflow(
-                tick_workflow,
-                AlertsProductInputs(),
-                id=workflow_id,
-                task_queue=tick_queue,
-                execution_timeout=dt.timedelta(seconds=10),
-            )
-            assert await parent.result() is None
+            with nullcontext() if demand_enabled else patch.object(workflow, "patched", return_value=False):
+                parent = await client.start_workflow(
+                    tick_workflow,
+                    AlertsProductInputs(),
+                    id=workflow_id,
+                    task_queue=tick_queue,
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+                assert await parent.result() is None
             history = await parent.fetch_history()
             evaluation_run_id = parent.first_execution_run_id
             if tick_workflow == "alerts-product-orchestrate":
-                assert not any(
-                    event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED for event in history.events
-                )
+                discovery_events = [
+                    event.activity_task_scheduled_event_attributes
+                    for event in history.events
+                    if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
+                ]
+                assert len(discovery_events) == int(demand_enabled)
+                if demand_enabled:
+                    assert discovery_events[0].activity_type.name == "alerts_product_discover_demand_activity"
+                    assert (
+                        discovery_events[0].task_queue.name == settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE
+                    )
+                    discovery_inputs = await client.data_converter.decode(
+                        discovery_events[0].input.payloads, [DemandDiscoveryInputs]
+                    )
+                    assert dt.datetime.fromisoformat(discovery_inputs[0].cutoff) == history.events[
+                        0
+                    ].event_time.ToDatetime(tzinfo=dt.UTC)
+                    completed_discovery = next(
+                        event.activity_task_completed_event_attributes
+                        for event in history.events
+                        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED
+                    )
+                    discovered = await client.data_converter.decode(completed_discovery.result.payloads, [AlertDemand])
+                    assert discovered[0] == demand.discover_synthetic_demand(discovery_inputs[0].cutoff)
+                await Replayer(
+                    workflows=SHARED_ORCHESTRATION_WORKFLOWS, workflow_runner=UnsandboxedWorkflowRunner()
+                ).replay_workflow(history)
                 evaluations = [
                     event.start_child_workflow_execution_initiated_event_attributes
                     for event in history.events
@@ -216,6 +253,7 @@ async def test_each_tick_starts_independent_delivery(
     updates = sdk_metrics.retrieve_updates()
     for metric_name in ("temporal_activity_schedule_to_start_latency", "temporal_activity_execution_latency"):
         for task_queue, expected_attempts in (
+            (settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE, 2 if demand_enabled else 0),
             (settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, 2),
             (settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE, 4),
         ):
@@ -233,7 +271,7 @@ async def test_each_tick_starts_independent_delivery(
     workflow_spans = [span for span in spans if span.name.startswith("RunWorkflow:")]
     activity_spans = [span for span in spans if span.name.startswith("RunActivity:")]
     assert len(workflow_spans) == (6 if tick_workflow == "alerts-product-orchestrate" else 4)
-    assert len(activity_spans) == 6
+    assert len(activity_spans) == (8 if demand_enabled else 6)
     for delivery in (span for span in workflow_spans if span.name == "RunWorkflow:alerts-product-deliver"):
         assert delivery.parent is not None
         child_start = spans_by_id[delivery.parent.span_id]
@@ -267,6 +305,9 @@ async def test_each_tick_starts_independent_delivery(
             for entry in activity_logs
             if entry.get("span_id") == trace.format_span_id(attempt_span.context.span_id)
         ]
+        if attempt_span.name == "RunActivity:alerts_product_discover_demand_activity":
+            assert entries == []
+            continue
         assert [entry["event"] for entry in entries] == [
             "alerts_product_activity_started",
             "alerts_product_activity_finished",
@@ -442,3 +483,62 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
     ):
         await AlertsProductCheckDueWorkflow().run(AlertsProductInputs())
     start_delivery.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "cutoff_offset, expected_ids",
+    [
+        (-2, {}),
+        (-1, {SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001"]}),
+        (
+            0,
+            {
+                SourceKind.LOGS: ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"],
+                SourceKind.INSIGHT: ["00000000-0000-4000-8000-000000000003"],
+            },
+        ),
+    ],
+)
+def test_discovery_filters_and_groups_due_configurations(
+    cutoff_offset: int, expected_ids: dict[SourceKind, list[str]]
+) -> None:
+    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+    configurations = demand._synthetic_configurations(tick_time)
+    cutoff = (tick_time + dt.timedelta(minutes=cutoff_offset)).isoformat()
+    with patch.object(demand, "_synthetic_configurations", return_value=configurations):
+        for _ in range(2):
+            assert demand.discover_synthetic_demand(cutoff).configuration_ids_by_source == expected_ids
+
+
+@pytest.mark.parametrize("cutoff", ["invalid", "2026-09-16T10:00:00"])
+def test_discovery_rejects_invalid_cutoff(cutoff: str) -> None:
+    with pytest.raises(ValueError):
+        demand.discover_synthetic_demand(cutoff)
+
+
+@pytest.mark.parametrize("scheduled", [False, True])
+async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
+    tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
+    actual_start = tick_time + dt.timedelta(seconds=20)
+    attributes = TypedSearchAttributes(
+        [SearchAttributePair(SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), tick_time)]
+        if scheduled
+        else []
+    )
+    with (
+        patch.object(
+            workflow,
+            "info",
+            return_value=MagicMock(workflow_start_time=actual_start, typed_search_attributes=attributes),
+        ),
+        patch.object(workflow, "patched", return_value=True),
+        patch.object(workflow, "execute_activity", AsyncMock()) as discover,
+        patch.object(workflow, "execute_child_workflow", AsyncMock()) as evaluate,
+    ):
+        await AlertsProductOrchestrateWorkflow().run(AlertsProductInputs())
+    assert discover.await_args is not None
+    assert discover.await_args.args[1] == DemandDiscoveryInputs(
+        cutoff=(tick_time if scheduled else actual_start).isoformat()
+    )
+    assert evaluate.await_args is not None
+    assert evaluate.await_args.args[1] == AlertsProductInputs()
