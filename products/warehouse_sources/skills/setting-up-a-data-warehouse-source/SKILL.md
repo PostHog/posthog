@@ -362,9 +362,10 @@ If the user wants near-real-time replication from Postgres:
 
 ## Important notes
 
-- **Always validate creds with db-schema before create.** The create endpoint will accept invalid creds and then fail
+- **Always validate creds before create.** The create endpoint will accept invalid creds and then fail
   asynchronously — the source appears in the list with status `Error` and no tables. Skipping the validation step
-  just pushes the failure into the background.
+  just pushes the failure into the background. Direct API callers validate with db-schema. Over MCP that tool is not
+  exposed, so use the one-step setup, which validates the credentials server-side before it creates anything.
 - **Present the table list before creating.** Large databases may have hundreds of tables. Don't auto-select them all
   — row counts and relevance matter for billing. Let the user opt in explicitly.
 - **Don't invent schemas.** Every entry in the `schemas` array must correspond to a real table from the db-schema
