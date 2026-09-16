@@ -1781,9 +1781,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(logic.values.filters.experiment_exposure).toEqual(laterExposure)
         })
 
-        // A caller that writes every change back into its `filters` prop cannot reset to them, so it
-        // returns to replay's defaults. The keys that scope the list to the caller's population have
-        // to survive that, or the list leaves the population on a reset and on a bad filter value.
+        // A caller that writes every change back into its `filters` prop resets to replay's defaults.
+        // The keys that scope the list to its population have to survive that all the same.
         it.each<[string, () => void]>([
             ['a reset', () => logic.actions.resetFilters()],
             ['an invalid filter value', () => logic.actions.setFilters({ duration: 'nope' } as any)],
@@ -1860,6 +1859,51 @@ describe('sessionRecordingsPlaylistLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.totalFiltersCount).toEqual(1)
+        })
+
+        // The filter bar can remove a caller's filter, which widens the list past what the tab asked
+        // for. The count has to notice, or the reset that puts it back stays disabled.
+        it('counts a caller filter the viewer removed, and a reset puts it back', async () => {
+            const metricFilter = { id: '$pageview', type: 'events', order: 0, name: '$pageview' } as ActionFilter
+            const callerGroup = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [metricFilter] }],
+            }
+            const scopedProps = {
+                logicKey: 'caller_baseline_removed',
+                updateSearchParams: false,
+                resetToCallerFilters: true,
+                filters: {
+                    date_from: '2024-03-01',
+                    date_to: null,
+                    duration: DEFAULT_RECORDING_FILTERS.duration,
+                    filter_group: callerGroup,
+                    experiment_exposure: { experiment_id: 1 },
+                },
+            }
+
+            logic = sessionRecordingsPlaylistLogic(scopedProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess']).toFinishAllListeners()
+
+            // the viewer removes the caller's filter
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values: [] }],
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.totalFiltersCount).toEqual(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.filter_group).toEqual(callerGroup)
+            expect(logic.values.totalFiltersCount).toEqual(0)
         })
 
         it('reads the persisted filters once when the caller sets none', async () => {

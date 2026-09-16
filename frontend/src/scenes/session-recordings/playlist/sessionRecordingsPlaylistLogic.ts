@@ -59,7 +59,6 @@ import {
     SessionRecordingType,
     UniversalFilterValue,
     UniversalFiltersGroup,
-    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -493,10 +492,9 @@ export interface SessionRecordingPlaylistLogicProps {
     filters?: RecordingUniversalFilters
     /**
      * Makes the caller's `filters` prop the baseline of the filter bar: a reset returns to it, and
-     * `totalFiltersCount` counts only what the viewer added on top of it. Set it where those filters
-     * scope the list to a population the viewer must not leave, such as an experiment's exposed
-     * people. Leave it unset where the caller writes every change back into `filters`, because the
-     * prop is then the current state and a reset would do nothing.
+     * `totalFiltersCount` counts what the viewer added on top of it. Set it where those filters scope
+     * the list to a population the viewer must not leave. Leave it unset where the caller writes every
+     * change back into `filters`, because the prop is then the current state and a reset does nothing.
      */
     resetToCallerFilters?: boolean
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
@@ -559,12 +557,11 @@ const applyFilterUpdate = (
 
 /**
  * The filters a reset, or a fallback from an invalid value, returns to. An opted-in caller's own
- * filters are that baseline, so a reset cannot widen the list past the population the caller scoped
- * it to. Every other caller keeps replay's defaults, plus the keys only a caller sets, because a
- * reset that dropped those would list recordings from outside the caller's scope too.
+ * filters are that baseline. Every other caller keeps replay's defaults plus the keys only a caller
+ * sets, because a reset that dropped those would list recordings from outside the caller's scope.
  *
- * Read `props` when a reset runs rather than at build time: kea assigns new props into the same
- * object, so a caller that recomputed its filters since the mount is only current here.
+ * `props` is read when the reset runs, not at build time: kea assigns new props into the same object,
+ * so a caller that recomputed its filters since the mount is only current here.
  */
 const getResetFilters = (props: SessionRecordingPlaylistLogicProps): RecordingUniversalFilters => {
     const defaults = getDefaultFilters(props.personUUID, props.pinnedFilters)
@@ -932,7 +929,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
         ) => boolean
         pinnedFilters: (arg: any) => UniversalFiltersGroup | undefined
         isScopedByCaller: (arg: any) => boolean
-        totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any) => number
+        totalFiltersCount: (filters: RecordingUniversalFilters, arg: any, arg2: any, arg3: any, arg4: any) => number
         hiddenRecordings: (
             sessionRecordings: SessionRecordingType[],
             hideViewedRecordings: HideViewedRecordingsOptions,
@@ -2140,21 +2137,21 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 callerFilters: RecordingUniversalFilters | undefined,
                 resetToCallerFilters: boolean | undefined
             ) => {
-                // The count says how much of the filter bar the viewer can reset, so it counts
-                // against what a reset returns to. For an opted-in caller that is the caller's own
-                // filters: its range, duration, session ids and event filters are not the viewer's.
+                // The count is what the viewer can reset, so it counts against what a reset returns
+                // to. An opted-in caller's range, duration, session ids and event filters are its own.
                 const baselineFilters = resetToCallerFilters
                     ? getResetFilters({ personUUID, pinnedFilters, filters: callerFilters, resetToCallerFilters })
                     : getDefaultFilters(personUUID, pinnedFilters)
                 const groupFilters = filtersFromUniversalFilterGroups(filters)
-                const baselineValues: UniversalFiltersGroupValue[] = [
-                    ...(pinnedFilters?.values ?? []),
-                    ...filtersFromUniversalFilterGroups(baselineFilters),
-                ]
-                const userFilterCount = groupFilters.filter((f) => !baselineValues.some((bv) => equal(f, bv))).length
+                const baselineGroupFilters = filtersFromUniversalFilterGroups(baselineFilters)
+                // A baseline filter the viewer removed counts like one they added: the filter bar can
+                // remove a caller's filter, which widens the list, and a reset is what puts it back.
+                const changedGroupCount =
+                    groupFilters.filter((f) => !baselineGroupFilters.some((bf) => equal(f, bf))).length +
+                    baselineGroupFilters.filter((bf) => !groupFilters.some((f) => equal(f, bf))).length
 
                 return (
-                    userFilterCount +
+                    changedGroupCount +
                     (equal(filters.duration?.[0] ?? baselineFilters.duration[0], baselineFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === baselineFilters.date_from && filters.date_to === baselineFilters.date_to
                         ? 0
@@ -2421,8 +2418,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // The filters reducer persists to localStorage and rehydrates without validation, so a stale
         // or malformed entry poisons state and makes every later filter change fall back to defaults.
         // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
-        // The reset returns to the caller's own filters where a caller owns the baseline, so the one
-        // load it starts is already scoped and the caller re-apply block below has nothing to add.
+        // Where a caller owns the baseline, the reset returns to its filters, so the one load it
+        // starts is already scoped.
         if (!isValidRecordingFilters(values.filters)) {
             actions.resetFilters()
             return
