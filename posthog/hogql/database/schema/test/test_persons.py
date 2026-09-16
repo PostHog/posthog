@@ -110,15 +110,54 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
         self.assertIn("multiSearchAny(where_optimization.properties, [%(hogql_val_1)s])", response.clickhouse)
 
+    PREFILTER_PERSONS = [
+        ("escaped", {"$some_prop": 'some"thing'}),
+        ("non_ascii", {"$some_prop": "sömething"}),
+        ("other_key", {"$some_prop": "chrome", "$another_prop": "something"}),
+    ]
+
+    def _create_prefilter_persons(self) -> dict[str, str]:
+        uuids = {}
+        for name, properties in self.PREFILTER_PERSONS:
+            person = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[name],
+                properties=properties,
+                created_at=datetime(2024, 1, 1, 15),
+            )
+            uuids[name] = str(person.uuid)
+        return uuids
+
     @parameterized.expand(
         [
-            ("in_list", "properties.$some_prop in ('something', 'other')", "[%(hogql_val_1)s, %(hogql_val_2)s]"),
-            ("quoted_value", """properties.$some_prop = 'some"thing'""", None),
-            ("non_ascii_value", "properties.$some_prop = 'sömething'", None),
-            ("is_not", "properties.$some_prop != 'something'", None),
+            ("eq", "properties.$some_prop = 'something'", "[%(hogql_val_1)s]", ["first", "second"]),
+            (
+                "in_list",
+                "properties.$some_prop in ('something', 'other')",
+                "[%(hogql_val_1)s, %(hogql_val_2)s]",
+                ["first", "second"],
+            ),
+            # The unbacked read strips the outer quotes off JSONExtractRaw without unescaping, so the stored value
+            # compares as `some\"thing` and matches nothing. Pre-existing, and the same with or without the pre-check.
+            ("quoted_value", """properties.$some_prop = 'some"thing'""", None, []),
+            ("non_ascii_value", "properties.$some_prop = 'sömething'", None, ["non_ascii"]),
+            (
+                "is_not",
+                "properties.$some_prop != 'something'",
+                None,
+                ["third", "escaped", "non_ascii", "other_key"],
+            ),
         ]
     )
-    def test_json_substring_prefilter(self, _name: str, where: str, expected_values: str | None):
+    def test_json_substring_prefilter(
+        self, _name: str, where: str, expected_values: str | None, expected_persons: list[str]
+    ):
+        person_uuids = {
+            "first": str(self.first_person.uuid),
+            "second": str(self.second_person.uuid),
+            "third": str(self.third_person.uuid),
+            **self._create_prefilter_persons(),
+        }
         response = execute_hogql_query(
             parse_select(f"select id from persons where {where}"),
             self.team,
@@ -129,6 +168,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
             self.assertNotIn("multiSearchAny", response.clickhouse)
         else:
             self.assertIn(f"multiSearchAny(where_optimization.properties, {expected_values})", response.clickhouse)
+        assert {str(row[0]) for row in response.results} == {person_uuids[name] for name in expected_persons}
 
     # ClickHouse rejects a multiSearchAny call with more than 255 needles against a nonconstant haystack
     # ("passed 256, should be at most 255"), which failed the whole query rather than only the pre-check.
