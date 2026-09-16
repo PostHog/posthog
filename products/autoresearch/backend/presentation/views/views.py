@@ -135,8 +135,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
-    # `resolve_template` and `validate_definition` are classified here and also carry their own
-    # `required_scopes` on the action, because both run HogQL over the team's events.
+    # Both HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     permission_classes = [AutoresearchAccessPermission]
@@ -144,8 +143,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def get_throttles(self) -> list[BaseThrottle]:
-        # Both actions run several unsampled ClickHouse scans over a caller-chosen window, so a
-        # personal API key gets the ClickHouse budget rather than the general endpoint allowance.
+        # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
         if self.action in ("resolve_template", "validate_definition"):
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
@@ -243,9 +241,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                     "config before creating."
                 ),
             ),
-            400: OpenApiResponse(
-                description="Unknown template key or missing required target_event override.",
-            ),
+            400: OpenApiResponse(description="Unknown template key or missing required target_event override."),
         },
         summary="Resolve a template",
         description=(
@@ -296,12 +292,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
         ),
     )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="validate",
-        required_scopes=["autoresearch:read", "query:read"],
-    )
+    @action(detail=False, methods=["post"], url_path="validate", required_scopes=["autoresearch:read", "query:read"])
     def validate_definition(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
         target_event, target_definition = resolve_target(
@@ -317,8 +308,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             horizon_days=data.get("horizon_days", 7),
             training_lookback_days=data.get("training_lookback_days", 180),
             training_population=data["training_population"],
-            # Creation stores the training population when the inference population is omitted
-            # or empty, so the preview has to count the same population.
+            # Creation stores the training population when this is omitted or empty, so count the same one.
             inference_population=data.get("inference_population") or data["training_population"],
             user=cast(User, request.user),
         )

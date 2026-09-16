@@ -57,15 +57,13 @@ _PIPELINE_FIELD_MAX_LENGTH = 255
 
 _UNSAFE_PROPERTY_CHARS = re.compile(r"[^a-z0-9._-]+")
 
-# Pipeline creation defaults the training lookback to the first value and the API caps it at
-# the second (`AutoresearchPipelineCreateSerializer.training_lookback_days`). A resolved config
-# carries its own lookback so a long horizon is not created against the default.
+# Creation's default and the API's cap (`AutoresearchPipelineCreateSerializer.training_lookback_days`).
+# A resolved config carries its own lookback so a long horizon is not created against the default.
 _DEFAULT_TRAINING_LOOKBACK_DAYS = 180
 _MAX_TRAINING_LOOKBACK_DAYS = 730
 
 
-# A TextChoices class rather than bare strings: the API declares its template-key fields from
-# these choices, and the OpenAPI enum component takes its name from the class.
+# A TextChoices class because the API's template-key fields and the OpenAPI enum name come from it.
 class TemplateKey(models.TextChoices):
     LIKELY_ACTIVE_SOON = "likely_active_soon"
     AT_RISK_OF_INACTIVITY = "at_risk_of_inactivity"
@@ -273,8 +271,7 @@ class ResolvedTemplate:
 
 def _training_lookback_days(horizon_days: int) -> int:
     # The labeler places each anchor before now() - horizon, so the horizon eats the recent end
-    # of the lookback. Twice the horizon keeps at least half the window for anchors; the default
-    # already does that for every template's default horizon.
+    # of the lookback. Twice the horizon keeps at least half the window for anchors.
     return max(_DEFAULT_TRAINING_LOOKBACK_DAYS, min(_MAX_TRAINING_LOOKBACK_DAYS, 2 * horizon_days))
 
 

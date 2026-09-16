@@ -332,6 +332,5 @@ PREDICTION_EVENT_NAME = _PREDICTION_EVENT_NAME
 # `ENUM_NAME_OVERRIDES` pins by value set.
 PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
 TEMPLATE_KEY_CHOICES = _TemplateKey.choices
-# Every code `ValidationWarningSerializer.code` can carry. A plain list, not choices: see the
-# serializer for why that field is not an enum.
+# A plain list, not choices: the serializer explains why `code` is not an enum.
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]

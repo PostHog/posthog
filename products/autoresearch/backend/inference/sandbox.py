@@ -113,7 +113,6 @@ _PREDICT_TIMEOUT_S = 120
 # A sandbox that outlives its command is a worker that died mid-run. The TTL is the
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
-# scoring.py bounds its queries with the same constant.
 _MATERIALIZE_ROW_LIMIT = MATERIALIZE_ROW_LIMIT
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"

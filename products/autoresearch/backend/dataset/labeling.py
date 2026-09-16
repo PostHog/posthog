@@ -105,10 +105,9 @@ def _own_events_excluded_clause(alias: str = "") -> str:
     return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
 
 
-# The most persons one training or scoring run materializes. Without an explicit bound HogQL
-# caps a query at its default of 100 rows, which would shrink the train, holdout, and score
-# matrices to a tiny sample; the materializers bound their queries here and fail a result
-# that fills the bound, so validation refuses a larger population before a run is spent on it.
+# The most persons one training or scoring run materializes. HogQL otherwise caps a query at its
+# default of 100 rows; the materializers fail a result that fills this bound, and validation
+# refuses a larger population before a run is spent on it.
 MATERIALIZE_ROW_LIMIT = 50_000
 
 

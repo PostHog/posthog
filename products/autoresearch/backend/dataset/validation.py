@@ -49,13 +49,11 @@ def inference_lookback_days(horizon_days: int) -> int:
 
 
 def _scoring_cutoff_ts() -> int:
-    # A live scoring run anchors every query at the start of its prediction date in UTC
-    # (`ScoringWindow.for_date`), so the preview binds the same instant for today.
+    # The start of today in UTC, which is the instant a live run for today binds (`ScoringWindow.for_date`).
     return int(datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC).timestamp())
 
 
-# One definition of every code the validator can emit. The API's help text lists the same
-# vocabulary, and a test holds the two together.
+# The API's help text lists the same codes, and a test holds the two together.
 class ValidationWarningCode(StrEnum):
     LOW_VOLUME = "low_volume"
     MODERATE_VOLUME = "moderate_volume"
@@ -72,8 +70,7 @@ _GENERIC_ERROR = "Validation could not run. Try again, and contact support if it
 
 
 def _exposed_error(exc: Exception) -> str:
-    # HogQL's exposed errors describe the caller's own definition (an unknown property, a filter
-    # that does not compile). Anything else describes our infrastructure, which stays in the log.
+    # Exposed errors describe the caller's own definition, so anything else is our infrastructure and stays in the log.
     if isinstance(exc, ExposedHogQLError | ExposedCHQueryError):
         return str(exc)
     return _GENERIC_ERROR
@@ -154,8 +151,7 @@ def _run_validation(
     user: User | None = None,
 ) -> ValidationResult:
     if horizon_days >= training_lookback_days:
-        # The labeler needs a user's first event before now() - horizon inside the lookback, so
-        # no row can qualify. Refuse before spending three queries on a certain zero.
+        # No anchor can fall before now() - horizon inside this lookback, so refuse before spending three queries.
         return ValidationResult(
             can_proceed=False,
             requires_acknowledgement=False,
@@ -232,8 +228,7 @@ def _run_validation(
     positives = round(base_rate * total_users) if total_users > 0 else 0
     negatives = total_users - positives
 
-    # Inference population: the scorer's own anchor query, counted, at the cutoff a live run
-    # for today would bind. Anything built here instead would drift from what gets scored.
+    # Count the scorer's own anchor query at today's cutoff, so the preview cannot drift from what gets scored.
     anchors_sql, anchors_values = build_inference_anchors_sql(
         lookback_days=inference_lookback_days(horizon_days),
         inference_population=inference_population,

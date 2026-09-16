@@ -32,8 +32,7 @@ _FORBIDDEN_TARGET_EVENT_CHARS = re.compile(r"[\x00-\x1f\x7f`{}]")
 
 _OUTPUT_PERSON_PROPERTY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_$.\-]*$")
 
-# The scopes the Actions API accepts for a read. Resolving an action target reveals whether the
-# id exists and, through the response, its name, so a scoped token needs one of these first.
+# Resolving an action target reveals whether the id exists and its name, so a scoped token needs a read scope.
 _ACTION_READ_SCOPES = ("action:read", "action:write", "*")
 
 
@@ -49,9 +48,8 @@ def _validate_target_event_value(value: str, *, error_key: str) -> None:
 
 
 def validate_event_target(target_event: str, *, error_key: str) -> None:
-    """The rules creation applies to an event target: not the product's own event, and safe to
-    place in the training agent's prompt brief. Template resolution applies them to its result, so a
-    config it advertises as ready to create is one creation accepts."""
+    """The rules creation applies to an event target: not the product's own event, and safe to place in
+    the training agent's prompt brief. Template resolution applies them so its result is one creation accepts."""
     if target_event == api.PREDICTION_EVENT_NAME:
         raise serializers.ValidationError(
             {error_key: f"'{api.PREDICTION_EVENT_NAME}' is the event this product emits, so it cannot be a target."}
@@ -184,8 +182,7 @@ _POPULATION_KIND_REQUIRED_DAYS: dict[str, str | None] = {
 }
 _POPULATION_KIND_REQUIRES_EVENT = frozenset({"ever_performed_event"})
 _POPULATION_DAYS_MAX = 730
-# Every filter and every list-valued operand becomes its own bound parameter in several HogQL
-# queries, so the body size has to be bounded before anything is compiled.
+# Every filter and list-valued operand becomes a bound parameter in several HogQL queries, so bound the body first.
 _POPULATION_FILTERS_MAX = 20
 _POPULATION_FILTER_VALUES_MAX = 200
 
@@ -590,8 +587,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
 
 class ValidationWarningSerializer(serializers.Serializer):
-    # A CharField on purpose: a ChoiceField named `code` collides with another product's inline
-    # `code` choices in drf-spectacular's enum naming and renames that product's generated type.
+    # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
     code = serializers.CharField(
         help_text=(
             "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
@@ -672,10 +668,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Estimated number of positive examples (users who performed the target event).",
     )
-    negative_count = serializers.IntegerField(
-        allow_null=True,
-        help_text="Estimated number of negative examples.",
-    )
+    negative_count = serializers.IntegerField(allow_null=True, help_text="Estimated number of negative examples.")
     base_rate = serializers.FloatField(
         allow_null=True,
         help_text="Fraction of the training population that performed the target event.",
@@ -685,8 +678,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
         help_text="Estimated number of users in the inference (daily scoring) population.",
     )
     warnings = ValidationWarningSerializer(
-        many=True,
-        help_text="List of validation warnings. Check 'severity' and 'code'.",
+        many=True, help_text="List of validation warnings. Check 'severity' and 'code'."
     )
     error = serializers.CharField(
         allow_null=True,
@@ -777,9 +769,7 @@ class ResolvedTemplateSerializer(serializers.Serializer):
     )
     display_name = serializers.CharField(help_text="Human-readable template name.")
     description = serializers.CharField(help_text="What this template predicts.")
-    suggested_name = serializers.CharField(
-        help_text="Suggested pipeline name. Pass as 'name' to autoresearch-create.",
-    )
+    suggested_name = serializers.CharField(help_text="Suggested pipeline name. Pass as 'name' to autoresearch-create.")
     target_event = serializers.CharField(
         help_text=(
             "Resolved target event. Pass as 'target_event' to autoresearch-create. "
