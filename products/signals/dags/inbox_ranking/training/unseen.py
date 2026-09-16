@@ -478,7 +478,13 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
 
 
 def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str) -> list[HeadGrade]:
-    """The unseen read per model that scored this head, over the in-cohort rows."""
+    """The unseen read per model that scored this head, over the in-cohort rows.
+
+    Every family scores the whole pool, so a set whose side input covers few of the day's newborns
+    is graded partly on its missing branch. The example builder drops those rows, so the holdout
+    numbers never hold that population: read `mean_score` and `expected_calibration_error` per
+    `model_name`, with `<set>_pool_coverage` on the scores asset for how thin the day was.
+    """
     grades: list[HeadGrade] = []
     kept = graded[graded["in_cohort"]]
     for (model_name, model_version, model_role), rows in kept.groupby(
