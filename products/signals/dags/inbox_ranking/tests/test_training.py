@@ -474,8 +474,7 @@ def test_train_head_keeps_logloss_on_a_single_class_holdout():
     assert trained.metrics.holdout_average_precision is None
     assert trained.metrics.holdout_logloss is not None and trained.metrics.holdout_logloss > 0
     assert not trained.metrics.readable
-    # Calibration reads on that holdout too: with no positive in it, every predicted point is
-    # error, so the row-weighted decile error is the mean score itself.
+    # With no positive in the holdout, the decile error is the whole mean score.
     assert len(trained.calibration) == BUCKETS
     assert trained.metrics.holdout_mean_score is not None
     assert trained.metrics.holdout_expected_calibration_error == pytest.approx(trained.metrics.holdout_mean_score)
@@ -670,8 +669,7 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     )
     assert (single_class.rows, single_class.positives, single_class.auc) == (1, 0, None)
     assert (single_class.null_auc, single_class.null_auc_std) == (None, None)
-    # No AUC, but the score gap is still readable: the outcome never happened, so the whole score
-    # is error.
+    # No AUC, and the score gap is still readable.
     assert (single_class.mean_score, single_class.expected_calibration_error) == (0.5, 0.5)
     # Counts are ints and the undefined AUC is dropped: the graded asset writes these as Dagster
     # metadata. The family is in the key, so a second family cannot overwrite the first's entries.
@@ -681,17 +679,32 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     assert "open_tabular_xgb_candidate_auc" not in grade_metadata([single_class])
 
 
-def test_calibration_buckets_split_on_rank_so_a_run_of_tied_scores_still_fills_the_table():
-    # These heads score a rare outcome, so most reports sit on a run of near-identical low scores.
-    # A cut on score value would put them in one bucket and leave the rest empty, which hides the
-    # error in the bucket that swallowed the rows.
+def test_calibration_buckets_keep_a_run_of_tied_scores_in_one_bucket():
+    # Splitting a run of equal scores would give each half a realized rate that depends on the
+    # order the rows arrived in, and report a gap that is not there.
     scores = np.array([0.1] * 8 + [1.0, 1.0])
     outcomes = np.array([False] * 8 + [True, True])
     buckets = calibration_buckets(outcomes, scores, buckets=5)
-    assert [(bucket.bucket, bucket.rows) for bucket in buckets] == [(1, 2), (2, 2), (3, 2), (4, 2), (5, 2)]
-    assert [bucket.realized_rate for bucket in buckets] == [0.0, 0.0, 0.0, 0.0, 1.0]
-    # Row-weighted, so the perfectly calibrated top bucket does not count for a fifth of the error.
+    assert [(bucket.bucket, bucket.rows, bucket.realized_rate) for bucket in buckets] == [(1, 8, 0.0), (2, 2, 1.0)]
+    # Row-weighted, so the perfectly calibrated top bucket does not count for half of the error.
     assert expected_calibration_error(buckets) == pytest.approx(0.08)
+
+
+def test_calibration_error_on_tied_scores_does_not_move_with_the_row_order():
+    # Ten of twenty reports on one score opened: that score is calibrated, however the frame is
+    # ordered. A split run would read 0.0 interleaved and 0.5 grouped.
+    tied = np.full(20, 0.5)
+    interleaved = calibration_buckets(np.array([True, False] * 10), tied)
+    grouped = calibration_buckets(np.array([True] * 10 + [False] * 10), tied)
+    assert expected_calibration_error(interleaved) == expected_calibration_error(grouped) == 0.0
+
+
+def test_calibration_buckets_fill_the_table_when_the_scores_are_distinct():
+    rng = np.random.default_rng(0)
+    scores = rng.random(100)
+    buckets = calibration_buckets(rng.random(100) < scores, scores)
+    assert len(buckets) == BUCKETS
+    assert sum(bucket.rows for bucket in buckets) == 100
 
 
 def test_calibration_reads_a_cohort_thinner_than_the_table_without_an_empty_bucket():
@@ -717,17 +730,15 @@ def test_head_grades_report_the_score_gap_a_perfect_auc_hides():
     assert grade.base_rate == 0.1
     assert grade.mean_score == pytest.approx(0.545)
     assert grade.expected_calibration_error == pytest.approx(0.455)
-    # Every in-cohort row lands in exactly one bucket, and each bucket carries the grade's identity
-    # so the reliability read can break down on the head and the family.
     rows = calibration_rows([grade])
-    assert [row["bucket"] for row in rows] == list(range(1, BUCKETS + 1))
+    assert [(row["bucket"], row["rows"]) for row in rows] == [(1, 9), (2, 1)]
     assert sum(bucket.rows for bucket in grade.calibration) == grade.rows
     assert {
         "head": "open",
         "model_name": TABULAR_MODEL_NAME,
         "model_role": CANDIDATE_ROLE,
         "pool": POOL_NAME,
-        "bucket": 10,
+        "bucket": 2,
         "positives": 1,
         "mean_score": 0.95,
         "realized_rate": 1.0,
@@ -1027,8 +1038,6 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "auc": None,
         "mean_score": 0.8,
     }.items() <= head_graded_props.items()
-    # The gap between the mean score and the base rate is the read AUC cannot give; the deciles
-    # behind it travel as their own event, one per bucket, because an array is not chartable.
     assert head_graded_props["expected_calibration_error"] == pytest.approx(0.2)
     calibration_props = by_event["inbox_ranking_unseen_calibration"][0]["properties"]
     assert {
@@ -1041,7 +1050,6 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "mean_score": 0.8,
         "realized_rate": 1.0,
     }.items() <= calibration_props.items()
-    # The holdout side carries the same properties, so one insight holds both lines.
     assert set(by_event["inbox_ranking_holdout_calibration"][0]["properties"]) >= set(calibration_props) - {
         "horizon_days",
         "scoring_partition",

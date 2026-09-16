@@ -154,8 +154,7 @@ class HeadGrade:
     # The chance line on the same rows (see ChanceBand): the band a per-day AUC has to clear.
     null_auc: float | None
     null_auc_std: float | None
-    # The score deciles the calibration events carry, and the error read over them. The deciles are
-    # a table, so they stay off the head event and go out one event per bucket.
+    # The deciles are a table, so they stay off the head event and go out one event per bucket.
     calibration: tuple[CalibrationBucket, ...]
     expected_calibration_error: float | None
 

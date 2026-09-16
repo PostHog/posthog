@@ -63,9 +63,9 @@ class HeadMetrics:
     holdout_average_precision: float | None = None
     holdout_logloss: float | None = None
     holdout_positive_rate: float | None = None
-    # The mean predicted score on the holdout, next to `holdout_positive_rate`, the rate it was
-    # predicting, and the row-weighted decile error between them. At the same example grain this
-    # error should agree with the unseen grade's; a gap there is holdout optimism.
+    # The mean predicted score next to `holdout_positive_rate`, the rate it was predicting, and the
+    # decile error between them. Both read the rows the head was capped to, and `cap_examples` keeps
+    # every positive, so a family under a row budget reports its sample's raised rate. Read per family.
     holdout_mean_score: float | None = None
     holdout_expected_calibration_error: float | None = None
 
@@ -98,8 +98,8 @@ class TrainedHead:
     # model on its own holdout; None when there were no holdout rows.
     holdout_booster_ubj: bytes | None
     metrics: HeadMetrics
-    # The holdout score deciles, carried next to the metrics rather than inside them: the metrics
-    # go on one event per head, and a decile table needs one event per bucket.
+    # Beside the metrics rather than inside them: those go on one event per head, a table needs one
+    # event per bucket.
     calibration: tuple[CalibrationBucket, ...]
 
 
