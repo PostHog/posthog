@@ -277,10 +277,9 @@ tools:
         description: >
             List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch,
             error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and
-            what they produced.
-            Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged
-            when following next_cursor. Use these records and the loop's last_run_status, last_error, and
-            consecutive_failures for current health; an enabled schedule alone does not show successful work.
+            what they produced. Set status=failed to find failure records without reading canvas state. Keep the status
+            filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error,
+            and consecutive_failures for current health; an enabled schedule alone does not show successful work.
         feature_flag: loops
     loops-skill-bundles-update:
         operation: loops_skill_bundles_update
@@ -519,10 +518,10 @@ tools:
             Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and
             `channel` to limit results to the current space. The results identify who created each task and whether its
             latest run is active. Supports additional filtering by status, repository, creator, origin product, and
-            archived or internal state. Requires the calling token's organization to have Tasks access enabled.
-            To inspect failures in a space, set channel, status=failed, internal=all, and archived=all.
-            For workflow-backed loops, also set hog_flow_id. The latest_run includes the stored error and completion
-            time even if the run stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.
+            archived or internal state. Requires the calling token's organization to have Tasks access enabled. To
+            inspect failures in a space, set channel, status=failed, internal=all, and archived=all. For workflow-backed
+            loops, also set hog_flow_id. The latest_run includes the stored error and completion time even if the run
+            stopped before writing canvas state. Use tasks-runs-list for earlier runs of a task.
         feature_flag: tasks
         response:
             include:
