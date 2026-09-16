@@ -6,6 +6,7 @@ import {
     type AITriage,
     aiTriageResultLabel,
     aiTriageResultTagType,
+    aiTriageStatusLabel,
     aiTriageTicketTypeDescription,
     aiTriageTicketTypeLabel,
 } from '../../types'
@@ -51,9 +52,7 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                             {aiTriage.status && (
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Status</span>
-                                    <span className="capitalize">
-                                        {aiTriage.status === 'in_progress' ? 'In progress' : aiTriage.status}
-                                    </span>
+                                    <span>{aiTriageStatusLabel[aiTriage.status] ?? aiTriage.status}</span>
                                 </div>
                             )}
                             {aiTriage.result && (

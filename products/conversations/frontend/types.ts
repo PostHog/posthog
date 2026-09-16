@@ -51,7 +51,7 @@ export function normalizeAssigneeFilter(value: unknown): AssigneeFilterEntry[] {
 
 export type TicketTagsMatch = 'any' | 'all'
 
-export type AITriageStatus = 'in_progress' | 'done'
+export type AITriageStatus = 'in_progress' | 'done' | 'awaiting_clarification'
 export type AITriageResult =
     | 'persisted'
     | 'suggested'
@@ -61,6 +61,8 @@ export type AITriageResult =
     | 'skipped_unactionable'
     | 'blocked_unsafe'
     | 'blocked_unsafe_reply'
+    | 'clarified'
+    | 'suggested_clarification'
 
 export interface AITriage {
     schema_version?: number
@@ -86,6 +88,7 @@ export interface AITriage {
     validator_confidence?: number
     coverage?: number
     grounded?: boolean
+    clarification_rounds?: number
     cost?: {
         sandbox_seconds?: number
         llm_calls?: number
@@ -301,15 +304,29 @@ export const aiTriageResultLabel: Record<AITriageResult, string> = {
     skipped_unactionable: 'Skipped',
     blocked_unsafe: 'Blocked unsafe ticket',
     blocked_unsafe_reply: 'Blocked unsafe reply',
+    clarified: 'Asked a question',
+    suggested_clarification: 'Suggested a question',
+}
+
+export const aiTriageStatusLabel: Record<AITriageStatus, string> = {
+    in_progress: 'In progress',
+    done: 'Done',
+    awaiting_clarification: 'Waiting for the customer',
 }
 
 export const aiTriageProcessingLabel = 'Processing'
 
 export type AITriageFilterValue = AITriageResult | 'in_progress'
 
+// Hidden from the list filter until the API enum includes them. Labels still
+// render on the ticket so a missing Record key cannot crash the column.
+const AI_TRIAGE_UNFILTERABLE_RESULTS = new Set<AITriageResult>(['clarified', 'suggested_clarification'])
+
 export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
     { key: 'in_progress', label: aiTriageProcessingLabel },
-    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][]).map(([key, label]) => ({ key, label })),
+    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][])
+        .filter(([key]) => !AI_TRIAGE_UNFILTERABLE_RESULTS.has(key))
+        .map(([key, label]) => ({ key, label })),
 ]
 
 export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
@@ -322,6 +339,8 @@ export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
         case 'escalated_with_findings':
         case 'escalated_with_best':
         case 'escalated_no_reply':
+        case 'clarified':
+        case 'suggested_clarification':
             return 'warning'
         case 'blocked_unsafe':
         case 'blocked_unsafe_reply':

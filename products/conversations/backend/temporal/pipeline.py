@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, RetryState
 
 from products.conversations.backend.temporal.ai_reply.activities.build_context import support_build_context_activity
+from products.conversations.backend.temporal.ai_reply.activities.clarify import support_clarify_activity
 from products.conversations.backend.temporal.ai_reply.activities.classify import support_classify_activity
 from products.conversations.backend.temporal.ai_reply.activities.draft import support_draft_activity
 from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
@@ -28,22 +29,30 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
     LEGACY_MAX_ATTEMPTS,
     MAX_ATTEMPTS,
+    MAX_CLARIFICATION_ROUNDS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
+    TIERED_CLARIFY_PATCH,
 )
 from products.conversations.backend.temporal.ai_reply.gate import (
     FINDINGS_WITHHELD_REASON,
     decide_reply_action,
     findings_reason_for,
+    format_clarifying_question,
     format_findings_comment,
+    format_suggested_question_comment,
     should_persist_findings,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import (
+    BuildContextOutput,
+    ClarifyInput,
+    ClarifyOutput,
     ClassifyInput,
     DraftInput,
     DraftOutput,
     PersistKnowledgeGapInput,
     PersistReplyInput,
+    PersistReplyOutput,
     RecordTriageInput,
     RefineQueriesInput,
     RetrieveInput,
@@ -109,10 +118,13 @@ class SupportReplyWorkflow:
         (allow_bot_reply=False). Replay only.
       - escalated_no_reply: exhausted attempts with no usable draft or findings;
         nothing persisted, ticket handed to a human cold.
+      - clarified: a public clarifying question was posted; ticket is pending.
+      - suggested_clarification: a private suggested question was posted.
     """
 
     @workflow.run
     async def run(self, input: SupportReplyInput) -> str:
+        input = coerce_dataclass(SupportReplyInput, input)
         team_id = input.team_id
         ticket_id = input.ticket_id
         trace_id = str(uuid5(AI_REPLY_TRACE_NAMESPACE, f"support-reply:{team_id}:{ticket_id}"))
@@ -123,9 +135,10 @@ class SupportReplyWorkflow:
             "run_id": wf_info.run_id,
         }
 
-        async def _record_triage(patch: dict[str, Any]) -> None:
-            # Best-effort observability metadata — must never break the support pipeline, so
-            # swallow failures here rather than letting a triage write abort the run.
+        async def _record_triage(patch: dict[str, Any], *, required: bool = False) -> None:
+            # Cost and status metadata is best-effort on round 0. Follow-up reopen lives on
+            # this write when persist did not run, so a swallow would leave the ticket pending
+            # after a completed child id that ALLOW_DUPLICATE_FAILED_ONLY will not retry.
             try:
                 await workflow.execute_activity(
                     support_record_triage_activity,
@@ -134,6 +147,8 @@ class SupportReplyWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
+                if required:
+                    raise
                 workflow.logger.warning("support_reply: failed to record triage", extra={"status": patch.get("status")})
 
         async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
@@ -157,12 +172,17 @@ class SupportReplyWorkflow:
                 workflow.logger.warning("support_reply: failed to persist knowledge gaps")
 
         # Build context
-        ctx_output = await workflow.execute_activity(
-            support_build_context_activity,
-            input,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+        ctx_output = coerce_dataclass(
+            BuildContextOutput,
+            await workflow.execute_activity(
+                support_build_context_activity,
+                input,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ),
         )
+        if input.clarification_round >= 1 and ctx_output.followup_cancelled:
+            return "skipped_human_engaged"
 
         # Record lifecycle start
         await _record_triage(
@@ -196,6 +216,25 @@ class SupportReplyWorkflow:
                 llm_calls += _bill_llm_activity(output=None, error=error, maximum_attempts=maximum_attempts)
                 raise
 
+        async def _persist(persist_input: PersistReplyInput) -> bool:
+            persist_input = replace(
+                persist_input,
+                require_awaiting_clarification=input.clarification_round >= 1,
+            )
+            raw = await workflow.execute_activity(
+                support_persist_reply_activity,
+                persist_input,
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if input.clarification_round < 1:
+                return True
+            try:
+                posted = coerce_dataclass(PersistReplyOutput, raw).posted
+            except TypeError:
+                return True
+            return posted
+
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
             # draft work. Mirrored from the signals product's safety_filter_activity pattern.
@@ -215,23 +254,31 @@ class SupportReplyWorkflow:
 
             # Triage once, up front (not per attempt): the type + seed queries bias the whole
             # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
-            classify_output = await _llm(
-                support_classify_activity,
-                ClassifyInput(
-                    team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
-                ),
-                timeout=timedelta(minutes=2),
-            )
-            if classify_output.ticket_type == "unactionable":
-                # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
-                # retries"): this ticket had no answerable question, so downstream routing/metrics
-                # can treat spam/feedback differently from genuine failed attempts.
-                workflow.logger.info("support_reply: ticket classified unactionable; skipping draft loop")
-                outcome = {"result": "skipped_unactionable", "ticket_type": "unactionable"}
-                return "skipped_unactionable"
+            # A clarification follow-up reuses the stored type so the second round cannot flip.
+            seed_queries: list[str] = []
+            if input.clarification_round >= 1:
+                # Skip classify even if triage lost ticket_type, so round two cannot flip.
+                ticket_type = ctx_output.prior_ticket_type or "how_to"
+                needs_diagnostics = ctx_output.prior_needs_diagnostics and ctx_output.diagnostics_allowed
+            else:
+                classify_output = await _llm(
+                    support_classify_activity,
+                    ClassifyInput(
+                        team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
+                    ),
+                    timeout=timedelta(minutes=2),
+                )
+                if classify_output.ticket_type == "unactionable":
+                    # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
+                    # retries"): this ticket had no answerable question, so downstream routing/metrics
+                    # can treat spam/feedback differently from genuine failed attempts.
+                    workflow.logger.info("support_reply: ticket classified unactionable; skipping draft loop")
+                    outcome = {"result": "skipped_unactionable", "ticket_type": "unactionable"}
+                    return "skipped_unactionable"
 
-            ticket_type = classify_output.ticket_type
-            needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
+                ticket_type = classify_output.ticket_type
+                needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
+                seed_queries = classify_output.seed_queries
             # Whether this reply would be auto-sent to the (untrusted) author on its channel.
             # Keeps customer-data read scopes off any auto-publishable draft (see draft.py).
             auto_publishable = ticket_type in ctx_output.auto_publish_ticket_types
@@ -248,7 +295,9 @@ class SupportReplyWorkflow:
             last_validate = None
             attempts_used = 0
             blocker_aware = workflow.patched(BLOCKER_AWARE_LOOP_PATCH)
+            tiered_clarify = workflow.patched(TIERED_CLARIFY_PATCH)
             max_attempts = MAX_ATTEMPTS if blocker_aware else LEGACY_MAX_ATTEMPTS
+            allow_clarify = tiered_clarify and input.clarification_round < MAX_CLARIFICATION_ROUNDS
 
             def _base_triage() -> dict[str, Any]:
                 return {
@@ -279,7 +328,7 @@ class SupportReplyWorkflow:
                         ticket_context=reviewed_context,
                         missing=missing,
                         ticket_type=ticket_type,
-                        seed_queries=classify_output.seed_queries,
+                        seed_queries=seed_queries,
                         trace_id=trace_id,
                         ticket_id=ticket_id,
                     ),
@@ -321,6 +370,7 @@ class SupportReplyWorkflow:
                             needs_diagnostics=needs_diagnostics,
                             diagnostics_allowed=ctx_output.diagnostics_allowed,
                             auto_publishable=auto_publishable,
+                            clarification_round=input.clarification_round,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
                         retry_policy=RetryPolicy(maximum_attempts=2),
@@ -373,7 +423,73 @@ class SupportReplyWorkflow:
                         verdict=draft_output.verdict,
                         attempt=attempt,
                         max_attempts=max_attempts,
+                        allow_clarify=allow_clarify,
                     )
+                    if action == "clarify" and tiered_clarify:
+                        questions = [q for q in draft_output.clarifying_questions if q and q.strip()]
+                        if questions:
+                            # Review the body customers or agents will actually see. Public
+                            # questions are the short ask; private notes include findings.
+                            review_text = (
+                                format_clarifying_question(questions=questions)
+                                if auto_publishable
+                                else format_suggested_question_comment(
+                                    questions=questions,
+                                    investigation_summary=draft_output.investigation_summary,
+                                    unknowns=list(draft_output.unknowns),
+                                    citations=list(draft_output.citations),
+                                )
+                            )
+                            review_output = await _llm(
+                                support_review_reply_activity,
+                                ReviewReplyInput(
+                                    team_id=input.team_id,
+                                    ticket_context=reviewed_context,
+                                    reply=review_text,
+                                    sources=draft_output.sources,
+                                    ticket_type=ticket_type,
+                                    trace_id=trace_id,
+                                    ticket_id=ticket_id,
+                                ),
+                                timeout=timedelta(minutes=2),
+                            )
+                            if review_output.safe:
+                                clarify_output = coerce_dataclass(
+                                    ClarifyOutput,
+                                    await workflow.execute_activity(
+                                        support_clarify_activity,
+                                        ClarifyInput(
+                                            team_id=input.team_id,
+                                            ticket_id=input.ticket_id,
+                                            ticket_type=ticket_type,
+                                            auto_publishable=auto_publishable,
+                                            clarifying_questions=questions,
+                                            investigation_summary=draft_output.investigation_summary,
+                                            unknowns=list(draft_output.unknowns),
+                                            citations=list(draft_output.citations),
+                                            confidence=validate_output.confidence,
+                                        ),
+                                        start_to_close_timeout=timedelta(minutes=1),
+                                        retry_policy=RetryPolicy(maximum_attempts=3),
+                                    ),
+                                )
+                                result_name = "clarified" if clarify_output.published else "suggested_clarification"
+                                if validate_output.missing:
+                                    await _persist_gaps(validate_output.missing, ticket_type, result_name)
+                                outcome = {
+                                    **_base_triage(),
+                                    **_judge_triage(draft_output, validate_output),
+                                    "result": result_name,
+                                    "status": ("awaiting_clarification" if clarify_output.published else "done"),
+                                    "clarification_rounds": 1 if clarify_output.published else 0,
+                                    "clarifying_questions": questions,
+                                    "investigation_summary": draft_output.investigation_summary,
+                                    "unknowns": list(draft_output.unknowns),
+                                    "confidence": validate_output.confidence,
+                                    "attempts": attempt + 1,
+                                    "missing": validate_output.missing,
+                                }
+                                return result_name
                     if action in ("auto_send", "suggest"):
                         review_output = await _llm(
                             support_review_reply_activity,
@@ -406,8 +522,7 @@ class SupportReplyWorkflow:
                             return "blocked_unsafe_reply"
 
                         result_name = "persisted" if action == "auto_send" else "suggested"
-                        await workflow.execute_activity(
-                            support_persist_reply_activity,
+                        if not await _persist(
                             PersistReplyInput(
                                 team_id=input.team_id,
                                 ticket_id=input.ticket_id,
@@ -416,10 +531,10 @@ class SupportReplyWorkflow:
                                 confidence=validate_output.confidence,
                                 ticket_type=ticket_type,
                                 allow_bot_reply=action == "auto_send",
-                            ),
-                            start_to_close_timeout=timedelta(minutes=1),
-                            retry_policy=RetryPolicy(maximum_attempts=3),
-                        )
+                            )
+                        ):
+                            outcome = {"status": "done"}
+                            return "skipped_human_engaged"
                         if validate_output.missing:
                             await _persist_gaps(validate_output.missing, ticket_type, result_name)
                         outcome = {
@@ -469,8 +584,7 @@ class SupportReplyWorkflow:
                         }
                         return "blocked_unsafe_reply"
 
-                    await workflow.execute_activity(
-                        support_persist_reply_activity,
+                    if not await _persist(
                         PersistReplyInput(
                             team_id=input.team_id,
                             ticket_id=input.ticket_id,
@@ -479,10 +593,10 @@ class SupportReplyWorkflow:
                             confidence=validate_output.confidence,
                             ticket_type=ticket_type,
                             allow_bot_reply=True,
-                        ),
-                        start_to_close_timeout=timedelta(minutes=1),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
+                        )
+                    ):
+                        outcome = {"status": "done"}
+                        return "skipped_human_engaged"
                     if validate_output.missing:
                         await _persist_gaps(validate_output.missing, ticket_type, "persisted")
                     outcome = {
@@ -557,8 +671,7 @@ class SupportReplyWorkflow:
                                 findings_reason=findings_reason,
                                 citations=[],
                             )
-                        await workflow.execute_activity(
-                            support_persist_reply_activity,
+                        if not await _persist(
                             PersistReplyInput(
                                 team_id=input.team_id,
                                 ticket_id=input.ticket_id,
@@ -572,10 +685,10 @@ class SupportReplyWorkflow:
                                 unknowns=list(last_draft.unknowns),
                                 clarifying_questions=list(last_draft.clarifying_questions),
                                 findings_reason=findings_reason,
-                            ),
-                            start_to_close_timeout=timedelta(minutes=1),
-                            retry_policy=RetryPolicy(maximum_attempts=3),
-                        )
+                            )
+                        ):
+                            outcome = {"status": "done"}
+                            return "skipped_human_engaged"
                         if last_validate.missing:
                             await _persist_gaps(last_validate.missing, ticket_type, "escalated_with_findings")
                         outcome = {
@@ -632,8 +745,7 @@ class SupportReplyWorkflow:
                     }
                     return "blocked_unsafe_reply"
 
-                await workflow.execute_activity(
-                    support_persist_reply_activity,
+                if not await _persist(
                     PersistReplyInput(
                         team_id=input.team_id,
                         ticket_id=input.ticket_id,
@@ -642,10 +754,10 @@ class SupportReplyWorkflow:
                         confidence=best_confidence,
                         ticket_type=ticket_type,
                         allow_bot_reply=False,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
+                    )
+                ):
+                    outcome = {"status": "done"}
+                    return "skipped_human_engaged"
                 if best_missing:
                     await _persist_gaps(best_missing, ticket_type, "escalated_with_best")
                 outcome = {
@@ -674,16 +786,20 @@ class SupportReplyWorkflow:
             # `outcome` is only set on the workflow's own terminal branches; on an unexpected
             # crash it stays empty, so we never mark a failed run as "done".
             if outcome:
-                await _record_triage(
-                    {
-                        **outcome,
-                        "status": "done",
-                        "finished_at": workflow.now().isoformat(),
-                        "ai_trace_id": trace_id,
-                        "draft_task_run_ids": draft_task_run_ids,
-                        "cost": {
-                            "sandbox_seconds": round(sandbox_seconds, 3),
-                            "llm_calls": llm_calls,
-                        },
-                    }
-                )
+                triage_status = outcome.get("status", "done")
+                triage_patch = {
+                    **outcome,
+                    "status": triage_status,
+                    "finished_at": workflow.now().isoformat(),
+                    "ai_trace_id": trace_id,
+                    "draft_task_run_ids": draft_task_run_ids,
+                    "cost": {
+                        "sandbox_seconds": round(sandbox_seconds, 3),
+                        "llm_calls": llm_calls,
+                    },
+                }
+                followup_reopen = input.clarification_round >= 1
+                if followup_reopen:
+                    triage_patch["clear_clarification"] = True
+                    triage_patch["status"] = "done"
+                await _record_triage(triage_patch, required=followup_reopen)
