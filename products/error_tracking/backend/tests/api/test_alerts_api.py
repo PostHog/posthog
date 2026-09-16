@@ -126,6 +126,19 @@ class TestErrorTrackingAlerts(APIBaseTest):
         assert update.status_code == 200, update.json()
         assert update.json()["filters"]["bytecode"] is not None
 
+    def test_alert_accepts_a_comparison_against_an_empty_string(self):
+        # An empty string is a real value, unlike a missing one.
+        integration = self._create_slack_integration()
+        leaf = {"key": "environment", "value": "", "operator": "exact", "type": "event"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/",
+            data=self._valid_payload(integration, filters={"properties": [leaf]}),
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+
     def test_alert_create_rejects_uncompilable_filters(self):
         integration = self._create_slack_integration()
 
@@ -176,6 +189,11 @@ class TestErrorTrackingAlerts(APIBaseTest):
                 {"filters": {"events": [{"id": "$error_tracking_issue_created"}]}},
             ),
             ("keyless_property_filter", {"filters": {"properties": [{"value": "x", "type": "event"}]}}),
+            (
+                "valueless_property_filter",
+                {"filters": {"properties": [{"key": "environment", "operator": "exact", "type": "event"}]}},
+            ),
+            ("idless_event_entity", {"filters": {"events": [{"type": "events"}]}}),
             (
                 "object_event_properties",
                 {

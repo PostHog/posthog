@@ -207,6 +207,9 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
                 # match-all branch), and an action entity smuggled into the events
                 # list would compile too.
                 raise AlertValidationError(f"Alert event filters must have type events, got: {entity.get('type')}.")
+            # Without an event name the entity compiles to a match-all branch too.
+            if not isinstance(entity.get("id"), str) or not entity["id"]:
+                raise AlertValidationError("Alert event filters must name an event.")
             property_lists.append(entity.get("properties") or [])
     for property_list in property_lists:
         # The compiler accepts an object here and iterating it would only yield keys,
@@ -221,6 +224,15 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
             if property_filter.get("type") not in (None, "event"):
                 raise AlertValidationError(
                     f"Alert filters support event properties only, got: {property_filter.get('type')}."
+                )
+            # A leaf with a key but no value compiles to constant-true as well. An empty
+            # string is a real comparison value and stays allowed.
+            if property_filter.get("operator") not in ("is_set", "is_not_set") and property_filter.get("value") in (
+                None,
+                [],
+            ):
+                raise AlertValidationError(
+                    f"Alert property filter on {property_filter['key']} needs a value, or an is set / is not set operator."
                 )
 
 
