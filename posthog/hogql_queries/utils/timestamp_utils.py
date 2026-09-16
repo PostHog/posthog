@@ -32,6 +32,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import WeekStartDay
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
@@ -286,6 +287,12 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
     # so ordering by toDate(timestamp) lets ClickHouse read in order and stop after the first day.
     # HogQL prints timestamp as toTimeZone(timestamp, tz), and toDate(toTimeZone(...)) does not match
     # the sort key, so that form reads and sorts every row the team has.
+    # HogQL also floors every events scan at the team's retention, so the raw query has to, or the
+    # lookup starts at an event the queries built on it cannot read.
+    floor = UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
+    retention_months = events_retention_months_for_team(team, team.pk)
+    if retention_months is not None:
+        floor = max(floor, timezone.now() - relativedelta(months=retention_months))
     with _earliest_timestamp_query_tags():
         result = sync_execute(
             """
@@ -298,7 +305,7 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
             {
                 "team_id": team.pk,
                 "team_timezone": team.timezone,
-                "floor": UNFILTERED_EARLIEST_TIMESTAMP_FLOOR.strftime("%Y-%m-%d %H:%M:%S"),
+                "floor": floor.strftime("%Y-%m-%d %H:%M:%S"),
             },
             team_id=team.pk,
         )

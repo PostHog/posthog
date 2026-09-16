@@ -407,6 +407,26 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         self.assertIn("ORDER BY toDate(timestamp) ASC, timestamp ASC", normalized_query)
         self.assertEqual(captured["lookup"], "earliest_timestamp")
 
+    def test_unfiltered_earliest_timestamp_keeps_the_retention_floor(self):
+        # HogQL floors every events scan at the team's retention, so a lookup that ignores it hands the
+        # queries built on it a start date they cannot read from.
+        captured: dict[str, object] = {}
+
+        def capture(query, args=None, **kwargs):
+            captured["args"] = args
+            return [[datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)]]
+
+        with (
+            time_machine.travel("2026-06-15T12:00:00Z", tick=False),
+            patch("posthog.hogql_queries.utils.timestamp_utils.sync_execute", side_effect=capture),
+            patch("posthog.hogql_queries.utils.timestamp_utils.events_retention_months_for_team", return_value=12),
+        ):
+            get_earliest_timestamp_unfiltered(self.team)
+
+        args = captured["args"]
+        assert isinstance(args, dict)
+        self.assertEqual(args["floor"], "2025-06-15 12:00:00")
+
     @parameterized.expand(
         [
             # Naive inputs are interpreted in the passed (team) timezone, not UTC.
