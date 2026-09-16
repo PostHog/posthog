@@ -7,9 +7,9 @@ import structlog
 from celery import current_app, shared_task
 
 from posthog.cdp.internal_events import WORKFLOW_STEP_RESUME_EVENT, InternalEventEvent, produce_internal_event
+from posthog.celery_queues import CeleryQueue
 from posthog.plugins.plugin_server_api import WORKFLOWS_STEP_RESUME_JWT_PURPOSE, resume_workflow_step
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
