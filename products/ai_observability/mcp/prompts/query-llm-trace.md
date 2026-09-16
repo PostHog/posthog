@@ -25,9 +25,15 @@ The response contains a single trace in JSON format with:
 - `inputTokens` / `outputTokens` — token counts across all generations
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
 - `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)
-- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and previewed under `detail: "summary"`.
+- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has its AI `properties`, returned in full by default and previewed under `detail: "summary"` — see "Withheld properties" below.
 
 Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.
+
+# Withheld properties
+
+The response carries the `$ai_*` properties of each event, plus `$session_id`, `$lib`, and `$lib_version`. Every other property is withheld in both detail modes, because that half of the bag is caller-controlled and can hold credentials, authentication state, request headers, user identity, permissions, budget context, or location. Each bag lists the withheld names under `_redactedKeys`, with no values.
+
+The values are unchanged in PostHog. Open the trace there, or query the one property you need, if a diagnosis depends on it.
 
 # Event types and their properties
 

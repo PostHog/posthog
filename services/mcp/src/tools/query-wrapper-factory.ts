@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { type TraceDetail, compactTraceResults } from '@/lib/trace-compaction'
+import { redactTraceResults } from '@/lib/trace-redaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -9,9 +10,10 @@ import {
     type ZodObjectAny,
 } from '@/tools/types'
 
-// LLM trace query kinds return every event with its full properties (entire
-// prompts, completions, tool payloads). Their results are bounded before being
-// returned so a single huge trace can't blow the caller's context window.
+// LLM trace query kinds return every event with its full properties: entire
+// prompts and tool payloads, plus the caller's auth and identity context. Their
+// results are redacted to the AI namespace and then bounded, so no credential
+// travels out and a single huge trace can't blow the caller's context window.
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 const TRACE_DETAIL_FIELD = 'detail'
@@ -224,8 +226,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
-            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
-            const results = isTraceQuery ? compactTraceResults(data.results, traceDetail) : data.results
+            // A formatted string is rendered from the same unredacted results and wins
+            // over the structured payload for some clients, so it would carry the
+            // properties past the redactor. No trace formatter exists yet; this keeps
+            // the boundary closed if one lands.
+            const shouldSurfaceFormatted = !isTraceQuery && effectiveOutputFormat !== 'json' && data.formatted_results
+            const results = isTraceQuery
+                ? compactTraceResults(redactTraceResults(data.results), traceDetail)
+                : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.

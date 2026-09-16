@@ -414,13 +414,15 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
-describe('createQueryWrapper trace compaction', () => {
+describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, formattedResults?: string): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({ results, formatted_results: formattedResults }),
+                }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -455,7 +457,7 @@ describe('createQueryWrapper trace compaction', () => {
         const trace = {
             id: 'trace-1',
             inputState: 'input'.repeat(1_000),
-            events: [{ properties: { custom_payload: 'x'.repeat(5_000) } }],
+            events: [{ properties: { $ai_output_choices: 'x'.repeat(5_000) } }],
         }
 
         const byDefault = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
@@ -472,8 +474,37 @@ describe('createQueryWrapper trace compaction', () => {
         expect(full.results).toEqual(byDefault.results)
         expect(summary.results[0]._detail.mode).toBe('summary')
         expect(summary.results[0].inputState.length).toBeLessThan(1_000)
-        expect(summary.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
+        expect(summary.results[0].events[0].properties.$ai_output_choices.length).toBeLessThan(1_000)
     })
+
+    it.each(['TraceQuery', 'TracesQuery'])('withholds credential properties from %s results', async (kind) => {
+        const trace = { id: 'trace-1', events: [{ properties: { api_key: 'invented-key-value', $ai_model: 'gpt-4' } }] }
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+
+        const summary = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'summary' })
+        )) as any
+        const full = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
+
+        for (const result of [summary, full]) {
+            expect(JSON.stringify(result)).not.toContain('invented-key-value')
+            expect(result.results[0].events[0].properties.$ai_model).toBe('gpt-4')
+        }
+    })
+
+    it.each(['TraceQuery', 'TracesQuery'])(
+        'drops the formatted string for %s, which is rendered from unredacted results',
+        async (kind) => {
+            const tool = createQueryWrapper({ name: 'test', schema, kind })()
+
+            const result = (await tool.handler(contextWithResults([], 'api_key: invented-key-value'), {
+                kind,
+            })) as any
+
+            expect(JSON.stringify(result)).not.toContain('invented-key-value')
+        }
+    )
 
     it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
