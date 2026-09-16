@@ -98,5 +98,5 @@ class Migration(migrations.Migration):
         # Reverse is a no-op: the code this rolls back to reads the credential by team and bundle id,
         # which this does not change, and restoring the bare id would reintroduce the collision
         # between a sandbox row and a production one.
-        migrations.RunPython(normalize_apns_integrations, migrations.RunPython.noop),
+        migrations.RunPython(normalize_apns_integrations, migrations.RunPython.noop, elidable=True),
     ]
