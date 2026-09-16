@@ -227,23 +227,25 @@ class TestTeamsEventHandler(BaseTest):
         assert response.status_code == 202
         mock_help.delay.assert_not_called()
 
-    @parameterized.expand(
-        [
-            # The token names one tenant and the body another, which is how a replayed token
-            # would attribute a message to somebody else's tenant.
-            ("tenant_the_token_does_not_name", {"channelData": {"tenant": {"id": "other-tenant"}}}),
-            # A serviceUrl outside Microsoft's endpoints is where the bot's outbound bearer
-            # token would be sent.
-            ("service_url_outside_microsoft", {"serviceUrl": "https://attacker.example.com/"}),
-        ]
-    )
     @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
-    def test_a_body_the_token_does_not_back_is_never_acted_on(
-        self, _name: str, overrides: dict[str, Any], mock_process: MagicMock
-    ):
-        activity = {**_make_activity(), **overrides}
+    def test_a_body_the_token_does_not_back_is_refused(self, mock_process: MagicMock):
+        # The gate itself is covered in posthog/ingress/test/test_teams.py. This is the wiring:
+        # the endpoint's own provider runs it, so a replayed token cannot redirect the activity.
+        activity = {**_make_activity(), "serviceUrl": "https://attacker.example.com/"}
 
         response = self._post(activity)
+
+        assert response.status_code == 400
+        mock_process.delay.assert_not_called()
+
+    @patch(f"{TEAMS_EVENTS_MODULE}.process_teams_event")
+    def test_a_signed_service_url_outside_microsoft_is_not_acted_on(self, mock_process: MagicMock):
+        # The claim backs the body here, so ingress accepts the activity. The bot's own bearer
+        # token goes to this URL, so the consumer still holds it to Microsoft's endpoints.
+        service_url = "https://attacker.example.com/"
+        activity = {**_make_activity(), "serviceUrl": service_url}
+
+        response = self._post(activity, token=self._token(serviceurl=service_url))
 
         assert response.status_code == 202
         mock_process.delay.assert_not_called()

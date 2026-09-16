@@ -94,12 +94,7 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             reason = "Invalid signature" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.invalid_signature_status)
 
-        # Parse after verification, and keep that order: a provider that reads a form body
-        # overrides `parse` and reads `request.POST`, and under ASGI that read consumes the
-        # stream, so `request.body` is no longer available to the signature check afterwards.
-        try:
-            payload = provider.parse(request)
-        except InvalidPayload as error:
+        def refuse_payload(error: InvalidPayload) -> HttpResponse:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="invalid_payload")
             logger.warning(
                 "ingress_delivery_invalid_payload",
@@ -109,13 +104,27 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
             )
             return HttpResponse("Invalid JSON", status=400)
 
+        # Parse after verification, and keep that order: a provider that reads a form body
+        # overrides `parse` and reads `request.POST`, and under ASGI that read consumes the
+        # stream, so `request.body` is no longer available to the signature check afterwards.
+        try:
+            payload = provider.parse(request)
+        except InvalidPayload as error:
+            return refuse_payload(error)
+
         handshake = provider.pre_dispatch_response(request, payload)
         if handshake is not None:
             observe_delivery(provider=provider.provider, app=provider.app, outcome="accepted")
             return handshake
 
         dispatcher = get_dispatcher()
-        deliveries = provider.deliveries(request, payload, verification.facts)
+        # `deliveries` refuses a body the same way `parse` does, because a provider can only
+        # hold the body to the verified claims once it has both. Teams does: an activity whose
+        # `serviceUrl` the token did not sign never becomes a delivery.
+        try:
+            deliveries = provider.deliveries(request, payload, verification.facts)
+        except InvalidPayload as error:
+            return refuse_payload(error)
         # One budget for the whole request, not one per delivery: PandaDoc turns a batched body
         # into many deliveries, and a budget each would hold the request open for the sum. It
         # starts before the ownership lookups, which read the database and forward on the same

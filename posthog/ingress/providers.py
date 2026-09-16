@@ -33,10 +33,17 @@ _INCARNATION_MODULES = (
 
 
 class InvalidPayload(Exception):
-    """A body the provider could not decode.
+    """A body the provider refuses, raised from `parse` or from `deliveries`.
 
-    Carries the decoder's own message, which the view logs and never answers with: what the
-    parser tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    `parse` raises it for a body it cannot decode. `deliveries` raises it for a body it decoded
+    and will not accept, which is where a provider holds the body to what the signature proved:
+    Teams refuses an activity whose `serviceUrl` the token did not sign. Either way the view
+    answers 400 and no consumer runs.
+
+    Carries the provider's own message, which the view logs and never answers with: what the
+    provider tripped over is a hint to an unauthenticated caller about how PostHog reads a body.
+    A message that quotes a value the caller sent, or one the token carried, writes that value
+    into the log of an endpoint a stranger can drive, so name the field instead of either value.
     """
 
 
@@ -83,6 +90,10 @@ class WebhookProvider(ABC):
 
         `facts` is what the signature scheme proved on the way, such as a signed token's
         verified claims. It is empty for a scheme that only checks an HMAC.
+
+        Raise `InvalidPayload` for a body this provider will not accept, and the view answers
+        400 before any consumer runs. That is how a provider holds a body field to the claim
+        that signs it, rather than handing a consumer a delivery it has to distrust.
         """
 
     def verify(self, request: HttpRequest) -> Verification:

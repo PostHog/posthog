@@ -28,9 +28,10 @@ It runs in front of verification, because the first thing an unsigned request wo
 The delivery id is the activity's `id`, which Bot Framework repeats across every retry of one activity, so dedup keys on it.
 The event type is the activity's `type`, so a consumer registers for `message` or `conversationUpdate`.
 
-The context carries the two verified claims a consumer holds the body against: `claim_tenant_id` (the `tid` claim) and `claim_service_url` (the `serviceurl` claim).
+The context carries the two verified claims: `claim_service_url` (the `serviceurl` claim) and `claim_tenant_id` (the `tid` claim).
+Both already equal the activity body, because an activity where they do not never becomes a delivery, so a consumer may read either.
 The token never reaches the context, because a consumer's context travels into its logs and its receipts.
-Both claims are optional in the protocol, so a missing one is an empty string and the consumer treats it as nothing to cross-check.
+`tid` is absent on Bot Framework channels other than Teams, so it is an empty string there.
 
 ## Apps and secrets
 
@@ -40,9 +41,17 @@ Nothing under `posthog/ingress/` reads instance settings for it.
 
 ## Quirks
 
-**The body repeats what the token signs, and the two must agree.**
-`channelData.tenant.id` and `serviceUrl` are plain JSON, so a caller holding any valid Bot Framework token could otherwise attribute an activity to another tenant, or steer the bot's outbound bearer token at a host of its choosing.
-The consumer cross-checks both against the context claims before it acts, and the incarnation exists to put those claims in reach.
+**The body repeats what the token signs, and `deliveries()` refuses the activity when the two disagree.**
+`serviceUrl` and `channelData.tenant.id` are plain JSON, so a caller holding any valid Bot Framework token could otherwise attribute an activity to another tenant, or steer the bot's outbound bearer token at a host of its choosing.
+
+Microsoft's connector authentication requires the `serviceurl` claim to be present and to equal the activity's `serviceUrl`, and its own SDKs compare the two as strings without regard to case.
+So a token that carries no `serviceurl` claim, and an activity whose `serviceUrl` the claim does not equal, are both `InvalidPayload`: 400, before ownership and before any consumer runs.
+The comparison ignores case and a trailing slash, which Teams sends in the body and not in the claim.
+`tid` is checked the same way when both sides carry it, and is absent outside Teams.
+
+The `InvalidPayload` message names the field and never either value, because it lands in the log of an endpoint a stranger can drive.
+
+What stays with the consumer is the host allowlist: the claim proves Microsoft signed that URL, not that the URL is one of Microsoft's Bot Framework endpoints, and the consumer is what sends the bot's token to it.
 
 **Two certification paths must run in this region and must never be forwarded.**
 The Teams Store certification requires a reply to a command message such as "help" even from a tenant that never finished OAuth, and a proactive welcome when the bot is added to a conversation.

@@ -29,6 +29,10 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 5. **Handshake** — `provider.pre_dispatch_response(request, payload)`, for a challenge the protocol demands.
 6. **Dispatch** — `provider.deliveries(request, payload, facts)`, then ownership, the forward and the consumers, all inside one wall-clock budget.
 
+A provider raises `InvalidPayload` for a body it refuses, from either lane, and the view answers 400 with outcome `invalid_payload`.
+`parse` raises it for a body it cannot decode, and `deliveries` for one it decoded and will not accept: that is where a provider holds a body field to the claim that signs it, which needs the payload and the facts together.
+Neither reaches a consumer.
+
 Parse belongs to the provider because not every third party posts JSON: Slack's interactivity payloads and Mailgun's events are form-encoded.
 It stays **after** verification, and must: a `parse` that reads `request.POST` consumes the request stream under ASGI, which leaves the signature check without the raw bytes it signs over.
 
@@ -39,6 +43,7 @@ A provider whose verification is a local HMAC leaves it at `None`.
 
 A `Verification` carries the outcome and `facts`, a mapping of what the check proved on the way.
 A scheme that validates a signed token knows who sent the delivery before the body is read, and `facts` is how those claims reach `deliveries`, so an incarnation can cross-check the body against what was actually signed rather than trusting a field of the body that claims the same thing.
+A body that fails that cross-check is `InvalidPayload` rather than a delivery a consumer has to distrust, because the protocol, not the product, is what says the two must agree.
 An HMAC over raw bytes proves only the signature, so its `facts` are empty and `deliveries` ignores the argument.
 
 ## Schemes

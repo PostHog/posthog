@@ -7,7 +7,6 @@ message to its Celery task. No HTTP in here, because ingress owns the request, t
 the forward to the region that owns the tenant.
 """
 
-from collections.abc import Mapping
 from typing import Any, cast
 
 from django.db import OperationalError
@@ -32,41 +31,17 @@ def _activity_tenant_id(activity: dict[str, Any]) -> str:
     return ((activity.get("channelData") or {}).get("tenant") or {}).get("id", "")
 
 
-def _claims_match_activity(context: Mapping[str, str], activity: dict[str, Any]) -> bool:
+def _service_url_is_trusted(delivery: WebhookDelivery) -> bool:
+    """Whether the activity's `serviceUrl` is a Microsoft host the bot may send its token to.
+
+    Ingress already proved the issuer signed this exact URL, so `claim_service_url` is the
+    activity's own `serviceUrl`. That says the URL is genuine, not that it is one of Microsoft's
+    Bot Framework endpoints, and the bot's bearer token goes to whatever this names.
     """
-    Cross-check the verified JWT claims against the plaintext activity body.
-
-    The Bot Framework JWT authenticates the caller, but tenant attribution and
-    the outbound bot-token target URL both come from JSON fields in the
-    activity body (``channelData.tenant.id`` and ``serviceUrl``). Without
-    tying them back to signature-verified claims, anyone in possession of a
-    legitimate Bot Framework token (e.g. replay) could craft an activity that
-    attributes messages to a different PostHog-connected tenant, or steer the
-    bot's bearer token to a non-Microsoft URL.
-
-    Per Microsoft's Bot Framework authentication spec, whenever a claim is
-    present it MUST equal the activity field. Missing claims are tolerated
-    (the allowlist check on ``serviceUrl`` still applies).
-
-    The logs name the body value only. A claim value is what the issuer signed, and the
-    delivery context travels on into the logs of every consumer on the endpoint.
-    """
-    body_tenant_id = _activity_tenant_id(activity)
-    claim_tenant_id = context.get("claim_tenant_id", "")
-    if claim_tenant_id and body_tenant_id and claim_tenant_id != body_tenant_id:
-        logger.warning("supporthog_teams_tid_mismatch", body_tenant_id=body_tenant_id)
+    service_url = delivery.context.get("claim_service_url", "")
+    if service_url and not is_trusted_teams_service_url(service_url):
+        logger.warning("supporthog_teams_untrusted_service_url", service_url=service_url)
         return False
-
-    body_service_url = (activity.get("serviceUrl") or "").rstrip("/")
-    if body_service_url and not is_trusted_teams_service_url(body_service_url):
-        logger.warning("supporthog_teams_untrusted_service_url", service_url=body_service_url)
-        return False
-
-    claim_service_url = context.get("claim_service_url", "").rstrip("/")
-    if claim_service_url and body_service_url and claim_service_url != body_service_url:
-        logger.warning("supporthog_teams_serviceurl_mismatch", body_service_url=body_service_url)
-        return False
-
     return True
 
 
@@ -97,11 +72,11 @@ def teams_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     one that can tell a tenant it holds from one nobody holds. A lookup that timed out answers
     the same way, for the same reason.
     """
-    activity: dict[str, Any] = dict(delivery.payload)
-    if not _claims_match_activity(delivery.context, activity):
-        # The body and the token disagree, so nothing acts on this activity, here or elsewhere.
+    if not _service_url_is_trusted(delivery):
+        # Nothing acts on this activity, here or elsewhere, so there is nothing to forward.
         return DeliveryOwnership.UNDECIDED
 
+    activity: dict[str, Any] = dict(delivery.payload)
     if delivery.event_type != "message" or is_command_message(activity):
         return DeliveryOwnership.UNDECIDED
 
@@ -137,9 +112,8 @@ def _is_from_the_bot_itself(activity: dict[str, Any]) -> bool:
 def _accept_conversation_update(activity: dict[str, Any], activity_id: str) -> None:
     """The proactive welcome on install (Teams Store cert 11.4.4.3).
 
-    The serviceUrl cross-check still applies, but we don't need a PostHog-side team match: the
-    customer hasn't necessarily completed the OAuth flow yet, and the welcome card uses only the
-    global Bot Framework token.
+    No PostHog-side team match is needed: the customer hasn't necessarily completed the OAuth
+    flow yet, and the welcome card uses only the global Bot Framework token.
     """
     if not is_bot_added_event(activity):
         return
@@ -178,12 +152,14 @@ def _accept_message(activity: dict[str, Any], activity_id: str) -> None:
 def accept_teams_event(delivery: WebhookDelivery) -> None:
     """Act on one verified Bot Framework activity.
 
-    The cross-check runs here as well as in the ownership answer, because a consumer must not
-    depend on another lane having run it.
+    Ingress refused any activity whose `serviceUrl` the token did not sign, so what is left to
+    check is that the URL is a Microsoft host. That runs here as well as in the ownership
+    answer, because a consumer must not depend on another lane having run a check for it.
     """
-    activity: dict[str, Any] = dict(delivery.payload)
-    if not _claims_match_activity(delivery.context, activity):
+    if not _service_url_is_trusted(delivery):
         return
+
+    activity: dict[str, Any] = dict(delivery.payload)
 
     activity_id = delivery.delivery_id or ""
     logger.info(

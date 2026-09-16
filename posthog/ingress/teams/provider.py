@@ -4,9 +4,9 @@ Bot Framework authenticates every activity with a signed bearer token rather tha
 secret, so this incarnation carries no secret at all: the signing-key URI, the audience and the
 issuer allowlist arrive as getters from the product that owns the bot registration.
 
-The verified claims become the delivery context, because the activity body carries the same
-facts in plain JSON. A consumer that acts on the tenant or on `serviceUrl` must hold the body
-to what the issuer actually signed.
+The activity body repeats in plain JSON what the token signs, and Bot Framework's connector
+authentication says the two must agree. This incarnation enforces that before a consumer sees
+the delivery, so a consumer can read `serviceUrl` off the body and act on it.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -16,7 +16,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
-from posthog.ingress.providers import WebhookProvider
+from posthog.ingress.providers import InvalidPayload, WebhookProvider
 from posthog.ingress.verify.jwt import BearerJwt
 from posthog.ingress.verify.schemes import SignatureScheme
 from posthog.rate_limit import TeamsEventWebhookThrottle
@@ -30,6 +30,36 @@ SPECS = (ProviderSpec(provider="teams", app="supporthog", event_types=TEAMS_ACTI
 
 # The three RSA algorithms the Bot Framework OpenID metadata document publishes.
 _SIGNING_ALGORITHMS = ("RS256", "RS384", "RS512")
+
+
+def _body_tenant_id(payload: Mapping[str, Any]) -> str:
+    channel_data = payload.get("channelData")
+    channel_data = channel_data if isinstance(channel_data, Mapping) else {}
+    tenant = channel_data.get("tenant")
+    tenant = tenant if isinstance(tenant, Mapping) else {}
+    return str(tenant.get("id") or "")
+
+
+def _matched_service_url(payload: Mapping[str, Any], facts: Mapping[str, Any]) -> str:
+    """The activity's `serviceUrl`, once the token proves the issuer signed that same URL.
+
+    Bot Framework's connector authentication requires the `serviceurl` claim to be present and
+    to equal the activity's `serviceUrl`, and its own SDKs compare the two as strings without
+    regard to case. The claim is what makes the body field safe to use: the bot sends its bearer
+    token to that URL, so a caller holding any valid Bot Framework token could otherwise point
+    the credential at a host of its choosing.
+
+    Trailing slashes are stripped from both sides before the comparison, because Teams sends the
+    URL with one in the body and without one in the claim.
+    """
+    claim_service_url = str(facts.get("serviceurl") or "").rstrip("/")
+    if not claim_service_url:
+        raise InvalidPayload("the token carries no serviceurl claim")
+
+    body_service_url = str(payload.get("serviceUrl") or "").rstrip("/")
+    if body_service_url.casefold() != claim_service_url.casefold():
+        raise InvalidPayload("serviceUrl does not match the signed claim")
+    return body_service_url
 
 
 class TeamsProvider(WebhookProvider):
@@ -65,12 +95,24 @@ class TeamsProvider(WebhookProvider):
     def deliveries(self, request: HttpRequest, payload: Any, facts: Mapping[str, Any]) -> Sequence[WebhookDelivery]:
         if not isinstance(payload, Mapping):
             return ()
+
+        service_url = _matched_service_url(payload, facts)
+        # Present whenever the channel is Teams, and absent on other Bot Framework channels, so
+        # it is checked when it is there rather than required. `serviceurl` is required, because
+        # a caller who holds any valid Bot Framework token would otherwise choose the host the
+        # bot's own bearer token is sent to.
+        claim_tenant_id = str(facts.get("tid") or "")
+        body_tenant_id = _body_tenant_id(payload)
+        if claim_tenant_id and body_tenant_id and claim_tenant_id != body_tenant_id:
+            raise InvalidPayload("channelData.tenant.id does not match the signed claim")
+
         activity_id = payload.get("id")
-        # The two claims a consumer holds the body to. The token itself never leaves the scheme:
-        # the context is handed to a consumer and travels into its logs and its receipts.
+        # The token itself never leaves the scheme: the context is handed to a consumer and
+        # travels into its logs and its receipts. Both values now equal the body, so a consumer
+        # may read either.
         context = {
-            "claim_tenant_id": str(facts.get("tid") or ""),
-            "claim_service_url": str(facts.get("serviceurl") or ""),
+            "claim_tenant_id": claim_tenant_id,
+            "claim_service_url": service_url,
         }
         return (
             WebhookDelivery(
