@@ -1280,6 +1280,12 @@ class CSPMiddleware:
                 "style-src 'self' 'unsafe-inline'",
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
                 "font-src data: https://fonts.gstatic.com",
+                # Without this the directive falls back to `default-src 'self'`, which drops the
+                # `data:` icons Django admin and our own admin pages render, and the `blob:` images
+                # the admin tools build client-side. Neither can execute, and this policy is
+                # enforced for every staff member rather than flag-gated, so the fallback was
+                # breaking admin pages outright.
+                "img-src 'self' data: blob:",
                 "worker-src 'none'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -1386,7 +1392,11 @@ class CSPMiddleware:
                 # Do not promote this to an enforced header as-is. An open `img-src` is an
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
-                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `blob:` is not part of that exfiltration surface: only script already running on
+                # the page can mint a blob URL, and an image cannot execute, so it grants strictly
+                # less than the `worker-src blob:` note below. Image upload previews, replay and the
+                # SQL editor all render blob URLs, so they lose their images without it.
+                f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
