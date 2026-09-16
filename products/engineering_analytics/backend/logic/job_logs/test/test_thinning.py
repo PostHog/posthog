@@ -10,15 +10,22 @@ class TestThinLog:
         text = "\n".join(f"step {i}" for i in range(_CAP))
         assert thin_log(text) == text
 
-    def test_keeps_failure_region_warning_and_summary(self):
+    @parameterized.expand(
+        [
+            ("failure", "FAILED tests/test_widget.py::test_render - ConnectionError: disconnected"),
+            ("retry", "RERUN tests/test_widget.py::test_render (call)"),
+            ("warning", "##[warning]GeoIP database not found, continuing without it"),
+            ("summary", "test result: FAILED. 412 passed; 1 failed"),
+            ("exit", "##[error]Process completed with exit code 1."),
+        ]
+    )
+    def test_keeps_failure_region_warning_and_summary(self, _name: str, marker: str) -> None:
         noise = [f"downloading package {i}" for i in range(2000)]
         failure = [
-            "##[warning]GeoIP database not found, continuing without it",
-            "FAILED tests/test_widget.py::test_render - AssertionError: 1 != 2",
-            "test result: FAILED. 412 passed; 1 failed",
-            "##[error]Process completed with exit code 1.",
+            marker,
+            "example_client.py:42: ConnectionError: disconnected",
         ]
-        out = thin_log("\n".join(noise + failure))
+        out = thin_log("\n".join(noise + failure + noise))
 
         content = [line for line in out.splitlines() if "lines omitted" not in line]
         assert len(content) <= _CAP

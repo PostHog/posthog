@@ -1062,6 +1062,7 @@ jobs:
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      --force-reruns 1 --reruns-delay 1 -r fEsxXR
                       --durations-path ../../.test_durations
                       --junitxml=junit-product.xml
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
@@ -3378,10 +3379,9 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one shard,
-                      # no --store-durations (don't pollute timing data with a partial run), and
-                      # no --reruns (fail loud on the narrow subset).
-                      # The full run below also runs without --reruns: retries mask the raw flake
-                      # signal Trunk needs, and the quarantine gate is the flake net instead.
+                      # no --store-durations (don't pollute timing data with a partial run).
+                      # One pytest retry overrides product/marker budgets; Engineering analytics
+                      # retains the retry count and failed-attempt diagnostics even when it passes.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -3401,7 +3401,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
                           $PYTEST_ARGS
@@ -3426,7 +3426,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        -r fEsxX \
+                        --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
                         $PYTEST_ARGS
@@ -3518,8 +3518,7 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no --store-durations (don't pollute timing data with a
-                      # partial run), no --reruns. See the core selected branch; the full run
-                      # also skips --reruns so raw flake signal reaches Trunk.
+                      # partial run). The same single-retry budget applies to selected and full runs.
                       # A selection wide enough to need more than one shard is split like a
                       # full run. Item granularity on purpose: the target list is already
                       # narrow, so pre-import file skipping saves nothing, and the per-segment
@@ -3532,7 +3531,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
@@ -3548,7 +3547,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   fi

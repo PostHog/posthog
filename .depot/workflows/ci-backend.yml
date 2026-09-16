@@ -1192,6 +1192,7 @@ jobs:
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      --force-reruns 1 --reruns-delay 1 -r fEsxXR
                       --durations-path ../../.test_durations
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=xml:coverage.xml' || '' }}
@@ -2500,9 +2501,7 @@ jobs:
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one
-                      # shard, and no --reruns anywhere, mirroring
-                      # canonical: retries mask the raw flake signal Trunk needs (the shadow
-                      # strips the quarantine gate itself).
+                      # shard. One pytest retry mirrors canonical's budget.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
                           targets="$COMPAT_FILES"
                       elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
@@ -2522,7 +2521,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
                           $PYTEST_ARGS
@@ -2547,7 +2546,7 @@ jobs:
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
-                        -r fEsxX \
+                        --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
                         $PYTEST_ARGS
@@ -2613,8 +2612,7 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no --reruns — see the core selected branch;
-                      # the full run also skips --reruns, mirroring canonical.
+                      # Selected mode uses the same single-retry budget as the full run.
                       # A selection wide enough to need more than one shard is split like a
                       # full run. Item granularity on purpose: the target list is already
                       # narrow, so pre-import file skipping saves nothing, and the per-segment
@@ -2627,7 +2625,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
@@ -2640,7 +2638,7 @@ jobs:
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
-                          -r fEsxX \
+                          --force-reruns 1 --reruns-delay 1 -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   fi
