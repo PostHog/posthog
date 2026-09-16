@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils.timezone import now
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.web_analytics.backend.models import WebAnalyticsFilterPreset
@@ -16,8 +17,9 @@ class TestWebAnalyticsFilterPresetAPI(APIBaseTest):
             team=self.team, name=name, created_by=self.user, last_modified_by=self.user
         )
 
-    def test_invalid_order_field_returns_400(self) -> None:
-        response = self.client.get(self._url() + "?order=id;drop")
+    @parameterized.expand(["id;drop", "team", "--name", "-", "last_modified_at__year"])
+    def test_invalid_order_field_returns_400(self, order: str) -> None:
+        response = self.client.get(self._url() + f"?order={order}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def test_valid_order_field_sorts(self) -> None:

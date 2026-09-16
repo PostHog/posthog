@@ -149,7 +149,9 @@ class WebAnalyticsFilterPresetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             queryset = self._filter_request(self.request, queryset)
 
         order = self.request.GET.get("order") or self.DEFAULT_ORDER
-        if order.lstrip("-") not in self.ALLOWED_ORDER_FIELDS:
+        # Strip at most one leading "-", so a value like "--name" stays invalid rather than
+        # passing validation and then failing in order_by().
+        if order.removeprefix("-") not in self.ALLOWED_ORDER_FIELDS:
             raise serializers.ValidationError(
                 {"order": f"Cannot order by '{order}'. Allowed fields: {', '.join(sorted(self.ALLOWED_ORDER_FIELDS))}."}
             )
