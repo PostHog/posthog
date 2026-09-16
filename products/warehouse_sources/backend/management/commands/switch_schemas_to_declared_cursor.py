@@ -114,6 +114,17 @@ class Command(BaseCommand):
             schema.sync_type = sync_type
             schema.sync_type_config["incremental_field"] = declared["field"]
             schema.sync_type_config["incremental_field_type"] = str(declared["field_type"])
+            if (
+                sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and matched.default_incremental_lookback_seconds is not None
+                and schema.sync_type_config.get("incremental_field_lookback_seconds") is None
+            ):
+                # These tables get their recent rows restated upstream, so without the connector's
+                # re-read window the cursor advances past a revision and no later run sees it. A
+                # value already on the schema is the operator's, so it wins.
+                schema.sync_type_config["incremental_field_lookback_seconds"] = (
+                    matched.default_incremental_lookback_seconds
+                )
             # Reads `incremental_field_type` back out of the config, so it has to be set first.
             schema.update_incremental_field_value(last_value, save=False)
             schema.save(update_fields=["sync_type", "sync_type_config"])

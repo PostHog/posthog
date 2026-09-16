@@ -119,6 +119,27 @@ class TestSwitchSchemasToDeclaredCursor:
         assert schema.sync_type_config["incremental_field"] == "timestamp"
         assert schema.sync_type_config["incremental_field_last_value"] == 1758000000
 
+    def test_keeps_the_re_read_window_the_connector_declares(self, team):
+        schema = _create_full_refresh_schema(
+            team,
+            source_type="Anthropic",
+            job_inputs={"api_key": "token"},
+            schema_name="usage_report",
+        )
+
+        with patch.object(DataWarehouseTable, "get_max_value_for_column", return_value="2026-09-01T00:00:00+00:00"):
+            call_command(
+                "switch_schemas_to_declared_cursor",
+                source_type="Anthropic",
+                schema_name="usage_report",
+                live_run=True,
+            )
+
+        schema.refresh_from_db()
+        # The vendor restates these buckets for a day, so without the window the cursor moves past
+        # a revision and the first-imported numbers stay frozen.
+        assert schema.sync_type_config["incremental_field_lookback_seconds"] == 60 * 60 * 24
+
     def test_dry_run_changes_nothing(self, team):
         schema = _create_full_refresh_schema(team)
 
