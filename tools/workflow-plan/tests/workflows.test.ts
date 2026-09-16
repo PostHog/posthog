@@ -147,7 +147,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['django_tests'],
-            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations'],
+            skipped: ['changes', 'django', 'turbo-tests', 'repo-checks', 'check-migrations', 'dynamic-ci-filter'],
         }
     ),
     backend(
@@ -268,7 +268,7 @@ const EXPECTATIONS: Expectation[] = [
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
             runs: ['frontend_tests'],
-            skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks'],
+            skipped: ['changes', 'jest', 'frontend-format', 'frontend-typescript-checks', 'dynamic-ci-filter'],
         }
     ),
     frontend(

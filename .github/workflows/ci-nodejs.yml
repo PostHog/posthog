@@ -34,6 +34,7 @@ concurrency:
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
     # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
     dynamic-ci-filter:
         name: Trunk Dynamic CI (Learning Mode)
         if: >-
@@ -47,6 +48,7 @@ jobs:
         permissions: {}
         steps:
             - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
               uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
