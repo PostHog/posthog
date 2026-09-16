@@ -620,9 +620,8 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 # to keep every granule that could hold any of them.
 LOGS_BODY_IN_HINT_MAX_VALUES = 50
 
-# ClickHouse rejects a multiSearch* call with more than 255 needles against a nonconstant haystack
-# ("passed N, should be at most 255"). Past that the pre-check is dropped rather than split over several calls: a search
-# for hundreds of substrings keeps most rows anyway, so it would cost more than the parse it saves.
+# ClickHouse caps multiSearchAny at 255 values to search for, and going over fails the whole query. Past that we drop
+# the pre-check instead of splitting it up: hundreds of values match nearly every row, so it would prune nothing.
 PERSON_JSON_PREFILTER_MAX_NEEDLES = 255
 
 
