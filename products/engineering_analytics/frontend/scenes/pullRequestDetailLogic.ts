@@ -20,15 +20,11 @@ import type {
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
+import { DeliveryScope } from '../lib/deliveryScope'
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
-import {
-    LifecycleSummary,
-    WorkflowRun,
-    isDecisiveFailure,
-    isPassingConclusion,
-    summarizeLifecycle,
-} from '../lib/lifecycle'
+import { WorkflowRun, isDecisiveFailure, isPassingConclusion } from '../lib/lifecycle'
+import { TimelinePush } from '../lib/pullRequestTimeline'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -167,6 +163,7 @@ export interface pullRequestDetailLogicValues {
     authoredRuns: WorkflowRunDetailApi[]
     breadcrumbs: Breadcrumb[]
     commitGroups: PrCommitRuns[]
+    deliveryScope: DeliveryScope
     expandedRunKeys: string[]
     failingJobLabelByWorkflow: Record<string, string>
     failureLogs: CIFailureLogsApi | 'unavailable' | null
@@ -199,7 +196,7 @@ export interface pullRequestDetailLogicValues {
     runJobsLoading: boolean
     runs: WorkflowRun[]
     sourceId: string | null
-    summary: LifecycleSummary | null
+    timelinePushes: TimelinePush[]
     workflowFilter: string
 }
 
@@ -312,7 +309,7 @@ export interface pullRequestDetailLogicMeta {
         sourceId: (arg: string | null) => string | null
         repoOwner: (arg: string) => string
         repoName: (arg: string) => string
-        summary: (lifecycle: PRLifecycleApi | null) => LifecycleSummary | null
+        deliveryScope: (repoOwner: string, repoName: string, number: number) => DeliveryScope
         runs: (prRuns: WorkflowRunDetailApi[]) => WorkflowRun[]
         commitGroups: (prRuns: WorkflowRunDetailApi[]) => PrCommitRuns[]
         filteredCommitGroups: (commitGroups: PrCommitRuns[], workflowFilter: string) => PrCommitRuns[]
@@ -334,6 +331,7 @@ export interface pullRequestDetailLogicMeta {
         authoredRuns: (prRuns: WorkflowRunDetailApi[]) => WorkflowRunDetailApi[]
         pushes: (authoredRuns: WorkflowRunDetailApi[]) => number
         rerunCycles: (authoredRuns: WorkflowRunDetailApi[]) => number
+        timelinePushes: (authoredRuns: WorkflowRunDetailApi[]) => TimelinePush[]
         breadcrumbs: (repoOwner: string, repoName: string, number: number) => Breadcrumb[]
     }
 }
@@ -498,10 +496,14 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (repoOwner: string): string => repoOwner,
         ],
         repoName: [() => [(_, p: PullRequestDetailLogicProps) => p.repoName], (repoName: string): string => repoName],
-        summary: [
-            (s) => [s.lifecycle],
-            (lifecycle: PRLifecycleApi | null): LifecycleSummary | null =>
-                lifecycle ? summarizeLifecycle(lifecycle.events) : null,
+        // Memoized, so the timelines logic keyed by this scope sees one stable object per pull request.
+        deliveryScope: [
+            (s) => [s.repoOwner, s.repoName, (_, p: PullRequestDetailLogicProps) => p.number],
+            (repoOwner: string, repoName: string, number: number): DeliveryScope => ({
+                kind: 'pull_request',
+                prNumber: number,
+                repo: `${repoOwner}/${repoName}`,
+            }),
         ],
         runs: [(s) => [s.prRuns], (prRuns: WorkflowRunDetailApi[]): WorkflowRun[] => prRuns.map(toWorkflowRun)],
         commitGroups: [
@@ -629,6 +631,20 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (s) => [s.authoredRuns],
             (authoredRuns: WorkflowRunDetailApi[]): number =>
                 authoredRuns.filter((run) => (run.run_attempt ?? 1) > 1).length,
+        ],
+        // Each push at the start of its first CI run. Merge queue runs stay out: the queue pushed those, not the author.
+        timelinePushes: [
+            (s) => [s.authoredRuns],
+            (authoredRuns: WorkflowRunDetailApi[]): TimelinePush[] => {
+                const firstStart = new Map<string, string>()
+                for (const run of authoredRuns) {
+                    const current = firstStart.get(run.head_sha)
+                    if (run.run_started_at && (!current || run.run_started_at < current)) {
+                        firstStart.set(run.head_sha, run.run_started_at)
+                    }
+                }
+                return [...firstStart.entries()].map(([headSha, at]) => ({ headSha, at }))
+            },
         ],
         breadcrumbs: [
             (_, p) => [p.repoOwner, p.repoName, p.number],
