@@ -18,9 +18,9 @@ import {
     resolveMlAnonymizeMaxConcurrency,
     resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
 import { SessionFormatFileStorage } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-format-file-storage'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
@@ -56,7 +56,7 @@ async function assertAnonymizerHealthy(anonymizer: typeof import('@posthog/repla
 }
 
 export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer {
-    private readonly privacy = new MlPrivacyRuntime(this.config)
+    private readonly keyManager = new MlKeyManager(this.config)
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private crawlHistoryClient?: DynamoDBClient
@@ -109,14 +109,14 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
-        await this.privacy.start()
-        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.privacy.reader)
+        await this.keyManager.start()
+        const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret, this.keyManager.reader)
         const urlProducerEnabled =
             this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
             this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
         const urlCrawlHistory = urlProducerEnabled ? this.buildUrlCrawlHistory() : undefined
 
-        const privacy = this.privacy.controller
+        const keyManager = this.keyManager.controller
         const collaborators: SessionRecordingIngesterCollaborators = {
             fileStorage,
             metadataStore,
@@ -126,13 +126,13 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                 enabled: false,
             }),
             featureStore: new SessionFeatureStore(outputs, false),
-            keyStore: privacy,
-            encryptor: privacy,
+            keyStore: keyManager,
+            encryptor: keyManager,
             createPipeline: (pipelineConfig) =>
                 createMlMirrorReplayPipeline(
                     pipelineConfig,
                     {
-                        privacy,
+                        keyManager,
                         anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
                             this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
                         ),
@@ -218,7 +218,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             redisPools: [this.redisPool, this.restrictionRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
-                this.privacy.stop()
+                this.keyManager.stop()
                 this.crawlHistoryClient?.destroy()
                 await this.producerRegistry?.disconnectAll()
             },

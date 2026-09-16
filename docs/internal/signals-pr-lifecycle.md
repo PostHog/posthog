@@ -23,3 +23,8 @@ The agent checks that the note matches the current findings and confirms the cur
 It confirms the outcome after the chosen resolution.
 If current evidence shows the issue is gone, it records that result and stops; if no note applies, it verifies the issue from the report's evidence.
 Missing data, failed checks, and inconclusive results do not establish that the issue is fixed.
+
+## Opening a report task
+
+When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
+The button fits its label, including when it appears below the Solution section.

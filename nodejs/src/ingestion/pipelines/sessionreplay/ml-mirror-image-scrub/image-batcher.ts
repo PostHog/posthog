@@ -4,13 +4,13 @@ import { setTimeout as waitForRetry } from 'node:timers/promises'
 import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import {
     INGESTION_VERSION_HEADER,
     imageKeyId,
     tableKeyString,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
-import { ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
+import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
@@ -167,7 +167,7 @@ export class ImageBatcher {
         private readonly options: ImageBatcherOptions,
         nowMs: number,
         private readonly deadLetters: DeadLetterSink | null = null,
-        private readonly privacy?: MlPrivacyRuntime
+        private readonly keyManager?: MlKeyManager
     ) {
         // 0 would admit nothing and spin the loop forever; NaN would skip it entirely, committing
         // offsets for unprocessed messages. Fail at boot rather than either.
@@ -221,21 +221,22 @@ export class ImageBatcher {
         if (messages.length) {
             ImageScrubConsumerMetrics.observeBatchMessages(messages.length)
         }
-        const decoded = this.privacy
-            ? await this.privacy.kafka.read(messages, 'image-source', true)
+        const decoded: MlDecodedMessage[] = this.keyManager
+            ? await this.keyManager.kafka.read(messages, { bindKafkaKey: true })
             : messages.map((message) => {
-                  if (ingestionVersion(message) === 2) {
-                      throw new Error('ML v2 images require privacy configuration')
+                  const version = ingestionVersion(message)
+                  if (version === 2) {
+                      throw new Error('ML v2 images require key manager configuration')
                   }
-                  return { message, original: message, key: undefined, invalid: undefined }
+                  return { message, original: message, version, invalid: undefined }
               })
-        const decodedValid = decoded.filter((entry) => !entry.invalid)
-        const encrypted = decodedValid.filter((entry) => entry.key).length
-        ImageScrubConsumerMetrics.incrementVersion('2', encrypted)
-        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageScrubConsumerMetrics.incrementVersion('2', v2)
+        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         for (const entry of decoded.filter((entry) => entry.invalid)) {
             if (!this.deadLetters) {
-                throw new Error('Invalid encrypted ML image requires a dead-letter destination')
+                throw new Error('An invalid ML image record requires a dead-letter destination')
             }
             await this.parkImageUntilAccepted(
                 {
@@ -243,7 +244,7 @@ export class ImageBatcher {
                     bytes: entry.original.value ?? Buffer.alloc(0),
                     headers: parseKafkaHeaders(entry.original.headers),
                     detail: {
-                        reason: 'invalid_encryption',
+                        reason: 'invalid_record',
                         sourceTopic: entry.original.topic,
                         sourcePartition: entry.original.partition,
                         sourceOffset: entry.original.offset,
@@ -252,9 +253,7 @@ export class ImageBatcher {
                 controller.signal
             )
         }
-        const byOriginal = new Map(
-            decoded.filter((entry) => !entry.invalid).map((entry) => [entry.original, entry.message])
-        )
+        const byOriginal = new Map(decodedValid.map((entry) => [entry.original, entry.message]))
         const planned = this.planBatch(
             messages.map((message) => byOriginal.get(message) ?? { ...message, value: null })
         )
@@ -679,8 +678,8 @@ export class ImageBatcher {
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
-            const imageKeys = this.privacy
-                ? await this.privacy.reader.read(
+            const imageKeys = this.keyManager
+                ? await this.keyManager.reader.read(
                       this.buffer.flatMap(({ image }) =>
                           image.sessionMonth === undefined
                               ? []

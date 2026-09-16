@@ -1,9 +1,7 @@
-import { KMSClient } from '@aws-sdk/client-kms'
-
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { MlDataKey, MlKeyEncryption, decryptEnvelope, encryptEnvelope } from './crypto'
-import { TrainingEncryptionVector } from './test-vectors'
+import { MlDataKey, encryptEnvelope } from './crypto'
+import { TrainingEncryptionVector, decryptEnvelope } from './envelope-testing'
 import { validateImageOwner } from './transport'
 
 const key: MlDataKey = {
@@ -17,10 +15,6 @@ const key: MlDataKey = {
 }
 
 describe('ML payload encryption', () => {
-    beforeAll(async () => {
-        await new MlKeyEncryption({ send: jest.fn() } as unknown as KMSClient, 'test-key').start()
-    })
-
     it.each(['rrweb', 'metadata', 'image-source', 'image-frontier', 'image-shard', 'image-index', 'score'])(
         'binds %s payloads to their purpose and owner',
         (kind) => {
@@ -58,7 +52,7 @@ describe('ML payload encryption', () => {
         expect(() => validateImageOwner(ref.replace('2026-09', '2026-10'), sessionKey)).toThrow('ownership mismatch')
     })
 
-    it('decrypts the shared Python encryption vector', () => {
+    it('decrypts the shared encryption vector', () => {
         expect(
             decryptEnvelope(
                 {
