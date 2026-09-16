@@ -103,6 +103,7 @@ def emit_workflow_step_resume(
     autoretry_for=(requests.RequestException,),
     retry_backoff=True,
     retry_backoff_max=120,
+    retry_jitter=False,
 )
 @skip_team_scope_audit
 def deliver_workflow_step_resume(team_id: int, origin_key: str, status: str, result: dict[str, Any]) -> None:

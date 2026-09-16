@@ -8,6 +8,7 @@ from django.test import override_settings
 
 import jwt
 import requests
+from celery.utils.time import get_exponential_backoff_interval
 
 from posthog.cdp.workflow_step_resume import (
     RESULT_BYTE_CAP,
@@ -121,3 +122,18 @@ def test_the_delivery_task_posts_the_wake_with_a_scoped_jwt() -> None:
 def test_the_delivery_task_raises_so_celery_retries_when(status_code: int) -> None:
     with patch(_POST, return_value=_response(status_code)), pytest.raises(requests.HTTPError):
         deliver_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", result={})
+
+
+def test_the_delivery_task_retries_for_about_twelve_minutes() -> None:
+    task = deliver_workflow_step_resume
+    delays = [
+        get_exponential_backoff_interval(
+            factor=int(max(1.0, float(task.retry_backoff))),
+            retries=retry,
+            maximum=task.retry_backoff_max,
+            full_jitter=task.retry_jitter,
+        )
+        for retry in range(task.max_retries)
+    ]
+
+    assert sum(delays) == 727
