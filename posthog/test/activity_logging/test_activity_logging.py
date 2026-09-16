@@ -15,7 +15,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import activity_storage, activity_visibility_manager
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
@@ -173,7 +173,7 @@ class TestActivityLogModel(BaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
 
-    def test_an_intent_without_a_task_binding_writes_no_trigger(self) -> None:
+    def test_an_intent_without_a_task_binding_writes_no_task_id(self) -> None:
         activity_storage.set_agent_intent("Disabling the flag per an incident runbook")
         try:
             log_activity(
@@ -191,7 +191,14 @@ class TestActivityLogModel(BaseTest):
 
         log: ActivityLog = ActivityLog.objects.latest("id")
         assert log.detail is not None
-        self.assertIsNone(log.detail["trigger"])
+        self.assertEqual(
+            log.detail["trigger"],
+            {
+                "job_type": "agent",
+                "job_id": "",
+                "payload": {"intent": "Disabling the flag per an incident runbook"},
+            },
+        )
 
     def test_a_failing_agent_trigger_still_writes_the_row(self) -> None:
         with patch(
@@ -553,10 +560,12 @@ class TestActivityTriggerContext(BaseTest):
 class TestAgentAttributionOnApiWrites(APIBaseTest):
     """The intent header, the OAuth token binding and the audit row only meet on a real request."""
 
-    def _authenticate_as_sandbox_agent(self, task_id: UUID | None, delegated: bool = False) -> None:
+    def _authenticate_as_oauth_agent(
+        self, client_id: str, task_id: UUID | None, delegated: bool = False
+    ) -> OAuthAccessToken:
         application = OAuthApplication.objects.create(
-            name="Sandbox",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            name="OAuth application",
+            client_id=client_id,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -582,13 +591,16 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 PosthogJwtAudience.DELEGATED_USER,
             )
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_value}")
+        return token
 
     @parameterized.expand(
         [
             (
-                "records the intent of a token bound to a sandbox task",
+                "records an allowlisted token bound to a sandbox task",
+                ARRAY_APP_CLIENT_ID_DEV,
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 False,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
@@ -596,37 +608,118 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
                 },
             ),
             (
-                "records the intent of a delegated token bound to a sandbox task",
+                "records a third-party delegated token bound to a sandbox task",
+                "third-party-client",
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
                 True,
+                "Repairing a tile that hit the query row limit",
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
                     "payload": {"intent": "Repairing a tile that hit the query row limit"},
                 },
             ),
-            ("ignores the header on a token with no task", None, False, None),
+            (
+                "ignores unbound Array intent without consent lineage",
+                ARRAY_APP_CLIENT_ID_DEV,
+                None,
+                False,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            (
+                "ignores unbound delegated Array intent without consent lineage",
+                ARRAY_APP_CLIENT_ID_DEV,
+                None,
+                True,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            (
+                "ignores third-party intent without a task binding",
+                "third-party-client",
+                None,
+                False,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            (
+                "ignores third-party delegated intent without a task binding",
+                "third-party-client",
+                None,
+                True,
+                "Repairing a tile that hit the query row limit",
+                None,
+            ),
+            ("ignores an empty allowlisted intent", ARRAY_APP_CLIENT_ID_DEV, None, False, None, None),
+            (
+                "records an allowlisted task binding without intent",
+                ARRAY_APP_CLIENT_ID_DEV,
+                UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                False,
+                None,
+                {
+                    "job_type": "agent",
+                    "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
+                    "payload": {},
+                },
+            ),
         ]
     )
     def test_agent_write(
-        self, _name: str, task_id: UUID | None, delegated: bool, expected_trigger: dict | None
+        self,
+        _name: str,
+        client_id: str,
+        task_id: UUID | None,
+        delegated: bool,
+        intent: str | None,
+        expected_trigger: dict | None,
     ) -> None:
-        self._authenticate_as_sandbox_agent(task_id, delegated)
+        self._authenticate_as_oauth_agent(client_id, task_id, delegated)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
             {"name": "Weekly signups"},
-            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+            HTTP_X_POSTHOG_INTENT=intent or "",
         )
         self.assertEqual(response.status_code, 201, response.content)
 
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"], expected_trigger)
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.client, "mcp")
+
+    def test_records_intent_from_an_interactive_desktop_grant(self) -> None:
+        token = self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=token.application,
+            token="refresh-token",
+            access_token=token,
+            scoped_teams=[self.team.id],
+            scoped_organizations=[],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"name": "Weekly signups"},
+            HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["trigger"],
+            {"job_type": "agent", "job_id": "", "payload": {"intent": "Repairing a tile that hit the query row limit"}},
+        )
 
     def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
         task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")
-        self._authenticate_as_sandbox_agent(task_id)
+        self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, task_id)
 
         with patch("posthog.auth.activity_storage.set_agent_intent", side_effect=RuntimeError("storage is broken")):
             response = self.client.post(
