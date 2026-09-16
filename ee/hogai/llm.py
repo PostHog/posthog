@@ -413,6 +413,9 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         }
         if conversation_id:
             labels["conversation_id"] = conversation_id
+        # Support-trace filters read this property, which the SDK handler sets only on its own events.
+        if configurable.get("is_impersonated"):
+            labels["ai_support_impersonated"] = "true"
         headers = (
             ai_gateway_headers(
                 ai_product=POSTHOG_AI_PRODUCT,

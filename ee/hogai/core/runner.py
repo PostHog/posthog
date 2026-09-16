@@ -142,6 +142,7 @@ class BaseAgentRunner(ABC):
     _parent_span_id: Optional[str | UUID]
     _slack_thread_context: Optional["SlackThreadContext"]
     _is_agent_billable: bool
+    _is_impersonated: bool
     _resume_payload: Optional[dict[str, Any]]
     _event_source: EventSource
     _ai_product: Optional[str]
@@ -256,6 +257,7 @@ class BaseAgentRunner(ABC):
         self._billing_context = billing_context
         self._initial_state = initial_state
         self._is_agent_billable = is_agent_billable
+        self._is_impersonated = is_impersonated
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
@@ -558,6 +560,7 @@ class BaseAgentRunner(ABC):
                 "is_subagent": not self._use_checkpointer,
                 "slack_thread_context": self._slack_thread_context,
                 "is_agent_billable": self._is_agent_billable,
+                "is_impersonated": self._is_impersonated,
                 "ai_product": self._ai_product,
                 "privacy_mode": self._privacy_mode,
                 "event_source": self._event_source,

@@ -405,3 +405,16 @@ class TestRunnerAIGatewayProduct(BaseTest):
                 handler = runner._callback_handlers[0]
                 assert isinstance(handler, MaxCallbackHandler)
                 self.assertIs(handler._privacy_mode, enabled)
+
+    @patch("ee.hogai.core.runner.is_cloud", return_value=True)
+    @patch("ee.hogai.core.runner.get_instance_region", return_value="US")
+    @patch("ee.hogai.core.runner.get_client", return_value=Mock())
+    def test_config_carries_impersonation_for_gateway_rows(self, _mock_get_client, _mock_region, _mock_is_cloud):
+        conversation = Conversation.objects.create(team=self.team, user=self.user, type=Conversation.Type.ASSISTANT)
+        for is_impersonated in (True, False):
+            with self.subTest(is_impersonated=is_impersonated):
+                runner = ChatAgentRunner(
+                    team=self.team, conversation=conversation, user=self.user, is_impersonated=is_impersonated
+                )
+
+                self.assertIs(runner._get_config()["configurable"]["is_impersonated"], is_impersonated)

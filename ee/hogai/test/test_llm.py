@@ -726,13 +726,17 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         self.assertIsNone(twin.ai_gateway_fallback)
 
     async def test_routed_call_sends_gateway_attribution_headers(self):
-        for is_agent_billable, billable_header in [(True, None), (False, "false")]:
-            with self.subTest(is_agent_billable=is_agent_billable):
+        cases: list[tuple[bool, bool, str | None, dict[str, str]]] = [
+            (True, False, None, {}),
+            (False, False, "false", {}),
+            (False, True, "false", {"ai_support_impersonated": "true"}),
+        ]
+        for is_agent_billable, is_impersonated, billable_header, impersonation_props in cases:
+            with self.subTest(is_agent_billable=is_agent_billable, is_impersonated=is_impersonated):
                 self.requests.clear()
                 model = self._model()
-                with patch(
-                    "ee.hogai.llm.ensure_config", return_value=self._config(is_agent_billable=is_agent_billable)
-                ):
+                config = self._config(is_agent_billable=is_agent_billable, is_impersonated=is_impersonated)
+                with patch("ee.hogai.llm.ensure_config", return_value=config):
                     result = await model.agenerate([[HumanMessage(content="hello")]])
 
                 self.assertEqual(
@@ -751,6 +755,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                         "team_id": str(self.team.id),
                         "conversation_id": "conversation-1",
                         "ai_product": "posthog_ai",
+                        **impersonation_props,
                     },
                 )
                 self.assertEqual(headers.get("x-posthog-billable"), billable_header)
