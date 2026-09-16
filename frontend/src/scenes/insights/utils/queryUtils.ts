@@ -321,6 +321,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showConfidenceIntervals: undefined,
             confidenceLevel: undefined,
             showTrendLines: undefined,
+            showMeanLine: undefined,
             showMovingAverage: undefined,
             movingAverageIntervals: undefined,
             stacked: undefined,
