@@ -982,14 +982,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
-                'experiment-flag-cleanup-pr',
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(35)
+        expect(flags).toHaveLength(34)
     })
 
     it('every loops tool is gated on the loops flag', () => {
