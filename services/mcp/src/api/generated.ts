@@ -94055,7 +94055,7 @@ export namespace Schemas {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
       /**
-         * Attribute occurrences in the hourly window. Null for the first-class service_name column.
+         * Attribute occurrences in the hourly window. For service_name, the count sums the service.name/service_name attribute rows and is null when there are none.
          * @nullable
          */
       attribute_count: number | null;

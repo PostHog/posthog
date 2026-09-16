@@ -284,7 +284,8 @@ def list_metric_attribute_keys(
     Datapoint and resource attributes are merged into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
     The window defaults to the last 7 days. Returns `{"name": str,
-    "attribute_count": int | None}` dicts. The service_name count is null.
+    "attribute_count": int | None}` dicts. The service_name count sums the
+    `service.name`/`service_name` attribute rows and is null when there are none.
     Raises `ValueError` for an out-of-range limit or an inverted window.
     """
     runner = MetricAttributeKeysQueryRunner(

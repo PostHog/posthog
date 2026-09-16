@@ -71,7 +71,8 @@ Attribute key queries sum precomputed counts from `metric_attributes3` within ho
 The API returns `attribute_count`, and the group-by menu labels it "Attribute occurrences".
 These counts include metric and resource attributes from labelled samples. They do not count distinct series.
 The first and last buckets can include samples outside the exact requested times.
-The first-class `service_name` choice comes first when it matches the search, with a null count and no count badge.
+The first-class `service_name` choice comes first when it matches the search.
+Its count sums the `service.name` and `service_name` attribute rows, because OTel ingest keeps `service.name` as a resource attribute. The count is null, with no badge, when no alias rows exist.
 Other keys follow by occurrence count, then name. The response limit includes the service choice.
 Opening the group-by menu sends its request immediately. Typed searches use a short delay.
 Attribute value queries accept an optional `metricName` and use the metric prefix of the attribute sort key.

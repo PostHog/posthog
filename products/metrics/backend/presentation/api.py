@@ -590,7 +590,7 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     )
     attribute_count = serializers.IntegerField(
         allow_null=True,
-        help_text="Attribute occurrences in the hourly window. Null for the first-class service_name column.",
+        help_text="Attribute occurrences in the hourly window. For service_name, the count sums the service.name/service_name attribute rows and is null when there are none.",
     )
 
 

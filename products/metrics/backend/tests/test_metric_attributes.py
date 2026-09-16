@@ -26,15 +26,15 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             metric_name="http_requests",
             service_name="checkout",
             points=recent,
-            labels={"env": "prod", "region": "us", "service_name": "ignored", "service.name": "ignored"},
-            resource_labels={"k8s.pod.name": "pod-1", "region": "us"},
+            labels={"env": "prod", "region": "us"},
+            resource_labels={"k8s.pod.name": "pod-1", "region": "us", "service.name": "checkout"},
         )
         seed_metric(
             team_id=cls.team.id,
             metric_name="http_requests",
             service_name="billing",
             points=[(cls.now - dt.timedelta(minutes=5), 1.0)],
-            labels={"env": "dev"},
+            labels={"env": "dev", "service_name": "billing"},
         )
         # Outside a 1h window but inside the default 7d lookback.
         seed_metric(
@@ -53,7 +53,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["results"] == [
-            {"name": "service_name", "attribute_count": None},
+            {"name": "service_name", "attribute_count": 4},
             {"name": "region", "attribute_count": 6},
             {"name": "env", "attribute_count": 4},
             {"name": "k8s.pod.name", "attribute_count": 3},
@@ -86,7 +86,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == [
-            {"name": "service_name", "attribute_count": None},
+            {"name": "service_name", "attribute_count": 4},
             {"name": "region", "attribute_count": 6},
             {"name": "env", "attribute_count": 4},
             {"name": "k8s.pod.name", "attribute_count": 3},
@@ -106,17 +106,23 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "stale_key", "attribute_count": 1},
         ]
 
-    @parameterized.expand([("limit", {"limit": 1}), ("no_metadata", {"metricName": "unknown"})])
-    def test_service_key_has_no_occurrence_count(self, _name: str, params: dict):
+    @parameterized.expand(
+        [
+            ("limit", {"limit": 1}, 4),
+            ("no_metadata", {"metricName": "unknown"}, None),
+            ("no_alias_rows", {"metricName": "queue_depth", "search": "serv"}, None),
+        ]
+    )
+    def test_service_key_sums_alias_rows(self, _name: str, params: dict, expected_count: int | None):
         response = self._get("attributes", params)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == [{"name": "service_name", "attribute_count": None}]
+        assert response.json()["results"] == [{"name": "service_name", "attribute_count": expected_count}]
 
     def test_attributes_metric_name_limits_keys_to_that_metric(self):
         response = self._get("attributes", {"metricName": "http_requests"})
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [
-            {"name": "service_name", "attribute_count": None},
+            {"name": "service_name", "attribute_count": 4},
             {"name": "region", "attribute_count": 6},
             {"name": "env", "attribute_count": 4},
             {"name": "k8s.pod.name", "attribute_count": 3},

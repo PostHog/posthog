@@ -51,7 +51,11 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by occurrence count, with service_name first."""
+    """Attribute keys ordered by occurrence count, with service_name first.
+
+    OTel ingest copies the resource attribute `service.name` into the
+    `service_name` column and keeps the attribute row, so the alias rows
+    supply the occurrence count for the first-class choice."""
 
     def __init__(
         self,
@@ -68,8 +72,11 @@ class MetricAttributeKeysQueryRunner:
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
+        search_lower = self.search.lower()
+        self.service_matches = search_lower in "service_name" or search_lower in "service.name"
 
     def run(self) -> list[dict[str, Any]]:
+        # Alias rows sort first so the limit never drops the service_name count.
         query = parse_select(
             """
                 SELECT
@@ -81,7 +88,7 @@ class MetricAttributeKeysQueryRunner:
                   AND {metric_name_filter}
                   AND {search_filter}
                 GROUP BY attribute_key
-                ORDER BY occurrences DESC, attribute_key ASC
+                ORDER BY attribute_key IN {service_keys} DESC, occurrences DESC, attribute_key ASC
                 LIMIT {limit}
             """,
             placeholders={
@@ -96,15 +103,8 @@ class MetricAttributeKeysQueryRunner:
                         right=ast.Constant(value=self.metric_name),
                     )
                 ),
-                "search_filter": (
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.ILike,
-                        left=ast.Field(chain=["attribute_key"]),
-                        right=ast.Constant(value=ilike_pattern(self.search)),
-                    )
-                    if self.search
-                    else ast.Constant(value=True)
-                ),
+                "search_filter": self._search_filter(),
+                "service_keys": self._service_keys(),
                 "limit": ast.Constant(value=self.limit + len(_SERVICE_NAME_KEYS)),
             },
         )
@@ -118,17 +118,43 @@ class MetricAttributeKeysQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        # Remove service aliases after aggregation to avoid filtering each attribute row.
-        results = [
-            {"name": row[0], "attribute_count": int(row[1])}
-            for row in response.results
-            if row[0] not in _SERVICE_NAME_KEYS
-        ]
-        search_lower = self.search.lower()
-        if search_lower in "service_name" or search_lower in "service.name":
-            # The first-class service column has no attribute occurrence count.
-            results.insert(0, {"name": "service_name", "attribute_count": None})
+        service_count = 0
+        results: list[dict[str, Any]] = []
+        for name, occurrences in response.results:
+            if name in _SERVICE_NAME_KEYS:
+                service_count += int(occurrences)
+            else:
+                results.append({"name": name, "attribute_count": int(occurrences)})
+        if self.service_matches:
+            # Without alias rows the column can still hold services, so hide the count instead of showing 0.
+            results.insert(0, {"name": "service_name", "attribute_count": service_count or None})
         return results[: self.limit]
+
+    def _search_filter(self) -> ast.Expr:
+        if not self.search:
+            return ast.Constant(value=True)
+        key_matches: ast.Expr = ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike,
+            left=ast.Field(chain=["attribute_key"]),
+            right=ast.Constant(value=ilike_pattern(self.search)),
+        )
+        if not self.service_matches:
+            return key_matches
+        # A search that matches one spelling must still count both alias rows.
+        return ast.Or(
+            exprs=[
+                key_matches,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["attribute_key"]),
+                    right=self._service_keys(),
+                ),
+            ]
+        )
+
+    @staticmethod
+    def _service_keys() -> ast.Tuple:
+        return ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted(_SERVICE_NAME_KEYS)])
 
 
 class MetricAttributeValuesQueryRunner:
