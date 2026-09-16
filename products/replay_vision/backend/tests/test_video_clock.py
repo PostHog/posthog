@@ -22,6 +22,18 @@ _PERIODS = [
 ]
 
 
+# One stretch measured 1.5s into a 33.2s file: the frames the capture ramp added sit inside it, so it
+# runs longer on the video clock than on the session clock.
+_PADDED_PERIODS = [
+    {"active": True, "ts_from_s": 0.0, "ts_to_s": 30.0, "recording_ts_from_s": 1.5, "recording_ts_to_s": 33.2},
+]
+
+# One stretch of a render that stopped at 6s, so it runs shorter on the video clock.
+_TRUNCATED_PERIODS = [
+    {"active": True, "ts_from_s": 0.0, "ts_to_s": 10.0, "recording_ts_from_s": 0.0, "recording_ts_to_s": 6.0},
+]
+
+
 class TestVideoClock:
     @parameterized.expand(
         [
@@ -119,3 +131,23 @@ class TestCitationsPastTheVideoEnd:
         assert clock is not None
         _, segments = _extract_segments("ends here (t 76)", 80_000, clock)
         assert [s.timestamp_ms for s in segments if isinstance(s, ChipSegment)] == [80_000]
+
+
+class TestStretchesThatRunDifferentLengthsOnTheTwoClocks:
+    @parameterized.expand(
+        [
+            ("inside the stretch both clocks still run together", 11.5, 10_000),
+            ("a trailing capture frame shows the last session moment, not one past it", 32.0, 30_000),
+        ]
+    )
+    def test_a_cited_video_second_stays_inside_the_stretch_it_lands_in(
+        self, _label: str, video_s: float, expected_ms: int
+    ) -> None:
+        clock = video_clock_from_export_context({"inactivity_periods": _PADDED_PERIODS})
+        assert clock is not None
+        assert clock.video_s_to_session_ms(video_s) == expected_ms
+
+    def test_a_moment_a_truncated_render_never_reached_stays_inside_the_file(self) -> None:
+        clock = video_clock_from_export_context({"inactivity_periods": _TRUNCATED_PERIODS})
+        assert clock is not None
+        assert clock.session_ms_to_video_s(9_000) == 6.0

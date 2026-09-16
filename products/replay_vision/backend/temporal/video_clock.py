@@ -58,6 +58,10 @@ class VideoClock:
         A value inside a cut has only one place it could be shown, so it collapses onto the point the
         video resumes; past the end clamps.
 
+        A stretch does not run the same length on both clocks: the frames a cut or the capture ramp adds
+        sit inside it, and a render that stopped early stops it short of its session end. So the stretch
+        it lands in also bounds the result, or a value inside the stretch would leave it.
+
         A cut takes no time on the video clock, so the stretch after it can begin on the very second the
         stretch before it ends. Such a second resolves to the later stretch, because that is the content the
         video shows there, and choosing the earlier one would seek back by the whole length of the cut.
@@ -68,7 +72,9 @@ class VideoClock:
             src_from, src_to = (
                 (span.session_from_s, span.session_to_s) if to_video else (span.video_from_s, span.video_to_s)
             )
-            dst_from = span.video_from_s if to_video else span.session_from_s
+            dst_from, dst_to = (
+                (span.video_from_s, span.video_to_s) if to_video else (span.session_from_s, span.session_to_s)
+            )
             if value_s < src_from:
                 return dst_from
             if value_s <= src_to:
@@ -80,7 +86,7 @@ class VideoClock:
                 )
                 if shares_boundary:
                     continue
-                return dst_from + (value_s - src_from)
+                return min(dst_from + (value_s - src_from), dst_to)
         last = self.spans[-1]
         return last.video_to_s if to_video else last.session_to_s
 
