@@ -888,6 +888,11 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard_ids = validated_data.pop("dashboards", None)
 
         if validated_data.get("deleted", False):
+            if dashboard_ids is not None:
+                # A delete leaves membership alone, so it never reaches _update_insight_dashboards.
+                # Count the caller anyway: it still sent the field, and the metric drives when the
+                # field can be removed.
+                _record_deprecated_dashboards_field_used(self.context, usage="write")
             hide_tiles_for_insights([instance.id])
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
