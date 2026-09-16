@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
@@ -21,16 +20,15 @@ import {
     startsComponentTag,
     upsertProp,
 } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown } from './markdownDoc'
+import {
+    applyMarkdownEdit,
+    fetchCellStates,
+    fetchMarkdownNotebook,
+    notebookPathFor,
+    PROSE_NODE_ID_PREFIX,
+    saveMarkdown,
+} from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
-
-/**
- * Written by `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`.
- *
- * Only sharpens an error, because the content parameter decides the branch. A prefix change in
- * the backend therefore degrades one message and breaks nothing.
- */
-const PROSE_NODE_ID_PREFIX = 'mdp-'
 
 const UpdateCellInputSchema = z
     .object({
@@ -107,11 +105,7 @@ async function updateProseCell(
     }
     assertNoComponentTag(next)
 
-    const projectId = await context.stateManager.getProjectId()
-    const state = await context.api.request<{ version: number | null; cells: Schemas.NotebookCellState[] }>({
-        method: 'GET',
-        path: `${notebookPathFor(projectId, params.notebook_id)}sql_v2/state/`,
-    })
+    const state = await fetchCellStates(context, params.notebook_id)
     const block = state.cells.find((cell) => cell.node_id === params.node_id)
     if (!block) {
         throw new Error(

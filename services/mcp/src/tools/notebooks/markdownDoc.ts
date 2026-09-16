@@ -6,6 +6,13 @@ import type { Context } from '@/tools/types'
 const MARKDOWN_NOTEBOOK_NODE_TYPE = 'ph-markdown-notebook'
 const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
+/**
+ * Written by `_create_stable_markdown_prose_id` in `products/notebooks/backend/util.py`. A
+ * component id never carries this prefix, so a prefix change in the backend rejects a prose id
+ * rather than routing it to the wrong lookup.
+ */
+export const PROSE_NODE_ID_PREFIX = 'mdp-'
+
 export interface MarkdownNotebookState {
     notebookPath: string
     notebook: Schemas.Notebook
@@ -41,6 +48,20 @@ export function buildMarkdownNotebookContent(markdown: string, nodeId: string = 
         type: 'doc',
         content: [{ type: MARKDOWN_NOTEBOOK_NODE_TYPE, attrs: { nodeId, markdown } }],
     }
+}
+
+export interface NotebookCellStates {
+    version: number | null
+    cells: Schemas.NotebookCellState[]
+}
+
+/** Prose carries no component tag, so `parseCellTags` cannot see it and only the backend can place it. */
+export async function fetchCellStates(context: Context, shortId: string): Promise<NotebookCellStates> {
+    const projectId = await context.stateManager.getProjectId()
+    return await context.api.request<NotebookCellStates>({
+        method: 'GET',
+        path: `${notebookPathFor(projectId, shortId)}sql_v2/state/`,
+    })
 }
 
 export function notebookPathFor(projectId: string, shortId: string): string {

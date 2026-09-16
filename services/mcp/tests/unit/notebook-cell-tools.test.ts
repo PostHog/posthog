@@ -643,6 +643,79 @@ describe('notebook cell tools', () => {
             ],
         })
     })
+    describe('prose anchors', () => {
+        const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
+        // Span of "First paragraph." in DOC, as the backend reports it.
+        const FIRST = { node_id: 'mdp-abc-0', cell_type: 'markdown', code: 'First paragraph.', start: 9, end: 25 }
+
+        it('inserts the cell under the addressed paragraph', async () => {
+            const state = makeState(DOC)
+            state.stateCells = [FIRST]
+            const context = createMockContext(state)
+
+            await addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'saved_insight',
+                insight_short_id: 'iNs12345',
+                after_node_id: FIRST.node_id,
+            })
+
+            const saved = state.saveBodies[0].content.content[0].attrs.markdown
+            expect(saved).toMatch(/First paragraph\.\n\n\n<Query .*\n\n\nSecond paragraph\./s)
+        })
+
+        it.each([
+            {
+                name: 'an id no block carries',
+                cells: [FIRST],
+                afterNodeId: 'mdp-gone-0',
+                expected: /Read the current ids with notebooks-get/,
+            },
+            {
+                name: 'an id two blocks share',
+                cells: [FIRST, { ...FIRST, code: 'A different block that hashed the same.' }],
+                afterNodeId: FIRST.node_id,
+                expected: /names 2 blocks/,
+            },
+            {
+                // Splicing at a stale offset would land the cell inside someone else's paragraph.
+                name: 'offsets the document has moved past',
+                cells: [{ ...FIRST, start: 26, end: 43 }],
+                afterNodeId: FIRST.node_id,
+                expected: /not where the read placed it/,
+            },
+        ])('refuses $name', async ({ cells, afterNodeId, expected }) => {
+            const state = makeState(DOC)
+            state.stateCells = cells
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Late note.',
+                    after_node_id: afterNodeId,
+                })
+            ).rejects.toThrow(expected)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+
+        it('points a component id that names no cell at the current ids', async () => {
+            const state = makeState(DOC)
+            const context = createMockContext(state)
+
+            await expect(
+                addCellHandler(context, {
+                    notebook_id: 'aBcD1234',
+                    cell_type: 'markdown',
+                    markdown: 'Late note.',
+                    after_node_id: 'Z85NMOxX',
+                })
+            ).rejects.toThrow(/short id is not one of them/)
+            expect(state.saveBodies).toHaveLength(0)
+        })
+    })
+
     describe('markdown cells', () => {
         const DOC = ['# Title', '', 'First paragraph.', '', 'Second paragraph.'].join('\n')
         // Spans of "First paragraph." in DOC, as the backend reports them.

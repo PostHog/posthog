@@ -24,7 +24,13 @@ import {
     upsertProp,
     type CellTagBlock,
 } from './cellTags'
-import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
+import {
+    applyMarkdownEdit,
+    fetchCellStates,
+    fetchMarkdownNotebook,
+    notebookPathFor,
+    PROSE_NODE_ID_PREFIX,
+} from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
 
@@ -75,7 +81,9 @@ const AddCellInputSchema = z
         after_node_id: z
             .string()
             .optional()
-            .describe('Insert after this cell (node_id from a previous add). Defaults to the end of the document.'),
+            .describe(
+                'Insert after this cell, as a node_id from a previous add or from notebooks-get — a prose block counts, so a cell can go under the paragraph or heading it belongs to. Defaults to the end of the document. Not an insight short id; embed an insight with cell_type saved_insight.'
+            ),
     })
     .strict()
 
@@ -94,18 +102,68 @@ export interface AddCellResult {
  */
 const BLOCK_SEPARATOR = '\n\n\n'
 
-function insertBlock(markdown: string, block: string, afterNodeId: string | undefined): string {
+/**
+ * Offsets read before the edit, so they are checked against the document they are applied to:
+ * `applyMarkdownEdit` re-reads on a conflict, and stale offsets would splice a cell into the
+ * middle of a paragraph.
+ */
+interface ProseAnchor {
+    nodeId: string
+    start: number
+    end: number
+    source: string
+}
+
+function insertAfterOffset(markdown: string, block: string, end: number): string {
+    const rest = markdown.slice(end).replace(/^\n+/, '')
+    const head = `${markdown.slice(0, end)}${BLOCK_SEPARATOR}${block}`
+    return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
+}
+
+function insertBlock(
+    markdown: string,
+    block: string,
+    afterNodeId: string | undefined,
+    proseAnchor: ProseAnchor | undefined
+): string {
     const trimmed = markdown.replace(/\s+$/, '')
+    if (proseAnchor) {
+        if (markdown.slice(proseAnchor.start, proseAnchor.end) !== proseAnchor.source) {
+            throw new Error(
+                `Prose block ${proseAnchor.nodeId} is not where the read placed it in the notebook. Read it again with notebooks-get and retry with the id it returns.`
+            )
+        }
+        return insertAfterOffset(markdown, block, proseAnchor.end)
+    }
     if (afterNodeId) {
         const anchor = findCellTag(markdown, afterNodeId)
         if (!anchor) {
-            throw new Error(`No cell with node_id ${afterNodeId} found to insert after.`)
+            throw new Error(
+                `No cell with node_id ${afterNodeId} found to insert after. Read the current ids with notebooks-get; a saved insight's short id is not one of them.`
+            )
         }
-        const rest = markdown.slice(anchor.end).replace(/^\n+/, '')
-        const head = `${markdown.slice(0, anchor.end)}${BLOCK_SEPARATOR}${block}`
-        return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
+        return insertAfterOffset(markdown, block, anchor.end)
     }
     return trimmed ? `${trimmed}${BLOCK_SEPARATOR}${block}\n` : `${block}\n`
+}
+
+async function resolveProseAnchor(context: Context, notebookId: string, nodeId: string): Promise<ProseAnchor> {
+    const { cells } = await fetchCellStates(context, notebookId)
+    const matches = cells.filter((cell) => cell.node_id === nodeId)
+    const block = matches[0]
+    if (!block) {
+        throw new Error(
+            `No cell with node_id ${nodeId} in notebook ${notebookId}. Read the current ids with notebooks-get.`
+        )
+    }
+    // A prose id counts occurrences of identical text, so two blocks that read the same share an
+    // id once one of them is added or removed above. Neither names a single place to insert at.
+    if (matches.length > 1) {
+        throw new Error(
+            `Cell ${nodeId} names ${matches.length} blocks in notebook ${notebookId}, so it cannot name one of them. Re-read the notebook with notebooks-get.`
+        )
+    }
+    return { nodeId, start: block.start, end: block.end, source: block.code }
 }
 
 async function runAndWriteBack(
@@ -202,6 +260,9 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     }
 
     const title = params.title?.trim() || undefined
+    const proseAnchor = params.after_node_id?.startsWith(PROSE_NODE_ID_PREFIX)
+        ? await resolveProseAnchor(context, params.notebook_id, params.after_node_id)
+        : undefined
 
     if (params.cell_type === 'markdown') {
         if (title) {
@@ -210,7 +271,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             )
         }
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, params.markdown!.trim(), params.after_node_id)
+            insertBlock(markdown, params.markdown!.trim(), params.after_node_id, proseAnchor)
         )
         return {}
     }
@@ -224,7 +285,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
             query: { kind: 'SavedInsightNode', shortId: params.insight_short_id },
         })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor)
         )
         return { node_id: nodeId }
     }
@@ -233,7 +294,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         // `title` last only when set, so a component that carries its own title prop keeps it.
         const tag = buildCellTag(params.tag_name!, { ...params.props, nodeId, ...(title ? { title } : {}) })
         await applyMarkdownEdit(context, params.notebook_id, (markdown) =>
-            insertBlock(markdown, tag, params.after_node_id)
+            insertBlock(markdown, tag, params.after_node_id, proseAnchor)
         )
         return { node_id: nodeId }
     }
@@ -253,7 +314,7 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     // variable edit that landed after the read above. The run binds those values to stay in step
     // with what the notebook now declares.
     const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current) =>
-        insertBlock(current, tag, params.after_node_id)
+        insertBlock(current, tag, params.after_node_id, proseAnchor)
     )
     const run = await runAndWriteBack(
         context,
