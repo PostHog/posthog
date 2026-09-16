@@ -16,6 +16,10 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# The MCP server forwards the same intent it sends to analytics as `$mcp_intent`. It is the
+# caller's own claim, so it is read only from a request whose token is bound to a sandbox task.
+ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
+ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
 
 
 @frozen
@@ -77,6 +81,26 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "client"):
             delattr(self._local, "client")
 
+    def set_agent_intent(self, intent: Optional[str]) -> None:
+        self._local.agent_intent = intent
+
+    def get_agent_intent(self) -> Optional[str]:
+        return getattr(self._local, "agent_intent", None)
+
+    def clear_agent_intent(self) -> None:
+        if hasattr(self._local, "agent_intent"):
+            delattr(self._local, "agent_intent")
+
+    def set_agent_task_id(self, task_id: Optional[str]) -> None:
+        self._local.agent_task_id = task_id
+
+    def get_agent_task_id(self) -> Optional[str]:
+        return getattr(self._local, "agent_task_id", None)
+
+    def clear_agent_task_id(self) -> None:
+        if hasattr(self._local, "agent_task_id"):
+            delattr(self._local, "agent_task_id")
+
     def set_ip_address(self, ip_address: Optional[str]) -> None:
         self._local.ip_address = ip_address
 
@@ -102,6 +126,8 @@ class ActivityLoggingStorage:
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()
+        self.clear_agent_intent()
+        self.clear_agent_task_id()
         self.clear_ip_address()
         self.clear_trigger()
 

@@ -112,6 +112,14 @@ snapshots:
         hash: v1.k794b7964.6aab6f60f5f5106fd66cf02ad1f62be1e3c7bf08e13b75761f75b1fdff364568.YblDy_cCbcSdCbly1El4Qw3GRwtAFGM11gHIH-dHk9o
     components-activitylog--without-audit-logs-feaure--light:
         hash: v1.k794b7964.1eed88732da4c326634cb530f95a9abd01a0c58ee567835a43165e77d675b6eb.rB6MYt2DBwRCcUcRIYjwQ629nrgOWhD3uoF8J02EuXU
+    components-agentattribution--intent-and-task--dark:
+        hash: v1.k794b7964.0d80c815b27006d88f038af4b2d689f510f8bdf583d7fc830eb68942821b56e4.vFLLhu562dwroQu8TA_dLSIrYC3SgtRpKdZTB8ufS84
+    components-agentattribution--intent-and-task--light:
+        hash: v1.k794b7964.24895d9480ddd6f87009e5b1b25baf6e886cac9cd9880903e339bff843033fd8.KzV5k8F-3EZNmgX3eF2rV0oiWATstdKagopl-HYlEfQ
+    components-agentattribution--task-only--dark:
+        hash: v1.k794b7964.5b5f3178c99673ba0bf03dddb8a88cf889e51cf1d89039743d51c3bb056172cc.nuzeiVXJiHurkyu1JOKm6DOspFpAqjrJKgmUZzfj0d0
+    components-agentattribution--task-only--light:
+        hash: v1.k794b7964.7998d17fc86c2c7943b3e69cf5e661dc4af268064ffa0d1f63ce7d867c26d306.NS_bmOi6RrA5Trtg55bFg4znU7uOCkALbnJkMMgk4r0
     components-agentpromptbutton--default--dark:
         hash: v1.k794b7964.589f9b44c782286a8f62d7390a1c152611b358df714447e892afcdbb3681296b.DLA5NWyjGVTWKj7Sry71BrbQvkGJEKeNdD-MR-4pqHA
     components-agentpromptbutton--default--light:
