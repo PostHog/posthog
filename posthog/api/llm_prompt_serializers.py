@@ -2,14 +2,17 @@ import re
 import json
 from typing import Any
 
+from django.db import transaction
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.llm_prompt import normalize_prompt_to_string
+from posthog.llm_prompt import MAX_PROMPT_PAYLOAD_BYTES, normalize_prompt_to_string
 
 from products.ai_observability.backend.activity_logging import prompt_activity_item_id
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
+from products.ai_observability.backend.prompt_references import record_prompt_references, validate_prompt_references
 
 
 class LLMPromptOutlineEntrySerializer(serializers.Serializer):
@@ -19,7 +22,6 @@ class LLMPromptOutlineEntrySerializer(serializers.Serializer):
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
-MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
 
 
 def validate_prompt_name_value(value: str) -> str:
@@ -427,6 +429,8 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
+            if name:
+                validate_prompt_references(team.id, prompt_name=name, prompt_payload=attrs.get("prompt"))
             return attrs
 
         if name is not None and self.instance.name != name:
@@ -453,12 +457,15 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
-        return LLMPrompt.objects.create(
-            team=team,
-            created_by=request.user,
-            is_latest=True,
-            **validated_data,
-        )
+        with transaction.atomic():
+            prompt = LLMPrompt.objects.create(
+                team=team,
+                created_by=request.user,
+                is_latest=True,
+                **validated_data,
+            )
+            record_prompt_references(prompt)
+        return prompt
 
 
 class LLMPromptLabelSummarySerializer(serializers.Serializer):
