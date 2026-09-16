@@ -220,16 +220,55 @@ class TestSubscriptionTemporal(APILicensedTest):
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
 
-    def test_update_send_test_now_skips_duplicate_in_flight_delivery(self):
+    @parameterized.expand(
+        [
+            ("a delivery is already in flight", "start_workflow"),
+            ("the workflow cannot be started", "start_workflow_raises"),
+            ("temporal cannot be reached", "connect_raises"),
+            ("reporting the failure also fails", "capture_raises"),
+        ]
+    )
+    def test_update_survives_a_confirmation_delivery_it_cannot_start(self, _name, failure):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
-        self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
-            f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
+        if failure == "capture_raises":
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+            capture_patcher = patch("ee.api.subscription.capture_exception", side_effect=RuntimeError("capture down"))
+            capture_patcher.start()
+            self.addCleanup(capture_patcher.stop)
+        elif failure == "start_workflow":
+            self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+                f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
+            )
+        elif failure == "start_workflow_raises":
+            self.mock_temporal_client.start_workflow.side_effect = RuntimeError("workflow rejected")
+        else:
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"send_test_now": True, "title": "Renamed"},
         )
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
-        # A delivery already in flight must not fail the update or fan out a second send
         assert response.status_code == status.HTTP_200_OK, response.content
+        assert Subscription.objects.get(id=sub_id).title == "Renamed"
+
+    @parameterized.expand(
+        [
+            ("the workflow cannot be started", "start_workflow_raises"),
+            ("temporal cannot be reached", "connect_raises"),
+        ]
+    )
+    def test_create_survives_a_confirmation_delivery_it_cannot_start(self, _name, failure):
+        if failure == "start_workflow_raises":
+            self.mock_temporal_client.start_workflow.side_effect = RuntimeError("workflow rejected")
+        else:
+            self.mock_sync.side_effect = RuntimeError("Failed client connect: Connection refused")
+
+        response = self._create_subscription(title="Made anyway")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert Subscription.objects.get(id=response.json()["id"]).title == "Made anyway"
 
     def test_update_inferred_deliveries_get_unique_workflow_ids(self):
         # Only explicit send_test_now dedupes: two legitimate consecutive recipient edits must
@@ -3431,6 +3470,19 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "contexts"
+
+    def test_accepts_an_empty_contexts_list_on_a_traditional_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._insight_payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created.json()['id']}",
+            {"title": "Renamed", "contexts": [], "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
 
     def test_context_replacement_rolls_back_subscription_and_rows(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()

@@ -222,9 +222,27 @@ func TestValidateBoundsCommonTableExpressionProjectionExpansion(t *testing.T) {
 			index, index-1, index-1,
 		))
 	}
-	result := Validate(schema(), "WITH "+strings.Join(ctes, ", ")+" SELECT missing FROM c13")
-	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit" {
-		t.Fatalf("result = %#v", result)
+	withinBudget := "WITH " + strings.Join(ctes[:12], ", ") + " SELECT event FROM c11"
+	for _, test := range []struct {
+		name, query string
+		valid       bool
+	}{
+		{name: "single statement within budget", query: withinBudget, valid: true},
+		{name: "single statement exceeds budget", query: "WITH " + strings.Join(ctes, ", ") + " SELECT missing FROM c13"},
+		{name: "shared budget stops before later statements", query: withinBudget + "; " + withinBudget + "; SELECT person_id FROM warehouse_people"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := Validate(schema(), test.query)
+			if result.Valid != test.valid {
+				t.Fatalf("result = %#v", result)
+			}
+			if !test.valid && (len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "query_limit") {
+				t.Fatalf("result = %#v", result)
+			}
+			if strings.Join(result.TableNames, ",") != "events" {
+				t.Fatalf("table names = %#v", result.TableNames)
+			}
+		})
 	}
 }
 
