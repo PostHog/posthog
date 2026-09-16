@@ -2,10 +2,7 @@ import unittest
 
 from parameterized import parameterized
 
-from products.tasks.backend.temporal.slack_relay.object_tags import (
-    rewrite_object_tags_for_slack,
-    split_incomplete_tag_suffix,
-)
+from posthog.object_tags.slack import rewrite_object_tags_for_slack, split_incomplete_tag_suffix
 
 PROJECT = "https://us.posthog.com/project/2"
 UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
@@ -26,6 +23,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("experiment", "7", "/experiments/7"),
             ("survey", UUID, f"/surveys/{UUID}"),
             ("ticket", UUID, f"/support/tickets/{UUID}"),
+            ("report", "rep-1", "/inbox/rep-1"),
             ("trace", UUID, f"/ai-observability/traces/{UUID}"),
             ("eval", "5", "/ai-evals/evaluations/5"),
             ("event", UUID, f"/data-management/events/{UUID}"),

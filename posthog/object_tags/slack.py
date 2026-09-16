@@ -6,7 +6,7 @@ those into chips and chart cards; Slack has no renderer, so a raw tag reaches th
 escaped XML. This module runs before markdown conversion and turns each tag into the closest
 thing Slack has: a link to the object, a fenced SQL block, or just the label.
 
-The kind registry comes from ``posthog/object_tags/kinds.py``, the same source of truth the
+The kind registry comes from ``kinds.py`` beside this module, the same source of truth the
 desktop and web renderers are generated from.
 """
 
@@ -64,10 +64,6 @@ class _Tag:
     end: int
 
 
-def _resolve_kind(name: str) -> ObjectKindSpec | None:
-    return resolve_object_kind(name)
-
-
 def _parse_attrs(raw: str) -> dict[str, str]:
     return {match.group(1): _unescape_xml(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
@@ -92,12 +88,13 @@ def _inline_code_spans(line: str, offset: int) -> list[_Span]:
     return spans
 
 
-def _code_spans(text: str) -> list[_Span]:
-    """Fenced blocks and inline code, found in one pass over the lines.
+def _scan_code(text: str) -> tuple[list[_Span], int | None]:
+    """Fenced blocks and inline code in one pass, plus the start of an unclosed fence.
 
     Mirrors the desktop renderer's fence rules: a backtick or tilde fence of three or more, closed
     only by a run of the same character at least as long with nothing else on the line, and an
-    unclosed fence runs to the end of the text.
+    unclosed fence runs to the end of the text. The held-suffix logic needs the unclosed fence's
+    start, so the walker returns it rather than a second walker recomputing the fence state.
     """
     spans: list[_Span] = []
     fence_char = ""
@@ -125,7 +122,8 @@ def _code_spans(text: str) -> list[_Span]:
         offset += len(line) + 1
     if fence_char:
         spans.append(_Span(start=fence_start, end=len(text)))
-    return spans
+        return spans, fence_start
+    return spans, None
 
 
 def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
@@ -170,13 +168,23 @@ def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
     return tags
 
 
+def _escape_angles(text: str) -> str:
+    """Entity-encode angle brackets so agent-written text cannot post a Slack broadcast.
+
+    Slack reads ``<!channel>`` and ``<!here>`` as live mentions. An agent composes this text,
+    and an agent summarizes data it was asked to analyze, so the brackets never reach Slack
+    as typed.
+    """
+    return "".join(_LABEL_ANGLE_ENTITIES.get(char, char) for char in text)
+
+
 def _safe_label(label: str) -> str:
     # The label ends up inside a Slack ``<url|label>`` link, where ``|`` and ``>`` end the link
     # early, and inside a markdown ``[label](url)`` on the way there, where brackets do. Angle
     # brackets are common in titles (``Error rate > 1%``), so they become the entities Slack
     # renders back as the characters.
     collapsed = " ".join(_RE_LABEL_UNSAFE.sub(" ", label).split())
-    return "".join(_LABEL_ANGLE_ENTITIES.get(char, char) for char in collapsed)
+    return _escape_angles(collapsed)
 
 
 def _link(label: str, url: str | None) -> str:
@@ -208,7 +216,7 @@ def _render_hogql(tag: _Tag, project_url: str) -> str | None:
     title = _safe_label(tag.attrs.get("title") or "") or _HOGQL_SPEC.kind_label
     # No language hint on the fence: Slack shows one as literal text inside the block.
     lines = [f"**{_link(title, url)}**", "```", sql, "```"]
-    caption = " ".join((tag.attrs.get("caption") or "").split())
+    caption = _escape_angles(" ".join((tag.attrs.get("caption") or "").split()))
     if caption:
         lines.append(f"_{caption}_")
     return "\n".join(lines)
@@ -229,7 +237,7 @@ def _render_reference(tag: _Tag, kind: ObjectKindSpec, project_url: str) -> str 
 
 
 def _render_tag(tag: _Tag, project_url: str) -> str | None:
-    kind = _resolve_kind(tag.name)
+    kind = resolve_object_kind(tag.name)
     if kind is None:
         # An agent sometimes extends the convention to a kind nobody renders (``<inbox id="…">``).
         # The label is still the useful part, so keep it and drop the markup.
@@ -249,7 +257,8 @@ def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
     if "<" not in text:
         return text
     base = project_url.rstrip("/")
-    tags = _scan_tags(text, _code_spans(text))
+    spans, _ = _scan_code(text)
+    tags = _scan_tags(text, spans)
     if not tags:
         return text
     output = ""
@@ -291,29 +300,6 @@ class StreamSplit:
     held: str
 
 
-def _unclosed_fence_start(text: str) -> int | None:
-    fence_char = ""
-    fence_length = 0
-    fence_start = 0
-    offset = 0
-    for line in text.split("\n"):
-        fence = _RE_FENCE_LINE.match(line)
-        if fence_char:
-            if (
-                fence is not None
-                and fence.group(1)[0] == fence_char
-                and len(fence.group(1)) >= fence_length
-                and line[fence.end() :].strip() == ""
-            ):
-                fence_char = ""
-        elif fence:
-            fence_char = fence.group(1)[0]
-            fence_length = len(fence.group(1))
-            fence_start = offset
-        offset += len(line) + 1
-    return fence_start if fence_char else None
-
-
 def split_incomplete_tag_suffix(text: str) -> StreamSplit:
     """Split off a trailing object tag, or code fence, that has not finished arriving.
 
@@ -321,7 +307,7 @@ def split_incomplete_tag_suffix(text: str) -> StreamSplit:
     next one, and a tag inside a still-open fence is not rewritten at all. The whole text can be
     held; the caller then waits for more instead of posting.
     """
-    held_from: int | None = _unclosed_fence_start(text)
+    _, held_from = _scan_code(text)
     last_lt = text.rfind("<")
     if held_from is not None:
         pass
@@ -330,7 +316,7 @@ def split_incomplete_tag_suffix(text: str) -> StreamSplit:
     else:
         last_open = None
         for match in _RE_OPEN_TAG.finditer(text):
-            if match.group(3) == ">" and _resolve_kind(match.group(1)) is not None:
+            if match.group(3) == ">" and resolve_object_kind(match.group(1)) is not None:
                 last_open = match
         if (
             last_open is not None
