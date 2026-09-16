@@ -1,5 +1,6 @@
 import pytest
 
+from parameterized import parameterized
 from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
@@ -103,6 +104,22 @@ class TestPreamble:
         # Events are reachable on demand via the tool, keyed on the footer's REC_T — not dumped inline.
         assert "get_events_around" in rendered
         assert "<events>" not in rendered
+
+    @parameterized.expand(
+        [
+            ("available", True, False),
+            ("clean", False, True),
+            ("none", False, False),
+        ]
+    )
+    def test_preamble_describes_the_network_tool_only_when_it_is_offered(
+        self, network_state: str, describes_tool: bool, describes_clean: bool
+    ) -> None:
+        # The tool is withheld when the recording has no requests to return, so a preamble that still
+        # described it would send the model after a tool that is not there.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme", network_state=network_state)
+        assert ("get_network_around" in rendered) is describes_tool
+        assert ("none of them failed" in rendered) is describes_clean
 
     def test_preamble_escapes_left_angle_in_team_name(self) -> None:
         # The team admin who set the name could theoretically forge a closing tag — defense in depth.

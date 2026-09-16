@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import httpx
 from google.genai.errors import APIError
+from parameterized import parameterized
 from pydantic import BaseModel
 from temporalio.testing import ActivityEnvironment
 
@@ -19,6 +20,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
     _MissionOutcome,
+    _network_state,
     _remaining_verify_budget_seconds,
     _run_mission,
     _run_mission_attempts,
@@ -28,6 +30,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
+from products.replay_vision.backend.temporal.network_capture import NetworkRequest, SessionNetworkPayload
 from products.replay_vision.backend.temporal.scanners.base import MissionStep, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
@@ -762,3 +765,25 @@ async def test_video_cache_creation_is_best_effort() -> None:
     # A cache that can't be created (e.g. too-short video) degrades to None, not an error.
     result = await _maybe_create_video_cache(cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE")
     assert result is None
+
+
+@parameterized.expand(
+    [
+        ("no payload at all", None, "none"),
+        ("capture off", SessionNetworkPayload(captured=False), "none"),
+        ("captured, nothing failed", SessionNetworkPayload(captured=True), "clean"),
+        (
+            "captured, something failed",
+            SessionNetworkPayload(
+                captured=True, requests=[NetworkRequest(timestamp_ms=1, url="https://app.test/x", status=500)]
+            ),
+            "available",
+        ),
+    ]
+)
+def test_network_state_separates_capture_off_from_nothing_failed(
+    _label: str, payload: SessionNetworkPayload | None, expected: str
+) -> None:
+    # "none" and "clean" both withhold the tool but mean opposite things to the model: one is no evidence,
+    # the other is evidence that the network was fine.
+    assert _network_state(payload) == expected

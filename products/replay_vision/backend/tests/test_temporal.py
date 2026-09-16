@@ -76,6 +76,7 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
     mark_observation_ineligible_activity,
@@ -2494,10 +2495,14 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
     assert activity_order[:2] == [create_observation_activity, mark_observation_running_activity]
-    # fetch + ensure_asset run in parallel — order between them is non-deterministic.
-    assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
+    # fetch + network + ensure_asset run in parallel — order between them is non-deterministic.
+    assert set(activity_order[2:5]) == {
+        fetch_session_events_activity,
+        fetch_session_network_activity,
+        ensure_session_asset_activity,
+    }
     # Success is persisted before any downstream emission so a late transient failure can't discard the result.
-    assert activity_order[4:] == [
+    assert activity_order[5:] == [
         upload_video_to_gemini_activity,
         call_scanner_provider_activity,
         mark_observation_succeeded_activity,

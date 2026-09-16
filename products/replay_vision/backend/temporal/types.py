@@ -111,6 +111,12 @@ class FetchSessionEventsInputs(BaseModel, frozen=True):
     session_id: str
 
 
+class FetchSessionNetworkInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+
+
 class EventTable(BaseModel, frozen=True):
     """A column-oriented analytics-event table; every row's arity matches `len(columns)`."""
 

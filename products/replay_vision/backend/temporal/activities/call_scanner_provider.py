@@ -53,6 +53,13 @@ from products.replay_vision.backend.temporal.metrics import (
     record_provider_call,
     record_verification_outcome,
 )
+from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
+from products.replay_vision.backend.temporal.network_tool import (
+    GET_NETWORK_TOOL_NAME,
+    build_network_index,
+    dispatch_network_tool,
+    network_tool,
+)
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
@@ -69,7 +76,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
-from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
+from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
     ScannerCallOutput,
@@ -157,15 +164,17 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 
     if inputs.snapshot_override is not None:
         snapshot = inputs.snapshot_override
-        team_name, llm_inputs = await asyncio.gather(
+        team_name, llm_inputs, network_payload = await asyncio.gather(
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
+            _load_network_payload(inputs.observation_id),
         )
     else:
-        snapshot, team_name, llm_inputs = await asyncio.gather(
+        snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
             sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
+            _load_network_payload(inputs.observation_id),
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
@@ -177,6 +186,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         file_uri=inputs.file_uri,
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
+        network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
     )
 
@@ -190,6 +200,7 @@ async def run_scan(
     file_uri: str,
     mime_type: str,
     team_id: int,
+    network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
@@ -211,6 +222,7 @@ async def run_scan(
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
         tool_budget=_tool_budget(snapshot.model),
+        network_state=_network_state(network_payload),
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
@@ -221,11 +233,24 @@ async def run_scan(
         preamble_text=preamble_text,
         team_id=team_id,
         llm_inputs=llm_inputs,
+        network_payload=network_payload,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
     return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
+
+
+def _network_state(payload: SessionNetworkPayload | None) -> str:
+    """How the preamble should describe network data: `available`, `clean`, or `none`.
+
+    `clean` and `none` both mean no tool is offered, but they are not the same evidence. `clean` says the
+    SDK captured requests and none failed, which lets the model rule a network cause out. `none` says
+    nothing was captured, so the model must not read the silence either way.
+    """
+    if payload is None or not payload.captured:
+        return "none"
+    return "available" if payload.requests else "clean"
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -386,6 +411,19 @@ async def _load_llm_inputs(observation_id: UUID) -> ScannerLlmInputs:
     return payload
 
 
+async def _load_network_payload(observation_id: UUID) -> SessionNetworkPayload | None:
+    """Read the session's captured network requests, or None when there are none to read.
+
+    Network data is a side input, so a missing key is normal rather than an error: the scan may predate the
+    activity that writes it, or the activity may have stored nothing. The scan runs either way.
+    """
+    try:
+        return await load_session_network(str(observation_id))
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.network_payload_failed", exc_info=True)
+        return None
+
+
 async def _run_mission(
     *,
     scanner: BaseScanner,
@@ -395,6 +433,7 @@ async def _run_mission(
     team_id: int,
     llm_inputs: ScannerLlmInputs,
     trace_id: str,
+    network_payload: SessionNetworkPayload | None = None,
 ) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
@@ -421,11 +460,19 @@ async def _run_mission(
     }
 
     events_index = build_events_index(llm_inputs)
+    network_index = build_network_index(network_payload, llm_inputs.metadata.start_time)
 
     def dispatch(call: Any) -> dict[str, Any]:
+        name = getattr(call, "name", None)
+        if name == GET_NETWORK_TOOL_NAME:
+            return dispatch_network_tool(call, network_index)
         return dispatch_events_tool(call, events_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    # Offered only when the recording actually has requests to return. Otherwise every lookup would be a
+    # dead call against a budget the events tool shares, and the preamble would describe a useless tool.
+    offer_network = network_index.has_requests()
+
+    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text, offer_network=offer_network)
     steps = [
         replace(
             step,
@@ -448,6 +495,7 @@ async def _run_mission(
         team_id=team_id,
         metric_labels=metric_labels,
         trace_id=trace_id,
+        offer_network=offer_network,
     )
     verification: VerificationRecord | None = None
     try:
@@ -629,6 +677,7 @@ async def _run_steps(
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
+    offer_network: bool = False,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -647,6 +696,7 @@ async def _run_steps(
             preamble_text=preamble_text,
             dispatch=dispatch,
             team_id=team_id,
+            offer_network=offer_network,
             metric_labels=metric_labels,
             trace_id=trace_id,
         )
@@ -689,13 +739,14 @@ async def _run_step(
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
+    offer_network: bool = False,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
     On success the model's answer is appended to `convo` so the next step sees it; on failure a correction is
     appended and we retry.
     """
-    config = _step_config(step, cache_name)
+    config = _step_config(step, cache_name, offer_network=offer_network)
     forced_config = _step_config(step, cache_name, allow_tools=False)
     # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
     # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
@@ -820,8 +871,10 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
     return await generate(convo)
 
 
-def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool = True) -> types.GenerateContentConfig:
-    """Generation config for one step: its JSON schema, plus the events tool (from the cache when cached).
+def _step_config(
+    step: MissionStep, cache_name: str | None, *, allow_tools: bool = True, offer_network: bool = False
+) -> types.GenerateContentConfig:
+    """Generation config for one step: its JSON schema, plus the lookup tools (from the cache when cached).
 
     Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
     inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
@@ -842,7 +895,7 @@ def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool
     if cache_name:
         kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
     else:
-        kwargs["tools"] = [events_tool()]
+        kwargs["tools"] = [events_tool(), network_tool()] if offer_network else [events_tool()]
     return types.GenerateContentConfig(**kwargs)
 
 
@@ -866,14 +919,16 @@ async def _maybe_create_video_cache(
     model: str,
     video_part: types.Part,
     preamble_text: str,
+    *,
+    offer_network: bool = False,
 ) -> Any | None:
-    """Cache the video + preamble + events tool once so the steps reuse them. None on any failure (e.g. too short to cache)."""
+    """Cache the video + preamble + lookup tools once so the steps reuse them. None on any failure (e.g. too short to cache)."""
     try:
         return await cache_client.aio.caches.create(
             model=model,
             config=types.CreateCachedContentConfig(
                 contents=[types.Content(role="user", parts=[video_part, types.Part(text=preamble_text)])],
-                tools=[events_tool()],
+                tools=[events_tool(), network_tool()] if offer_network else [events_tool()],
                 ttl=_VIDEO_CACHE_TTL,
             ),
         )
