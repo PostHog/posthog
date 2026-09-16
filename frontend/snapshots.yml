@@ -1364,6 +1364,10 @@ snapshots:
         hash: v1.k794b7964.b933911885203330331bde8bd799fd74fcd4e5964ba7fba4538dd075f07e32dc.QhPFXSfVCoIMya1xKmHLdyh3P9dJf-zNL4_zLUNqgqU
     components-markdown-editor-rich--with-markdown--light:
         hash: v1.k794b7964.98bef7667e05e7a86864149a5db5c24b3d4733bcef7d413ab6faf3053c79fba8.evR63xGwLPTzXw6Hi35ROggl2AHmH_y5lT5p05kFGTg
+    components-markdown-notebook--ask-ai-without-consent--dark:
+        hash: v1.k794b7964.ebb253a1569c71c4c5a8e8b960f46c9c7c32b29ccab555b5c646cb50a88308ed.Cec9A53K1lhmiX7cygBRREm_UGPUFhNRq3CvIttZMJ4
+    components-markdown-notebook--ask-ai-without-consent--light:
+        hash: v1.k794b7964.e97394f9850e49896ddddf9624d3b43e20200250d74e94813707d83ab7badfa3.SAe1CR7VbZrrerWJx4oCvLsskyEJ9SwjKrMjxA0Fi3U
     components-markdown-notebook--component-catalog--dark:
         hash: v1.k794b7964.a7705b33b2bb9d98a08dad08712a89455876a99422d2d2c60e7d2186d2412796.wxqLNiekJQaoxnPyCAogVqcN8btyRGECwxbDHFxoS2o
     components-markdown-notebook--component-catalog--light:
