@@ -452,6 +452,10 @@ def resolve_batch_exports_model(
             ),
         )
         compiled = serialize_batch_export_query(typing.cast(ast.SelectQuery, parse_select(query)), context)
-        fields, extra_query_parameters = compiled["fields"], compiled["values"]
+        fields = [
+            {"expression": compiled_field["expression"], "alias": stored_field["alias"]}
+            for stored_field, compiled_field in zip(schema["fields"], compiled["fields"], strict=True)
+        ]
+        extra_query_parameters = compiled["values"]
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

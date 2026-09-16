@@ -461,6 +461,29 @@ class TestHogQLQueryRecordBatchModel:
             resolve_batch_exports_model(team_id=1, batch_export_model=BatchExportModel(name="hogql", schema=None))
 
 
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+async def test_custom_export_recompilation_preserves_column_names(ateam, use_new_events_schema):
+    schema: BatchExportSchema = {
+        "hogql_query": "SELECT lower(e.event), e.properties.$browser AS browser FROM events AS e",
+        "fields": [
+            {"expression": "lower(e.event)", "alias": "`lower(e.event)`"},
+            {"expression": "events.mat_removed_column", "alias": "browser"},
+        ],
+        "values": {"unused_old_parameter": "stale"},
+    }
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
+        _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
+            team_id=ateam.pk, batch_export_schema=schema
+        )
+
+    assert fields is not None
+    assert [field["alias"] for field in fields] == ["`lower(e.event)`", "browser"]
+    assert fields[0]["expression"] == "lower(events.event)"
+    assert "mat_removed_column" not in fields[1]["expression"]
+    assert values == {"hogql_val_0": "$browser"}
+    assert schema["fields"][0]["expression"] == "lower(e.event)"
+
+
 @pytest.mark.parametrize("interval_start_is_none", [False, True])
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
@@ -502,7 +525,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             )
             schema: BatchExportSchema = {
                 "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested FROM events AS e",
-                "fields": [{"expression": "events.mat_removed_column", "alias": "browser"}],
+                "fields": [
+                    {"expression": "events.mat_removed_column", "alias": alias}
+                    for alias in ("browser", "amount", "email", "nested")
+                ],
                 "values": {"unused_old_parameter": "stale"},
             }
             _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
