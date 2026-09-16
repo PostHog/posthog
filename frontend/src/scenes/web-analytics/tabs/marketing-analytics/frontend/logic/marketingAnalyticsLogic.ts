@@ -318,6 +318,7 @@ export interface marketingAnalyticsLogicValues {
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
+    unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
     validNativeSources: NativeSource[]
@@ -523,6 +524,10 @@ export interface marketingAnalyticsLogicMeta {
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => NativeSource[]
+        unconfiguredNativeSources: (
+            nativeSources: ExternalDataSource[],
+            validNativeSources: NativeSource[]
+        ) => ExternalDataSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
@@ -1030,6 +1035,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                     return validNativeSources
                 }, [])
+            },
+        ],
+        unconfiguredNativeSources: [
+            (s) => [s.nativeSources, s.validNativeSources],
+            (nativeSources: ExternalDataSource[], validNativeSources: NativeSource[]): ExternalDataSource[] => {
+                const validIds = new Set(validNativeSources.map(({ source }) => source.id))
+                return nativeSources.filter((source) => !validIds.has(source.id))
             },
         ],
         uniqueConversionGoalName: [

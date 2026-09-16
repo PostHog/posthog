@@ -34,6 +34,7 @@ import {
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
     findSchemaByFieldName,
+    nativeSourceDisplayLabel,
 } from '../../logic/utils'
 import { AddIntegrationButton } from '../MarketingAnalyticsFilters/AddIntegrationButton'
 import { ColumnMappingModal } from './ColumnMappingModal'
@@ -60,7 +61,8 @@ type UnifiedSource = {
 }
 
 export function ExternalDataSourceConfiguration(): JSX.Element {
-    const { allExternalTablesWithStatus, loading, hasNoConfiguredSources } = useValues(marketingAnalyticsLogic)
+    const { allExternalTablesWithStatus, loading, hasNoConfiguredSources, unconfiguredNativeSources } =
+        useValues(marketingAnalyticsLogic)
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
     const restrictedReason = useRestrictedArea({
@@ -184,12 +186,21 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
             title="Data source configuration"
             description="Connect and configure data sources to enable marketing analytics. Native sources sync automatically, while warehouse and self-managed sources need column mapping."
         >
-            {hasNoConfiguredSources && (
-                <LemonBanner type="error" className="mb-4">
-                    To use the Marketing analytics dashboard, you need at least one data source properly configured. Add
-                    a native integration (like Google Ads or Facebook Ads) or connect a data warehouse source below.
-                </LemonBanner>
-            )}
+            {hasNoConfiguredSources &&
+                (unconfiguredNativeSources.length > 0 ? (
+                    <LemonBanner type="warning" className="mb-4">
+                        {unconfiguredNativeSources.length === 1
+                            ? `${nativeSourceDisplayLabel(unconfiguredNativeSources[0].source_type)} is connected but isn't syncing the tables marketing analytics needs.`
+                            : "Your ad integrations are connected but aren't syncing the tables marketing analytics needs."}{' '}
+                        Open the source settings below and turn on the tables listed under "To sync".
+                    </LemonBanner>
+                ) : (
+                    <LemonBanner type="error" className="mb-4">
+                        To use the Marketing analytics dashboard, you need at least one data source properly configured.
+                        Add a native integration (like Google Ads or Facebook Ads) or connect a data warehouse source
+                        below.
+                    </LemonBanner>
+                ))}
             <PaginationControls
                 hasMoreItems={hasMoreSources}
                 showAll={showAll}
