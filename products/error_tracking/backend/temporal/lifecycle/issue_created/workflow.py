@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import timedelta
 
 from temporalio import common, workflow
@@ -106,30 +107,39 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if merge_result.merged_count > 0:
                 return IssueCreatedWorkflowResult(merged=True)
 
-        await workflow.execute_activity(
-            "emit_issue_created_internal_event_activity",
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
-        await workflow.execute_activity(
-            "emit_issue_created_signal_activity",
-            inputs,
-            start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            retry_policy=ACTIVITY_RETRY_POLICY,
-        )
         # Patched: executions in flight when this activity shipped replay the old sequence.
-        if workflow.patched(ALERT_DISPATCH_PATCH):
-            # Last, so a rejected start can never suppress the side effects above; its
-            # own open-ended retry covers a Temporal outage. Starts are idempotent on the
-            # notification id.
-            await workflow.execute_activity(
-                "dispatch_issue_created_alert_activity",
-                inputs,
-                schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
-                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
-                retry_policy=ALERT_DISPATCH_RETRY_POLICY,
+        # Dispatch runs alongside the other side effects and is always awaited, so a
+        # failure on either side never suppresses the other. Its open-ended retry covers
+        # a Temporal outage; starts are idempotent on the notification id.
+        dispatch = (
+            asyncio.create_task(
+                workflow.execute_activity(
+                    "dispatch_issue_created_alert_activity",
+                    inputs,
+                    schedule_to_close_timeout=ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+                    start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                    retry_policy=ALERT_DISPATCH_RETRY_POLICY,
+                )
             )
+            if workflow.patched(ALERT_DISPATCH_PATCH)
+            else None
+        )
+        try:
+            await workflow.execute_activity(
+                "emit_issue_created_internal_event_activity",
+                inputs,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+            await workflow.execute_activity(
+                "emit_issue_created_signal_activity",
+                inputs,
+                start_to_close_timeout=ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ACTIVITY_RETRY_POLICY,
+            )
+        finally:
+            if dispatch is not None:
+                await dispatch
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,
