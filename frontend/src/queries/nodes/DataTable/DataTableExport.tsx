@@ -146,6 +146,9 @@ export function DataTableExport({
     const responseColumns = columnsInResponse ?? columnsInQuery
     const exportColumns = responseColumns.filter((column) => !excludedColumns.includes(column))
     const exportQuery = excludedColumns.length ? { ...query, columns: exportColumns } : query
+    // A source whose columns only exist in the response has no names to offer here, so the
+    // picker would open with nothing to pick and no way to export.
+    const pickableColumns = exportColumnsForQuery(exportQuery)
     const exportRows = excludedColumns.length
         ? projectExportRows(dataTableRows ?? [], responseColumns, exportColumns)
         : dataTableRows
@@ -226,7 +229,7 @@ export function DataTableExport({
                             },
                         ],
                     },
-                    {
+                    pickableColumns.length > 0 && {
                         label: 'Select columns…',
                         onClick: () => setIsColumnsModalOpen(true),
                         'data-attr': 'data-table-export-select-columns',
@@ -325,7 +328,7 @@ export function DataTableExport({
             {isColumnsModalOpen && (
                 <ExportColumnsModal
                     isOpen
-                    columns={exportColumnsForQuery(exportQuery).map((name) => ({
+                    columns={pickableColumns.map((name) => ({
                         name,
                         label: extractDisplayLabel(name),
                     }))}
