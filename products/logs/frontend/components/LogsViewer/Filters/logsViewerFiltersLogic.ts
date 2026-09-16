@@ -215,8 +215,8 @@ export interface logsViewerFiltersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         id: (id: string) => string
         personId: (personIdScope: string) => string | undefined
-        sessionId: (sessionIdScope: string) => string | undefined
         queryScopeKey: (personIdScope: string, sessionIdScope: string) => string
+        sessionId: (sessionIdScope: string) => string | undefined
         filters: (
             dateRange: DateRange,
             searchTerm: string | undefined,
