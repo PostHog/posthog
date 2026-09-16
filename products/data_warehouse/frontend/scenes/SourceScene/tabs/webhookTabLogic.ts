@@ -41,11 +41,11 @@ export interface webhookTabLogicValues {
     }
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
-    missingCredentialFields: SourceFieldConfig[]
     mappedTables: {
         objectType: string
         tableName: string
     }[]
+    missingCredentialFields: SourceFieldConfig[]
     showWebhookFieldInputsErrors: boolean
     source: ExternalDataSource | null
     sourceConfig: SourceConfigResponseApi | null
@@ -154,7 +154,15 @@ export interface webhookTabLogicMeta {
         ) => SourceFieldConfig[]
         internalStateLabel: (
             webhookInfo: WebhookInfo | null,
-            missingCredentialFields: SourceFieldConfig[]
+            missingCredentialFields: (
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldFileUploadConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldInputConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldOauthAccountSelectConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldOauthConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldSelectConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldSSHTunnelConfigApi
+                | import('products/warehouse_sources/frontend/generated/api.schemas').SourceFieldSwitchGroupConfigApi
+            )[]
         ) => {
             label: string
             tagType: 'danger' | 'default' | 'success' | 'warning'
