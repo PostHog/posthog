@@ -69,3 +69,47 @@ export function jobLogsWindow(job: JobTiming, timezone: string): { dateFrom?: st
             : undefined,
     }
 }
+
+interface FullRefreshReasonCopy {
+    label: string
+    explanation: string
+}
+
+/** Short label and explanation for a run that rebuilt the whole table, keyed by the reason the
+ * backend stored on the job. An unrecognized reason is shown as stored, so a reason added later
+ * still says something. */
+const FULL_REFRESH_REASONS: Record<string, FullRefreshReasonCopy> = {
+    'first run': {
+        label: 'First run',
+        explanation: 'This was the first run, so there were no rows to add to. The next run adds only new rows.',
+    },
+    'definition changed': {
+        label: 'Definition changed',
+        explanation:
+            'The query or the incremental keys changed, so the stored rows no longer match them. The next run adds only new rows.',
+    },
+    'no usable watermark': {
+        label: 'No watermark',
+        explanation:
+            'The last run recorded no value for the incremental key, so there was no point to continue from. Check that the incremental key has values in the query output.',
+    },
+    'table missing': {
+        label: 'Table missing',
+        explanation: 'There was no table to add rows to, so this run built it again.',
+    },
+    'not configured for incremental materialization': {
+        label: 'Not configured',
+        explanation: 'Incremental updates are off for this view. Turn them on to add only new rows.',
+    },
+    'incremental materialization is not enabled': {
+        label: 'Not available',
+        explanation: 'Incremental updates are not available for this project yet.',
+    },
+}
+
+export function fullRefreshReasonCopy(reason: string | null | undefined): FullRefreshReasonCopy | null {
+    if (!reason) {
+        return null
+    }
+    return FULL_REFRESH_REASONS[reason] ?? { label: reason, explanation: reason }
+}
