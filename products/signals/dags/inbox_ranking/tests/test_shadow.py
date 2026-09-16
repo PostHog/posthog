@@ -162,13 +162,14 @@ def test_the_model_order_is_graded_against_the_served_order_and_chance():
     )
 
     grades = {grade.ranking_order: grade for grade in grade_lists(joined)}
+    ndcg_5 = {order: grade.ndcg_5 or 0.0 for order, grade in grades.items()}
 
     assert grades[MODEL_ORDER].mrr == 1.0
     assert grades[HEURISTIC_ORDER].mrr == 0.25
-    assert grades[MODEL_ORDER].ndcg_5 == 1.0
-    assert grades[MODEL_ORDER].ndcg_5 > grades[RANDOM_ORDER].ndcg_5 > grades[HEURISTIC_ORDER].ndcg_5
+    assert ndcg_5[MODEL_ORDER] == 1.0
+    assert ndcg_5[MODEL_ORDER] > ndcg_5[RANDOM_ORDER] > ndcg_5[HEURISTIC_ORDER]
     # Only the random line carries a spread: the other two are one deterministic ordering.
-    assert grades[RANDOM_ORDER].mrr_std > 0
+    assert (grades[RANDOM_ORDER].mrr_std or 0.0) > 0
     assert grades[MODEL_ORDER].mrr_std is None
     # The served rank of the opened report, which is how much position bias these numbers carry.
     assert grades[MODEL_ORDER].positive_served_rank_mean == 4.0
