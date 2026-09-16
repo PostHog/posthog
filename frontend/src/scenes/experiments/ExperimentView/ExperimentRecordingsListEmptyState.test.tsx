@@ -130,6 +130,17 @@ const REASON_CASES: ReasonCase[] = [
         actions: [],
     },
     {
+        // The same young run, narrowed to one variant. A list this young is usually empty for every
+        // variant, so the copy stays the age of the run, and the banner carries the way out of the
+        // variant. Without it the viewer is told to wait and given nothing to widen the list with.
+        reason: ExperimentReplayListEmptyReason.TooEarly,
+        experimentId: 216,
+        experiment: { start_date: daysAgo(1), end_date: null },
+        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
+        copy: 'No recordings yet',
+        actions: ['experiment-recordings-empty-show-all-variants'],
+    },
+    {
         reason: ExperimentReplayListEmptyReason.EndedPastRetention,
         experimentId: 204,
         experiment: { start_date: daysAgo(200), end_date: daysAgo(60) },
@@ -219,16 +230,6 @@ const REASON_CASES: ReasonCase[] = [
         reason: ExperimentReplayListEmptyReason.VariantHasNone,
         experimentId: 210,
         experiment: { start_date: daysAgo(10), end_date: daysAgo(2) },
-        setup: (logic) => logic.actions.setSelectedVariantKey('test'),
-        copy: 'No recordings for the test variant',
-        actions: ['experiment-recordings-empty-show-all-variants'],
-    },
-    {
-        // The too-early banner carries no action, so on a young run it leaves a viewer who narrowed
-        // to one variant nothing to click. The variant banner has to win here.
-        reason: ExperimentReplayListEmptyReason.VariantHasNone,
-        experimentId: 216,
-        experiment: { start_date: daysAgo(1), end_date: null },
         setup: (logic) => logic.actions.setSelectedVariantKey('test'),
         copy: 'No recordings for the test variant',
         actions: ['experiment-recordings-empty-show-all-variants'],

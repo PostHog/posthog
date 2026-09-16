@@ -100,10 +100,11 @@ export const ExperimentRecordingsEmptyVariantHasNone: Story = {
 }
 
 /**
- * Narrowed to one variant on a run too young to have recordings either way. The too-early banner
- * carries no action, so the variant banner and its way back out have to win here.
+ * Narrowed to one variant on a run too young to have recordings either way. The copy stays the
+ * too-early one, because the list is most likely empty for every variant, and the banner carries
+ * the way out of the variant so the viewer is not left with nothing to click.
  */
-export const ExperimentRecordingsEmptyVariantHasNoneOnYoungRun: Story = {
+export const ExperimentRecordingsEmptyTooEarlyWithVariantSelected: Story = {
     decorators: [mswDecorator({ get: { [EXPERIMENT_PATH]: experimentRun('2025-05-30T09:00:00Z', null) } })],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
