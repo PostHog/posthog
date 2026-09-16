@@ -210,6 +210,50 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}
 
+    @parameterized.expand(
+        [
+            # An answer GitHub gave: the account committed, and this is when.
+            (
+                "dated_commit",
+                200,
+                [{"commit": {"author": {"date": "2021-02-09T10:00:00Z"}}}],
+                datetime(2021, 2, 9, 10, tzinfo=UTC),
+            ),
+            # Also an answer: the account has no commit on the default branch.
+            ("no_commits", 200, [], None),
+        ]
+    )
+    def test_author_last_commit_reports_what_github_answered(self, _name, status_code, body, expected):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=status_code)
+        mock_response.json.return_value = body
+
+        with patch.object(github, "api_request", return_value=mock_response):
+            result = github.get_author_last_commit("PostHog/posthog", "octocat")
+
+        assert result is not None
+        assert result.last_commit_at == expected
+
+    @parameterized.expand(
+        [
+            ("non_200", 404, []),
+            ("not_a_list", 200, {"message": "nope"}),
+            ("undated_commit", 200, [{"commit": {}}]),
+            ("author_not_a_dict", 200, [{"commit": {"author": "octocat"}}]),
+        ]
+    )
+    def test_author_last_commit_says_nothing_when_github_did_not_answer(self, _name, status_code, body):
+        # A caller drops a reviewer on a dated answer, so a failed lookup must not read as
+        # "this account never committed".
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=status_code)
+        mock_response.json.return_value = body
+
+        with patch.object(github, "api_request", return_value=mock_response):
+            assert github.get_author_last_commit("PostHog/posthog", "octocat") is None
+
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
