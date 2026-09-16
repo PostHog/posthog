@@ -86,7 +86,7 @@ class Command(BaseCommand):
 
     def _sync(self, options: dict[str, Any]) -> None:
         self.stdout.write(self.style.MIGRATE_HEADING("ReaperHog sync"))
-        result = sync_harvest(team_id=options["team_id"], repository=options["repository"], scope=options["scope"])
+        result = sync_harvest(team_id=options["team_id"], repository=options["repository"])
         self.stdout.write(self.style.SUCCESS(render_sync_summary(result)))
 
     def _harvest(self, options: dict[str, Any]) -> None:
