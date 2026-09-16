@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import time
 import uuid
@@ -13,9 +14,10 @@ import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
+from http import HTTPStatus
 from io import StringIO
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 
@@ -44,6 +46,8 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
+    SandboxControlPlaneError,
+    SandboxControlPlaneUnavailableError,
     SandboxExecutionError,
     SandboxNetworkPolicyError,
     SandboxNotFoundError,
@@ -139,35 +143,85 @@ TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
 
 DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
-PROXY_RATE_LIMIT_MARKERS = ("429", "too many requests")
+PROXY_RATE_LIMIT_MARKERS = ("too many requests",)
+PROXY_UNAVAILABLE_MARKERS = ("bad gateway", "service unavailable", "gateway timeout")
 PROXY_ERROR_TYPES: tuple[type[BaseException], ...] = (SocksProxyError, requests.exceptions.ProxyError)
 _MAX_PROXY_ERROR_CHAIN_DEPTH = 10
+# The proxy answers a refused CONNECT with a bare status line ("502 Bad gateway"), which
+# python_socks re-raises verbatim. This runs against every exception in the chain, not just the
+# proxy types, because the wrapper a gateway status arrives in is not guaranteed to be one of
+# them. To make that safe it matches the whole message and bounds the reason phrase to the three
+# words a real one takes at most, so provider prose that merely opens with a number ("500 lines
+# of output were truncated") is not read as a control-plane failure. A status buried inside a
+# longer message is left to `error_code` or the markers below.
+_PROXY_STATUS_LINE = re.compile(r"\s*(\d{3})\s+[A-Za-z]+(?: [A-Za-z]+){0,2}\s*")
+# A proxy error wraps the CONNECT reply in its own prose ("Tunnel connection failed: 500
+# Internal Server Error"), so the status has to be read out of the middle of the message.
+_EMBEDDED_PROXY_STATUS = re.compile(r"\b([45]\d{2})\b")
+
+ControlPlaneFailure = Literal["rate_limited", "unavailable"]
 
 RUNNING_STATUS_CACHE_SECONDS = 10.0
 
 
-def _is_proxy_rate_limit(error: BaseException) -> bool:
+def _classify_control_plane_failure(error: BaseException) -> ControlPlaneFailure | None:
+    """Classify one error as a refusal by the control plane, reading its status where it has one.
+
+    python_socks re-raises a non-200 CONNECT reply as ``ProxyError(error_code=<status>)``, so
+    the status is structured. ``requests`` proxy errors carry it in the message only.
+    """
+    message = str(error)
+    status = getattr(error, "error_code", None)
+    if not isinstance(status, int) and isinstance(error, PROXY_ERROR_TYPES):
+        status_line = _PROXY_STATUS_LINE.fullmatch(message)
+        status = int(status_line.group(1)) if status_line else None
+    # A proxy error only ever wraps a CONNECT reply, never command output, so its message is
+    # safe to search for a status the wrapper did not expose structurally.
+    if status is None and isinstance(error, PROXY_ERROR_TYPES):
+        embedded = _EMBEDDED_PROXY_STATUS.search(message)
+        status = int(embedded.group(1)) if embedded else None
+
+    if status == HTTPStatus.TOO_MANY_REQUESTS:
+        return "rate_limited"
+    if status is not None and 500 <= status < 600:
+        return "unavailable"
+    # A proxy that names the reason but not the status.
+    if isinstance(error, PROXY_ERROR_TYPES):
+        folded = message.casefold()
+        if any(marker in folded for marker in PROXY_RATE_LIMIT_MARKERS):
+            return "rate_limited"
+        if any(marker in folded for marker in PROXY_UNAVAILABLE_MARKERS):
+            return "unavailable"
+    return None
+
+
+def _classify_control_plane_failure_chain(error: BaseException) -> ControlPlaneFailure | None:
     seen: set[int] = set()
     current: BaseException | None = error
     for _ in range(_MAX_PROXY_ERROR_CHAIN_DEPTH):
         if current is None or id(current) in seen:
-            return False
+            return None
         seen.add(id(current))
-        if isinstance(current, PROXY_ERROR_TYPES):
-            message = str(current).casefold()
-            if any(marker in message for marker in PROXY_RATE_LIMIT_MARKERS):
-                return True
+        failure = _classify_control_plane_failure(current)
+        if failure is not None:
+            return failure
         current = current.__cause__ or current.__context__
-    return False
+    return None
 
 
-def _raise_if_proxy_rate_limited(error: BaseException, sandbox_id: str | None, operation: str) -> None:
-    if not _is_proxy_rate_limit(error):
+def _raise_if_proxy_failure(error: BaseException, sandbox_id: str | None, operation: str) -> None:
+    """Re-raise a control-plane refusal as the matching retryable, uncaptured error.
+
+    Returns without raising when the failure is not the control plane's, so the caller's own
+    classification still runs.
+    """
+    failure = _classify_control_plane_failure_chain(error)
+    if failure is None:
         return
-    raise SandboxRateLimitedError(
-        "Sandbox control plane is rate limited",
-        {"sandbox_id": sandbox_id, "operation": operation},
-    ) from error
+    context = {"sandbox_id": sandbox_id, "operation": operation}
+    if failure == "rate_limited":
+        raise SandboxRateLimitedError("Sandbox control plane is rate limited", context) from error
+    raise SandboxControlPlaneUnavailableError("Sandbox control plane is unavailable", context) from error
 
 
 # Heavy, reproducible directories to prune before retrying a snapshot that hit Modal's
@@ -733,12 +787,13 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
+        sb: modal.Sandbox | None = None
         try:
             modal.enable_output()
             try:
                 app = cls._get_app_for_config(config)
             except Exception as e:
-                _raise_if_proxy_rate_limited(e, None, "lookup")
+                _raise_if_proxy_failure(e, None, "lookup")
                 raise
             base_image = _get_template_image(config.template)
             custom_image_bare: modal.Image | None = None
@@ -959,7 +1014,14 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             return sandbox
 
-        except (SandboxNetworkPolicyError, SandboxRateLimitedError):
+        except SandboxControlPlaneError:
+            if sb is not None:
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate sandbox {sb.object_id} after control-plane failure: {e}")
+            raise
+        except SandboxNetworkPolicyError:
             raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
@@ -988,7 +1050,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
-                _raise_if_proxy_rate_limited(e, None, "create")
+                _raise_if_proxy_failure(e, None, "create")
                 if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
                     raise SandboxNetworkPolicyError(
                         "Modal rejected the requested sandbox network policy.",
@@ -1030,7 +1092,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     return False
                 time.sleep(1)
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, sb.object_id, "restore_probe")
+            _raise_if_proxy_failure(e, sb.object_id, "restore_probe")
             logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
             return False
         if returncode != 0:
@@ -1056,7 +1118,7 @@ class ModalSandbox(AgentServerLaunchMixin):
             return ModalSandbox(sandbox=sb, config=config)
 
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, sandbox_id, "lookup")
+            _raise_if_proxy_failure(e, sandbox_id, "lookup")
             logger.exception(f"Failed to retrieve sandbox {sandbox_id}: {e}")
             raise SandboxNotFoundError(
                 f"Sandbox {sandbox_id} not found", {"sandbox_id": sandbox_id, "error": str(e)}, cause=e
@@ -1068,7 +1130,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         try:
             poll_result = self._sandbox.poll()
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, self.id, "poll")
+            _raise_if_proxy_failure(e, self.id, "poll")
             raise
         return SandboxStatus.SHUTDOWN if poll_result is not None else SandboxStatus.RUNNING
 
@@ -1102,7 +1164,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=error,
             )
 
-        _raise_if_proxy_rate_limited(error, self.id, "exec")
+        _raise_if_proxy_failure(error, self.id, "exec")
         redacted_error = redact_sandbox_command(str(error))
         # Provider exceptions can echo the shell command, so avoid exc_info here.
         logger.error(  # noqa: TRY400
@@ -1181,7 +1243,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                         self._stdout_buffer.append(output)
                         yield output
                 except Exception as e:
-                    _raise_if_proxy_rate_limited(e, self._sandbox_id, "exec")
+                    _raise_if_proxy_failure(e, self._sandbox_id, "exec")
                     raise
 
             def wait(self) -> ExecutionResult:
@@ -1196,7 +1258,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                     stderr = self._process.stderr.read()
                     stderr_text = stderr.decode("utf-8") if isinstance(stderr, bytes) else stderr
                 except Exception as e:
-                    _raise_if_proxy_rate_limited(e, self._sandbox_id, "exec")
+                    _raise_if_proxy_failure(e, self._sandbox_id, "exec")
                     raise
                 return ExecutionResult(
                     stdout=stdout_text,
@@ -1223,7 +1285,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 try:
                     self._sandbox.filesystem.write_bytes(payload, temp_path)
                 except Exception as filesystem_error:
-                    _raise_if_proxy_rate_limited(filesystem_error, self.id, "filesystem_write")
+                    _raise_if_proxy_failure(filesystem_error, self.id, "filesystem_write")
                     logger.warning(
                         "sandbox_filesystem_write_fallback",
                         extra={
@@ -1255,7 +1317,7 @@ class ModalSandbox(AgentServerLaunchMixin):
                 result.error = "exec_write"
                 self._remove_temp_file(temp_path, step_timeout)
             return result
-        except SandboxRateLimitedError:
+        except SandboxControlPlaneError:
             raise
         except Exception as e:
             self._remove_temp_file(temp_path, step_timeout)
@@ -1328,7 +1390,7 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             credentials = self._sandbox.create_connect_token()
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, self.id, "create_connect_token")
+            _raise_if_proxy_failure(e, self.id, "create_connect_token")
             raise
         self._sandbox_url = credentials.url
 
@@ -1523,7 +1585,7 @@ class ModalSandbox(AgentServerLaunchMixin):
             self._running_status_expires_at = 0.0
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
-            _raise_if_proxy_rate_limited(e, self.id, "terminate")
+            _raise_if_proxy_failure(e, self.id, "terminate")
             logger.exception(f"Failed to destroy sandbox: {e}")
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
