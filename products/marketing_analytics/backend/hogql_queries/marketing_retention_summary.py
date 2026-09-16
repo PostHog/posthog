@@ -101,6 +101,7 @@ def build_summary_query(runner: "MarketingAnalyticsRetentionQueryRunner") -> ast
             "filters": ast.And(exprs=runner._event_filters()) if runner._event_filters() else ast.Constant(value=True),
         },
     )
+    assert isinstance(activity, ast.SelectQuery)
     assert activity.select_from and activity.select_from.next_join
     activity.select_from.next_join.join_type = "GLOBAL INNER JOIN"
     ctes["activity"] = ast.CTE(name="activity", expr=activity, cte_type="subquery")
