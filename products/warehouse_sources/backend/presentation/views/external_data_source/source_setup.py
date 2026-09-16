@@ -1709,6 +1709,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=request,
         )
 
+        # nosemgrep: api-response-must-match-schema -- create-source id ack, pre-existing payload
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def prefix_required(self, source_type: str) -> bool:
@@ -2040,6 +2041,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # ValueError for an unknown resource_name / dependency cycle — all caller mistakes.
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
+        # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
         return Response(
             status=status.HTTP_200_OK,
             data={
@@ -2128,6 +2130,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             request=request,
         )
 
+        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
             data={

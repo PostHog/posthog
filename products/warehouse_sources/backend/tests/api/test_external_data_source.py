@@ -5949,6 +5949,52 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == expected_count
 
+    @parameterized.expand(
+        [
+            ("malformed_after", "?after=yesterday"),
+            ("malformed_before", "?before=not-a-date"),
+            ("malformed_both", "?after=yesterday&before=not-a-date"),
+        ]
+    )
+    def test_source_jobs_rejects_malformed_timestamp(self, _name, query_string):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("valid_after", "?after=2024-07-01T12:00:00.000Z", status.HTTP_200_OK),
+            ("valid_before", "?before=2024-07-01T12:00:00.000Z", status.HTTP_200_OK),
+            ("empty_values", "?after=&before=", status.HTTP_200_OK),
+        ]
+    )
+    def test_source_jobs_accepts_valid_timestamps(self, _name, query_string, expected_status):
+        source = self._create_external_data_source()
+        schema = self._create_external_data_schema(source.pk)
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == expected_status
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -14187,6 +14233,26 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas/",
             {"schemas": [{"id": str(schema.id), "should_sync": False}]},
             format="json",
+            headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
+        )
+
+        if should_have_access:
+            assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("external_data_source:read", True),
+            ("external_data_source:write", True),
+            ("another_resource:read", False),
+        ]
+    )
+    def test_direct_connection_options_is_a_read_action(self, scope: str, should_have_access: bool) -> None:
+        self.client.force_authenticate(None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/",
             headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
         )
 

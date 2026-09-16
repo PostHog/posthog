@@ -316,6 +316,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             auto_enabled=len(auto_enabled_names),
             total_tables_seen=len(schemas),
         )
+        # nosemgrep: api-response-must-match-schema -- matches the extend_schema responses declaration
         return Response(
             status=status.HTTP_200_OK,
             data={

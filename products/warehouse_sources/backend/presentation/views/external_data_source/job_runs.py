@@ -9,6 +9,7 @@ from django.utils.cache import patch_cache_control
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -104,7 +105,6 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
 
 
 class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
-    @action(methods=["GET"], detail=True, pagination_class=None)
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -131,11 +131,18 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
         ],
         responses=ExternalDataJobSerializers(many=True),
     )
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
         schemas = request.query_params.getlist("schemas")
+
+        try:
+            after_date = parser.parse(after) if after else None
+            before_date = parser.parse(before) if before else None
+        except (ValueError, OverflowError):
+            raise ValidationError("after and before must be ISO 8601 timestamps.")
 
         # select_related joins the full ExternalDataSchema row; defer its large JSON/text
         # columns so the serializer only pulls the fields SimpleExternalDataSchemaSerializer
@@ -150,11 +157,9 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
 
         if schemas:
             jobs = jobs.filter(schema__name__in=schemas)
-        if after:
-            after_date = parser.parse(after)
+        if after_date:
             jobs = jobs.filter(created_at__gt=after_date)
-        if before:
-            before_date = parser.parse(before)
+        if before_date:
             jobs = jobs.filter(created_at__lt=before_date)
 
         jobs = jobs[:50]

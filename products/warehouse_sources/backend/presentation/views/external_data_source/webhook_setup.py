@@ -208,6 +208,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
+            # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
             return Response(
                 status=status.HTTP_200_OK,
                 data={
@@ -229,6 +230,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         ).first()
 
         if not hog_function:
+            # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
             return Response(
                 status=status.HTTP_200_OK,
                 data={
@@ -261,6 +263,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         all_inputs = HogFunctionSerializer(hog_function).data.get("inputs") or {}
         webhook_inputs = {k: v for k, v in all_inputs.items() if k in webhook_field_names}
 
+        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
             data={

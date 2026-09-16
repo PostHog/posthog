@@ -104,6 +104,7 @@ class ExternalDataSourceViewSet(
         "stored_credentials",
         "webhook_info",
         "cdc_status",
+        "direct_connection_options",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = source_setup.ExternalDataSourceSerializers

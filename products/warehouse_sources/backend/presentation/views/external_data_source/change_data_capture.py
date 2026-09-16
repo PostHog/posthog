@@ -195,6 +195,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
             )
 
+        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
             data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
@@ -265,6 +266,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
 
+        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
             data={"valid": len(prereq_errors) == 0, "errors": prereq_errors},
@@ -733,6 +735,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         cdc_config = adapter.parse_cdc_config(instance)
         if not cdc_config.enabled:
+            # nosemgrep: api-response-must-match-schema -- short-circuit response, declared via extend_schema
             return Response(status=status.HTTP_200_OK, data={"enabled": False})
 
         try:
@@ -757,6 +760,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             base.logger.warning("cdc_status_schedule_paused_lookup_failed", source_id=str(instance.id), exc_info=True)
             schedule_paused = False
 
+        # nosemgrep: api-response-must-match-schema -- matches the declared inline schema shape
         return Response(
             status=status.HTTP_200_OK,
             data={

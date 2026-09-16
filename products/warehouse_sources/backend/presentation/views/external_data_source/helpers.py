@@ -152,21 +152,7 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
-    sensitive: set[str] = set()
-    for field in fields:
-        if isinstance(field, SourceFieldInputConfig) and (
-            field.type == SourceFieldInputConfigType.PASSWORD or field.secret
-        ):
-            sensitive.add(field.name)
-        elif isinstance(field, SourceFieldFileUploadConfig):
-            sensitive.add(field.name)
-        elif isinstance(field, SourceFieldSwitchGroupConfig):
-            sensitive.update(get_sensitive_field_names(field.fields))
-        elif isinstance(field, SourceFieldSelectConfig):
-            for option in field.options:
-                if option.fields:
-                    sensitive.update(get_sensitive_field_names(option.fields))
-    return sensitive
+    return get_nonsensitive_and_sensitive_field_names(fields).sensitive
 
 
 def get_oauth_integration_kinds(fields: list[FieldType]) -> set[str]:

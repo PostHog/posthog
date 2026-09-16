@@ -40,8 +40,6 @@ rules:
               - '**/tests/**'
               - '**/test_*.py'
               - '**/conftest.py'
-              # Grandfathered backlog of hand-assembled responses, carried by the warnings pass.
-              - 'products/warehouse_sources/backend/presentation/views/external_data_source/'
       patterns:
           - pattern-either:
                 - pattern: return Response({...}, ...)
@@ -51,7 +49,7 @@ rules:
           # data payloads. Match the dict's *first key* so we don't accidentally
           # exempt larger payloads that happen to contain one of these names.
           # `(?:data=)?` covers both `Response({...})` and `Response(data={...})`.
-          - pattern-not-regex: 'Response\(\s*(?:data=)?\{\s*"(detail|error|errors|message|status|success|ok|results|count|next|previous)"\s*:'
+          - pattern-not-regex: 'Response\(\s*(?:status\s*=\s*[^,)]+,\s*)?(?:data\s*=\s*)?\{\s*"(detail|error|errors|message|status|success|ok|results|count|next|previous)"\s*:'
       metadata:
           category: best-practice
           subcategory:
