@@ -1652,6 +1652,38 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
+            (None, "DESC"),
+            ("created_at", "ASC"),
+            ("-created_at", "DESC"),
+            ("title", "ASC"),
+            ("-title", "DESC"),
+            ("next_delivery_date", "ASC"),
+            ("-created_by__email", "DESC"),
+        ]
+    )
+    def test_list_subscriptions_break_sort_ties_on_id(self, ordering, expected_direction):
+        # Limit-offset pagination runs one query for each page. No sortable column is unique, so a
+        # sort without a unique last key can put a tied row on two pages, or on no page at all. The
+        # assertion reads the SQL, because whether Postgres reorders tied rows between two pages
+        # depends on the plan it picks, which a small test table cannot force.
+        assert self._create_subscription().status_code == status.HTTP_201_CREATED
+        params = {"ordering": ordering} if ordering else {}
+
+        with CaptureQueriesContext(connection) as captured:
+            res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", params)
+        assert res.status_code == status.HTTP_200_OK
+
+        order_by_clauses = [
+            sql[sql.index("ORDER BY") :].split("LIMIT")[0].strip()
+            for sql in (query["sql"] for query in captured.captured_queries)
+            if "ORDER BY" in sql and '"posthog_subscription"' in sql
+        ]
+        assert order_by_clauses
+        for clause in order_by_clauses:
+            assert clause.endswith(f'"posthog_subscription"."id" {expected_direction}'), clause
+
+    @parameterized.expand(
+        [
             ("title",),
             ("-title",),
             ("created_at",),
