@@ -1298,6 +1298,7 @@ doesn't conflict with concurrent PRs.
 - qonto
 - quay
 - quickbooks
+- quo
 - railz
 - raisely
 - raken
