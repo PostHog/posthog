@@ -72,7 +72,10 @@ export async function withRetry<T>(
                 maxRetries,
                 error: String(error),
             })
-            await sleep(initialDelayMs * Math.pow(2, attempt))
+            // Full jitter over the backoff window. A fixed delay makes every
+            // caller that a server-side load shed refused come back in the
+            // same millisecond, which keeps the server over capacity.
+            await sleep(Math.random() * initialDelayMs * Math.pow(2, attempt))
         }
     }
     throw lastError

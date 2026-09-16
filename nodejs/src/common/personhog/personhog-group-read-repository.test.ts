@@ -166,6 +166,30 @@ describe('PersonHogGroupReadRepository', () => {
             expect(handlers.getGroupsBatch).toHaveBeenCalledTimes(1)
         })
 
+        it('retries only the failed batch, not the batches already answered', async () => {
+            const { client, handlers } = createMockClientAndHandlers()
+            const sentKeys: string[][] = []
+            handlers.getGroupsBatch.mockImplementation((req: { keys: { groupKey: string }[] }) => {
+                sentKeys.push(req.keys.map((k) => k.groupKey))
+                if (sentKeys.length === 2) {
+                    throw new ConnectError('at capacity', Code.Unavailable)
+                }
+                return { results: [] }
+            })
+
+            const repo = new PersonHogGroupReadRepository(client)
+            const keys = Array.from({ length: 150 }, (_, i) => `key-${i}`)
+            await repo.fetchGroupsByKeys(
+                keys.map(() => TEAM_ID),
+                keys.map(() => 0),
+                keys
+            )
+
+            // First batch of 100, second batch of 50 shed, second batch again.
+            expect(sentKeys.map((batch) => batch.length)).toEqual([100, 50, 50])
+            expect(sentKeys.filter((batch) => batch.includes('key-0'))).toHaveLength(1)
+        })
+
         it('throws after max retries exhausted', async () => {
             const { client, handlers } = createMockClientAndHandlers()
             handlers.getGroupsBatch.mockImplementation(() => {

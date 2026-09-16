@@ -30,13 +30,10 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
         }[]
     > {
         const method = 'fetchGroupsByKeys'
-        return withRetry(
-            () =>
-                timedGrpc(this.clientLabel, method, () =>
-                    this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
-                ),
-            this.clientLabel,
-            method
+        return timedGrpc(this.clientLabel, method, () =>
+            this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag, (fn) =>
+                withRetry(fn, this.clientLabel, method)
+            )
         )
     }
 

@@ -510,13 +510,31 @@ impl RawProxyInner {
             match ready_channel.call(req).await {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+                    // A trailers-only UNAVAILABLE is the backend's load-shed
+                    // reply. The pod refused the request before the handler
+                    // ran, so nothing was applied and no response bytes
+                    // reached the client. Another pod can serve it. Only a
+                    // transport failure used to retry here, so every shed
+                    // escaped to the caller instead of moving to a pod that
+                    // has capacity.
+                    let shed = grpc_status_code(&response) == Some(Code::Unavailable as i32);
+                    let retrying = shed && attempt < self.retry_config.max_retries;
+                    let outcome = match (shed, retrying) {
+                        (true, true) => "shed",
+                        (true, false) => "shed_exhausted",
+                        _ => "ok",
+                    };
                     histogram!(
                         "personhog_router_channel_call_ms",
                         "method" => method.clone(),
                         "client" => client.clone(),
-                        "outcome" => "ok",
+                        "outcome" => outcome,
                     )
                     .record(channel_call_ms);
+                    if retrying {
+                        retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                        continue;
+                    }
                     return (response, Some(channel_call_ms));
                 }
                 Err(e) => {

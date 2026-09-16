@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -78,6 +78,11 @@ pub struct TestReplicaService {
     pub upsert_inserted_count: i64,
     pub groups: Vec<Group>,
     pub group_type_mappings: Vec<GroupTypeMapping>,
+    /// Number of `get_groups_batch` calls still to be refused with
+    /// UNAVAILABLE, the shape of the server's load-shed reply.
+    pub groups_batch_sheds: Arc<AtomicUsize>,
+    /// Every `get_groups_batch` call the replica received, shed or served.
+    pub groups_batch_calls: Arc<AtomicUsize>,
 }
 
 impl TestReplicaService {
@@ -90,6 +95,8 @@ impl TestReplicaService {
             upsert_inserted_count: 0,
             groups: vec![],
             group_type_mappings: vec![],
+            groups_batch_sheds: Arc::new(AtomicUsize::new(0)),
+            groups_batch_calls: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -130,6 +137,11 @@ impl TestReplicaService {
 
     pub fn with_group_type_mappings(mut self, mappings: Vec<GroupTypeMapping>) -> Self {
         self.group_type_mappings = mappings;
+        self
+    }
+
+    pub fn shedding_groups_batch(mut self, sheds: usize) -> Self {
+        self.groups_batch_sheds = Arc::new(AtomicUsize::new(sheds));
         self
     }
 }
@@ -318,6 +330,14 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
+        self.groups_batch_calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .groups_batch_sheds
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(Status::unavailable("Server at capacity"));
+        }
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
     }
 
