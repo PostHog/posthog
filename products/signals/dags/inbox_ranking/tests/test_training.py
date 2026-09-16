@@ -516,7 +516,8 @@ def _scores(report_ids: list[str], **overrides) -> pd.DataFrame:
     base = {
         "report_id": report_ids,
         "team_id": [2] * n,
-        "report_created_at": [pd.Timestamp("2026-08-09T12:00:00Z")] * n,
+        # The default pool is the newborn one, so the default row was born on the day it was scored.
+        "report_created_at": [pd.Timestamp("2026-08-10T09:00:00Z")] * n,
         "snapshot_date": [D0] * n,
         "pool": [POOL_NAME] * n,
         "model_name": [TABULAR_MODEL_NAME] * n,
@@ -610,7 +611,12 @@ def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
     # The legacy sampled pool held reports of any age, so an outcome already observed at scoring
     # time belongs to an earlier moment there and must stay out of the grade.
     head = HEADS_BY_NAME["open"]
-    scores = _scores(["a", "b"], pool=[LEGACY_POOL_NAME] * 2, label_at_scoring=[False, True])
+    scores = _scores(
+        ["a", "b"],
+        pool=[LEGACY_POOL_NAME] * 2,
+        report_created_at=[pd.Timestamp("2026-07-01T00:00:00Z")] * 2,
+        label_at_scoring=[False, True],
+    )
     labels = _labels(["a", "b"], open_count=[1, 1], impression_unit_count=[1, 1])
     graded = graded_rows(scores, labels, head, pool=LEGACY_POOL_NAME).set_index("report_id")
     assert graded["in_cohort"].to_dict() == {"a": True, "b": False}
@@ -821,7 +827,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         ],
         "skipped_heads": ["dismiss_wrong"],
     }
-    scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8])
+    scores = _scores(["a"], model_version=["2026-08-25"], score=[0.8], label_at_scoring=[True])
     graded = graded_rows(scores, _labels(["a"], open_count=[1]), HEADS_BY_NAME["open"], pool=POOL_NAME)
     grades = head_grades(graded, HEADS_BY_NAME["open"], pool=POOL_NAME, scoring_partition="2026-08-22")
     events = [
@@ -884,6 +890,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "head": "open",
         "rows": 10,
         "positives": 2,
+        "birth_day_positives": 1,
         "feature_set": TABULAR_FEATURE_SET.name,
     }.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
@@ -913,6 +920,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "horizon_days": 3,
         "rows": 1,
         "positives": 1,
+        "birth_day_positives": 1,
         "auc": None,
     }.items() <= head_graded_props.items()
     report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
