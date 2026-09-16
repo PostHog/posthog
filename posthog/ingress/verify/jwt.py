@@ -83,9 +83,14 @@ class BearerJwt:
                 # Without this, a token that carries no `exp` never expires.
                 options={"require": ["exp"]},
             )
+        except jwt.PyJWKClientConnectionError as error:
+            # The JWKS fetch never completed, so the token was never checked. INVALID here hands a
+            # 403 to a provider that retries server errors only, which drops a valid delivery for
+            # good over a DNS blip or a JWKS outage.
+            logger.warning("ingress_jwt_signing_keys_unreachable", error_type=type(error).__name__)
+            return Verification(outcome=VerificationOutcome.UNAVAILABLE)
         except jwt.PyJWKClientError as error:
-            # An unknown key id and an unreachable JWKS both land here and neither proves the
-            # delivery, so the error class in the log is what tells the two apart.
+            # The JWKS was read and holds no key this token can use, which is the token's problem.
             logger.warning("ingress_jwt_signing_key_unavailable", error_type=type(error).__name__)
             return Verification(outcome=VerificationOutcome.INVALID)
         except jwt.InvalidTokenError as error:

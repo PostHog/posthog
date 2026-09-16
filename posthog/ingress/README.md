@@ -92,6 +92,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 **Ingress does not let a consumer decide the response.**
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
+A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
 It cannot when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran.
@@ -250,7 +251,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `throttled`, `not_configured`, `verify_unavailable`, `invalid_signature`, `invalid_payload`, `forward_failed`, `retry_requested`. A consumer failure lands here only on a provider that sets `retry_status`; everywhere else it is counted on the consumer metric alone, because the delivery still gets its receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`, `in_flight`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.

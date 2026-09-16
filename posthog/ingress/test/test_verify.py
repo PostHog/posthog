@@ -269,14 +269,28 @@ class TestBearerJwt(SimpleTestCase):
         headers = {"Authorization": f"Bearer {header}.{payload}.{flipped}"}
         self.assertEqual(self._verify(self._scheme(), headers).outcome, VerificationOutcome.INVALID)
 
-    def test_rejects_a_token_whose_key_id_the_jwks_does_not_serve(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "key_id_the_jwks_does_not_serve",
+                jwt.PyJWKClientError("unable to find a key"),
+                VerificationOutcome.INVALID,
+            ),
+            (
+                "jwks_that_could_not_be_fetched",
+                jwt.PyJWKClientConnectionError("connection error"),
+                VerificationOutcome.UNAVAILABLE,
+            ),
+        ]
+    )
+    def test_a_signing_key_failure_separates_the_token_from_the_fetch(
+        self, _name: str, error: Exception, expected: VerificationOutcome
+    ) -> None:
         headers = {"Authorization": "Bearer " + self._token()}
 
-        with patch.object(
-            jwt.PyJWKClient, "get_signing_key_from_jwt", side_effect=jwt.PyJWKClientError("unable to find a key")
-        ):
+        with patch.object(jwt.PyJWKClient, "get_signing_key_from_jwt", side_effect=error):
             outcome = self._scheme().verify(body=BODY, headers=headers).outcome
-        self.assertEqual(outcome, VerificationOutcome.INVALID)
+        self.assertEqual(outcome, expected)
 
     @parameterized.expand(
         [
