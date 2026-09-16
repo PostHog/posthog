@@ -318,6 +318,30 @@ _FEATURE_FLAG_TEMPLATE: dict[str, Any] = {
 class Command(BaseCommand):
     help = "Ensure default data from migrations exists for schema-only restores."
 
+    def _seed_streamlit_oauth_app(self, created_items: list[str], skipped_items: list[str]) -> None:
+        # OAuthApplication.clean() rejects RS256 when no OIDC RSA private key is
+        # configured, and an uncaught error here skips every seed after it. Where the
+        # key is absent, skip this one seed instead: the CI schema-cache restore runs
+        # this command, and a failure makes it fall back to a full migrate from zero.
+        if not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+            skipped_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME} (no OIDC_RSA_PRIVATE_KEY configured)")
+            return
+
+        if OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
+            return
+
+        OAuthApplication.objects.create(
+            name=_STREAMLIT_OAUTH_APP_NAME,
+            client_id=_STREAMLIT_OAUTH_CLIENT_ID,
+            client_secret=secrets.token_urlsafe(48),
+            client_type="confidential",
+            authorization_grant_type="authorization-code",
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            is_first_party=True,
+        )
+        created_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME}")
+
     def handle(self, *args: Any, **options: Any) -> None:
         created_items: list[str] = []
         skipped_items: list[str] = []
@@ -353,24 +377,7 @@ class Command(BaseCommand):
             ai_pilled.save(update_fields=["is_active"])
             created_items.append("Growth enrichment prompt config: ai_pilled")
 
-        # OAuthApplication.clean() rejects RS256 when no OIDC RSA private key is
-        # configured, and an uncaught error here skips every seed below it. Where the
-        # key is absent, skip this one seed instead: the CI schema-cache restore runs
-        # this command, and a failure makes it fall back to a full migrate from zero.
-        if not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
-            skipped_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME} (no OIDC_RSA_PRIVATE_KEY configured)")
-        elif not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
-            OAuthApplication.objects.create(
-                name=_STREAMLIT_OAUTH_APP_NAME,
-                client_id=_STREAMLIT_OAUTH_CLIENT_ID,
-                client_secret=secrets.token_urlsafe(48),
-                client_type="confidential",
-                authorization_grant_type="authorization-code",
-                redirect_uris="https://localhost",
-                algorithm="RS256",
-                is_first_party=True,
-            )
-            created_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME}")
+        self._seed_streamlit_oauth_app(created_items, skipped_items)
 
         for template_data in (_PRODUCT_ANALYTICS_TEMPLATE, _FEATURE_FLAG_TEMPLATE):
             name = template_data["template_name"]
