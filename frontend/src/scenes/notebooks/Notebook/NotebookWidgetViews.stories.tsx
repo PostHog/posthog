@@ -535,7 +535,10 @@ export const InsightViews: Story = {
 }
 export const RecordingViews: Story = {
     parameters: {
-        pageUrl: urls.notebook('recording-widget-views'),
+        // `t=0` pins the player to the first frame. Without it the player picks its own start, which
+        // depends on how much of the recording has loaded, and the recording resizes its viewport
+        // five seconds in, so the snapshot caught the page at two different sizes.
+        pageUrl: `${urls.notebook('recording-widget-views')}?t=0`,
         testOptions: {
             waitForLoadersToDisappear: false,
             // The player mounts rrweb inside its own frame document. Without this wait the snapshot is
